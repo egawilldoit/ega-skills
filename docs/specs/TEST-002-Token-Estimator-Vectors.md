@@ -16,26 +16,43 @@ If implementation reveals a contradiction, amend this spec and its tests before 
 2. Implementation uses `js-tiktoken@1.0.21` with the BUNDLED `o200k_base` ranks —
    ordinary-text behavior, canonical text input (SPEC-002 §5.1.6). No CDN, no network,
    no client-specific estimator, no dependency drift.
-3. The router/golden harness (TEST-001) REFUSES to run when the estimator ID is not
+3. Mode is ordinary text: special-token-looking input (for example `<|endoftext|>`)
+   is encoded as ordinary text. It MUST NOT throw because it resembles a special
+   token, and it MUST NOT receive privileged single-special-token handling.
+   Semantically this is `encode(text, [], [])` (no allowed and no disallowed
+   special tokens) on the `js-tiktoken@1.0.21` lite `Tiktoken` over the bundled
+   `o200k_base` ranks, which works offline after installation.
+4. Input is canonical text after SPEC-002 normalization. Counting never runs on
+   pre-normalization source bytes.
+5. Runtime network dependency is none: the bundled ranks ship with the package and
+   counting works offline after installation.
+6. The router/golden harness (TEST-001) REFUSES to run when the estimator ID is not
    `ega-o200k-v1`. A passing suite under a different estimator is NOT V1-compatible.
-4. Linux and Windows results MUST match exactly.
-5. Any change to encoding, token ranks, pre-tokenization, ordinary/special handling,
-   canonical input rules, or normative vector counts REQUIRES a new estimator ID
-   (the `ega-o200k-v1` ID pins all of the above).
+7. Linux and Windows results MUST match exactly.
+8. Any change to encoding, token ranks, pre-tokenization behavior,
+   ordinary/special-token handling, canonical input rules, or normative T001–T009
+   results REQUIRES a new estimator identifier, `ega-o200k-v2`. The `ega-o200k-v1`
+   identifier pins all of the above and MUST NOT be silently mutated.
 
 ## §6.2 Counting rules (frozen)
 
 1. Count the EXACT canonical texts: L1 = full canonical `SKILL.core.md`; L2 = full
    canonical `SKILL.md` including frontmatter (SPEC-002 §5.1.16).
-2. CRLF and LF inputs count IDENTICALLY (canonicalization precedes counting).
-3. BOM and no-BOM inputs count IDENTICALLY.
+2. CRLF and LF inputs count IDENTICALLY (canonicalization precedes counting):
+   `Hello\r\nworld` and `Hello\nworld` canonicalize to identical text before token
+   counting.
+3. BOM and no-BOM inputs count IDENTICALLY: BOM + `Hello` (a leading `U+FEFF`
+   followed by `Hello`) and `Hello` count identically after canonicalization.
 4. Unicode source is NOT normalized before counting: NFC/NFD source strings remain
-   code-point-distinct (vector N003 proves distinctness; their counts are NOT
-   required to differ).
-5. `<|endoftext|>` is handled as ORDINARY text (no special-token split).
-6. Binary input is NOT tokenized: it returns `E_TOKEN_BINARY_INPUT`. Binary blobs
-   have no `token_counts` row and project as null/unavailable — never zero
-   (SPEC-001 §5.1.19, SPEC-003 §5.1.16).
+   code-point-distinct. `café` (single code point `U+00E9`) and `cafe` + `U+0301`
+   (that is, `cafe\u0301`) remain code-point-distinct inputs. Do not add NFC/NFD
+   normalization. Their token counts are NOT required to differ.
+5. `<|endoftext|>` is handled as ORDINARY text (no special-token split, no throw,
+   no privileged single-token handling).
+6. Binary input is NOT tokenized: direct binary input to the text estimator maps to
+   `E_TOKEN_BINARY_INPUT`. Binary blobs have no `token_counts` row and project as
+   null/unavailable — never zero (SPEC-001 §5.1.19, SPEC-003 §5.1.16). A binary
+   token count is unavailable; it does not produce `0` and does not create a row.
 
 ## §6.3 Failure contract (frozen)
 
@@ -47,36 +64,33 @@ If implementation reveals a contradiction, amend this spec and its tests before 
 
 ## §6.4 Normative vector inventory T001–T009 (exact)
 
-The nine reference vectors pin the estimator. Each vector below is identified by its
-frozen ID, its normative input class, and its assertion class. Exact input strings
-and exact expected counts are committed as frozen fixture data under
-`tests/tokens/` by EGA-557 (which implements this contract); once committed, any
-drift fails under `E_TOKEN_ESTIMATOR_INCOMPATIBLE` unless a reviewed spec amendment
-explains it.
+The nine reference vectors below pin the estimator. This table is the frozen
+contract. EGA-557 builds against this contract; it does not define it.
 
-| ID | Normative input class | Assertion class |
-| --- | --- | --- |
-| T001 | empty string | exact count pinned (baseline) |
-| T002 | short ASCII sentence | exact count pinned |
-| T003 | multi-line Markdown with headings, list, and code fence | exact count pinned |
-| T004 | CRLF variant of a T003-class input | count EQUALS its LF twin (equivalence) |
-| T005 | BOM-prefixed variant of a T003-class input | count EQUALS its no-BOM twin (equivalence) |
-| T006 | non-BMP/emoji-bearing text incl. the SPEC-001 1024-code-point boundary shape | exact count pinned; proves code-point (not UTF-16/UTF-8) length handling |
-| T007 | NFC vs NFD source pair (N003) | inputs remain code-point-distinct; counts recorded (not required to differ) |
-| T008 | text containing the literal `<\|endoftext\|>` | ordinary-text handling; exact count pinned |
-| T009 | long deterministic reference paragraph (budget-scale, multi-thousand tokens) | exact count pinned; anchors LARGE-class budget behavior |
+| ID | Exact input | Expected token count |
+|---|---|---:|
+| T001 | empty string | 0 |
+| T002 | `Hello` | 1 |
+| T003 | `hello world` | 2 |
+| T004 | `Hello world` | 2 |
+| T005 | `Hello, world!` | 4 |
+| T006 | `こんにちは` | 1 |
+| T007 | `こんにちは世界` | 2 |
+| T008 | `你好世界` | 2 |
+| T009 | `The quick brown fox jumps over the lazy dog` | 9 |
 
-Normalization and special-token behavior asserted by T004/T005/T007/T008 are
-NORMATIVE (part of §6.2), not informational.
+Notes:
 
-**Provenance note (single declared deferral, EGA-550):** the exact T001–T009 input
-strings and integer counts live in the pre-amendment frozen bundle attachment,
-which has no retrievable copy in Linear (EGA-550 carries zero attachments); they
-are therefore frozen FORWARD by EGA-557 implementation under the
-`E_TOKEN_ESTIMATOR_INCOMPATIBLE` drift rule above rather than transcribed here.
-No other section of the eight-file V1 contract carries such a deferral. This is a
-defined freeze process with an owning ticket — not an open placeholder — and is
-reported as the sole deviation in the EGA-550 close-out comment.
+1. T001 input is exactly `""` (zero characters). The words "empty string" in the
+   table are a description of that input, not the input itself.
+2. Every other row's backticked cell is the exact JS string input (no added
+   newline, no trimming, no case change).
+3. Counts are ordinary-text `o200k_base` counts of the canonical inputs above.
+4. Once committed as fixture data under `tests/tokens/`, any drift fails under
+   `E_TOKEN_ESTIMATOR_INCOMPATIBLE` unless a reviewed spec amendment explains it.
+
+**Provenance note:** T001–T009 were independently verified against
+js-tiktoken@1.0.21 using o200k_base before implementation.
 
 ## §6.5 Harness location and gates
 
