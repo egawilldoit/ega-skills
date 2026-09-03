@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: V1 behavioral contract
+    url: https://github.com/OWNER/ega-skills/tree/main/docs/specs
+    about: Read the frozen SPEC/TEST contract before filing behavior issues.

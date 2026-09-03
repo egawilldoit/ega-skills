@@ -1,0 +1,17 @@
+{
+  "name": "ega-skills",
+  "version": "0.0.0",
+  "private": true,
+  "description": "EGA Skills Hub V1 — local-first deterministic agent-skill registry and resolver",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": "24"
+  },
+  "scripts": {
+    "build": "echo 'no product packages implemented yet (EGA-550 spec-materialization gate only)' && exit 1",
+    "typecheck": "echo 'no product packages implemented yet (EGA-550 spec-materialization gate only)' && exit 1",
+    "test": "echo 'no product packages implemented yet (EGA-550 spec-materialization gate only)' && exit 1",
+    "specs:check": "node scripts/specs/check-specs.mjs"
+  },
+  "devDependencies": {}
+}
