@@ -37,6 +37,12 @@ importers:
 
   packages/registry:
     dependencies:
+      '@ega-skills/hashing':
+        specifier: workspace:*
+        version: link:../hashing
+      '@ega-skills/schema':
+        specifier: workspace:*
+        version: link:../schema
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3

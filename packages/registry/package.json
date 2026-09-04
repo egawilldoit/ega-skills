@@ -16,6 +16,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/hashing": "workspace:*",
+    "@ega-skills/schema": "workspace:*",
     "better-sqlite3": "13.0.3"
   }
 }
