@@ -28,7 +28,8 @@ export type SchemaErrorCode =
   | "E_SKILL_NOT_FOUND"
   | "E_SKILL_REFERENCE_AMBIGUOUS"
   | "E_EGA_METADATA_INVALID"
-  | "E_ALIAS_CONFLICT";
+  | "E_ALIAS_CONFLICT"
+  | "E_L1_TOO_LARGE";
 
 export interface SchemaErrorContext {
   readonly path?: string;
@@ -662,4 +663,129 @@ export function assertAliasClaimsAvailable(
     }
   }
   return ordered;
+}
+
+// SPEC-001 §5.1.7, §5.1.13–§5.1.14 content levels and package content (EGA-556).
+// Progressive disclosure is modeled, never generated: no L1 synthesis, no
+// reference loading, no script execution. Size classification is derived
+// metadata and never affects content identity.
+
+export const L0_TARGET_MAX_TOKENS = 250;
+export const L1_TARGET_MIN_TOKENS = 500;
+export const L1_TARGET_MAX_TOKENS = 2000;
+export const L1_HARD_MAX_TOKENS = 4000;
+export const L2_NORMAL_MAX_TOKENS = 5000;
+export const L2_LARGE_MAX_TOKENS = 12000;
+
+export type L1Status = "AUTHORED" | "MISSING";
+export type L2SizeClass = "NORMAL" | "LARGE" | "OVERSIZED";
+
+export function resolveL1Status(
+  skillCoreMd: Uint8Array | undefined,
+  options: ParseEgaMetadataOptions = {},
+): L1Status {
+  if (skillCoreMd === undefined) {
+    return "MISSING";
+  }
+  // Present core text must still pass control-file encoding; content itself
+  // is the exact canonical L1 text (no transform, no generation).
+  decodeControlFile(skillCoreMd, options.path ?? "SKILL.core.md");
+  return "AUTHORED";
+}
+
+export function assertL1TokenBudget(l1Tokens: number): void {
+  if (l1Tokens > L1_HARD_MAX_TOKENS) {
+    throw new SchemaValidationError(
+      "E_L1_TOO_LARGE",
+      `Authored L1 of ${l1Tokens} ega-o200k-v1 tokens exceeds the 4000-token hard maximum; import with l1Status MISSING while a valid L2 remains.`,
+      { field: "SKILL.core.md" },
+    );
+  }
+}
+
+export function classifyL2SizeClass(l2Tokens: number): L2SizeClass {
+  if (l2Tokens <= L2_NORMAL_MAX_TOKENS) {
+    return "NORMAL";
+  }
+  if (l2Tokens <= L2_LARGE_MAX_TOKENS) {
+    return "LARGE";
+  }
+  return "OVERSIZED";
+}
+
+export interface PackageContentSummary {
+  readonly referenceCount: number;
+  readonly hasScripts: boolean;
+  readonly hasAssets: boolean;
+}
+
+function normalizePackagePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+export function summarizePackageContent(
+  paths: readonly string[],
+): PackageContentSummary {
+  let referenceCount = 0;
+  let hasScripts = false;
+  let hasAssets = false;
+  for (const raw of paths) {
+    const path = normalizePackagePath(raw);
+    if (path.startsWith("references/") && path.length > "references/".length) {
+      referenceCount += 1;
+    } else if (path.startsWith("scripts/") && path.length > "scripts/".length) {
+      hasScripts = true;
+    } else if (path.startsWith("assets/") && path.length > "assets/".length) {
+      hasAssets = true;
+    }
+  }
+  return { referenceCount, hasScripts, hasAssets };
+}
+
+export interface L0DiscoveryMetadata {
+  readonly canonicalId: string;
+  readonly l1Status: L1Status;
+  readonly l1Tokens: number | null;
+  readonly l2Tokens: number | null;
+  readonly sizeClass: L2SizeClass;
+  readonly domains: readonly string[];
+  readonly platforms: readonly string[];
+  readonly frameworks: readonly string[];
+  readonly aliases: readonly string[];
+  readonly triggers: readonly string[];
+  readonly antiTriggers: readonly string[];
+  readonly referenceCount: number;
+  readonly hasScripts: boolean;
+  readonly hasAssets: boolean;
+}
+
+export interface BuildL0MetadataInput {
+  readonly canonicalId: string;
+  readonly l1Status: L1Status;
+  readonly l1Tokens: number | null;
+  readonly l2Tokens: number | null;
+  readonly sizeClass: L2SizeClass;
+  readonly routing: EgaRoutingMetadata;
+  readonly referenceCount: number;
+  readonly hasScripts: boolean;
+  readonly hasAssets: boolean;
+}
+
+export function buildL0Metadata(input: BuildL0MetadataInput): L0DiscoveryMetadata {
+  return Object.freeze({
+    canonicalId: input.canonicalId,
+    l1Status: input.l1Status,
+    l1Tokens: input.l1Tokens,
+    l2Tokens: input.l2Tokens,
+    sizeClass: input.sizeClass,
+    domains: Object.freeze([...input.routing.domains]),
+    platforms: Object.freeze([...input.routing.platforms]),
+    frameworks: Object.freeze([...input.routing.frameworks]),
+    aliases: Object.freeze([...input.routing.aliases]),
+    triggers: Object.freeze([...input.routing.triggers]),
+    antiTriggers: Object.freeze([...input.routing.antiTriggers]),
+    referenceCount: input.referenceCount,
+    hasScripts: input.hasScripts,
+    hasAssets: input.hasAssets,
+  });
 }
