@@ -45,6 +45,9 @@ importers:
       '@ega-skills/hashing':
         specifier: workspace:*
         version: link:../hashing
+      '@ega-skills/registry':
+        specifier: workspace:*
+        version: link:../registry
       yaml:
         specifier: 2.9.0
         version: 2.9.0
