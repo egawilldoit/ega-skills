@@ -53,3 +53,10 @@ export type {
 } from "./filters.js";
 export { assignTiers } from "./tiers.js";
 export type { TierAssignmentInput, TierCandidate, TieredCandidate } from "./tiers.js";
+export { composeAutomatic } from "./composition.js";
+export type {
+  ComposeAutomaticInput,
+  ComposeAutomaticOutput,
+  ComposeAutomaticRow,
+  L2SizeClass,
+} from "./composition.js";
