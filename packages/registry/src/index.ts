@@ -20,15 +20,32 @@ import {
   REGISTRY_MIGRATIONS,
   runRegistryMigrations,
 } from "./migrations/index.js";
+import {
+  BLOB_HASH_PREFIX,
+  cacheBlobPath,
+  cacheBlobPathForHash,
+  getCacheBlob,
+  parseBlobDigest,
+  putCacheBlob,
+  sha256DigestHex,
+} from "./cache.js";
 
 export {
+  BLOB_HASH_PREFIX,
   CURRENT_SCHEMA_VERSION,
   REGISTRY_ERROR_CODES,
   REGISTRY_MIGRATIONS,
   RegistryError,
+  cacheBlobPath,
+  cacheBlobPathForHash,
+  getCacheBlob,
+  parseBlobDigest,
+  putCacheBlob,
   resolveRegistryHome,
+  sha256DigestHex,
 };
 export type { RegistryErrorCode, RegistryPaths };
+export type { PutBlobResult } from "./cache.js";
 
 export interface OpenRegistryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
