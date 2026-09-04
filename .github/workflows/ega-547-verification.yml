@@ -36,7 +36,7 @@ jobs:
           pnpm --version
 
       - name: Clean install
-        run: pnpm install --lockfile=false
+        run: pnpm install
 
       - name: Build
         run: pnpm build

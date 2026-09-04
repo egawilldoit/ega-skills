@@ -8,10 +8,10 @@ local MCP for Codex and OpenCode/T3.
 Current state, in three lines:
 
 - **Specified:** the V1 behavioral contract is frozen under `docs/specs/`.
-- **Repository foundation created:** workspace layout, spec-drift checker, and
-  contribution guardrails exist.
-- **Implementation not started yet:** the `packages/` directories are empty
-  boundary markers; no product code exists.
+- **Workspace bootstrap implemented:** seven buildable TypeScript package boundaries,
+  strict project references, and real root build/typecheck/test scripts exist.
+- **Product behavior not started yet:** package entrypoints are intentionally empty;
+  no SPEC-001+ business logic exists.
 
 ## Problem
 
@@ -56,8 +56,7 @@ rules (SPEC-004); 1–2 is the normal case and 3 is exceptional.
 ## V1 principles
 
 - Local-first; offline after import.
-- Deterministic routing: same inputs produce the same outputs on Linux and
-  Windows.
+- Deterministic routing: same inputs produce byte-identical meaningful outputs on Linux and Windows.
 - Immutable content versions; content-addressed cache.
 - Small model context: metadata routes, bodies follow only after selection.
 - Project reproducibility through lockfiles.
@@ -128,9 +127,9 @@ See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runt
 
 ## Frozen V1 technology
 
-This is the frozen implementation stack. These pins are contractual; the
-dependencies themselves are **not installed yet** (no product dependencies
-exist in this repository today).
+This is the frozen implementation stack. The TypeScript compiler is present for
+the workspace baseline; product/runtime dependency pinning remains Wave 0 work
+under EGA-548.
 
 ```text
 Node.js 24 LTS
@@ -170,7 +169,7 @@ remote HTTP MCP
 
 ```text
 docs/specs/   frozen V1 behavioral contract (normative)
-packages/     intended modular-monolith boundaries (no implementation yet)
+packages/     buildable modular-monolith TypeScript package boundaries
 fixtures/     frozen fixture trees for hashing/projects/skills (populated by later waves)
 tests/        token vectors, router goldens, integration tests (populated by later waves)
 scripts/specs/  spec-drift checker (implemented)
@@ -178,8 +177,8 @@ scripts/specs/  spec-drift checker (implemented)
 ```
 
 The package directories (`cli`, `hashing`, `mcp`, `project`, `registry`,
-`router`, `schema`) currently define the intended modular-monolith boundaries
-but contain no product implementation yet.
+`router`, `schema`) are real TypeScript packages with strict composite configs
+and intentionally empty entrypoints. Product behavior remains for later issues.
 
 ## Specification authority
 
@@ -213,10 +212,10 @@ silently become the new contract.
 | Spec drift checker (`pnpm specs:check`) | complete |
 | GitHub repository | initialized |
 | Product implementation (schema/router/registry/MCP) | not started |
-| Wave 0 bootstrap implementation | next |
+| Wave 0 workspace bootstrap (EGA-547) | implemented on review branch |
 
 Schema, router, registry, and MCP are **not** implemented. Nothing in
-`packages/` contains product code.
+`packages/` contains product behavior.
 
 ## Implementation roadmap
 
@@ -237,9 +236,9 @@ Detailed execution tickets are managed in Linear.
 
 ## Current next step
 
-The specification gate is complete locally. The immediate next step is to land
-this repository foundation on GitHub and close EGA-550. Product implementation
-begins afterward with Wave 0 bootstrap.
+The specification gate (EGA-550) is complete. After EGA-547 is reviewed and
+merged, Wave 0 continues with dependency/runtime pinning (EGA-548) and the
+remaining bootstrap tickets.
 
 ## Development rules
 
