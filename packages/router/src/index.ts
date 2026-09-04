@@ -51,3 +51,5 @@ export type {
   AutomaticFiltersInput,
   AutomaticFiltersOutput,
 } from "./filters.js";
+export { assignTiers } from "./tiers.js";
+export type { TierAssignmentInput, TierCandidate, TieredCandidate } from "./tiers.js";
