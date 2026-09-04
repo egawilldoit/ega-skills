@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/hashing": "workspace:*",
     "yaml": "2.9.0"
   }
 }
