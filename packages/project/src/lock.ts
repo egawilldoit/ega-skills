@@ -80,12 +80,15 @@ export const E_PROJECT_LOCK_INVALID = "E_PROJECT_LOCK_INVALID";
 export const E_LOCK_TOKEN_ESTIMATOR_UNSUPPORTED = "E_LOCK_TOKEN_ESTIMATOR_UNSUPPORTED";
 export const E_LOCK_CONFIG_MISMATCH = "E_LOCK_CONFIG_MISMATCH";
 export const E_LOCKED_VERSION_MISSING = "E_LOCKED_VERSION_MISSING";
+/** `locking.required=true` with no adjacent lock (§5.1.12; thrown by resolveLockMode). */
+export const E_LOCK_REQUIRED = "E_LOCK_REQUIRED";
 
 export type ProjectLockErrorCode =
   | typeof E_PROJECT_LOCK_INVALID
   | typeof E_LOCK_TOKEN_ESTIMATOR_UNSUPPORTED
   | typeof E_LOCK_CONFIG_MISMATCH
-  | typeof E_LOCKED_VERSION_MISSING;
+  | typeof E_LOCKED_VERSION_MISSING
+  | typeof E_LOCK_REQUIRED;
 
 /** Error thrown by the lock module; `code` is always one of the frozen codes above. */
 export class ProjectLockError extends Error {
