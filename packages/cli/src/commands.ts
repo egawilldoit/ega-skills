@@ -2,8 +2,12 @@
 //
 // import: ega-skills import <path> --namespace <namespace> (REQUIRED surface).
 // list/inspect: local read-only conveniences reusing registry reads; they
-// define no new V1 behavior and never mutate state. No resolve/init/lock/
-// update/sync/approve surface exists in V1.
+// define no new V1 behavior and never mutate state. No resolve/lock/update/
+// sync/approve surface exists in V1. init (EGA-583) writes the frozen
+// SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
+
+import { existsSync, statSync, writeFileSync, type Stats } from "node:fs";
+import { join, resolve } from "node:path";
 
 import {
   RegistryError,
@@ -138,6 +142,64 @@ export async function runList(
   } finally {
     registry.close();
   }
+}
+
+// `ega-skills init` (SPEC-005 §5.1.5 rule 3, EGA-583).
+//
+// init writes a deterministic, human-readable `.egaskills.yaml` into the
+// project directory: schema_version 1, the SAME routing defaults as the
+// built-in unlocked defaults, the four empty policy lists, and
+// locking.required: true — a committed project explicitly attests LOCKED
+// mode. The document is byte-frozen: no timestamps, no environment reads, no
+// registry state, and rewriting an overwritten file is always byte-identical.
+// `parseProjectConfig` (packages/project) accepts this exact text verbatim.
+
+const INIT_CONFIG_YAML = `schema_version: 1
+routing:
+  mode: suggest
+  max_skills: 3
+  max_tokens: 5000
+namespaces:
+  allow: []
+  deny: []
+skills:
+  prefer: []
+  deny: []
+locking:
+  required: true
+`;
+
+export interface InitOptions {
+  /** Project directory; relative paths resolve against the current working directory. */
+  readonly project: string;
+  /** Replace an existing `.egaskills.yaml` instead of refusing (default: false). */
+  readonly force?: boolean;
+}
+
+export interface InitResult {
+  /** Absolute path of the written `.egaskills.yaml`. */
+  readonly path: string;
+  readonly written: true;
+}
+
+/** Writes the frozen init `.egaskills.yaml` (SPEC-005 §5.1.5 rule 3). */
+export async function runInit(options: InitOptions): Promise<InitResult> {
+  const dir = resolve(options.project);
+  let stats: Stats;
+  try {
+    stats = statSync(dir);
+  } catch {
+    throw new Error(`Project directory does not exist: ${dir}`);
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Not a directory: ${dir}`);
+  }
+  const file = join(dir, ".egaskills.yaml");
+  if (options.force !== true && existsSync(file)) {
+    throw new Error(`Refusing to overwrite: ${file} (pass --force to replace it)`);
+  }
+  writeFileSync(file, INIT_CONFIG_YAML);
+  return { path: file, written: true };
 }
 
 /** Convenience: metadata, versions, L1 status, token sizes, provenance. Read-only. */
