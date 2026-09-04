@@ -53,3 +53,10 @@ export type {
 } from "./filters.js";
 export { assignTiers } from "./tiers.js";
 export type { TierAssignmentInput, TierCandidate, TieredCandidate } from "./tiers.js";
+export { suppressRedundant } from "./redundancy.js";
+export type {
+  AutomaticTier,
+  RedundancyInput,
+  RedundancyOutput,
+  RedundancyRow,
+} from "./redundancy.js";
