@@ -34,6 +34,18 @@ import {
   putCacheBlob,
   sha256DigestHex,
 } from "./cache.js";
+import {
+  applyVersionLifecycle,
+  getCurrentVersion,
+  getCurrentVersionHash,
+  getSkillVersion,
+  getTokenCount,
+  listSkillVersions,
+  listVersionSources,
+  recordSourceObservation,
+  recordTokenCount,
+  recordVersion,
+} from "./versions.js";
 
 export {
   BLOB_HASH_PREFIX,
@@ -42,19 +54,38 @@ export {
   REGISTRY_MIGRATIONS,
   RegistryError,
   applySkillAliases,
+  applyVersionLifecycle,
   cacheBlobPath,
   cacheBlobPathForHash,
   getAliasOwner,
   getCacheBlob,
+  getCurrentVersion,
+  getCurrentVersionHash,
+  getSkillVersion,
+  getTokenCount,
   listSkillAliases,
+  listSkillVersions,
+  listVersionSources,
   parseBlobDigest,
   putCacheBlob,
+  recordSourceObservation,
+  recordTokenCount,
+  recordVersion,
   resolveRegistryHome,
   sha256DigestHex,
 };
 export type { RegistryErrorCode, RegistryPaths };
 export type { ApplyAliasesResult } from "./aliases.js";
 export type { PutBlobResult } from "./cache.js";
+export type {
+  ApplyVersionLifecycleResult,
+  ImportOutcome,
+  RecordVersionInput,
+  SourceObservation,
+  SourceRecord,
+  TokenCountInput,
+  VersionRecord,
+} from "./versions.js";
 
 export interface OpenRegistryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
