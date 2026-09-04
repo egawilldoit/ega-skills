@@ -26,7 +26,7 @@ test("ega-skills --version prints the package version and exits cleanly", () => 
   assert.equal(result.stderr, "");
 });
 
-test("ega-skills --help prints the Wave-4 CLI surface and exits cleanly", () => {
+test("ega-skills --help prints the CLI surface and exits cleanly", () => {
   const result = runCli("--help");
   const expectedHelp = [
     "Usage:",
@@ -35,6 +35,7 @@ test("ega-skills --help prints the Wave-4 CLI surface and exits cleanly", () => 
     "  ega-skills import <path> --namespace <namespace>",
     "  ega-skills list",
     "  ega-skills inspect <skill-id>",
+    "  ega-skills init [<project-dir>] [--force]",
     "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
     "",
     "Options:",
