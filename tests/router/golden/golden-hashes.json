@@ -1,0 +1,122 @@
+{
+  "skill-alias-conflict-v1": {
+    "versionHash": "sha256:f22c56eb96b719a1c66cb3b2fde55080c7c5a33b137143118a4110dff705a9e3",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 600,
+    "l2Tokens": 72
+  },
+  "skill-alpha-lexical-v1": {
+    "versionHash": "sha256:0ca067cbe99fc52e8a38f22516128db93fdc5f6d09f09d26a178c22966ed3e44",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 600,
+    "l2Tokens": 66
+  },
+  "skill-angular-frontend-v1": {
+    "versionHash": "sha256:07d1b25838ed02b12edc73f3b23f37de96484a914dcdec2dedf2877dd5fa37a4",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 900,
+    "l2Tokens": 68
+  },
+  "skill-backend-api-v1": {
+    "versionHash": "sha256:3960cc418e88af7ebeefc7ba51fda249e040b59dbe582f04beaddfd0e9f9b415",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 850,
+    "l2Tokens": 68
+  },
+  "skill-compact-reference-v1": {
+    "versionHash": "sha256:ac184c293513a6adcb75d7a6cfa24222c819fbaebe09ab26390c2908f403275e",
+    "l1Status": "MISSING",
+    "l1Tokens": null,
+    "l2Tokens": 4900
+  },
+  "skill-database-performance-v1": {
+    "versionHash": "sha256:36f14fe95bdb0e949beb3efa99d5f597bb3a978306499da2d4e42ca14a6409f4",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 850,
+    "l2Tokens": 68
+  },
+  "skill-database-security-v1": {
+    "versionHash": "sha256:022d6e620c9a04825ac20228c7cce156d24058330f1e96a6bf2a42f1c450c22e",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 850,
+    "l2Tokens": 69
+  },
+  "skill-experimental-react-helper-v1": {
+    "versionHash": "sha256:f7efc14ee8e7e8a5af1c57b3f975a800bb00788a080b775c333cef5a8551065c",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 750,
+    "l2Tokens": 63
+  },
+  "skill-frontend-mobile-v1": {
+    "versionHash": "sha256:90aa6ec2de925816fb1500020f9556fea089525903df6b25665382fbbbeb1444",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 892,
+    "l2Tokens": 70
+  },
+  "skill-frontend-web-v1": {
+    "versionHash": "sha256:9b97d545982206502214fa7466a55a634e0f970bccac9ecfeb770a2c8dfe3511",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 800,
+    "l2Tokens": 68
+  },
+  "skill-java-backend-v1": {
+    "versionHash": "sha256:769cdf2e3908f9887f03bee45be9a127ebbac633dbb54c2d6cabf8bc5e1938ec",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 850,
+    "l2Tokens": 71
+  },
+  "skill-large-reference-v1": {
+    "versionHash": "sha256:c9e7bde2056306a253800c432aa2986cc2a1a205b5b9f14880fc817b70c0f3b8",
+    "l1Status": "MISSING",
+    "l1Tokens": null,
+    "l2Tokens": 9000
+  },
+  "skill-omega-lexical-v1": {
+    "versionHash": "sha256:10a2dc403d54b8f9750e9946baedc74ac19ebb9d8047aadc22f55d03066f82f2",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 600,
+    "l2Tokens": 67
+  },
+  "skill-oversized-reference-v1": {
+    "versionHash": "sha256:c419daa697a8d248420a76ae0b09b0cde1123ed8977f3ba0396bb4cab1b75347",
+    "l1Status": "MISSING",
+    "l1Tokens": null,
+    "l2Tokens": 13000
+  },
+  "skill-react-frontend-v1": {
+    "versionHash": "sha256:07d419a3b3c4a57c358bb0c87d60fd2c71d84a7623d856627ecebd350a555fa1",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 900,
+    "l2Tokens": 71
+  },
+  "skill-security-review-v1": {
+    "versionHash": "sha256:67ea42a64c432c57e3978bcd85ba3c5da7a74283dd3db16b2c33380cf6444df7",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 800,
+    "l2Tokens": 66
+  },
+  "skill-systematic-debugging-v1": {
+    "versionHash": "sha256:07ddeac0f417a7b6a712b820cfc44c42c4dd500b3922ec43831f44b711144ca9",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 700,
+    "l2Tokens": 79
+  },
+  "skill-teach-v1": {
+    "versionHash": "sha256:2c8a06f827936d66e16d86cae2f79b9a89341ff58c29ac5b37c3864796c0d41a",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 700,
+    "l2Tokens": 60
+  },
+  "skill-testing-v1": {
+    "versionHash": "sha256:88bb90fc872f23664407a8f14c83cd81448c0160a6b85107e565af99a8939372",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 800,
+    "l2Tokens": 70
+  },
+  "skill-writing-plans-v1": {
+    "versionHash": "sha256:d07f1d9d3d1cf4056a0d6c7a653ec5cb4b72726bb804f21645beb51fb84afa3a",
+    "l1Status": "AUTHORED",
+    "l1Tokens": 800,
+    "l2Tokens": 72
+  }
+}
