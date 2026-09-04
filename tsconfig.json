@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./packages/schema" },
+    { "path": "./packages/hashing" },
+    { "path": "./packages/registry" },
+    { "path": "./packages/router" },
+    { "path": "./packages/project" },
+    { "path": "./packages/mcp" },
+    { "path": "./packages/cli" }
+  ]
+}
