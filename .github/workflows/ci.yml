@@ -29,8 +29,8 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Setup repository-pinned pnpm
-        uses: pnpm/action-setup@v6
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Runtime versions
         run: |
