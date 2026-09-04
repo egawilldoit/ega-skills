@@ -1,11 +1,12 @@
-// Golden matrix harness test (TEST-001, EGA-580).
+// Golden matrix gate (TEST-001, EGA-580).
 //
 // Runs ALL base-34 scenarios (scenarios-01..04 concatenated) through
 // runGoldenScenario against the LIVE production resolver, printing a
 // per-scenario PASS/FAIL matrix with failure codes and expected-vs-actual
-// one-liners. Informational only: asserts NOTHING — the test always passes
-// unless the harness itself crashes (a thrown error escaping the runner).
+// one-liners. MERGE-BLOCKING: asserts every scenario passes — the golden
+// corpus is the oracle (never tune expectations to match code).
 
+import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { runGoldenScenario } from "./runner.mjs";
@@ -21,7 +22,7 @@ const ALL_SCENARIOS = [
   ...SCENARIOS_04,
 ];
 
-test("TEST-001 golden matrix: all 34 scenarios (informational, asserts nothing)", async () => {
+test("TEST-001 golden matrix: all 34 scenarios pass (merge-blocking)", async () => {
   const rows = [];
   let passed = 0;
   let failed = 0;
@@ -53,4 +54,6 @@ test("TEST-001 golden matrix: all 34 scenarios (informational, asserts nothing)"
   rows.push("");
   rows.push(`[GOLDEN MATRIX] total=${ALL_SCENARIOS.length} pass=${passed} fail=${failed}`);
   console.log(rows.join("\n"));
+  assert.equal(ALL_SCENARIOS.length, 34, "base-34 inventory must stay exactly G001–G034");
+  assert.equal(failed, 0, `${failed} golden scenario(s) failed — golden is oracle, fix code not expectations`);
 });

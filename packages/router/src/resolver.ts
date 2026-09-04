@@ -451,11 +451,16 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
       warnings: [],
     });
     const selected = confidence.selected.map((row) => toResolved(selectedById.get(row.id) ?? candidatesById.get(row.id) ?? (() => { throw new Error(`Internal resolver error: missing composition row for ${row.id}.`); })()));
+    // SPEC-004 §5.1.17 rule 5: under LOW-with-ambiguity the confidence layer
+    // appends WORKSPACE_AMBIGUOUS to retained candidates. Re-resolve reasons
+    // from the CONFIDENCE rows (not the pre-confidence composition rows),
+    // otherwise the explanatory reason is silently dropped (TEST-001 G028).
+    const confidenceReasonsById = new Map(confidence.candidates.map((row) => [row.id, row.reasons]));
     const candidates = confidence.candidates
       .map((row) => candidatesById.get(row.id) ?? selectedById.get(row.id))
       .filter((row) => row !== undefined)
       .slice(0, 3)
-      .map((row) => toResolved(row));
+      .map((row) => toResolved({ ...row, reasons: confidenceReasonsById.get(row.id) ?? row.reasons }));
     const autoRejects = [...filtered.rejected, ...redundancy.suppressed]
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, 3);

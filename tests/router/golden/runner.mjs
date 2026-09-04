@@ -49,6 +49,12 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
+import {
+  PROJECT_CONFIG_V1_DEFAULTS,
+  discoverConfig,
+  readConfigAndLock,
+  resolveLockMode,
+} from "../../../packages/project/dist/index.js";
 import { resolveSkills } from "../../../packages/router/dist/index.js";
 import {
   buildGoldenProject,
@@ -122,6 +128,48 @@ function deepEqual(a, b) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// ResolvePolicyInput derivation from the built golden tree (SPEC-005 harness
+// mapping, EGA-580). The production resolver is PURELY policy-driven: it never
+// reads `.egaskills.yaml` / `.egaskills.lock` itself. The harness derives the
+// policy through the PRODUCTION project modules (discoverConfig,
+// readConfigAndLock, resolveLockMode) — no mirrored config/lock semantics.
+// Exact mapping: namespaces allow/deny -> allowedNamespaces/deniedNamespaces,
+// skills deny/prefer -> deniedSkills/prefer, routing max_skills/max_tokens ->
+// defaultMaxSkills/defaultMaxTokens, validated adjacent lock in LOCKED mode ->
+// lockedVersions Map, UNLOCKED or no lock -> lockedVersions null. A stray lock
+// without config is ignored by readConfigAndLock (SPEC-005 §5.1.2 rule 5).
+// Errors throw and surface as GOLDEN_FIXTURE_INVALID — a broken control file
+// is never silently ignored.
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the ResolvePolicyInput the golden project tree declares (production
+ * modules only). No config means built-in defaults (UNLOCKED); a stray lock
+ * without config is ignored by readConfigAndLock (SPEC-005 §5.1.2 rule 5).
+ * Errors throw and surface as GOLDEN_FIXTURE_INVALID — a broken control file
+ * is never silently ignored.
+ */
+function derivePolicy(projectPath) {
+  const discovery = discoverConfig(projectPath);
+  const { config, lock } = readConfigAndLock(discovery);
+  const effective = config ?? PROJECT_CONFIG_V1_DEFAULTS;
+  const mode = resolveLockMode({ config: effective, lock });
+  const lockedVersions =
+    mode.mode === "LOCKED"
+      ? new Map(Object.keys(mode.lock.skills).map((id) => [id, mode.lock.skills[id].version_hash]))
+      : null;
+  return {
+    allowedNamespaces: effective.namespaces.allow,
+    deniedNamespaces: effective.namespaces.deny,
+    deniedSkills: effective.skills.deny,
+    prefer: effective.skills.prefer,
+    defaultMaxSkills: effective.routing.max_skills,
+    defaultMaxTokens: effective.routing.max_tokens,
+    lockedVersions,
+  };
+}
+
 /**
  * Run one frozen golden scenario against a live production resolution.
  * @param {object} scenario RouterGoldenScenario (tests/router/golden scenarios-01..04).
@@ -155,9 +203,11 @@ export async function runGoldenScenario(scenario) {
     const registry = await buildRegistryForCatalog(catalog);
     home = registry.home;
     const project = await buildGoldenProject(scenario.projectFixture);
+    const policy = derivePolicy(project.projectPath);
     result = await resolveSkills({
       task: scenario.task,
       projectPath: project.projectPath,
+      policy,
       ...(scenario.explicitSkills !== undefined ? { explicitSkills: scenario.explicitSkills } : {}),
       ...(budget !== undefined ? { budget } : {}),
       env: { ...process.env, EGA_SKILLS_HOME: home },
@@ -409,6 +459,7 @@ export async function runGoldenScenario(scenario) {
       const rerun = await resolveSkills({
         task: scenario.task,
         projectPath: second.projectPath,
+        policy: derivePolicy(second.projectPath),
         ...(scenario.explicitSkills !== undefined ? { explicitSkills: scenario.explicitSkills } : {}),
         ...(budget !== undefined ? { budget } : {}),
         env: { ...process.env, EGA_SKILLS_HOME: home },

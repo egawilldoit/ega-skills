@@ -17,25 +17,42 @@
 //       works on the realpath, SPEC-005 §5.1.1 rule 1 / TEST-001 G042).
 //
 // Every file is byte-deterministic: fixed contents, sorted lock serialization,
-// no timestamps. The lock `generated_from.config_hash` is the live SHA-256 of
-// the RFC8785 JCS canonicalized built-in DEFAULT ProjectConfigV1 (SPEC-005
-// §5.1.5 rule 2), because lock fixtures carry no `.egaskills.yaml`.
+// no timestamps. Lock fixtures (`nextjs-lock-debug-only`, `generic-empty-lock`)
+// carry their own `.egaskills.yaml` so the lock is ACTIVE (a lock without a
+// selected config is stray and ignored, SPEC-005 §5.1.2 rule 5); the lock
+// `generated_from.config_hash` is the production hash of that exact config
+// text (SPEC-005 §5.1.8). Skill version hashes always come from the frozen
+// golden-hashes.json, never hardcoded.
 
-import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+import {
+  hashNormalizedConfig,
+  parseProjectConfig,
+} from "../../../packages/project/dist/index.js";
 import { PROJECT_FIXTURES } from "./catalog-data.mjs";
 
-/** Frozen current-version hash of `ega/systematic-debugging` (golden-hashes.json). */
+/**
+ * Frozen fixture hashes (golden-hashes.json, committed). Skill version hashes
+ * are NEVER hardcoded: they follow the frozen file, which itself is verified
+ * against live SPEC-002 hashing by hashes.test.mjs.
+ */
+const GOLDEN_HASHES = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./golden-hashes.json", import.meta.url)), "utf8"),
+);
+
+/** Frozen current-version hash of `ega/systematic-debugging`. */
 export const SYSTEMATIC_DEBUGGING_VERSION_HASH =
-  "sha256:07ddeac0f417a7b6a712b820cfc44c42c4dd500b3922ec43831f44b711144ca9";
+  GOLDEN_HASHES["skill-systematic-debugging-v1"].versionHash;
 
 /**
  * Marker-table mirror of the §5.1.1.3 evidence column: fixtureId -> relative
@@ -54,7 +71,7 @@ export const PROJECT_FIXTURE_MARKERS = {
   "python-api": ["pyproject.toml"],
   "generic-project": ["README.md"],
   "nextjs-deny-experimental": ["package.json", ".egaskills.yaml"],
-  "nextjs-lock-debug-only": ["package.json", ".egaskills.lock"],
+  "nextjs-lock-debug-only": ["package.json", ".egaskills.yaml", ".egaskills.lock"],
   "mono-web": ["package.json", "apps/web/package.json", "apps/mobile/package.json"],
   "mono-mobile": ["package.json", "apps/web/package.json", "apps/mobile/package.json"],
   "mono-api": [
@@ -69,53 +86,11 @@ export const PROJECT_FIXTURE_MARKERS = {
     "apps/mobile/package.json",
     "services/api/package.json",
   ],
-  "generic-empty-lock": ["README.md", ".egaskills.lock"],
+  "generic-empty-lock": ["README.md", ".egaskills.yaml", ".egaskills.lock"],
   "nextjs-web-via-symlink": ["project"],
 };
 
 const KNOWN_FIXTURE_IDS = new Set(PROJECT_FIXTURES.map((entry) => entry.fixtureId));
-
-/** True when the lock entry key is a canonical `<namespace>/<portable-name>` ID. */
-function isCanonicalSkillId(id) {
-  return /^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(id);
-}
-
-/**
- * Minimal RFC8785 (JCS) serialization for the fixed normalized-default
- * ProjectConfigV1 object: sorted object keys, no insignificant whitespace.
- * This object graph contains only strings/booleans/integers/arrays/objects,
- * so plain JSON semantics match JCS here (no floats, no non-ASCII).
- */
-function jcs(value) {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return `[${value.map(jcs).join(",")}]`;
-  if (typeof value === "object") {
-    const keys = Object.keys(value).sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${jcs(value[key])}`).join(",")}}`;
-  }
-  if (typeof value === "string") return JSON.stringify(value);
-  return String(value);
-}
-
-/**
- * SPEC-005 §5.1.8/§5.1.9 config hash of the built-in DEFAULT config (§5.1.5
- * rule 2): `sha256:` + SHA-256 of the JCS-canonicalized normalized object.
- */
-function defaultConfigHash() {
-  const normalized = {
-    schema_version: 1,
-    routing: { mode: "suggest", max_skills: 3, max_tokens: 5000 },
-    namespaces: { allow: [], deny: [] },
-    skills: { prefer: [], deny: [] },
-    locking: { required: false },
-  };
-  const digest = createHash("sha256").update(jcs(normalized), "utf8").digest("hex");
-  return `sha256:${digest}`;
-}
-
-/** @type {string} Frozen computed at module load (constant input => constant output). */
-const DEFAULTS_CONFIG_HASH = defaultConfigHash();
-
 /** Deterministic 2-space-indented JSON + trailing newline (parents created). */
 function writeJsonFile(relDir, fileName, record) {
   mkdirSync(relDir, { recursive: true });
@@ -138,10 +113,23 @@ function writeDenyExperimentalConfig(dir) {
   );
 }
 
+/**
+ * Deterministic locked-project config for the lock fixtures: frozen routing
+ * defaults with `locking.required: true` (the lock is authoritative either
+ * way once present and valid). Returns the exact bytes written.
+ */
+function writeLockFixtureConfig(dir) {
+  const text = ["schema_version: 1", "routing:", "  mode: suggest", "locking:", "  required: true", ""].join(
+    "\n",
+  );
+  writeFileSync(join(dir, ".egaskills.yaml"), text, "utf8");
+  return text;
+}
+
 /** Deterministic active lock: `_skills` entries in sorted canonical-ID order. */
-function writeLockFile(dir, skills) {
+function writeLockFile(dir, skills, configText) {
   const record = {
-    generated_from: { config_hash: DEFAULTS_CONFIG_HASH },
+    generated_from: { config_hash: hashNormalizedConfig(parseProjectConfig(configText)) },
     lockfile_version: 1,
     skills,
     token_estimator: "ega-o200k-v1",
@@ -353,12 +341,16 @@ export function buildProjectFixture(fixtureId, rootDir) {
       return root;
     case "nextjs-lock-debug-only":
       buildNextjsWeb(root);
-      writeLockFile(root, {
-        "ega/systematic-debugging": {
-          name: "systematic-debugging",
-          version_hash: SYSTEMATIC_DEBUGGING_VERSION_HASH,
+      writeLockFile(
+        root,
+        {
+          "ega/systematic-debugging": {
+            name: "systematic-debugging",
+            version_hash: SYSTEMATIC_DEBUGGING_VERSION_HASH,
+          },
         },
-      });
+        writeLockFixtureConfig(root),
+      );
       return root;
     case "mono-web":
       buildMonoWorkspace(root);
@@ -374,7 +366,7 @@ export function buildProjectFixture(fixtureId, rootDir) {
       return root;
     case "generic-empty-lock":
       buildGenericProject(root);
-      writeLockFile(root, {});
+      writeLockFile(root, {}, writeLockFixtureConfig(root));
       return root;
     case "nextjs-web-via-symlink":
       return buildNextjsWebViaSymlink(root);

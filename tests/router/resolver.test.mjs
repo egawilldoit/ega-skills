@@ -313,3 +313,38 @@ test("SPEC-004 §5.1.19: selection metadata trends under 500 ega-o200k-v1 tokens
   console.log(`ℹ selection metadata: ${tokens} ega-o200k-v1 tokens`);
   assert.ok(tokens < 500, `selection metadata was ${tokens} tokens`);
 });
+
+test("SPEC-004 §5.1.17 rule 5: ambiguous-workspace LOW retains candidates carrying WORKSPACE_AMBIGUOUS", async (t) => {
+  // Regression: the resolver re-mapped confidence rows back to pre-confidence
+  // composition rows, silently dropping the appended explanatory reason.
+  const { env, src, proj } = await isolatedWorld(t);
+  await writeSkill(src, "debug-helper", {
+    description: "Debug helper skill",
+    body: "# Debug Helper\n\nFix this flaky crash with systematic steps.\n",
+    egaYaml: "schema_version: 1\ntriggers: [flaky crash]\n",
+  });
+  await importAll(env, src);
+  // Workspace root with no framework deps of its own: no deterministic app.
+  await writeFile(
+    join(proj, "package.json"),
+    JSON.stringify({ name: "mono", private: true, workspaces: ["apps/*"] }),
+  );
+  await mkdir(join(proj, "apps", "web"), { recursive: true });
+  await writeFile(
+    join(proj, "apps", "web", "package.json"),
+    JSON.stringify({ name: "web", dependencies: { next: "14.0.0", react: "18.0.0" } }),
+  );
+  const result = await resolveSkills({
+    task: "fix this flaky crash now",
+    projectPath: proj,
+    env,
+  });
+  assert.equal(result.confidence, "LOW");
+  assert.deepEqual(result.selected.map((skill) => skill.id), []);
+  const candidate = result.candidates.find((skill) => skill.id === "ega/debug-helper");
+  assert.ok(candidate, "evidence-bearing skill retained as candidate");
+  assert.ok(
+    candidate.reasons.includes("WORKSPACE_AMBIGUOUS"),
+    `candidate reasons carry WORKSPACE_AMBIGUOUS: ${JSON.stringify(candidate.reasons)}`,
+  );
+});
