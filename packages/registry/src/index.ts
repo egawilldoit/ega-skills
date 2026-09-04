@@ -46,6 +46,14 @@ import {
   recordTokenCount,
   recordVersion,
 } from "./versions.js";
+import {
+  buildMatchInput,
+  normalizeSearchQuery,
+  rebuildSkillFts,
+  searchSkills,
+  serializeFtsArray,
+  upsertVersionFts,
+} from "./search.js";
 
 export {
   BLOB_HASH_PREFIX,
@@ -55,6 +63,7 @@ export {
   RegistryError,
   applySkillAliases,
   applyVersionLifecycle,
+  buildMatchInput,
   cacheBlobPath,
   cacheBlobPathForHash,
   getAliasOwner,
@@ -66,17 +75,23 @@ export {
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
+  normalizeSearchQuery,
   parseBlobDigest,
   putCacheBlob,
   recordSourceObservation,
   recordTokenCount,
   recordVersion,
+  rebuildSkillFts,
   resolveRegistryHome,
+  searchSkills,
+  serializeFtsArray,
   sha256DigestHex,
+  upsertVersionFts,
 };
 export type { RegistryErrorCode, RegistryPaths };
 export type { ApplyAliasesResult } from "./aliases.js";
 export type { PutBlobResult } from "./cache.js";
+export type { FtsVersionRow, SearchHit, SearchOptions } from "./search.js";
 export type {
   ApplyVersionLifecycleResult,
   ImportOutcome,
