@@ -143,9 +143,19 @@ test("SPEC-003 §5.1.9: temp files can never become authoritative entries", asyn
 });
 
 test("SPEC-003 §5.1.9: failed DB tx leaves orphan blob but no committed reference", async (t) => {
-  const home = await tempHome(t);
+  // Own both resources in one teardown: SQLite MUST close before the temp
+  // dir is removed. Two separate t.after() hooks run in registration order
+  // (rm first), which leaves registry.sqlite open on Windows and fails
+  // cleanup with EBUSY. Single teardown guarantees close-then-rm.
+  const home = await mkdtemp(join(tmpdir(), "ega-565-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
-  t.after(() => registry.close());
+  t.after(async () => {
+    try {
+      registry.close();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
   const blob = putCacheBlob(cacheDir(home), encode("orphan-candidate"));
   const versionHash = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
   registry.db.exec("BEGIN");
@@ -160,8 +170,16 @@ test("SPEC-003 §5.1.9: failed DB tx leaves orphan blob but no committed referen
       .prepare("INSERT INTO skill_files (skill_id, version_hash, path, role, blob_hash, byte_size, content_kind) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run("ega/orphan", versionHash, "SKILL.md", "skill-body", blob.hash, 15, "TEXT");
     throw new Error("simulated import failure before commit");
-  } catch {
-    registry.db.exec("ROLLBACK");
+  } catch (error) {
+    try {
+      registry.db.exec("ROLLBACK");
+    } catch {
+      // ROLLBACK can fail if the tx already ended; the assertions below
+      // still verify no committed reference survived.
+    }
+    if (!(error instanceof Error) || error.message !== "simulated import failure before commit") {
+      throw error;
+    }
   }
   // Orphan blob on disk is acceptable; committed broken reference is forbidden.
   assert.deepEqual(await readFile(blob.path), Buffer.from(encode("orphan-candidate")));
