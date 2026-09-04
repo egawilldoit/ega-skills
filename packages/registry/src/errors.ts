@@ -7,6 +7,7 @@ export const REGISTRY_ERROR_CODES = [
   "E_ALIAS_CONFLICT",
   "E_CACHE_WRITE",
   "E_CACHE_HASH_MISMATCH",
+  "E_VERSION_NOT_FOUND",
 ] as const;
 
 export type RegistryErrorCode = (typeof REGISTRY_ERROR_CODES)[number];
