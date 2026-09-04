@@ -54,6 +54,10 @@ import {
   serializeFtsArray,
   upsertVersionFts,
 } from "./search.js";
+import { discoverSkillRoots } from "./discovery.js";
+import { importSkills } from "./importer.js";
+
+export { DEFAULT_DISCOVERY_DEPTH, DISCOVERY_EXCLUDED_DIRECTORIES } from "./discovery.js";
 
 export {
   BLOB_HASH_PREFIX,
@@ -66,12 +70,14 @@ export {
   buildMatchInput,
   cacheBlobPath,
   cacheBlobPathForHash,
+  discoverSkillRoots,
   getAliasOwner,
   getCacheBlob,
   getCurrentVersion,
   getCurrentVersionHash,
   getSkillVersion,
   getTokenCount,
+  importSkills,
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
@@ -92,6 +98,12 @@ export type { RegistryErrorCode, RegistryPaths };
 export type { ApplyAliasesResult } from "./aliases.js";
 export type { PutBlobResult } from "./cache.js";
 export type { FtsVersionRow, SearchHit, SearchOptions } from "./search.js";
+export type {
+  ImportSkillOptions,
+  ImportSummary,
+  ImportedSkill,
+  SkillImportFailure,
+} from "./importer.js";
 export type {
   ApplyVersionLifecycleResult,
   ImportOutcome,

@@ -18,11 +18,32 @@ declare module "node:fs" {
   export function writeSync(fd: number, data: Uint8Array): number;
 }
 
+declare module "node:fs/promises" {
+  export interface Dirent {
+    readonly name: string;
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+  }
+  export interface Stats {
+    isFile(): boolean;
+    isDirectory(): boolean;
+    isSymbolicLink(): boolean;
+  }
+  export function lstat(path: string): Promise<Stats>;
+  export function readlink(path: string): Promise<string>;
+  export function readdir(path: string, options: { withFileTypes: true }): Promise<Dirent[]>;
+  export function realpath(path: string): Promise<string>;
+  export function stat(path: string): Promise<Stats>;
+}
+
 declare module "node:os" {
   export function homedir(): string;
 }
 
 declare module "node:path" {
+  export function basename(path: string): string;
+  export function dirname(path: string): string;
   export function join(...paths: string[]): string;
   export function resolve(...paths: string[]): string;
 }
