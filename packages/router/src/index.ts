@@ -67,3 +67,5 @@ export type {
   ComposeAutomaticRow,
   L2SizeClass,
 } from "./composition.js";
+export { assessConfidence, isFrozenReasonCode } from "./confidence.js";
+export type { ConfidenceInput, ConfidenceResult, ConfidenceRow } from "./confidence.js";
