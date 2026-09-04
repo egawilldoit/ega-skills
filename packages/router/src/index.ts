@@ -60,3 +60,10 @@ export type {
   RedundancyOutput,
   RedundancyRow,
 } from "./redundancy.js";
+export { composeAutomatic } from "./composition.js";
+export type {
+  ComposeAutomaticInput,
+  ComposeAutomaticOutput,
+  ComposeAutomaticRow,
+  L2SizeClass,
+} from "./composition.js";
