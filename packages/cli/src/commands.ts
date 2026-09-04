@@ -15,8 +15,36 @@ import {
   type ImportSummary,
   type RegistryHandle,
 } from "@ega-skills/registry";
+import { resolveSkills, type ResolutionResult } from "@ega-skills/router";
 
 export type { ImportSummary };
+
+export interface ResolveCommandOptions {
+  readonly project: string;
+  readonly task: string;
+  readonly explicit?: readonly string[];
+  readonly maxSkills?: number;
+  readonly maxTokens?: number;
+  readonly env: Record<string, string | undefined>;
+}
+
+/** Thin resolve command over the router pipeline (EGA-579). */
+export async function runResolve(options: ResolveCommandOptions): Promise<ResolutionResult> {
+  return resolveSkills({
+    task: options.task,
+    projectPath: options.project,
+    ...(options.explicit !== undefined ? { explicitSkills: options.explicit } : {}),
+    ...((options.maxSkills !== undefined || options.maxTokens !== undefined
+      ? {
+          budget: {
+            ...(options.maxSkills !== undefined ? { maxSkills: options.maxSkills } : {}),
+            ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+          },
+        }
+      : {})),
+    env: options.env,
+  });
+}
 
 export interface ListEntry {
   readonly skillId: string;

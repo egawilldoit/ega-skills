@@ -69,3 +69,5 @@ export type {
 } from "./composition.js";
 export { assessConfidence, isFrozenReasonCode } from "./confidence.js";
 export type { ConfidenceInput, ConfidenceResult, ConfidenceRow } from "./confidence.js";
+export { resolveSkills } from "./resolver.js";
+export type { ResolveBudgetInput, ResolveInput, ResolvePolicyInput, ResolutionResult } from "./resolver.js";
