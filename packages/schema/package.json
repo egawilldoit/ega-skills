@@ -14,5 +14,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "js-tiktoken": "1.0.21",
+    "yaml": "2.9.0",
+    "zod": "4.5.4"
   }
 }

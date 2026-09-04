@@ -5,7 +5,8 @@
   "description": "EGA Skills Hub V1 — local-first deterministic agent-skill registry and resolver",
   "packageManager": "pnpm@10.0.0",
   "engines": {
-    "node": "24"
+    "node": "24",
+    "pnpm": "10.0.0"
   },
   "scripts": {
     "build": "tsc -b",
@@ -14,6 +15,7 @@
     "specs:check": "node scripts/specs/check-specs.mjs"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
   }
 }
