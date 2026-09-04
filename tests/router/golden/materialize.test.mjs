@@ -5,11 +5,29 @@ import { SKILL_FIXTURES } from "./catalog-data.mjs";
 import {
   EGA_O200K_V1_ESTIMATOR_ID,
   assertTokenEstimatorId,
+  parseEgaMetadata,
 } from "../../../packages/schema/dist/index.js";
 import {
   countContentTokens,
   materializeSkill,
 } from "./skill-materialize.mjs";
+
+/** Sort UTF-16 like parseEgaMetadata's sortUtf16. */
+function sortedUtf16(values) {
+  return [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** Canonical identifier form: trim, lowercase, unique (parseEgaMetadata). */
+function canonicalIdentifiers(values) {
+  return sortedUtf16(new Set(values.map((v) => v.trim().toLowerCase())));
+}
+
+/** Canonical trigger form: LF-only, trim, unique (parseEgaMetadata). */
+function canonicalTriggers(values) {
+  return sortedUtf16(
+    new Set(values.map((v) => v.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim())),
+  );
+}
 
 test("TEST-001: all 20 fixtures materialize deterministically (byte-identical twice)", () => {
   assert.equal(SKILL_FIXTURES.length, 20);
@@ -42,7 +60,26 @@ test("TEST-001: all 20 fixtures materialize deterministically (byte-identical tw
         `skillMd must embed trigger ${JSON.stringify(trigger)} for ${entry.fixtureId}`,
       );
     }
-    assert.equal(first.egaYaml, "schema_version: 1\n");
+    // ega.yaml must declare schema_version: 1 and carry the entry routing
+    // sets in the exact parseEgaMetadata shape: the production parse of the
+    // emitted bytes returns exactly the entry's canonical routing sets.
+    assert.ok(
+      first.egaYaml.startsWith("schema_version: 1\n"),
+      `ega.yaml must declare schema_version: 1 for ${entry.fixtureId}`,
+    );
+    const routing = parseEgaMetadata(new TextEncoder().encode(first.egaYaml));
+    assert.deepEqual(
+      routing,
+      {
+        domains: canonicalIdentifiers(entry.domains),
+        platforms: canonicalIdentifiers(entry.platforms),
+        frameworks: canonicalIdentifiers(entry.frameworks),
+        aliases: canonicalIdentifiers(entry.aliases),
+        triggers: canonicalTriggers(entry.triggers),
+        antiTriggers: canonicalTriggers(entry.antiTriggers),
+      },
+      `ega.yaml routing must match the fixture sets for ${entry.fixtureId}`,
+    );
   }
 });
 

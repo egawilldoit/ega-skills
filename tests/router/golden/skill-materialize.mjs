@@ -53,6 +53,58 @@ function yamlListField(label, items) {
   return `${label}:\n${items.map((item) => `  - ${yamlString(item)}`).join("\n")}`;
 }
 
+/**
+ * Normalize an identifier set exactly as parseEgaMetadata does for
+ * domains/platforms/frameworks/aliases: ASCII-whitespace trim, ASCII
+ * lowercase, dedupe, sort UTF-16. Emitting the canonical form makes the file
+ * byte-deterministic and guarantees parse(materialize(entry)) returns exactly
+ * the entry's routing sets.
+ */
+function normalizeIdentifiers(values) {
+  const canonical = new Set();
+  for (const value of values) {
+    canonical.add(
+      value
+        .replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "")
+        .replace(/[A-Z]/g, (ch) => ch.toLowerCase()),
+    );
+  }
+  return [...canonical].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * Normalize a trigger-text set exactly as parseEgaMetadata does for
+ * triggers/anti_triggers: CRLF/LF to LF, trim, dedupe, sort UTF-16.
+ */
+function normalizeTriggers(values) {
+  const canonical = new Set();
+  for (const value of values) {
+    canonical.add(value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
+  }
+  return [...canonical].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * Emit ega.yaml in the exact parseEgaMetadata shape (SPEC-001 §5.1.8–§5.1.10,
+ * EGA-554): schema_version: 1 plus the entry routing sets under the seven V1
+ * keys — domains/platforms/frameworks/aliases as identifier lists and
+ * triggers/anti_triggers as trigger-text lists (quoted scalars so numeric
+ * phrases like "500" stay strings). Fixed key order plus canonical values
+ * make the emitted file byte-deterministic.
+ */
+function buildEgaYaml(entry) {
+  return [
+    "schema_version: 1",
+    yamlListField("domains", normalizeIdentifiers(entry.domains)),
+    yamlListField("platforms", normalizeIdentifiers(entry.platforms)),
+    yamlListField("frameworks", normalizeIdentifiers(entry.frameworks)),
+    yamlListField("aliases", normalizeIdentifiers(entry.aliases)),
+    yamlListField("triggers", normalizeTriggers(entry.triggers)),
+    yamlListField("anti_triggers", normalizeTriggers(entry.antiTriggers)),
+    "",
+  ].join("\n");
+}
+
 function buildFrontmatter(entry, name) {
   return [
     "---",
@@ -179,9 +231,11 @@ export function materializeSkill(entry) {
     coreMdOrNull = padToward(buildCoreBody(resolved, name), resolved.l1.tokenTarget);
   }
 
-  // Minimal valid ega.yaml: schema_version: 1 alone parses to empty routing
-  // metadata (routing lives in the fixture catalog for TEST-001 scenarios).
-  const egaYaml = "schema_version: 1\n";
+  // ega.yaml carries the entry routing sets in the exact parseEgaMetadata
+  // shape so production imports tier by real routing evidence instead of
+  // empty metadata; it never counts toward L1/L2 token targets (those cover
+  // SKILL.md / SKILL.core.md only).
+  const egaYaml = buildEgaYaml(resolved);
 
   return { skillMd, coreMdOrNull, egaYaml };
 }
