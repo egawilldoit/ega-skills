@@ -9,7 +9,10 @@ export type SchemaErrorCode =
   | "E_SKILL_NAME_INVALID"
   | "E_SKILL_DIRECTORY_NAME_MISMATCH"
   | "E_SKILL_DESCRIPTION_REQUIRED"
-  | "E_SKILL_DESCRIPTION_TOO_LARGE";
+  | "E_SKILL_DESCRIPTION_TOO_LARGE"
+  | "E_NAMESPACE_INVALID"
+  | "E_SKILL_NOT_FOUND"
+  | "E_SKILL_REFERENCE_AMBIGUOUS";
 
 export interface SchemaErrorContext {
   readonly path?: string;
@@ -268,4 +271,138 @@ function parsePortableFrontmatter(text: string, path: string): z.infer<typeof po
 
 function frontmatterError(path: string, message: string): SchemaValidationError {
   return new SchemaValidationError("E_SKILL_FRONTMATTER_INVALID", message, { path });
+}
+
+// SPEC-001 §5.1.4 Namespace and canonical skill ID (EGA-553).
+// Namespace syntax: ^[a-z0-9][a-z0-9._-]{0,63}$ (1–64 chars).
+// Namespaces are NOT lowercased silently: invalid input is rejected.
+
+const NAMESPACE_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+export function isNamespace(value: string): boolean {
+  return typeof value === "string" && NAMESPACE_RE.test(value);
+}
+
+export function validateNamespace(
+  value: unknown,
+  context: SchemaErrorContext = { field: "namespace" },
+): string {
+  if (typeof value !== "string" || !isNamespace(value)) {
+    throw new SchemaValidationError(
+      "E_NAMESPACE_INVALID",
+      "Namespace must match ^[a-z0-9][a-z0-9._-]{0,63}$ (1–64 chars; lowercase alphanumeric start, then lowercase alphanumeric plus . _ -).",
+      context,
+    );
+  }
+  return value;
+}
+
+export function buildCanonicalSkillId(
+  namespace: string,
+  portableName: string,
+): string {
+  const ns = validateNamespace(namespace, { field: "namespace" });
+  const name = validatePortableSkillName(portableName, { field: "name" });
+  return `${ns}/${name}`;
+}
+
+export interface CanonicalSkillIdParts {
+  readonly namespace: string;
+  readonly name: string;
+}
+
+export function parseCanonicalSkillId(id: string): CanonicalSkillIdParts {
+  if (typeof id !== "string") {
+    throw new SchemaValidationError(
+      "E_NAMESPACE_INVALID",
+      "Canonical skill ID must be <namespace>/<portable-name> with exactly one / separator.",
+      { field: "reference" },
+    );
+  }
+  const first = id.indexOf("/");
+  const last = id.lastIndexOf("/");
+  if (first <= 0 || first !== last || first === id.length - 1) {
+    throw new SchemaValidationError(
+      "E_NAMESPACE_INVALID",
+      "Canonical skill ID must be <namespace>/<portable-name> with exactly one / separator.",
+      { field: "reference" },
+    );
+  }
+  const namespace = id.slice(0, first);
+  const name = id.slice(first + 1);
+  validateNamespace(namespace, { field: "namespace" });
+  validatePortableSkillName(name, { field: "name" });
+  return { namespace, name };
+}
+
+// SPEC-001 §5.1.12 Skill-reference resolution order (EGA-553).
+// Pure, deterministic, reusable by registry/router. No persistence, no routing.
+
+export interface VisibleSkillEntry {
+  readonly canonicalId: string;
+  readonly aliases?: readonly string[];
+}
+
+function compareUtf16(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function portableNameOf(canonicalId: string): string | null {
+  const first = canonicalId.indexOf("/");
+  const last = canonicalId.lastIndexOf("/");
+  if (first <= 0 || first !== last || first === canonicalId.length - 1) {
+    return null;
+  }
+  return canonicalId.slice(first + 1);
+}
+
+export function resolveSkillReference(
+  ref: string,
+  visibleCatalog: readonly VisibleSkillEntry[],
+): string {
+  // 1. Exact canonical ID.
+  for (const entry of visibleCatalog) {
+    if (entry.canonicalId === ref) {
+      return entry.canonicalId;
+    }
+  }
+
+  // 2. Exact global alias (deterministic: sorted catalog order).
+  const byCanonical = [...visibleCatalog].sort((a, b) =>
+    compareUtf16(a.canonicalId, b.canonicalId),
+  );
+  for (const entry of byCanonical) {
+    for (const alias of entry.aliases ?? []) {
+      if (alias === ref) {
+        return entry.canonicalId;
+      }
+    }
+  }
+
+  // 3. Bare portable name, ONLY if exactly one visible canonical skill matches.
+  const matches = byCanonical.filter(
+    (entry) => portableNameOf(entry.canonicalId) === ref,
+  );
+  if (matches.length === 1) {
+    const only = matches[0];
+    if (only !== undefined) {
+      return only.canonicalId;
+    }
+  }
+  if (matches.length > 1) {
+    const ordered = matches.map((entry) => entry.canonicalId);
+    throw new SchemaValidationError(
+      "E_SKILL_REFERENCE_AMBIGUOUS",
+      `Bare skill reference ${JSON.stringify(ref)} is ambiguous: ${ordered.map((candidate) => JSON.stringify(candidate)).join(", ")}.`,
+      { field: "reference" },
+    );
+  }
+
+  throw new SchemaValidationError(
+    "E_SKILL_NOT_FOUND",
+    `Skill reference ${JSON.stringify(ref)} did not match any visible canonical skill.`,
+    { field: "reference" },
+  );
 }
