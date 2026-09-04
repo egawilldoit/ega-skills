@@ -184,7 +184,9 @@ test("SPEC-005 §5.1.1: file-as-projectPath uses the parent directory", async (t
   assert.equal(result.projectPath, join(root, "src"));
   assert.equal(result.configPath, join(root, ".egaskills.yaml"));
   // Symlinked file resolves to the real file, then its parent directory.
-  await symlink(file, join(root, "main-link.ts"), "junction");
+  // NOTE: "file" (not "junction") — junctions are directory-only on Windows
+  // and would leave a broken link there (PR #33 Windows failure).
+  await symlink(file, join(root, "main-link.ts"), "file");
   assert.equal(resolveEffectiveProjectPath(join(root, "main-link.ts")), join(root, "src"));
 });
 
