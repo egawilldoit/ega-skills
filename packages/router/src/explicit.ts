@@ -18,7 +18,7 @@
 // the automatic candidate pool for the call.
 
 import { RouterError } from "./errors.js";
-import { matchesStrongAntiTrigger } from "./match.js";
+import { hasStrongPlatformMismatch, matchesStrongAntiTrigger } from "./match.js";
 import type {
   BudgetStatus,
   CompatibilityWarning,
@@ -117,14 +117,7 @@ function resolveOneReference(
   );
 }
 
-/** Strong platform mismatch (§5.1.12.3): project evidence + skill platforms + empty intersection. */
-function hasStrongPlatformMismatch(
-  projectPlatforms: readonly string[],
-  skillPlatforms: readonly string[],
-): boolean {
-  if (projectPlatforms.length === 0 || skillPlatforms.length === 0) return false;
-  return !skillPlatforms.some((platform) => projectPlatforms.includes(platform));
-}
+/** Strong platform mismatch lives in match.ts (§5.1.12.3), shared with EGA-574. */
 
 export function resolveExplicitSkills(input: ExplicitResolutionInput): ExplicitResolution {
   if (input.references.length > MAX_EXPLICIT_SKILLS) {
