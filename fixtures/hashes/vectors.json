@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "note": "Frozen SPEC-002 §5.1.20 vectors. Byte-identical on Linux and Windows. Update only through explicit spec amendment.",
+  "blobs": {
+    "hello": {
+      "inputUtf8": "hello",
+      "expected": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    },
+    "skillLf": {
+      "expected": "sha256:84ab5adc5dfbe4641d6d3043927e7b48b2f1d6bc490924016eb04510d32a3d1f",
+      "expectedByteSize": 14
+    }
+  },
+  "textConvergence": {
+    "lf": "# Skill\nline2\n",
+    "crlf": "# Skill\r\nline2\r\n",
+    "bomLf": "﻿# Skill\nline2\n",
+    "expectedBlob": "sha256:84ab5adc5dfbe4641d6d3043927e7b48b2f1d6bc490924016eb04510d32a3d1f",
+    "expectedByteSize": 14
+  },
+  "unicodeDistinct": {
+    "nfc": "Café",
+    "nfd": "Café",
+    "expectedNfcBlob": "sha256:73473dcc12b763085904a5279d048c4d5b3b008c46f1f32443b99de04aa83a14",
+    "expectedNfdBlob": "sha256:c42cc7a1ca08364b6fd859fa50d2454730a8236290a423373cc630da77c6d711"
+  },
+  "egaFormattingInvariance": {
+    "sourceA": "# comment\nschema_version: 1\ndomains: [Web, API]\n",
+    "sourceB": "domains: [api, WEB] # trailing\nschema_version: 1\n",
+    "normalizedRouting": {
+      "domains": [
+        "api",
+        "web"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "antiTriggers": [],
+      "aliases": []
+    },
+    "expectedVersion": "sha256:26a341f34b4cb1d3b4841648e788bcd3f315937a21497d8fb41c1515e920d81b"
+  },
+  "minimalManifest": {
+    "manifest": {
+      "schema_version": 1,
+      "skill_id": "ega/minimal",
+      "portable": {
+        "name": "minimal",
+        "description": "Minimal skill."
+      },
+      "routing": {
+        "domains": [],
+        "platforms": [],
+        "frameworks": [],
+        "triggers": [],
+        "anti_triggers": [],
+        "aliases": []
+      },
+      "files": [
+        {
+          "path": "SKILL.md",
+          "role": "skill-body",
+          "blob_hash": "sha256:84ab5adc5dfbe4641d6d3043927e7b48b2f1d6bc490924016eb04510d32a3d1f",
+          "byte_size": 14,
+          "content_kind": "TEXT"
+        }
+      ]
+    },
+    "expectedVersion": "sha256:ce3bee1905b95e044ccf5dac9ac599dc47d20d3e58248a57a630b46fd4f64586"
+  }
+}
