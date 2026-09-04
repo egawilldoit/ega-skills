@@ -12,7 +12,8 @@ export type SchemaErrorCode =
   | "E_SKILL_DESCRIPTION_TOO_LARGE"
   | "E_NAMESPACE_INVALID"
   | "E_SKILL_NOT_FOUND"
-  | "E_SKILL_REFERENCE_AMBIGUOUS";
+  | "E_SKILL_REFERENCE_AMBIGUOUS"
+  | "E_EGA_METADATA_INVALID";
 
 export interface SchemaErrorContext {
   readonly path?: string;
@@ -405,4 +406,202 @@ export function resolveSkillReference(
     `Skill reference ${JSON.stringify(ref)} did not match any visible canonical skill.`,
     { field: "reference" },
   );
+}
+
+// SPEC-001 §5.1.8–§5.1.10 ega.yaml routing metadata (EGA-554).
+// Canonical storage forms are distinct from derived search text (SPEC-003 FTS).
+
+export interface EgaRoutingMetadata {
+  readonly domains: readonly string[];
+  readonly platforms: readonly string[];
+  readonly frameworks: readonly string[];
+  readonly aliases: readonly string[];
+  readonly triggers: readonly string[];
+  readonly antiTriggers: readonly string[];
+}
+
+export const EMPTY_EGA_ROUTING_METADATA: EgaRoutingMetadata = Object.freeze({
+  domains: Object.freeze([]) as readonly string[],
+  platforms: Object.freeze([]) as readonly string[],
+  frameworks: Object.freeze([]) as readonly string[],
+  aliases: Object.freeze([]) as readonly string[],
+  triggers: Object.freeze([]) as readonly string[],
+  antiTriggers: Object.freeze([]) as readonly string[],
+});
+
+const ROUTING_IDENTIFIER_RE = /^[a-z0-9][a-z0-9._+-]{0,63}$/;
+
+const EGA_YAML_KEYS = new Set([
+  "schema_version",
+  "domains",
+  "platforms",
+  "frameworks",
+  "aliases",
+  "triggers",
+  "anti_triggers",
+]);
+
+function trimAsciiWhitespace(value: string): string {
+  return value.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "");
+}
+
+function asciiLowercase(value: string): string {
+  return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+}
+
+function sortUtf16(values: string[]): string[] {
+  return values.sort((a, b) => {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  });
+}
+
+function metadataError(
+  message: string,
+  path: string,
+  field?: string,
+): SchemaValidationError {
+  return new SchemaValidationError(
+    "E_EGA_METADATA_INVALID",
+    message,
+    field === undefined ? { path } : { path, field },
+  );
+}
+
+function normalizeIdentifierSet(
+  value: unknown,
+  field: string,
+  path: string,
+): string[] {
+  if (!Array.isArray(value)) {
+    throw metadataError(
+      `ega.yaml ${field} must be an array of identifier strings.`,
+      path,
+      field,
+    );
+  }
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw metadataError(
+        `ega.yaml ${field} entries must be strings.`,
+        path,
+        field,
+      );
+    }
+    const canonical = asciiLowercase(trimAsciiWhitespace(entry));
+    if (!ROUTING_IDENTIFIER_RE.test(canonical)) {
+      throw metadataError(
+        `ega.yaml ${field} entry ${JSON.stringify(entry)} is not a valid routing identifier.`,
+        path,
+        field,
+      );
+    }
+    normalized.push(canonical);
+  }
+  return sortUtf16([...new Set(normalized)]);
+}
+
+function normalizeTriggerText(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+}
+
+function normalizeTriggerSet(
+  value: unknown,
+  field: string,
+  path: string,
+): string[] {
+  if (!Array.isArray(value)) {
+    throw metadataError(
+      `ega.yaml ${field} must be an array of strings.`,
+      path,
+      field,
+    );
+  }
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw metadataError(
+        `ega.yaml ${field} entries must be strings.`,
+        path,
+        field,
+      );
+    }
+    normalized.push(normalizeTriggerText(entry));
+  }
+  return sortUtf16([...new Set(normalized)]);
+}
+
+export interface ParseEgaMetadataOptions {
+  readonly path?: string;
+}
+
+export function parseEgaMetadata(
+  bytes: Uint8Array | undefined,
+  options: ParseEgaMetadataOptions = {},
+): EgaRoutingMetadata {
+  if (bytes === undefined) {
+    return {
+      domains: [],
+      platforms: [],
+      frameworks: [],
+      aliases: [],
+      triggers: [],
+      antiTriggers: [],
+    };
+  }
+  const path = options.path ?? "ega.yaml";
+  // SPEC-001 §5.1.2 ordering: encoding errors surface as E_CONTROL_FILE_ENCODING.
+  const text = decodeControlFile(bytes, path);
+
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text, { uniqueKeys: true });
+  } catch {
+    throw metadataError("ega.yaml could not be parsed as a YAML mapping.", path);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw metadataError("ega.yaml must declare schema_version: 1.", path, "schema_version");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record["schema_version"] !== 1) {
+    throw metadataError("ega.yaml must declare schema_version: 1.", path, "schema_version");
+  }
+  for (const key of Object.keys(record)) {
+    if (!EGA_YAML_KEYS.has(key)) {
+      throw metadataError(
+        `ega.yaml key ${JSON.stringify(key)} is not supported in V1.`,
+        path,
+        key,
+      );
+    }
+  }
+
+  return {
+    domains:
+      record["domains"] === undefined
+        ? []
+        : normalizeIdentifierSet(record["domains"], "domains", path),
+    platforms:
+      record["platforms"] === undefined
+        ? []
+        : normalizeIdentifierSet(record["platforms"], "platforms", path),
+    frameworks:
+      record["frameworks"] === undefined
+        ? []
+        : normalizeIdentifierSet(record["frameworks"], "frameworks", path),
+    aliases:
+      record["aliases"] === undefined
+        ? []
+        : normalizeIdentifierSet(record["aliases"], "aliases", path),
+    triggers:
+      record["triggers"] === undefined
+        ? []
+        : normalizeTriggerSet(record["triggers"], "triggers", path),
+    antiTriggers:
+      record["anti_triggers"] === undefined
+        ? []
+        : normalizeTriggerSet(record["anti_triggers"], "anti_triggers", path),
+  };
 }
