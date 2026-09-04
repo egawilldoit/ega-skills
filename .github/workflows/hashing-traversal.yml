@@ -1,17 +1,22 @@
-name: CI
+name: Hashing traversal verification
 
 on:
   pull_request:
+    paths:
+      - 'packages/hashing/**'
+      - 'tests/hashing-traversal*.test.mjs'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/hashing-traversal.yml'
   push:
     branches:
-      - main
+      - abmortaki/ega-559-w2spec-002-implement-safe-realpath-traversal-for-symlinks
 
 permissions:
   contents: read
 
 jobs:
-  foundation:
-    name: foundation (${{ matrix.os }})
+  verify:
+    name: hashing traversal (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,38 +24,28 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - name: Setup Node 24
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-
       - name: Enable Corepack
         run: corepack enable
-
-      - name: Runtime versions
-        run: |
-          node --version
-          pnpm --version
-
       - name: Install from frozen lockfile
         run: pnpm install --frozen-lockfile
-
       - name: Verify lockfile is unchanged
         run: git diff --exit-code -- pnpm-lock.yaml
-
       - name: Build
         run: pnpm build
-
       - name: Typecheck
         run: pnpm typecheck
-
-      - name: Test
+      - name: Hashing traversal tests
+        run: node --test tests/hashing-traversal.test.mjs tests/hashing-traversal-toctou.test.mjs
+      - name: Full test suite
         run: pnpm test
-
       - name: Check frozen specs
         run: pnpm specs:check
+      - name: Check whitespace errors
+        run: git diff --check
