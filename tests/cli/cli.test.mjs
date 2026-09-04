@@ -26,12 +26,15 @@ test("ega-skills --version prints the package version and exits cleanly", () => 
   assert.equal(result.stderr, "");
 });
 
-test("ega-skills --help prints only the Wave-0 CLI surface and exits cleanly", () => {
+test("ega-skills --help prints the Wave-3 CLI surface and exits cleanly", () => {
   const result = runCli("--help");
   const expectedHelp = [
     "Usage:",
     "  ega-skills --help",
     "  ega-skills --version",
+    "  ega-skills import <path> --namespace <namespace>",
+    "  ega-skills list",
+    "  ega-skills inspect <skill-id>",
     "",
     "Options:",
     "  --help     Show this help.",
@@ -46,14 +49,14 @@ test("ega-skills --help prints only the Wave-0 CLI surface and exits cleanly", (
 });
 
 test("unknown commands fail clearly on stderr with a nonzero exit", () => {
-  const result = runCli("import");
+  const result = runCli("resolve");
 
   assert.equal(result.status, 1);
   assert.equal(result.signal, null);
   assert.equal(result.stdout, "");
   assert.equal(
     result.stderr,
-    'Unknown command or option: import\nRun "ega-skills --help" for usage.\n',
+    'Unknown command or option: resolve\nRun "ega-skills --help" for usage.\n',
   );
 });
 
