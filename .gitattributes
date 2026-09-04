@@ -1,0 +1,5 @@
+# EGA Skills is a byte-deterministic repository (SPEC-002 cross-platform
+# hashing, frozen byte fixtures): enforce LF checkouts on every platform so
+# committed bytes compare identically on Linux and Windows. `text=auto`
+# leaves git's binary detection intact (no conversion for binary files).
+* text=auto eol=lf
