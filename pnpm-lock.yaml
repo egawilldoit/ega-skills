@@ -40,7 +40,17 @@ importers:
         specifier: 2.0.0
         version: 2.0.0
 
-  packages/project: {}
+  packages/project:
+    dependencies:
+      '@ega-skills/hashing':
+        specifier: workspace:*
+        version: link:../hashing
+      '@ega-skills/registry':
+        specifier: workspace:*
+        version: link:../registry
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   packages/registry:
     dependencies:
