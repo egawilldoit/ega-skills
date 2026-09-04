@@ -44,3 +44,10 @@ export type {
   RoutingEvidence,
   RoutingTier,
 } from "./types.js";
+export {
+  applyAutomaticFilters,
+} from "./filters.js";
+export type {
+  AutomaticFiltersInput,
+  AutomaticFiltersOutput,
+} from "./filters.js";

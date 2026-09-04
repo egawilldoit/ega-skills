@@ -48,3 +48,18 @@ export function matchesStrongAntiTrigger(antiTrigger: string, taskTerms: readonl
   const pattern = antiTrigger.match(TASK_TERM_RE)?.map((term) => term.toLowerCase()) ?? [];
   return isContiguousSubsequence(taskTerms, pattern);
 }
+
+/**
+ * Strong platform mismatch (§5.1.12.3): exists ONLY when ALL hold — the
+ * project has explicit platform evidence, the skill declares at least one
+ * platform, and the intersection is empty. Missing evidence is NEUTRAL,
+ * never a mismatch. Shared by explicit warnings (EGA-573) and automatic hard
+ * filters (EGA-574).
+ */
+export function hasStrongPlatformMismatch(
+  projectPlatforms: readonly string[],
+  skillPlatforms: readonly string[],
+): boolean {
+  if (projectPlatforms.length === 0 || skillPlatforms.length === 0) return false;
+  return !skillPlatforms.some((platform) => projectPlatforms.includes(platform));
+}
