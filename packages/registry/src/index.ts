@@ -20,15 +20,24 @@ import {
   REGISTRY_MIGRATIONS,
   runRegistryMigrations,
 } from "./migrations/index.js";
+import {
+  applySkillAliases,
+  getAliasOwner,
+  listSkillAliases,
+} from "./aliases.js";
 
 export {
   CURRENT_SCHEMA_VERSION,
   REGISTRY_ERROR_CODES,
   REGISTRY_MIGRATIONS,
   RegistryError,
+  applySkillAliases,
+  getAliasOwner,
+  listSkillAliases,
   resolveRegistryHome,
 };
 export type { RegistryErrorCode, RegistryPaths };
+export type { ApplyAliasesResult } from "./aliases.js";
 
 export interface OpenRegistryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;

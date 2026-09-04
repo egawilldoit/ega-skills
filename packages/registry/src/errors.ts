@@ -4,6 +4,7 @@ export const REGISTRY_ERROR_CODES = [
   "E_REGISTRY_MIGRATION",
   "E_REGISTRY_FTS5_UNAVAILABLE",
   "E_REGISTRY_SCHEMA_NEWER",
+  "E_ALIAS_CONFLICT",
 ] as const;
 
 export type RegistryErrorCode = (typeof REGISTRY_ERROR_CODES)[number];
