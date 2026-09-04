@@ -19,6 +19,9 @@ logs/
 coverage/
 .nyc_output/
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
