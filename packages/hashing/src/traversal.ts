@@ -33,6 +33,10 @@ export interface TraversalFile {
   read(): Promise<Buffer>;
 }
 
+export interface TraverseFilesOptions {
+  readonly shouldVisit?: (relativePath: string) => boolean;
+}
+
 interface FileSnapshot {
   readonly dev: bigint;
   readonly ino: bigint;
@@ -139,10 +143,20 @@ export function isPathContained(root: string, candidate: string): boolean {
   return firstSegment !== '..';
 }
 
-export async function traverseFiles(root: TraversalRoot): Promise<TraversalFile[]> {
+export async function traverseFiles(
+  root: TraversalRoot,
+  options: TraverseFilesOptions = {},
+): Promise<TraversalFile[]> {
   const files: TraversalFile[] = [];
   const activeDirectories = new Set<string>();
-  await walkDirectory(root, root.lexicalRoot, root.realRoot, activeDirectories, files);
+  await walkDirectory(
+    root,
+    root.lexicalRoot,
+    root.realRoot,
+    activeDirectories,
+    files,
+    options,
+  );
   return files;
 }
 
@@ -168,6 +182,7 @@ async function walkDirectory(
   realDirectory: string,
   activeDirectories: Set<string>,
   files: TraversalFile[],
+  options: TraverseFilesOptions,
 ): Promise<void> {
   const identity = await directoryIdentity(realDirectory);
   if (activeDirectories.has(identity)) {
@@ -192,7 +207,17 @@ async function walkDirectory(
         throw pathEscape(lexicalPath);
       }
       const relativePath = path.relative(root.lexicalRoot, lexicalPath);
-      await inspectCandidate(root, lexicalPath, relativePath, activeDirectories, files);
+      if (options.shouldVisit !== undefined && !options.shouldVisit(relativePath)) {
+        continue;
+      }
+      await inspectCandidate(
+        root,
+        lexicalPath,
+        relativePath,
+        activeDirectories,
+        files,
+        options,
+      );
     }
   } finally {
     activeDirectories.delete(identity);
@@ -205,6 +230,7 @@ async function inspectCandidate(
   relativePath: string,
   activeDirectories: Set<string>,
   files: TraversalFile[],
+  options: TraverseFilesOptions,
 ): Promise<void> {
   let candidateStat: BigIntStats;
   try {
@@ -233,7 +259,14 @@ async function inspectCandidate(
     }
 
     if (targetStat.isDirectory()) {
-      await walkDirectory(root, lexicalPath, targetRealPath, activeDirectories, files);
+      await walkDirectory(
+        root,
+        lexicalPath,
+        targetRealPath,
+        activeDirectories,
+        files,
+        options,
+      );
       return;
     }
     if (targetStat.isFile()) {
@@ -262,7 +295,14 @@ async function inspectCandidate(
   }
 
   if (candidateStat.isDirectory()) {
-    await walkDirectory(root, lexicalPath, candidateRealPath, activeDirectories, files);
+    await walkDirectory(
+      root,
+      lexicalPath,
+      candidateRealPath,
+      activeDirectories,
+      files,
+      options,
+    );
     return;
   }
   if (candidateStat.isFile()) {
