@@ -42,6 +42,9 @@ importers:
 
   packages/project:
     dependencies:
+      '@ega-skills/hashing':
+        specifier: workspace:*
+        version: link:../hashing
       yaml:
         specifier: 2.9.0
         version: 2.9.0

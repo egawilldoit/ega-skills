@@ -11,7 +11,15 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export function lstatSync(path: string): Stats;
+  export function readFileSync(path: string): Uint8Array;
   export function realpathSync(path: string): string;
+}
+
+declare module "node:util" {
+  export class TextDecoder {
+    constructor(encoding?: string, options?: { fatal?: boolean });
+    decode(input?: Uint8Array): string;
+  }
 }
 
 declare module "node:path" {
