@@ -1,5 +1,21 @@
+declare module "node:crypto" {
+  export interface Hash {
+    update(data: Uint8Array): Hash;
+    digest(encoding: "hex"): string;
+  }
+  export function createHash(algorithm: string): Hash;
+}
+
 declare module "node:fs" {
   export function mkdirSync(path: string, options: { recursive: true }): string | undefined;
+  export function closeSync(fd: number): void;
+  export function existsSync(path: string): boolean;
+  export function fsyncSync(fd: number): void;
+  export function openSync(path: string, flags: string): number;
+  export function readFileSync(path: string): Uint8Array;
+  export function renameSync(oldPath: string, newPath: string): void;
+  export function unlinkSync(path: string): void;
+  export function writeSync(fd: number, data: Uint8Array): number;
 }
 
 declare module "node:os" {
@@ -14,6 +30,7 @@ declare module "node:path" {
 declare module "node:process" {
   const process: {
     readonly env: Readonly<Record<string, string | undefined>>;
+    readonly pid: number;
   };
   export default process;
 }
