@@ -243,7 +243,10 @@ export async function buildFrozenHashes() {
       return results;
     }
 
-    if (storedText !== serialized) {
+    // Line-ending tolerance: a CRLF checkout (without eol enforcement) must
+    // not fail byte-identical content — .gitattributes enforces LF repo-wide
+    // and this comparison is belt-and-braces (spec values, not checkout bytes).
+    if (storedText.replace(/\r\n/g, "\n") !== serialized) {
       let stored = null;
       try {
         stored = JSON.parse(storedText);
