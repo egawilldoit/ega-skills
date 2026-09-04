@@ -21,3 +21,13 @@ export type {
   ManifestRoutingInput,
   ManifestRoutingWire,
 } from "./manifest.js";
+export {
+  HashIdentityError,
+  canonicalizeJson,
+  formatHashIdentity,
+  hashBlobBytes,
+  hashBytes,
+  hashCanonicalManifest,
+  sha256Hex,
+} from "./identities.js";
+export type { HashIdentityErrorCode } from "./identities.js";
