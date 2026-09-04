@@ -211,7 +211,7 @@ silently become the new contract.
 | TEST-002 token vectors (T001–T009, `ega-o200k-v1`) | frozen |
 | Repository foundation (workspace, checker, templates) | complete |
 | Spec drift checker (`pnpm specs:check`) | complete |
-| GitHub repository | being initialized by this push |
+| GitHub repository | initialized |
 | Product implementation (schema/router/registry/MCP) | not started |
 | Wave 0 bootstrap implementation | next |
 
