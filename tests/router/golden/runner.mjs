@@ -150,7 +150,7 @@ function deepEqual(a, b) {
  * Errors throw and surface as GOLDEN_FIXTURE_INVALID — a broken control file
  * is never silently ignored.
  */
-function derivePolicy(projectPath) {
+export function derivePolicy(projectPath) {
   const discovery = discoverConfig(projectPath);
   const { config, lock } = readConfigAndLock(discovery);
   const effective = config ?? PROJECT_CONFIG_V1_DEFAULTS;
