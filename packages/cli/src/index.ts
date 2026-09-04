@@ -1,4 +1,5 @@
 export { runImport, runList, runInspect } from "./commands.js";
+export { runResolve } from "./commands.js";
 export type {
   ImportSummary,
   InspectFile,

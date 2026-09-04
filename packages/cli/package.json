@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ega-skills/registry": "workspace:*"
+    "@ega-skills/registry": "workspace:*",
+    "@ega-skills/router": "workspace:*"
   }
 }

@@ -59,6 +59,11 @@ export interface ComposeAutomaticInput {
   readonly maxSkills: number;
   /** Effective automatic token budget (per §5.1.7). */
   readonly maxTokens: number;
+  /**
+   * Active lock: every emitted row uses its locked version, so rows carry
+   * LOCKED_VERSION in positive emission position (EGA-579 resolver wiring).
+   */
+  readonly locked?: boolean;
 }
 
 export interface ComposeAutomaticOutput {
@@ -109,6 +114,12 @@ function coverStrongValues(row: ComposeAutomaticRow, covered: Set<string>): void
   }
 }
 
+/** Mark locked-version rows in positive emission position (before negatives). */
+function withLocked(row: ComposeAutomaticRow): ComposeAutomaticRow {
+  if (row.reasons.includes("LOCKED_VERSION")) return row;
+  return { ...row, reasons: [...row.reasons, "LOCKED_VERSION"] };
+}
+
 export function composeAutomatic(input: ComposeAutomaticInput): ComposeAutomaticOutput {
   const selected: ResolvedSkill[] = [];
   const candidates: ComposeAutomaticRow[] = [];
@@ -117,50 +128,51 @@ export function composeAutomatic(input: ComposeAutomaticInput): ComposeAutomatic
   let remaining = input.maxTokens;
 
   for (const row of input.rows) {
-    if (row.tier !== "A" && row.tier !== "B") {
+    const effective = input.locked === true ? withLocked(row) : row;
+    if (effective.tier !== "A" && effective.tier !== "B") {
       // Tier C (or any non-A/B row) is candidate-only, untouched.
-      candidates.push(row);
+      candidates.push(effective);
       continue;
     }
-    if (row.l2SizeClass === "OVERSIZED") {
-      candidates.push(withNegatives(row, ["CONTENT_OVERSIZED"]));
+    if (effective.l2SizeClass === "OVERSIZED") {
+      candidates.push(withNegatives(effective, ["CONTENT_OVERSIZED"]));
       continue;
     }
-    if (row.recommendedContentTokens === null) {
-      candidates.push(withNegatives(row, ["CONTENT_MISSING"]));
+    if (effective.recommendedContentTokens === null) {
+      candidates.push(withNegatives(effective, ["CONTENT_MISSING"]));
       continue;
     }
-    const tokens = row.recommendedContentTokens;
+    const tokens = effective.recommendedContentTokens;
     if (tokens > remaining) {
-      candidates.push(withNegatives(row, ["TOKEN_BUDGET"]));
+      candidates.push(withNegatives(effective, ["TOKEN_BUDGET"]));
       continue;
     }
 
     const selectionIndex = selected.length;
     const isThird = selectionIndex === 2;
     if (isThird) {
-      if (input.maxSkills !== 3 || !hasUniqueStrongValue(row, covered)) {
-        candidates.push(row);
+      if (input.maxSkills !== 3 || !hasUniqueStrongValue(effective, covered)) {
+        candidates.push(effective);
         continue;
       }
     } else if (selectionIndex >= input.maxSkills) {
-      candidates.push(row);
+      candidates.push(effective);
       continue;
     }
 
     selected.push({
-      id: row.id,
-      name: row.name,
-      versionHash: row.versionHash,
-      tier: row.tier,
-      recommendedContentLevel: row.recommendedContentLevel,
+      id: effective.id,
+      name: effective.name,
+      versionHash: effective.versionHash,
+      tier: effective.tier,
+      recommendedContentLevel: effective.recommendedContentLevel,
       recommendedContentTokens: tokens,
-      evidence: row.evidence,
-      reasons: row.reasons,
+      evidence: effective.evidence,
+      reasons: effective.reasons,
       warnings: [] as CompatibilityWarning[],
     });
     remaining -= tokens;
-    if (selectionIndex < 2) coverStrongValues(row, covered);
+    if (selectionIndex < 2) coverStrongValues(effective, covered);
   }
 
   const automaticSelectedTokens = selected.reduce(

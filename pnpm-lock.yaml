@@ -20,6 +20,9 @@ importers:
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry
+      '@ega-skills/router':
+        specifier: workspace:*
+        version: link:../router
 
   packages/hashing:
     dependencies:
@@ -51,7 +54,11 @@ importers:
         specifier: 13.0.3
         version: 13.0.3
 
-  packages/router: {}
+  packages/router:
+    dependencies:
+      '@ega-skills/registry':
+        specifier: workspace:*
+        version: link:../registry
 
   packages/schema:
     dependencies:

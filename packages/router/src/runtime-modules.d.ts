@@ -23,3 +23,11 @@ declare module "node:path" {
   export function relative(from: string, to: string): string;
   export function resolve(...paths: string[]): string;
 }
+
+declare module "node:crypto" {
+  export function randomUUID(): string;
+}
+
+declare module "node:url" {
+  export function fileURLToPath(url: string | URL): string;
+}
