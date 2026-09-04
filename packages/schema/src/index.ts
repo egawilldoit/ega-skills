@@ -27,7 +27,8 @@ export type SchemaErrorCode =
   | "E_NAMESPACE_INVALID"
   | "E_SKILL_NOT_FOUND"
   | "E_SKILL_REFERENCE_AMBIGUOUS"
-  | "E_EGA_METADATA_INVALID";
+  | "E_EGA_METADATA_INVALID"
+  | "E_ALIAS_CONFLICT";
 
 export interface SchemaErrorContext {
   readonly path?: string;
@@ -618,4 +619,47 @@ export function parseEgaMetadata(
         ? []
         : normalizeTriggerSet(record["anti_triggers"], "anti_triggers", path),
   };
+}
+
+// SPEC-001 §5.1.11 alias collision contract (EGA-555).
+// Pure and side-effect-free: the registry passes the existing alias owner
+// map in; this helper never persists anything. Existing-owner keys MUST be
+// canonical (already-normalized) aliases mapping to canonical skill IDs.
+
+export function assertAliasClaimsAvailable(
+  claims: readonly string[],
+  canonicalId: string,
+  existingOwners: ReadonlyMap<string, string>,
+): string[] {
+  parseCanonicalSkillId(canonicalId);
+  if (!Array.isArray(claims)) {
+    throw metadataError("ega.yaml aliases must be an array of identifier strings.", "ega.yaml", "aliases");
+  }
+  const normalized: string[] = [];
+  for (const entry of claims) {
+    if (typeof entry !== "string") {
+      throw metadataError("ega.yaml aliases entries must be strings.", "ega.yaml", "aliases");
+    }
+    const canonical = asciiLowercase(trimAsciiWhitespace(entry));
+    if (!ROUTING_IDENTIFIER_RE.test(canonical)) {
+      throw metadataError(
+        `ega.yaml aliases entry ${JSON.stringify(entry)} is not a valid routing identifier.`,
+        "ega.yaml",
+        "aliases",
+      );
+    }
+    normalized.push(canonical);
+  }
+  const ordered = sortUtf16([...new Set(normalized)]);
+  for (const alias of ordered) {
+    const owner = existingOwners.get(alias);
+    if (owner !== undefined && owner !== canonicalId) {
+      throw new SchemaValidationError(
+        "E_ALIAS_CONFLICT",
+        `Alias ${JSON.stringify(alias)} is already owned by ${JSON.stringify(owner)} and cannot map to ${JSON.stringify(canonicalId)}.`,
+        { field: "aliases" },
+      );
+    }
+  }
+  return ordered;
 }
