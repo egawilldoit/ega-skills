@@ -53,22 +53,25 @@ test("opencode config template declares the same local MCP server", async () => 
   // Review (PR #51): the acceptance path substitutes placeholders before
   // OpenCode ever sees the file, so prove a substituted render stays valid:
   // every placeholder resolves, none survive, shape is preserved.
+  // Paths are escaped for JSON: on Windows process.execPath contains
+  // backslashes that would otherwise corrupt the render (found via Windows CI).
   const placeholders = raw.match(/<ABS-[A-Z-]+>/g) ?? [];
   assert.deepEqual(
     [...new Set(placeholders)].sort(),
     ["<ABS-PATH-TO-CHECKOUT>", "<ABS-PATH-TO-FIXTURE-ROOT>", "<ABS-PATH-TO-NODE>"],
     "template exposes exactly the three documented placeholders",
   );
+  const jsonEscapedExecPath = process.execPath.replaceAll("\\", "\\\\");
   const rendered = JSON.parse(
     raw
-      .replaceAll("<ABS-PATH-TO-NODE>", process.execPath)
-      .replaceAll("<ABS-PATH-TO-CHECKOUT>", "/tmp/ega-checkout")
-      .replaceAll("<ABS-PATH-TO-FIXTURE-ROOT>", "/tmp/ega-fixture"),
+      .replaceAll("<ABS-PATH-TO-NODE>", () => jsonEscapedExecPath)
+      .replaceAll("<ABS-PATH-TO-CHECKOUT>", () => "C:\\\\ega-checkout")
+      .replaceAll("<ABS-PATH-TO-FIXTURE-ROOT>", () => "/tmp/ega-fixture"),
   );
   assert.ok(!JSON.stringify(rendered).includes("<ABS-"), "no placeholder survives substitution");
   assert.deepEqual(rendered.mcp["ega-skills"].command, [
     process.execPath,
-    "/tmp/ega-checkout/packages/mcp/bin/ega-mcp.mjs",
+    "C:\\ega-checkout/packages/mcp/bin/ega-mcp.mjs",
   ]);
   assert.equal(
     rendered.mcp["ega-skills"].environment.EGA_SKILLS_HOME,

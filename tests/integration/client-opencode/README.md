@@ -13,6 +13,10 @@ replace the three `<ABS-...>` placeholders:
 - `<ABS-PATH-TO-CHECKOUT>` — built checkout (`pnpm install --frozen-lockfile && pnpm build`).
 - `<ABS-PATH-TO-FIXTURE-ROOT>` — fixture root from step 2 (`<root>/home` holds the registry).
 
+> Windows: `opencode.json` is JSON — write paths with forward slashes
+> (`C:/...`) or escaped backslashes (`C:\\...`); single backslashes corrupt
+> the file.
+
 Project-local `opencode.json` merges over the global config, so the EGA
 server declaration is hermetic per project; the fixture home
 (`EGA_SKILLS_HOME`) keeps acceptance data out of every real project.
