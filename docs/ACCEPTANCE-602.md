@@ -16,7 +16,7 @@ linux-arm64 locally and Ubuntu + Windows in CI at every merged exact HEAD.
 | 2 | Windows/Linux identical skill hashes | PASS | `tests/hashing/frozen-fixtures.test.mjs` cross-platform fixtures green Ubuntu + Windows (every merged PR) |
 | 3 | TEST-002 passes on both platforms | PASS | `tests/tokens/token-estimator.test.mjs` T001–T009 `ega-o200k-v1` green Ubuntu + Windows |
 | 4 | FTS deterministic under frozen contract | PASS | `tests/registry/fts-search.test.mjs` (exactness, unicode61 diacritics) green both OSes |
-| 5 | 42 router scenarios pass | PASS | TEST-001 goldens: 41/41 ROUTER matrix scenarios green (`tests/router/golden/`), 42-case inventory represented |
+| 5 | 41 router scenarios pass; 42-case inventory represented | PASS | TEST-001 goldens: 41/41 ROUTER matrix scenarios green (`tests/router/golden/`) + G040 IMPORT_INTEGRATION green (`tests/router/golden/g040-import.test.mjs`); specs:check enforces G001–G042 ×1 |
 | 6 | 10+ real tasks against 40–80 real skills pass review | PASS | 12 tasks / 66-skill corpus: 11/12 HIT, 0 serious misroutes (docs/EVAL-599.md) |
 | 7 | Locked projects stable after unrelated imports | PASS | `tests/project/lock-mode.test.mjs` + `refresh.test.mjs` (explicit refresh-gating, fail-closed refresh); live LOCKED probes (597/601) exclude non-locked versions |
 | 8 | Empty locks correct | PASS | `tests/project/lock.test.mjs` §5.1.9 rule 6 (`skills: {}` valid active lock) + EGA-586 suites |
@@ -26,7 +26,7 @@ linux-arm64 locally and Ubuntu + Windows in CI at every merged exact HEAD.
 | 12 | OpenCode/T3 uses all four tools | PASS | Live OpenCode 1.18.29: discovery exactly 4; all four PASS from text fallbacks; same hashes/bytes as Codex |
 | 13 | MCP metadata context budget passes | PASS | `tests/mcp/contract.test.mjs`: per-tool descriptions ≤40, combined ≤1000 `ega-o200k-v1` (measured 968/1000 at freeze) |
 | 14 | Network-disabled runtime passes | PASS | Live fixed-binary audit: ZERO socket fds before/after serving; frozen no-network-import suites (`tokens/offline`, registry offline, refresh §5.1.10 no-network); all client runs local-stdio only |
-| 15 | Scripts cannot execute through EGA Skills | PASS | Static audit (docs/AUDIT-601.md): zero child_process/vm/http/eval primitives repo-wide; skill scripts catalogued, never run (SPEC-001/006) |
+| 15 | Scripts cannot execute through EGA Skills | PASS | Production scope (`packages/*/src`, `scripts/`): zero child_process/vm/http/eval primitives (full-repo grep; only test harnesses spawn the built server/CLI over stdio, and `tests/mcp/project-boundary.test.mjs` auto-enforces a banned-import regex on MCP sources); skill scripts catalogued, never run (SPEC-001/006) |
 | 16 | Stdout corruption tests pass | PASS | `tests/cli/*.test.mjs`: machine JSON on stdout, usage/errors on stderr, empty-stdout-on-failure assertions |
 | 17 | Windows x64 release verification passes | PASS | Full suite green on windows-latest at every merged exact HEAD (#47–#56); reference perf remains CI-observational by design (docs/PLATFORM-600.md) |
 | 18 | Linux arm64 release verification passes | PASS | Full suite green locally (592/0) + reference bench all 6 measures PASS with headroom (docs/PLATFORM-600.md) |
@@ -34,7 +34,7 @@ linux-arm64 locally and Ubuntu + Windows in CI at every merged exact HEAD.
 ## Issue-level acceptance criteria
 
 - Every final DoD checkbox mapped to evidence: the table above (18/18).
-- 42 frozen router scenarios green: #5 (41/41 matrix + inventory).
+- 42 frozen router scenarios green: #5 (41/41 ROUTER matrix + G040 import-integration; 42-case inventory).
 - 10+ real corpus tasks reviewed: #6 (12 tasks).
 - Codex + OpenCode/T3 four-tool smokes green: #11, #12.
 - Windows x64 + Linux arm64 + offline green: #14, #17, #18.
