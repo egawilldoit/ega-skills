@@ -107,9 +107,10 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  // `get_content` is the implemented tool (EGA-593): its placeholder assertion
-  // moved to the get-content suite; the remaining three are still placeholders.
-  for (const name of ["resolve", "search", "inspect"]) {
+  // `search` (EGA-591), `inspect` (EGA-592) and `get_content` (EGA-593) are
+  // implemented: their placeholder assertions moved to their suites;
+  // resolve is still a placeholder.
+  for (const name of ["resolve"]) {
     const call = await request(`call-${name}`, "tools/call", { name, arguments: VALID_ARGS[name] });
     assert.equal(call.result.isError, true, `${name} is marked as an error result`);
     const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
@@ -118,7 +119,7 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
   }
 });
 
-test("MCP skeleton: get_content is implemented and fails closed without a registry", async (t) => {
+async function failsClosedWithoutRegistry(t, name, args) {
   const { send, request } = launch(t);
   await request(1, "initialize", {
     protocolVersion: PROTOCOL_VERSION,
@@ -126,16 +127,26 @@ test("MCP skeleton: get_content is implemented and fails closed without a regist
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  const call = await request("call-get_content", "tools/call", {
-    name: "get_content",
-    // Well-formed identity (passes input validation) with no registry home:
-    // must fail closed at the registry gate, never with the placeholder.
-    arguments: { ...VALID_ARGS.get_content, version_hash: `sha256:${"00".repeat(32)}` },
-  });
-  assert.equal(call.result.isError, true, "get_content fails closed with no registry home");
+  const call = await request(`call-${name}`, "tools/call", { name, arguments: args });
+  assert.equal(call.result.isError, true, `${name} fails closed with no registry home`);
   const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
   assert.equal(envelope?.error?.code, "E_REGISTRY_UNAVAILABLE");
-  assert.equal(envelope?.error?.tool, "get_content");
+  assert.equal(envelope?.error?.tool, name);
+}
+
+test("MCP skeleton: search is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "search", VALID_ARGS.search);
+});
+
+test("MCP skeleton: inspect is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "inspect", VALID_ARGS.inspect);
+});
+
+test("MCP skeleton: get_content is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "get_content", {
+    ...VALID_ARGS.get_content,
+    version_hash: `sha256:${"00".repeat(32)}`,
+  });
 });
 
 test("MCP skeleton: stderr stays protocol-free and stdin close exits cleanly", async (t) => {

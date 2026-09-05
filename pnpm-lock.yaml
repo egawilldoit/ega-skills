@@ -36,6 +36,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@ega-skills/hashing':
+        specifier: workspace:*
+        version: link:../hashing
       '@ega-skills/project':
         specifier: workspace:*
         version: link:../project
