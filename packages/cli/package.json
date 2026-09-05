@@ -19,7 +19,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",
-    "@ega-skills/router": "workspace:*"
+    "@ega-skills/router": "workspace:*",
+    "yaml": "2.9.0"
   }
 }

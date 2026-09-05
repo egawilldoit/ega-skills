@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInspect, runList, runResolve } from "../dist/index.js";
+import { runImport, runInit, runInspect, runList, runLock, runResolve } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -20,6 +20,7 @@ function printHelp() {
       "  ega-skills list",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
+      "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "",
       "Options:",
@@ -166,6 +167,34 @@ async function main() {
     }
     try {
       const result = await runInit({ project: positional[0] ?? ".", force });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "lock") {
+    let refresh = false;
+    const positional = [];
+    for (const token of rest) {
+      if (token === "--refresh") {
+        refresh = true;
+      } else if (typeof token === "string" && token.startsWith("-")) {
+        fail(`Unknown command or option: ${token}`);
+      } else {
+        positional.push(token);
+      }
+    }
+    if (positional.length > 1) {
+      fail(`Unknown command or option: ${positional[1]}`);
+    }
+    try {
+      const result = await runLock({
+        project: positional[0] ?? ".",
+        refresh,
+        env: process.env,
+      });
       process.stdout.write(`${JSON.stringify(result)}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));

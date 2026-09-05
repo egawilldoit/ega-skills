@@ -336,6 +336,40 @@ export function validateLockfile(parsed: unknown, expectedConfigHash: string): P
 }
 
 /**
+ * Deterministic lock serialization (SPEC-005 §5.1.9 rules 1–5, EGA-616): the
+ * exact human-readable layout the validator accepts verbatim — skill keys
+ * sorted ascending by UTF-16 code units, no timestamps, trailing newline.
+ * Values are validator-constrained (canonical IDs, portable names, sha256
+ * hex), so no quoting/escaping branch exists; any unexpected value shape is a
+ * programming error and throws rather than emitting a drifting layout.
+ */
+export function serializeLockfile(lock: ProjectLockV1): string {
+  if (lock.lockfile_version !== LOCKFILE_VERSION) {
+    throw new Error(`Cannot serialize lockfile_version ${JSON.stringify(lock.lockfile_version)} (V1 writes 1).`);
+  }
+  if (lock.token_estimator !== TOKEN_ESTIMATOR_EGA_O200K_V1) {
+    throw new Error(`Cannot serialize token estimator ${JSON.stringify(lock.token_estimator)} (V1 writes ega-o200k-v1).`);
+  }
+  const lines = [
+    "generated_from:",
+    `  config_hash: ${lock.generated_from.config_hash}`,
+    "lockfile_version: 1",
+  ];
+  const keys = Object.keys(lock.skills).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (keys.length === 0) {
+    lines.push("skills: {}");
+  } else {
+    lines.push("skills:");
+    for (const key of keys) {
+      const entry = lock.skills[key]!;
+      lines.push(`  ${key}:`, `    name: ${entry.name}`, `    version_hash: ${entry.version_hash}`);
+    }
+  }
+  lines.push(`token_estimator: ${TOKEN_ESTIMATOR_EGA_O200K_V1}`, "");
+  return lines.join("\n");
+}
+
+/**
  * Locked-version lookup (§5.1.11): returns the exact immutable version hash
  * for a locked skill. Throws `E_LOCKED_VERSION_MISSING` when the skill is
  * absent from the lock — the resolver NEVER falls forward to current/latest.
