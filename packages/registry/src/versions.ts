@@ -53,6 +53,13 @@ export interface SourceObservation {
   readonly repository?: string | null;
   readonly commitSha?: string | null;
   readonly repositoryPath?: string | null;
+  /**
+   * ISO-8601 UTC instant the observation was recorded (AMEND-07). Optional:
+   * when absent, the record moment (insert time) is stored. Explicit values
+   * must be well-formed UTC instants; malformed values throw TypeError
+   * (programmer contract, not a frozen runtime path).
+   */
+  readonly observedAt?: string;
 }
 
 export interface SourceRecord {
@@ -64,7 +71,16 @@ export interface SourceRecord {
   readonly repository: string | null;
   readonly commitSha: string | null;
   readonly repositoryPath: string | null;
+  /**
+   * Stored ISO-8601 UTC observation instant, or null ONLY for rows written
+   * outside the V1 importer/migration path. Readers requiring a timestamp
+   * fail closed on null (never derive fake times).
+   */
+  readonly observedAt: string | null;
 }
+
+/** Strict ISO-8601 UTC instant shape (matches Date.toISOString() output). */
+const OBSERVED_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export interface TokenCountInput {
   readonly blobHash: string;
@@ -290,9 +306,17 @@ export function recordSourceObservation(
   observation: SourceObservation,
 ): { sourceId: number } {
   if (!selectVersion(db, skillId, versionHash)) throw notFound(skillId, versionHash);
+  let observedAt = observation.observedAt;
+  if (observedAt === undefined) {
+    observedAt = new Date().toISOString();
+  } else if (!OBSERVED_AT_RE.test(observedAt) || Number.isNaN(Date.parse(observedAt))) {
+    throw new TypeError(
+      `recordSourceObservation requires observedAt as an ISO-8601 UTC instant (got ${JSON.stringify(observedAt)})`,
+    );
+  }
   const result = db
     .prepare(
-      "INSERT INTO skill_sources (skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO skill_sources (skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       skillId,
@@ -302,6 +326,7 @@ export function recordSourceObservation(
       observation.repository ?? null,
       observation.commitSha ?? null,
       observation.repositoryPath ?? null,
+      observedAt,
     );
   return { sourceId: Number(result.lastInsertRowid) };
 }
@@ -314,7 +339,7 @@ export function listVersionSources(
 ): SourceRecord[] {
   const rows = db
     .prepare(
-      "SELECT source_id, skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path FROM skill_sources WHERE skill_id = ? AND version_hash = ? ORDER BY source_id ASC",
+      "SELECT source_id, skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path, observed_at FROM skill_sources WHERE skill_id = ? AND version_hash = ? ORDER BY source_id ASC",
     )
     .all<{
       source_id: number;
@@ -325,6 +350,7 @@ export function listVersionSources(
       repository: string | null;
       commit_sha: string | null;
       repository_path: string | null;
+      observed_at: string | null;
     }>(skillId, versionHash) as Array<{
     source_id: number;
     skill_id: string;
@@ -334,6 +360,7 @@ export function listVersionSources(
     repository: string | null;
     commit_sha: string | null;
     repository_path: string | null;
+    observed_at: string | null;
   }>;
   return rows.map((row) => ({
     sourceId: row.source_id,
@@ -344,6 +371,7 @@ export function listVersionSources(
     repository: row.repository,
     commitSha: row.commit_sha,
     repositoryPath: row.repository_path,
+    observedAt: row.observed_at,
   }));
 }
 

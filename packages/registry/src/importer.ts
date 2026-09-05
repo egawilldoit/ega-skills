@@ -278,8 +278,17 @@ async function importSkillRoot(
     // path records no duplicate row, while new locations add observations.
     if (!hasSourceObservation(db, skillId, versionHash, "local", traversalRoot.lexicalRoot)) {
       db.prepare(
-        "INSERT INTO skill_sources (skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).run(skillId, versionHash, "local", traversalRoot.lexicalRoot, null, null, null);
+        "INSERT INTO skill_sources (skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        skillId,
+        versionHash,
+        "local",
+        traversalRoot.lexicalRoot,
+        null,
+        null,
+        null,
+        new Date().toISOString(),
+      );
     }
     db.exec("COMMIT");
     return { skillId, versionHash, outcome: lifecycle.outcome, root };

@@ -4,9 +4,10 @@
 **Incorporates:** AMEND-02 (EGA-607: binary token persistence, import namespace rule,
 collection-discovery boundary), AMEND-03 (EGA-608: trust default, alias lifecycle,
 current-version lifecycle, FTS exactness, re-import semantics, reference-ambiguity
-terminology).
+terminology), AMEND-07 (EGA-612: real source-observation timestamps with documented
+migration backfill; timestamps stay excluded from version identity).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
-Linear amendment tickets (EGA-605..EGA-611) are provenance/history only.
+Linear amendment tickets (EGA-605..EGA-612) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
 (Linear: EGA-550 gate; EGA-605 parent gate).
 
@@ -221,6 +222,15 @@ ega-skills import <path> --namespace <namespace>
    commit SHA, repository path) and remain EXCLUDED from version identity.
 3. Provenance updates do not change version identity and do not move the current
    pointer by themselves.
+4. Every source row carries `observed_at`: the ISO-8601 UTC instant the
+   observation was recorded — import time for importer-written rows
+   (AMEND-07). Registries created before this amendment receive the migration
+   instant for pre-existing rows (documented backfill; order among those rows
+   remains insertion order). Like all provenance fields, `observed_at` remains
+   EXCLUDED from version identity: recording or migrating timestamps MUST NOT
+   alter version hashes, manifests, or blob identities.
+5. Readers that require an observation instant fail closed on rows lacking a
+   stored value instead of deriving one; see SPEC-006 §5.1.7 (AMEND-07).
 
 ## §5.1.16 Token-count records and binary rule (AMEND-02)
 

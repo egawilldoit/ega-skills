@@ -23,6 +23,7 @@ import {
   getCurrentVersionHash,
   importSkills,
   openRegistry,
+  recordSourceObservation,
 } from "../../packages/registry/dist/index.js";
 import {
   hashNormalizedConfig,
@@ -280,6 +281,65 @@ test("inspect: missing registry fails with E_REGISTRY_UNAVAILABLE", async (t) =>
     () => runInspectTool({ skill_id: "ega/alpha" }, ctxFor(project, home)),
     "E_REGISTRY_UNAVAILABLE",
   );
+});
+
+test("inspect: observed_at values are real record instants, never ordinals", async (t) => {
+  const before = new Date().toISOString();
+  const { home } = await setupHome(t, [["alpha", {}]]);
+  const after = new Date().toISOString();
+  const project = await makeProject();
+  const output = runInspectTool({ skill_id: "ega/alpha" }, ctxFor(project, home));
+  assert.ok(output.sources.length > 0);
+  for (const source of output.sources) {
+    assert.match(source.observed_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    assert.ok(
+      before <= source.observed_at && source.observed_at <= after,
+      `observed_at ${source.observed_at} is the real import instant (not an ordinal-derived 1970 date)`,
+    );
+    assert.ok(!source.observed_at.startsWith("1970"), "no fabricated epoch timestamps");
+  }
+});
+
+test("inspect: null stored instant fails closed without fake timestamps", async (t) => {
+  const { home } = await setupHome(t, [["alpha", {}]]);
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
+  try {
+    registry.db.exec("UPDATE skill_sources SET observed_at = NULL");
+  } finally {
+    registry.close();
+  }
+  const project = await makeProject();
+  expectCode(
+    () => runInspectTool({ skill_id: "ega/alpha" }, ctxFor(project, home)),
+    "E_REGISTRY_UNAVAILABLE",
+  );
+});
+
+test("inspect: same-instant observations stay in stable source_id order", async (t) => {
+  const { home, hashes } = await setupHome(t, [["alpha", {}]]);
+  const instant = "2026-09-05T12:00:00.000Z";
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
+  try {
+    for (const localPath of ["/second", "/third"]) {
+      recordSourceObservation(registry.db, "ega/alpha", hashes.alpha, {
+        sourceType: "local",
+        localPath,
+        observedAt: instant,
+      });
+    }
+  } finally {
+    registry.close();
+  }
+  const project = await makeProject();
+  const ctx = ctxFor(project, home);
+  const first = runInspectTool({ skill_id: "ega/alpha" }, ctx);
+  assert.equal(first.sources.length, 3);
+  assert.deepEqual(
+    first.sources.map((s) => s.local_path).sort(),
+    ["/second", "/third", first.sources.find((s) => s.observed_at !== instant)?.local_path].sort(),
+  );
+  const second = runInspectTool({ skill_id: "ega/alpha" }, ctx);
+  assert.deepEqual(second, first, "repeated reads stay byte-stable");
 });
 
 test("inspect: repeated calls are byte-identical", async (t) => {

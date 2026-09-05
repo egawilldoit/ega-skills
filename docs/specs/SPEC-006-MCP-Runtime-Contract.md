@@ -6,9 +6,11 @@ AMEND-03 (EGA-608: current/locked version visibility for search),
 AMEND-04 (EGA-609: full `ResolutionResult` + child types mapped by `resolve`),
 AMEND-05 (EGA-610: project config/policy/lock enforcement basis),
 AMEND-06 (EGA-611: shared project context, exact four-tool schemas, snake_case
-convention, input validation, runtime output convention, result containers).
+convention, input validation, runtime output convention, result containers),
+AMEND-07 (EGA-612: real source-observation timestamps replace ordinal-derived
+`observed_at`; stored instant with `source_id` final ordering tie-break).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
-Linear amendment tickets (EGA-605..EGA-611) are provenance/history only.
+Linear amendment tickets (EGA-605..EGA-612) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
 (Linear: EGA-550 gate; EGA-605 parent gate).
 
@@ -194,8 +196,12 @@ interface McpInspectOutput {
 
    `l0.skill_id` and `l0.version_hash` MUST equal the top-level values. Source
    observations are ordered deterministically by `source_type`, `local_path`,
-   `repository`, `commit_sha`, `repository_path`, then `observed_at`, using
-   null-before-non-null and UTF-16 order for strings.
+   `repository`, `commit_sha`, `repository_path`, then `observed_at`, then
+   `source_id` as the final tie-break, using null-before-non-null and UTF-16
+   order for strings. `observed_at` is the stored real observation instant
+   (SPEC-003 §5.1.15, AMEND-07) — never an ordinal-derived value; a stored
+   null instant (rows written outside the importer/migration path) fails with
+   `E_REGISTRY_UNAVAILABLE` rather than exposing a fabricated time.
 6. Malformed input → `E_MCP_INPUT_INVALID`.
 
 ## §5.1.8 `get_content` tool
