@@ -237,7 +237,6 @@ function toolSchema(spec: {
           type: "object",
           properties: jsonProperties,
           required: [...spec.required],
-          additionalProperties: true,
         }),
         output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
       },
@@ -574,7 +573,6 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "resolve",
     {
-      title: "Resolve a task to the best local skill set",
       description: "Resolve a task to the best local skill set (SPEC-006 §5.1.5)",
       inputSchema: resolveInput,
       outputSchema: RESOLVE_OUTPUT_SCHEMA,
