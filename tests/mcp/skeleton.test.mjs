@@ -107,9 +107,10 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  // `inspect` is the implemented tool (EGA-592): its placeholder assertion
-  // moved to the inspect suite; the remaining three are still placeholders.
-  for (const name of ["resolve", "search", "get_content"]) {
+  // `search` (EGA-591) and `inspect` (EGA-592) are implemented: their
+  // placeholder assertions moved to their suites; resolve/get_content are
+  // still placeholders.
+  for (const name of ["resolve", "get_content"]) {
     const call = await request(`call-${name}`, "tools/call", { name, arguments: VALID_ARGS[name] });
     assert.equal(call.result.isError, true, `${name} is marked as an error result`);
     const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
@@ -118,7 +119,7 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
   }
 });
 
-test("MCP skeleton: inspect is implemented and fails closed without a registry", async (t) => {
+async function failsClosedWithoutRegistry(t, name, args) {
   const { send, request } = launch(t);
   await request(1, "initialize", {
     protocolVersion: PROTOCOL_VERSION,
@@ -126,14 +127,19 @@ test("MCP skeleton: inspect is implemented and fails closed without a registry",
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  const call = await request("call-inspect", "tools/call", {
-    name: "inspect",
-    arguments: VALID_ARGS.inspect,
-  });
-  assert.equal(call.result.isError, true, "inspect fails closed with no registry home");
+  const call = await request(`call-${name}`, "tools/call", { name, arguments: args });
+  assert.equal(call.result.isError, true, `${name} fails closed with no registry home`);
   const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
   assert.equal(envelope?.error?.code, "E_REGISTRY_UNAVAILABLE");
-  assert.equal(envelope?.error?.tool, "inspect");
+  assert.equal(envelope?.error?.tool, name);
+}
+
+test("MCP skeleton: search is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "search", VALID_ARGS.search);
+});
+
+test("MCP skeleton: inspect is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "inspect", VALID_ARGS.inspect);
 });
 
 test("MCP skeleton: stderr stays protocol-free and stdin close exits cleanly", async (t) => {

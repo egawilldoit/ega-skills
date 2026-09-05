@@ -1,6 +1,7 @@
 /**
  * EGA MCP runtime package entry — re-exports the stdio server skeleton
- * (SPEC-006 §5.1.1) and its frozen structured error contract.
+ * (SPEC-006 §5.1.1), its frozen structured error contract, and the
+ * implemented `search` tool body (SPEC-006 §5.1.6, EGA-591).
  */
 
 export {
@@ -39,3 +40,16 @@ export type {
   McpInspectTokenMetadata,
   McpInspectTrustLevel,
 } from "./inspect.js";
+export {
+  SEARCH_LIMIT_DEFAULT,
+  SEARCH_LIMIT_MAX,
+  SEARCH_OUTPUT_SCHEMA,
+  SEARCH_QUERY_MAX_CODE_POINTS,
+  runSearchTool,
+} from "./search.js";
+export type {
+  McpSearchOutput,
+  McpSearchResultRow,
+  SearchToolArgs,
+  SearchToolOptions,
+} from "./search.js";

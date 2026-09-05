@@ -422,8 +422,9 @@ test("boundary (wire): valid project falls through to the tool body", async (t) 
   writeConfig(project);
   const { send, request } = launch(t, envFor(home));
   await handshake(request, send);
-  // `inspect` now has a real body (EGA-592), so `resolve` — still a skeleton
-  // placeholder — proves the boundary runs FIRST without swallowing success.
+  // `search` (EGA-591) and `inspect` (EGA-592) both have real bodies, so
+  // `resolve` — still a skeleton placeholder — proves the boundary runs
+  // FIRST without swallowing success.
   const call = await request("wire-valid", "tools/call", {
     name: "resolve",
     arguments: { task: "fix a flaky crash", project_path: project },
