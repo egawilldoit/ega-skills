@@ -165,9 +165,19 @@ test("get_content: L2 returns the exact canonical SKILL.md bytes", async (t) => 
   assert.ok(output.token_count > 0);
   assert.equal(output.content, written.alpha.skillMd, "L2 is the exact canonical file bytes");
   assert.ok(output.content.includes("CONTENT-BODY-6621"));
-  for (const part of result.content) {
-    assert.ok(!part.text.includes("CONTENT-BODY-6621"), "text fallback never carries the body");
-  }
+  // EGA-597: the text fallback is summary + the exact requested body, so
+  // text-only clients (proven: real OpenCode runs) receive usable content.
+  // The body stays budget-bounded by the call's own max_tokens.
+  assert.equal(result.content.length, 1);
+  const fallback = result.content[0].text;
+  assert.ok(
+    fallback.startsWith(`get_content ega/alpha ${hashes.alpha} L2 tokens=${output.token_count}/4000.`),
+    "text fallback starts with the summary line",
+  );
+  assert.ok(
+    fallback.endsWith(`\n${written.alpha.skillMd}`),
+    "text fallback carries the exact requested body",
+  );
 });
 
 test("get_content: L1 returns the exact canonical SKILL.core.md bytes", async (t) => {

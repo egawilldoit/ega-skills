@@ -256,8 +256,12 @@ const utf8StrictDecoder = new TextDecoder("utf-8", { fatal: true });
 
 /**
  * Runs one `get_content` tool call against the given effective project
- * context. Success returns the MCP result (one-line text summary — NEVER the
- * body — plus the exact output container, `isError: false`); failures throw
+ * context. Success returns the MCP result (one-line text summary PLUS the
+ * exact requested body as the text fallback — text-only clients never
+ * receive `structuredContent` (EGA-597: real OpenCode runs), so a
+ * summary-only fallback would make the tool unusable for them. The body is
+ * budget-bounded by the call's own max_tokens (SPEC-006 §5.1.8.1 rule 2/4),
+ * so the fallback stays compact by construction; failures throw
  * `McpContextError` with a frozen code. Each call carries its OWN budget.
  */
 export function runGetContentTool(
@@ -346,7 +350,7 @@ export function runGetContentTool(
     });
     const text =
       `get_content ${input.skillId} ${input.versionHash} ${input.level} ` +
-      `tokens=${tokenCount}/${input.maxTokens}.`;
+      `tokens=${tokenCount}/${input.maxTokens}.\n${content}`;
     return Object.freeze({
       content: Object.freeze([Object.freeze({ type: "text", text })]),
       structuredContent: output,

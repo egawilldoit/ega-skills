@@ -30,10 +30,13 @@ find <home>/cache -type f | sort | xargs sha256sum > before-blobs.sha
 ## 2. Isolate Codex
 
 ```sh
-export CODEX_HOME=/tmp/ega-codex-accept/codex-home
+# Private temp root first: mktemp -d creates mode 0700, so no local attacker
+# can pre-create the path and capture the credential copy below (CWE-377).
+export CODEX_HOME="$(mktemp -d -t ega-codex-accept-XXXXXX)/codex-home"
 mkdir -p "$CODEX_HOME"
 # Credential: reuse YOUR OWN login non-interactively, e.g.
-cp ~/.codex/auth.json "$CODEX_HOME/auth.json" && chmod 600 "$CODEX_HOME/auth.json"
+# install -m 600 creates the copy restrictive from the start (no cp+chmod race).
+install -m 600 ~/.codex/auth.json "$CODEX_HOME/auth.json"
 # Register the server (or copy codex-config.template.toml by hand):
 codex mcp add ega-skills \
   --env EGA_SKILLS_HOME=<fixture-home> \

@@ -343,7 +343,15 @@ export function runSearchTool(
     const output: McpSearchOutput = Object.freeze({
       results: Object.freeze(results),
     });
-    const text = `Search matched ${results.length} project-visible skill version(s).`;
+    // Text fallback MUST be sufficient for text-only clients (EGA-597: real
+    // OpenCode runs prove some clients never forward `structuredContent` to
+    // the model). Each hit contributes one compact `skill_id version_hash`
+    // line — the machine-essential facts, no bodies, no BM25, no verbose
+    // prose (SPEC-006 §5.1.3 rule 2: compact, bounded by the hard max 20).
+    const lines = results.map((row) => `${row.skill_id} ${row.version_hash}`);
+    const text =
+      `Search matched ${results.length} project-visible skill version(s).` +
+      (lines.length > 0 ? `\n${lines.join("\n")}` : "");
     return Object.freeze({
       content: Object.freeze([Object.freeze({ type: "text", text })]),
       structuredContent: output,
