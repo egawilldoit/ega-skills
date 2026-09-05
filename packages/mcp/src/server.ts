@@ -494,6 +494,7 @@ function withGetContentBoundary(): (args: Record<string, unknown>) => CallToolRe
           version_hash: raw["version_hash"],
           level: raw["level"],
           max_tokens: raw["max_tokens"],
+          file_path: raw["file_path"],
         },
         context,
       );
@@ -565,6 +566,7 @@ export function createMcpServer(): McpServer {
       version_hash: { type: "string", nonEmpty: true },
       level: { type: "enum", values: ["L1", "L2"] },
       max_tokens: { type: "integer", min: 1, max: 1_000_000 },
+      file_path: { type: "string" },
       project_path: { type: "string" },
     },
     required: ["skill_id", "version_hash", "level", "max_tokens"],

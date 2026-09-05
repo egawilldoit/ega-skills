@@ -8,7 +8,9 @@ AMEND-05 (EGA-610: project config/policy/lock enforcement basis),
 AMEND-06 (EGA-611: shared project context, exact four-tool schemas, snake_case
 convention, input validation, runtime output convention, result containers),
 AMEND-07 (EGA-612: real source-observation timestamps replace ordinal-derived
-`observed_at`; stored instant with `source_id` final ordering tie-break).
+`observed_at`; stored instant with `source_id` final ordering tie-break),
+AMEND-10 (EGA-615: optional exact supporting-file access through `get_content`
+`file_path`; still exactly four tools).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
 Linear amendment tickets (EGA-605..EGA-612) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
@@ -219,12 +221,15 @@ Input:
   "version_hash": "sha256:...",
   "level": "L1|L2",
   "max_tokens": 4000,
+  "file_path": "references/tests.md?",
   "project_path": "string?"
 }
 ```
 
-0. All input fields except `project_path` are REQUIRED. `level` accepts ONLY `L1`
-   or `L2`.
+0. All input fields except `project_path` and `file_path` are REQUIRED. `level`
+   accepts ONLY `L1` or `L2`. `file_path`, when present, MUST be a non-empty
+   string and REQUIRES `level: "L2"` (companions attach to the full L2 body;
+   `level: "L1"` with `file_path` is `E_MCP_INPUT_INVALID`).
 
 1. `get_content` enforces the effective project policy/lock BEFORE cache access:   - a denied/not-visible skill surfaces as `E_SKILL_NOT_FOUND` to the MCP client
      (no existence oracle for denied skills);
@@ -250,11 +255,37 @@ Input:
   "version_hash": "...",
   "level": "L1|L2",
   "token_count": 123,
-  "content": "exact canonical text"
+  "content": "exact canonical text",
+  "file_path": "references/tests.md (present ONLY when requested)"
 }
 ```
 
 6. Malformed input → `E_MCP_INPUT_INVALID`.
+
+7. (AMEND-10) Optional exact supporting-file access. When `file_path` is
+   present, `content` is the EXACT canonical text of ONE manifested companion
+   file instead of the level body, under every invariant of rules 1–4:
+   - the path is matched with EXACT string equality against the version
+     manifest's file entries — no normalization, no glob, no directory
+     access, no fallback. `"a/../b"`, `"a//b"`, and trailing-slash forms
+     NEVER match (the empty string is rejected earlier as malformed input
+     under rule 0/6);
+   - servable entries are TEXT companions only (manifest role `reference` or
+     `other` with TEXT content). Control entries (`skill-body`, `core`,
+     `ega-metadata`), `script`/`asset` entries, and non-TEXT blobs are NEVER
+     served: requesting them returns `E_CONTENT_FILE_FORBIDDEN` (use `level`
+     for the instruction bodies; scripts/assets are not retrievable);
+   - a well-formed path with no exact manifest match returns
+     `E_CONTENT_FILE_UNKNOWN` whose message MUST NOT enumerate version files;
+   - policy/lock gating (rule 1) runs BEFORE any manifest/cache read, at the
+     same gate as level content;
+   - cache bytes are hash-verified before return (rule 3); the companion is
+     counted with `ega-o200k-v1` at call time against the same per-call
+     `max_tokens` budget — over-budget is `E_CONTENT_TOKEN_BUDGET`, never
+     truncation (rules 2/4);
+   - the output echoes `file_path`; the text fallback carries the same
+     summary + full-body convention as level content. This is a parameter of
+     the existing fourth tool — the surface stays EXACTLY four tools.
 
 ## §5.1.9 Server lifecycle
 
@@ -276,6 +307,7 @@ lifecycle. No activation/session state exists (§5.1.4 rule 7).
 `E_REGISTRY_UNAVAILABLE`, `E_PROJECT_NOT_FOUND`, `E_PROJECT_CONFIG_INVALID`,
 `E_PROJECT_LOCK_INVALID`, `E_SKILL_NOT_FOUND`, `E_VERSION_NOT_FOUND`,
 `E_VERSION_NOT_LOCKED`, `E_CONTENT_LEVEL_MISSING`, `E_CONTENT_TOKEN_BUDGET`,
+`E_CONTENT_FILE_UNKNOWN`, `E_CONTENT_FILE_FORBIDDEN`,
 `E_CACHE_HASH_MISMATCH`, `E_MCP_INPUT_INVALID`.
 (Internal `E_RESOLVE_REQUEST_INVALID` is mapped to `E_MCP_INPUT_INVALID` at the
 adapter and never exposed raw. Policy/lock/validity codes owned by SPEC-004/005

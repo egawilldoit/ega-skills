@@ -43,7 +43,9 @@ import {
   EGA_O200K_V1_ESTIMATOR_ID,
   parseCanonicalSkillId,
   SchemaValidationError,
+  tokenEstimator,
 } from "@ega-skills/schema";
+import { canonicalizeText } from "@ega-skills/hashing";
 import {
   lockedVersionFor,
   ProjectLockError,
@@ -83,6 +85,7 @@ export interface GetContentToolArgs {
   readonly version_hash?: unknown;
   readonly level?: unknown;
   readonly max_tokens?: unknown;
+  readonly file_path?: unknown;
   readonly project_path?: unknown;
 }
 
@@ -90,13 +93,15 @@ export interface GetContentToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
-/** Exact V1 get_content output container (SPEC-006 §5.1.8 rule 5). */
+/** Exact V1 get_content output container (SPEC-006 §5.1.8 rules 5/7). */
 export interface McpGetContentOutput {
   readonly skill_id: string;
   readonly version_hash: string;
   readonly level: GetContentLevel;
   readonly token_count: number;
   readonly content: string;
+  /** AMEND-10: echoed ONLY when the input carried `file_path`. */
+  readonly file_path?: string;
 }
 
 function inputInvalid(message: string): never {
@@ -113,9 +118,11 @@ interface ValidatedGetContentInput {
   readonly versionHash: string;
   readonly level: GetContentLevel;
   readonly maxTokens: number;
+  /** AMEND-10: exact manifest path, or null for the level body. */
+  readonly filePath: string | null;
 }
 
-/** Validates the frozen input shape; all fields but `project_path` required. */
+/** Validates the frozen input shape; only `project_path`/`file_path` optional. */
 function validateInput(args: GetContentToolArgs): ValidatedGetContentInput {
   if (typeof args.skill_id !== "string" || args.skill_id.length === 0) {
     inputInvalid('Argument "skill_id" must be a non-empty canonical skill ID string.');
@@ -145,12 +152,25 @@ function validateInput(args: GetContentToolArgs): ValidatedGetContentInput {
       `Argument "max_tokens" must be an integer ${GET_CONTENT_MAX_TOKENS_MIN}..${GET_CONTENT_MAX_TOKENS_MAX}.`,
     );
   }
+  // AMEND-10 (SPEC-006 §5.1.8 rule 0/7): optional exact companion path —
+  // non-empty string only, and only with level L2.
+  let filePath: string | null = null;
+  if (args.file_path !== undefined) {
+    if (typeof args.file_path !== "string" || args.file_path.length === 0) {
+      inputInvalid('Argument "file_path" must be a non-empty manifest path string when present.');
+    }
+    if (args.level !== "L2") {
+      inputInvalid('Argument "file_path" requires "level" to be "L2".');
+    }
+    filePath = args.file_path;
+  }
   return {
     skillId: args.skill_id,
     namespace,
     versionHash: args.version_hash,
     level: args.level,
     maxTokens: args.max_tokens,
+    filePath,
   };
 }
 
@@ -219,6 +239,71 @@ interface ManifestFileEntry {
   readonly path: string;
   readonly role: string;
   readonly blob_hash: string;
+  readonly content_kind: string;
+}
+
+/** Manifest roles that are NEVER served through `file_path` (AMEND-10). */
+const FORBIDDEN_FILE_ROLES: ReadonlySet<string> = new Set([
+  "skill-body",
+  "core",
+  "ega-metadata",
+  "script",
+  "asset",
+]);
+
+/**
+ * Exact companion blob hash from the canonical manifest (SPEC-006 §5.1.8
+ * rule 7): EXACT string equality on the manifest path — no normalization,
+ * no glob, no directory access. Unknown paths fail closed WITHOUT
+ * enumerating version files; control/script/asset/non-TEXT entries are
+ * refused (never served, never executed).
+ */
+function companionBlobHash(
+  manifestJson: string,
+  skillId: string,
+  filePath: string,
+): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestJson);
+  } catch {
+    throw new McpContextError(
+      "E_REGISTRY_UNAVAILABLE",
+      `Local registry stored an unreadable manifest for ${JSON.stringify(skillId)}.`,
+    );
+  }
+  const files: unknown =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as { files?: unknown }).files
+      : undefined;
+  if (!Array.isArray(files)) {
+    throw new McpContextError(
+      "E_REGISTRY_UNAVAILABLE",
+      `Local registry stored a manifest without files for ${JSON.stringify(skillId)}.`,
+    );
+  }
+  for (const file of files) {
+    const entry = file as Partial<ManifestFileEntry>;
+    if (entry?.path !== filePath) continue;
+    // Exact match found: decide servable vs forbidden. The match itself is
+    // exact-equality only — traversal-shaped inputs can never equal a
+    // canonical manifest path, so they fall through to UNKNOWN below.
+    if (
+      typeof entry.blob_hash !== "string" ||
+      FORBIDDEN_FILE_ROLES.has(entry.role ?? "") ||
+      entry.content_kind !== "TEXT"
+    ) {
+      throw new McpContextError(
+        "E_CONTENT_FILE_FORBIDDEN",
+        `File ${JSON.stringify(filePath)} of skill ${JSON.stringify(skillId)} is not retrievable through get_content (use level for instruction bodies; scripts/assets are never served).`,
+      );
+    }
+    return entry.blob_hash;
+  }
+  throw new McpContextError(
+    "E_CONTENT_FILE_UNKNOWN",
+    `Skill ${JSON.stringify(skillId)} has no retrievable file at ${JSON.stringify(filePath)}.`,
+  );
 }
 
 /** Blob hash for the requested level from the canonical manifest, if authored. */
@@ -293,13 +378,21 @@ export function runGetContentTool(
       throw error;
     }
 
-    // Requested level must exist — missing levels are errors, not partials.
-    const blobHash = levelBlobHash(manifestJson, input.skillId, input.level);
-    if (blobHash === null) {
-      throw new McpContextError(
-        "E_CONTENT_LEVEL_MISSING",
-        `Skill ${JSON.stringify(input.skillId)} version ${input.versionHash} has no ${input.level} content.`,
-      );
+    // Requested content selection (rule 1/7): the level body, or — when
+    // `file_path` is present — ONE exact TEXT companion. Both resolve to a
+    // manifest-pinned blob hash; missing levels are errors, not partials.
+    let blobHash: string;
+    if (input.filePath !== null) {
+      blobHash = companionBlobHash(manifestJson, input.skillId, input.filePath);
+    } else {
+      const levelHash = levelBlobHash(manifestJson, input.skillId, input.level);
+      if (levelHash === null) {
+        throw new McpContextError(
+          "E_CONTENT_LEVEL_MISSING",
+          `Skill ${JSON.stringify(input.skillId)} version ${input.versionHash} has no ${input.level} content.`,
+        );
+      }
+      blobHash = levelHash;
     }
 
     // Exact canonical bytes, hash-verified BEFORE exposure (rule 3). Missing
@@ -317,20 +410,31 @@ export function runGetContentTool(
     try {
       content = utf8StrictDecoder.decode(bytes);
     } catch {
+      const what =
+        input.filePath !== null ? `file ${JSON.stringify(input.filePath)}` : `${input.level} blob`;
       throw new McpContextError(
         "E_CACHE_HASH_MISMATCH",
-        `Cached ${input.level} blob for ${JSON.stringify(input.skillId)} is not valid UTF-8 text.`,
+        `Cached ${what} for ${JSON.stringify(input.skillId)} is not valid UTF-8 text.`,
       );
     }
 
-    // Cached ega-o200k-v1 count (implementation note); integrity already
-    // verified above. A missing count row is an incoherent local version.
-    const tokenCount = getTokenCount(handle.db, blobHash, EGA_O200K_V1_ESTIMATOR_ID);
-    if (tokenCount === null) {
-      throw new McpContextError(
-        "E_REGISTRY_UNAVAILABLE",
-        `Local version ${input.versionHash} of skill ${JSON.stringify(input.skillId)} has no ega-o200k-v1 token metadata.`,
-      );
+    // Token budget input (rule 2/3/7): the level body uses its cached
+    // ega-o200k-v1 count (a missing row is an incoherent local version);
+    // companions carry no stored row and are counted at call time with the
+    // SAME estimator over the SAME canonicalization as the importer, so the
+    // budget decision is identical in kind. Integrity already verified above.
+    let tokenCount: number;
+    if (input.filePath !== null) {
+      tokenCount = tokenEstimator.count(canonicalizeText(bytes));
+    } else {
+      const cached = getTokenCount(handle.db, blobHash, EGA_O200K_V1_ESTIMATOR_ID);
+      if (cached === null) {
+        throw new McpContextError(
+          "E_REGISTRY_UNAVAILABLE",
+          `Local version ${input.versionHash} of skill ${JSON.stringify(input.skillId)} has no ega-o200k-v1 token metadata.`,
+        );
+      }
+      tokenCount = cached;
     }
 
     // Per-call budget (rule 2/4): over-budget is an error, never truncation.
@@ -347,9 +451,14 @@ export function runGetContentTool(
       level: input.level,
       token_count: tokenCount,
       content,
+      ...(input.filePath !== null ? { file_path: input.filePath } : {}),
     });
+    const scope =
+      input.filePath !== null
+        ? `${input.level} file=${input.filePath}`
+        : `${input.level}`;
     const text =
-      `get_content ${input.skillId} ${input.versionHash} ${input.level} ` +
+      `get_content ${input.skillId} ${input.versionHash} ${scope} ` +
       `tokens=${tokenCount}/${input.maxTokens}.\n${content}`;
     return Object.freeze({
       content: Object.freeze([Object.freeze({ type: "text", text })]),
@@ -398,6 +507,10 @@ export const GET_CONTENT_OUTPUT_SCHEMA: StandardSchemaWithJSON<
       if (typeof output["token_count"] !== "number" || !Number.isInteger(output["token_count"])) {
         return { issues: [{ message: "Expected token_count to be an integer", path: ["token_count"] }] };
       }
+      // AMEND-10: echoed ONLY for file_path calls; a present value MUST be a string.
+      if ("file_path" in output && typeof output["file_path"] !== "string") {
+        return { issues: [{ message: "Expected file_path to be a string", path: ["file_path"] }] };
+      }
       return { value: value as McpGetContentOutput };
     },
     jsonSchema: {
@@ -409,6 +522,7 @@ export const GET_CONTENT_OUTPUT_SCHEMA: StandardSchemaWithJSON<
           level: { type: "string", enum: ["L1", "L2"] },
           token_count: { type: "integer" },
           content: { type: "string" },
+          file_path: { type: "string" },
         },
         required: ["skill_id", "version_hash", "level", "token_count", "content"],
         additionalProperties: false,
