@@ -33,7 +33,12 @@ import {
   McpContextError,
   resolveMcpProjectContext,
   toMcpErrorResult,
+  type McpProjectContext,
 } from "./project-context.js";
+import {
+  GET_CONTENT_OUTPUT_SCHEMA,
+  runGetContentTool,
+} from "./get-content.js";
 
 /**
  * Frozen structured error carried by every tool error result (SPEC-006
@@ -316,6 +321,54 @@ function withProjectBoundary(
   };
 }
 
+/**
+ * Context-first get_content handler (SPEC-006 §5.1.4, EGA-593): resolves the
+ * shared project boundary exactly like the shell, then runs the real
+ * `get_content` body. Boundary failures use the shared envelope; body
+ * failures carry their frozen codes (never invented, never truncated).
+ */
+function withGetContentBoundary(): (args: Record<string, unknown>) => CallToolResult {
+  return (args) => {
+    const rawProjectPath: unknown = args["project_path"];
+    let context: McpProjectContext;
+    try {
+      context = resolveMcpProjectContext(
+        typeof rawProjectPath === "string" ? rawProjectPath : undefined,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_PROJECT_NOT_FOUND",
+              error instanceof Error ? error.message : "Project path does not exist",
+            );
+      return toMcpErrorResult("get_content", contextError);
+    }
+    const raw = args;
+    try {
+      return runGetContentTool(
+        {
+          skill_id: raw["skill_id"],
+          version_hash: raw["version_hash"],
+          level: raw["level"],
+          max_tokens: raw["max_tokens"],
+        },
+        context,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_MCP_INPUT_INVALID",
+              error instanceof Error ? error.message : "Malformed get_content tool input",
+            );
+      return toMcpErrorResult("get_content", contextError);
+    }
+  };
+}
+
 /** Module-load-bound context-first handlers (one shared closure per tool). */
 const BOUND_HANDLERS: Readonly<
   Record<ToolName, (args: Record<string, unknown>) => CallToolResult>
@@ -323,7 +376,7 @@ const BOUND_HANDLERS: Readonly<
   resolve: withProjectBoundary("resolve", TOOL_NOT_IMPLEMENTED_RESULTS.resolve),
   search: withProjectBoundary("search", TOOL_NOT_IMPLEMENTED_RESULTS.search),
   inspect: withProjectBoundary("inspect", TOOL_NOT_IMPLEMENTED_RESULTS.inspect),
-  get_content: withProjectBoundary("get_content", TOOL_NOT_IMPLEMENTED_RESULTS.get_content),
+  get_content: withGetContentBoundary(),
 });
 
 /**
@@ -409,7 +462,7 @@ export function createMcpServer(): McpServer {
     {
       description: "Return exact canonical L1/L2 content for a version",
       inputSchema: getContentInput,
-      outputSchema: OUTPUT_SCHEMA,
+      outputSchema: GET_CONTENT_OUTPUT_SCHEMA,
     },
     (args: Record<string, unknown>) => BOUND_HANDLERS.get_content(args),
   );

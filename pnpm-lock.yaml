@@ -42,6 +42,9 @@ importers:
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry
+      '@ega-skills/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0

@@ -21,6 +21,7 @@
   "dependencies": {
     "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",
+    "@ega-skills/schema": "workspace:*",
     "@modelcontextprotocol/server": "2.0.0",
     "better-sqlite3": "13.0.3"
   }
