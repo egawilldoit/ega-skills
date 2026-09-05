@@ -4,12 +4,37 @@ SPEC-003 (import pipeline) acceptance: 70 real third-party portable skills
 evaluated through the REAL CLI importer into clean registries. No third-party
 source was modified; incompatible skills are documented, not forced.
 
-## Upstream sources
+## Upstream sources (pinned)
 
-| Repo | Revision (shallow, 2026-09-05) | License | Skills evaluated |
+| Repo | Commit SHA | License | Skills evaluated |
 | --- | --- | --- | --- |
-| https://github.com/wshobson/agents | origin/HEAD at clone time (depth 1) | MIT (LICENSE, Copyright (c) 2024 Seth Hobson) | 51 (one per plugin category, alphabetical first) |
-| https://github.com/anthropics/skills | origin/HEAD at clone time (depth 1) | No LICENSE file in repo; THIRD_PARTY_NOTICES.md present — upstream terms apply; used here for compatibility evaluation only, not redistributed | 19 (`skills/*`, template excluded) |
+| https://github.com/wshobson/agents | `a30778f8c4e6b0a87567941b7cca4f534bf642b6` | MIT (LICENSE, Copyright (c) 2024 Seth Hobson) | 51 (one per plugin category, alphabetical first) |
+| https://github.com/anthropics/skills | `41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f` | No LICENSE file in repo; THIRD_PARTY_NOTICES.md present — upstream terms apply; used here for compatibility evaluation only, not redistributed | 19 (`skills/*`, template excluded) |
+
+The immutable staging manifest `docs/V1-CORPUS.manifest.json` records every
+skill's upstream path plus its `SKILL.md` SHA-256 (70/70). Rebuild the staging
+from the pinned SHAs above, then verify before importing:
+
+```sh
+node scripts/corpus/verify-manifest.mjs <staging-root>
+# CORPUS-OK: 70/70 skills match the frozen manifest.
+```
+
+## Contract traceability
+
+- SPEC: SPEC-003 (Local Registry and Cache — import pipeline, immutable
+  versions, content-addressed cache), SPEC-001 (portable skill acceptance —
+  E_SKILL_NAME_REQUIRED / E_SKILL_DESCRIPTION_REQUIRED, 1024-code-point
+  description cap, closed frontmatter schema, name == directory rule).
+- Acceptance criteria (EGA-598): 40–80 real skills evaluated ✓ (70);
+  real CLI/importer used ✓; deterministic identities proven ✓ (66/66
+  identical across two clean homes); incompatibilities documented, source
+  unmodified ✓ (4 below); no new product code ✓.
+- Contract impact: none — docs + manifest + verifier script only; frozen
+  behavior unchanged on all platforms.
+- Verification: Linux live imports (this PR); Ubuntu + Windows CI via the
+  standard suite (588 pass); manifest verifier tested positive (70/70 OK)
+  and negative (tamper/missing/extra detected, exit 1).
 
 Upstream checkouts live OUTSIDE this repo (`/tmp`, disposable). Only this
 record is committed. Corpus staging copied each skill directory VERBATIM
@@ -118,6 +143,11 @@ function of source bytes + namespace.
 ## Reproduce
 
 ```sh
+# 1. Rebuild the staging from the pinned SHAs (see manifest upstreams).
+# 2. Verify it against the frozen manifest:
+node scripts/corpus/verify-manifest.mjs <70-skill-staging>
+# CORPUS-OK: 70/70 skills match the frozen manifest.
+# 3. Import through the real CLI:
 node packages/cli/bin/ega-skills.mjs import <70-skill-staging> --namespace corpus
 # expect: { imported: 66, unchanged: 0, failed: 4 }
 ```

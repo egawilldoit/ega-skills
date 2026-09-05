@@ -1,0 +1,507 @@
+{
+ "version": 1,
+ "upstreams": {
+  "wshobson-agents": {
+   "url": "https://github.com/wshobson/agents",
+   "sha": "a30778f8c4e6b0a87567941b7cca4f534bf642b6",
+   "license": "MIT"
+  },
+  "anthropics-skills": {
+   "url": "https://github.com/anthropics/skills",
+   "sha": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
+   "license": "upstream terms (no LICENSE file; THIRD_PARTY_NOTICES.md present)"
+  }
+ },
+ "skills": [
+  {
+   "name": "academy-guide",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/academy-guide/SKILL.md",
+   "skill_md_sha256": "f27992510c051355dfe68c92394d509af730da5298094ec86834ee40bbd31376"
+  },
+  {
+   "name": "ai-debt-detector",
+   "group": "wshobson:skill-forge-essentials",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/skill-forge-essentials/skills/ai-debt-detector/SKILL.md",
+   "skill_md_sha256": "0109ee12b36b9faf1b586c56f274b142d04bdc909b38d9ad8d119a334850b51b"
+  },
+  {
+   "name": "algorithmic-art",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/algorithmic-art/SKILL.md",
+   "skill_md_sha256": "3bc4092c09804853186524c826bc0621b940bb6122c05b84496dff95388e6eef"
+  },
+  {
+   "name": "angular-migration",
+   "group": "wshobson:framework-migration",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/framework-migration/skills/angular-migration/SKILL.md",
+   "skill_md_sha256": "71aba7584ac885fc1feb9741ad2f62ec20103e60cf14e4733a4ae63509664b1d"
+  },
+  {
+   "name": "architecture-patterns",
+   "group": "wshobson:backend-development",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/backend-development/skills/architecture-patterns/SKILL.md",
+   "skill_md_sha256": "350caf22b856b7d2908a10a69a8cc13e743c757ba9838716051b4e29fc1d7595"
+  },
+  {
+   "name": "avoid-ai-writing",
+   "group": "wshobson:avoid-ai-writing",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/avoid-ai-writing/skills/avoid-ai-writing/SKILL.md",
+   "skill_md_sha256": "3b0940b0014a64aaff405f367e44241095c96856cabcd0a01adf0ec33bbc1a66"
+  },
+  {
+   "name": "backtesting-frameworks",
+   "group": "wshobson:quantitative-trading",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/quantitative-trading/skills/backtesting-frameworks/SKILL.md",
+   "skill_md_sha256": "42342d1dc30596384fb31de81364dbc17c1084610b89b8ab945e26729a57d0bf"
+  },
+  {
+   "name": "bats-testing-patterns",
+   "group": "wshobson:shell-scripting",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/shell-scripting/skills/bats-testing-patterns/SKILL.md",
+   "skill_md_sha256": "d7992dbf589789f1ae446161d86c1cab026b9dfc4acfed5491d552be97338e62"
+  },
+  {
+   "name": "before-you-build",
+   "group": "wshobson:before-you-build",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/before-you-build/skills/before-you-build/SKILL.md",
+   "skill_md_sha256": "e5ce9fc6e4efcb3cf5499333db288f678d563ab265ed03c89c1c5708693b595a"
+  },
+  {
+   "name": "billing-automation",
+   "group": "wshobson:payment-processing",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/payment-processing/skills/billing-automation/SKILL.md",
+   "skill_md_sha256": "95b32527f4e185712a1f9b903e001b623fe01f9bc1ff2beefb13b517b30790c5"
+  },
+  {
+   "name": "binary-analysis-patterns",
+   "group": "wshobson:reverse-engineering",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/reverse-engineering/skills/binary-analysis-patterns/SKILL.md",
+   "skill_md_sha256": "895c49228f3ed1213f4d72c906fef793cba7c0eb81c704b833df3c8c8438b4e7"
+  },
+  {
+   "name": "block-no-verify-hook",
+   "group": "wshobson:block-no-verify",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/block-no-verify/skills/block-no-verify-hook/SKILL.md",
+   "skill_md_sha256": "110e5e8ca259eee24ee5372c186cc2f080677269c88ee82d007a73f85993ea5d"
+  },
+  {
+   "name": "brand-guidelines",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/brand-guidelines/SKILL.md",
+   "skill_md_sha256": "1120b3769e2985cefb3d25be981b1f914abeba57ae079b83c20c666c164fa9fe"
+  },
+  {
+   "name": "brand-landingpage",
+   "group": "wshobson:brand-landingpage",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/brand-landingpage/skills/brand-landingpage/SKILL.md",
+   "skill_md_sha256": "ba8245d80e76189d1ed0dfa1d8bab00c47854eb5b55a34ee97bd0319b46cbe3a"
+  },
+  {
+   "name": "canvas-design",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/canvas-design/SKILL.md",
+   "skill_md_sha256": "a1f288079624402f30682753c1d43920b6664785698d21d3e7aa197450a6448b"
+  },
+  {
+   "name": "changelog-automation",
+   "group": "wshobson:documentation-generation",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/documentation-generation/skills/changelog-automation/SKILL.md",
+   "skill_md_sha256": "b9748be2063023ba754d47ab9e727bcfa053041fd6f83c524eb8ae4a257cb6a1"
+  },
+  {
+   "name": "claude-api",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/claude-api/SKILL.md",
+   "skill_md_sha256": "001abd67b06d9aa18f7f7c1a221200a51394f2cfb45cb583f4931bf77fd4b70f"
+  },
+  {
+   "name": "data-storytelling",
+   "group": "wshobson:business-analytics",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/business-analytics/skills/data-storytelling/SKILL.md",
+   "skill_md_sha256": "0244a9ef6bca2df0762425b78912d27061b9b93f9b09987ad7bc074752a0cb50"
+  },
+  {
+   "name": "dbt-transformation-patterns",
+   "group": "wshobson:data-engineering",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/data-engineering/skills/dbt-transformation-patterns/SKILL.md",
+   "skill_md_sha256": "c402788b6294bdd4b613a27e65cdcdb5a2509e7b2655ac3c18ce8804ea2bff07"
+  },
+  {
+   "name": "defi-protocol-templates",
+   "group": "wshobson:blockchain-web3",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/blockchain-web3/skills/defi-protocol-templates/SKILL.md",
+   "skill_md_sha256": "999a8cee52c9ec620c05fb7f9c4c4f0dc73e40fe167273fbbcd3046b5e69c177"
+  },
+  {
+   "name": "discernment-nudge",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/discernment-nudge/SKILL.md",
+   "skill_md_sha256": "9191177c4a8ef11a20dace786d708506b22d43e748c71287bb823de0dc812dad"
+  },
+  {
+   "name": "doc-coauthoring",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/doc-coauthoring/SKILL.md",
+   "skill_md_sha256": "2e47d78846faeea4a56e9809c52700087a15a2155a3f293a3efbaded81398ef4"
+  },
+  {
+   "name": "docx",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/docx/SKILL.md",
+   "skill_md_sha256": "8017469ea95fb7d28225c62daf8e2f3492a7b516fc64c18c28977cbf8980b7fe"
+  },
+  {
+   "name": "dotnet-backend-patterns",
+   "group": "wshobson:dotnet-contribution",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/dotnet-contribution/skills/dotnet-backend-patterns/SKILL.md",
+   "skill_md_sha256": "0c5abad798ef47ba0c0d785ea5bc4fc156c0dd17aef40d18239479447daeb949"
+  },
+  {
+   "name": "evaluation-methodology",
+   "group": "wshobson:plugin-eval",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/plugin-eval/skills/evaluation-methodology/SKILL.md",
+   "skill_md_sha256": "1fe24ef3053651427ee3c82927e28a12f9fc89209fd54e0f9e487319ac80beb0"
+  },
+  {
+   "name": "fastapi-templates",
+   "group": "wshobson:api-scaffolding",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/api-scaffolding/skills/fastapi-templates/SKILL.md",
+   "skill_md_sha256": "92d4394d030080ded938cf247eb79885ed4b467a6c5b60cd94bb569cf6ea2b17"
+  },
+  {
+   "name": "file-conversion",
+   "group": "wshobson:file-conversion",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/file-conversion/skills/file-conversion/SKILL.md",
+   "skill_md_sha256": "741dc2607393dd39fca53c409c26490bd3269e213cd99c752595ddbf3f1790d5"
+  },
+  {
+   "name": "frontend-design",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/frontend-design/SKILL.md",
+   "skill_md_sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3"
+  },
+  {
+   "name": "gdpr-data-handling",
+   "group": "wshobson:hr-legal-compliance",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/hr-legal-compliance/skills/gdpr-data-handling/SKILL.md",
+   "skill_md_sha256": "cb33aa8fbfbcddc42968d4ba1ed00cc76e3b2d0f4ff089bd17076e438fbafec5"
+  },
+  {
+   "name": "gitops-workflow",
+   "group": "wshobson:kubernetes-operations",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/kubernetes-operations/skills/gitops-workflow/SKILL.md",
+   "skill_md_sha256": "0a965df87fbf065e9e64fd49b7a4adb4f5d3ead6b70c873675e2b37d370ca065"
+  },
+  {
+   "name": "grafana-dashboards",
+   "group": "wshobson:observability-monitoring",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/observability-monitoring/skills/grafana-dashboards/SKILL.md",
+   "skill_md_sha256": "b09293c4c2f3bb8cdeed52b788573f050b2e143b32d141187f11eef49fa020a8"
+  },
+  {
+   "name": "grounded-vault",
+   "group": "wshobson:documentation-standards",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/documentation-standards/skills/grounded-vault/SKILL.md",
+   "skill_md_sha256": "8c646c8dd078029950f9d6292a1b79a8c97cb290c02c496d869c80c8089ae80b"
+  },
+  {
+   "name": "hermes-tweet",
+   "group": "wshobson:hermes-tweet",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/hermes-tweet/skills/hermes-tweet/SKILL.md",
+   "skill_md_sha256": "ecaf7aa6afde571e15907c6586b15be4a9b6ea9d96fbad6ad1141fab0d8f9755"
+  },
+  {
+   "name": "internal-comms",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/internal-comms/SKILL.md",
+   "skill_md_sha256": "067b7587a344a928fc6534ef66b1bcd591fc7c26d207ea7ca3334aeb678d6475"
+  },
+  {
+   "name": "mcp-builder",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/mcp-builder/SKILL.md",
+   "skill_md_sha256": "0f4592dcb53cf2b5d6b7febee6b4152018b565551a1c29e3c612f57b218ab295"
+  },
+  {
+   "name": "modern-javascript-patterns",
+   "group": "wshobson:javascript-typescript",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/javascript-typescript/skills/modern-javascript-patterns/SKILL.md",
+   "skill_md_sha256": "32e203b8d944115102986dcb3cf4c48918edc5dbf6942668875970121809c064"
+  },
+  {
+   "name": "multi-cloud-architecture",
+   "group": "wshobson:cloud-infrastructure",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/cloud-infrastructure/skills/multi-cloud-architecture/SKILL.md",
+   "skill_md_sha256": "5f45cd7458078ee32dafc7956e63e5992c8ed11178c564577988ebe7a82e6014"
+  },
+  {
+   "name": "nx-workspace-patterns",
+   "group": "wshobson:developer-essentials",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/developer-essentials/skills/nx-workspace-patterns/SKILL.md",
+   "skill_md_sha256": "fe6d0cd7db8c86d77fa916ffd11073b2598f9a1a4be5bb3f0a85f81944af4227"
+  },
+  {
+   "name": "parallel-debugging",
+   "group": "wshobson:agent-teams",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/agent-teams/skills/parallel-debugging/SKILL.md",
+   "skill_md_sha256": "31b6e288504f465cfecb2ff18ec014a836448a246f61f7a8e10c5462df5520d4"
+  },
+  {
+   "name": "pdf",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/pdf/SKILL.md",
+   "skill_md_sha256": "9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c"
+  },
+  {
+   "name": "postgresql-table-design",
+   "group": "wshobson:database-design",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/database-design/skills/postgresql-table-design/SKILL.md",
+   "skill_md_sha256": "1e27b0fac6d88a710cd925b831608ca202c40ade4f4e285a8e027dcf2f9a44ea"
+  },
+  {
+   "name": "postmortem-writing",
+   "group": "wshobson:incident-response",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/incident-response/skills/postmortem-writing/SKILL.md",
+   "skill_md_sha256": "29f3405724d4a2813cae234757e823c6ec4fd6875c88da6aabd7dfc2512a6906"
+  },
+  {
+   "name": "pptx",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/pptx/SKILL.md",
+   "skill_md_sha256": "a7ff03e2c85b636f55232a6b1555f5dd90216b7a1a359ab289d8364e6acbc6a0"
+  },
+  {
+   "name": "pptx-quality-gates",
+   "group": "wshobson:pptx-deck-creation",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/pptx-deck-creation/skills/pptx-quality-gates/SKILL.md",
+   "skill_md_sha256": "449219113bda3d26a176399213c8834e131a3f38c76e3ef96a03b8ee2ae625ac"
+  },
+  {
+   "name": "prompt-engineering-patterns",
+   "group": "wshobson:llm-application-dev",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/llm-application-dev/skills/prompt-engineering-patterns/SKILL.md",
+   "skill_md_sha256": "6a210b15be01bc6f76a74ec1e46302dee310ddf79d2def63fc9b7c54221fe329"
+  },
+  {
+   "name": "protect-mcp-setup",
+   "group": "wshobson:protect-mcp",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/protect-mcp/skills/protect-mcp-setup/SKILL.md",
+   "skill_md_sha256": "0d9579764f346102b0025049a3c4721ffead8866f2cb6475f2c2d9a6bd8be3d1"
+  },
+  {
+   "name": "python-resilience",
+   "group": "wshobson:python-development",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/python-development/skills/python-resilience/SKILL.md",
+   "skill_md_sha256": "ddf3a7dc5bd59dd228a65a3ee7ae60fe740e9dc6e98bfac0ce0be5330fcc5332"
+  },
+  {
+   "name": "quantized-export",
+   "group": "wshobson:llm-finetuning",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/llm-finetuning/skills/quantized-export/SKILL.md",
+   "skill_md_sha256": "3dd467b79dcf2218f3655a205cc4756bfe9b91f1a8ba1492011db0dced6615ad"
+  },
+  {
+   "name": "react-native-architecture",
+   "group": "wshobson:frontend-mobile-development",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/frontend-mobile-development/skills/react-native-architecture/SKILL.md",
+   "skill_md_sha256": "84895e8207c68928f30896a0b4da38c6e0d3abd2d9ac39227bf279bb08c2a79e"
+  },
+  {
+   "name": "react-native-design",
+   "group": "wshobson:ui-design",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/ui-design/skills/react-native-design/SKILL.md",
+   "skill_md_sha256": "71eacfb8d4a62142e135e8b1934ffb540b0d2703d6b6b273d4c0f255bb1aa68d"
+  },
+  {
+   "name": "recsys-pipeline-architect",
+   "group": "wshobson:machine-learning-ops",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/machine-learning-ops/skills/recsys-pipeline-architect/SKILL.md",
+   "skill_md_sha256": "74c056a02a065adb7acada49a3bdb0886ffa6f03c902ea9661cf93e5b34e2cd8"
+  },
+  {
+   "name": "review-agent-setup",
+   "group": "wshobson:review-agent-governance",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/review-agent-governance/skills/review-agent-setup/SKILL.md",
+   "skill_md_sha256": "e9d43e144576b40e557fc52e9ed60e73a491ca4147e2922a1679550a3d8f5ea3"
+  },
+  {
+   "name": "rust-async-patterns",
+   "group": "wshobson:systems-programming",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/systems-programming/skills/rust-async-patterns/SKILL.md",
+   "skill_md_sha256": "8e9a951c21bb1ee671dd2e7391b193e8e3d362b95ef29c470915837d73bf87df"
+  },
+  {
+   "name": "sast-configuration",
+   "group": "wshobson:security-scanning",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/security-scanning/skills/sast-configuration/SKILL.md",
+   "skill_md_sha256": "cc31d39b62ed486936e2f48fcfffd789224503eac5a02fde3595f4d789ea997d"
+  },
+  {
+   "name": "scan",
+   "group": "wshobson:ship-mate",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/ship-mate/skills/scan/SKILL.md",
+   "skill_md_sha256": "0fb5a38acbcbb8775d7f04d5f5266e3074c10feb3ff666119afaac4e970b79b4"
+  },
+  {
+   "name": "secrets-management",
+   "group": "wshobson:cicd-automation",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/cicd-automation/skills/secrets-management/SKILL.md",
+   "skill_md_sha256": "da14565446a404c0a3ca2cf4363f755dc06a351c4b588be453ea73680d5658d0"
+  },
+  {
+   "name": "signed-audit-trails-recipe",
+   "group": "wshobson:signed-audit-trails",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/signed-audit-trails/skills/signed-audit-trails-recipe/SKILL.md",
+   "skill_md_sha256": "bf65a3d58a483e9ebae9da950748f24f73af0e7080a95cfd12466cf29e31acca"
+  },
+  {
+   "name": "skill-creator",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/skill-creator/SKILL.md",
+   "skill_md_sha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf"
+  },
+  {
+   "name": "slack-gif-creator",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/slack-gif-creator/SKILL.md",
+   "skill_md_sha256": "2efca615ce55a3edd8fc05c779068a8085816617991987e446606403cd3abb22"
+  },
+  {
+   "name": "social-publishing",
+   "group": "wshobson:social-publishing",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/social-publishing/skills/social-publishing/SKILL.md",
+   "skill_md_sha256": "ca4f8462f618d91b813093bf4314eef5bf4d782cb9a367273bb15c7b6f87afc6"
+  },
+  {
+   "name": "spark-environment-setup",
+   "group": "wshobson:dgx-spark-ops",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/dgx-spark-ops/skills/spark-environment-setup/SKILL.md",
+   "skill_md_sha256": "4fe4b4328a52dae83b2224c577ad29abc499215cd15e987f8255d33b1ca5e55f"
+  },
+  {
+   "name": "startup-metrics-framework",
+   "group": "wshobson:startup-business-analyst",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/startup-business-analyst/skills/startup-metrics-framework/SKILL.md",
+   "skill_md_sha256": "3505e10c0867642a4ef79fe54dd643fc65fa16680130b83de0c8ca73971c0f99"
+  },
+  {
+   "name": "superself",
+   "group": "wshobson:superself",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/superself/skills/superself/SKILL.md",
+   "skill_md_sha256": "ac36f91040ebd1d592974b8660c6abba58501e1f01d1f6c8ab7b32b74d06e818"
+  },
+  {
+   "name": "theme-factory",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/theme-factory/SKILL.md",
+   "skill_md_sha256": "c35893e221e28895c52143cc11bf30e41a44817796b39d4b15727dadc9796552"
+  },
+  {
+   "name": "unity-ecs-patterns",
+   "group": "wshobson:game-development",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/game-development/skills/unity-ecs-patterns/SKILL.md",
+   "skill_md_sha256": "18c3305e118e330e352b3e85011640385bb2bed1602e88d7447f55ae3447c973"
+  },
+  {
+   "name": "wcag-audit-patterns",
+   "group": "wshobson:accessibility-compliance",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/accessibility-compliance/skills/wcag-audit-patterns/SKILL.md",
+   "skill_md_sha256": "db263a3405deb95a63175f33da4a9d82d8595599fbee4a81979059b35a7cec40"
+  },
+  {
+   "name": "web-artifacts-builder",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/web-artifacts-builder/SKILL.md",
+   "skill_md_sha256": "81c5002c6643b0de7b8710b00e7a9038daa6fb9b68d59870ee6adb12da8d10f8"
+  },
+  {
+   "name": "webapp-testing",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/webapp-testing/SKILL.md",
+   "skill_md_sha256": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2"
+  },
+  {
+   "name": "workflow-patterns",
+   "group": "wshobson:conductor",
+   "upstream": "wshobson-agents",
+   "upstream_path": "plugins/conductor/skills/workflow-patterns/SKILL.md",
+   "skill_md_sha256": "dc156fe16f39e37c3d7011d3ec7569c0b479846ed92626694ad6aafadc4d32f8"
+  },
+  {
+   "name": "xlsx",
+   "group": "anthropics",
+   "upstream": "anthropics-skills",
+   "upstream_path": "skills/xlsx/SKILL.md",
+   "skill_md_sha256": "6712b39718fe815054abca9c3ee72f989613e6f771c8a5c58f30a65a6c905622"
+  }
+ ]
+}
