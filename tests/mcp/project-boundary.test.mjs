@@ -416,22 +416,29 @@ test("boundary (wire): missing project_path returns E_PROJECT_NOT_FOUND", async 
   assert.equal(envelopeOf(call)?.error?.tool, "resolve");
 });
 
-test("boundary (wire): valid project falls through to the tool body", async (t) => {
+test("boundary (wire): missing project_path fails before any tool body", async (t) => {
   const home = makeTempRoot("home-wire-valid");
   const project = makeTempRoot("proj-wire-valid");
   writeConfig(project);
   const { send, request } = launch(t, envFor(home));
   await handshake(request, send);
-  // `search` (EGA-591) and `inspect` (EGA-592) both have real bodies, so
-  // `resolve` — still a skeleton placeholder — proves the boundary runs
-  // FIRST without swallowing success.
+  // All four V1 tools have real bodies (EGA-590..593): a missing project
+  // path proves the boundary runs FIRST and fails with the frozen project
+  // error before any tool logic executes.
+  const missing = join(project, "no-such-project-dir");
   const call = await request("wire-valid", "tools/call", {
-    name: "resolve",
-    arguments: { task: "fix a flaky crash", project_path: project },
+    name: "get_content",
+    arguments: {
+      skill_id: "ega/not-installed",
+      version_hash: `sha256:${"00".repeat(32)}`,
+      level: "L2",
+      max_tokens: 4000,
+      project_path: missing,
+    },
   });
   assert.equal(call.result.isError, true);
-  assert.equal(envelopeOf(call)?.error?.code, "E_TOOL_NOT_IMPLEMENTED");
-  assert.equal(envelopeOf(call)?.error?.tool, "resolve");
+  assert.equal(envelopeOf(call)?.error?.code, "E_PROJECT_NOT_FOUND");
+  assert.equal(envelopeOf(call)?.error?.tool, "get_content");
 });
 
 test("boundary: fixture stat snapshot is stable across repeated resolutions", () => {
