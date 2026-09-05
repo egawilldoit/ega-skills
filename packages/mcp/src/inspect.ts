@@ -62,6 +62,7 @@ import {
   getTokenCount,
   listVersionSources,
   RegistryError,
+  type SourceRecord,
   type VersionRecord,
 } from "@ega-skills/registry";
 
@@ -142,18 +143,13 @@ export interface McpInspectOptions {
 }
 
 /**
- * Derives the wire `observed_at` for a source observation. The frozen v1
- * registry schema (SPEC-003) persists no observation timestamp; `source_id`
- * is the monotonic observation ordinal (INTEGER PRIMARY KEY). The wire field
- * is therefore derived from the ordinal as an ISO-8601 UTC instant: stable,
- * deterministic, offline-friendly, and it orders observations by insertion
- * sequence whenever the other sort keys tie (SPEC-006 §5.1.7.5).
+ * Source-record ordering (SPEC-006 §5.1.7.5 as amended by AMEND-07): the
+ * frozen wire keys (source_type, local_path, repository, commit_sha,
+ * repository_path, observed_at — null-before-non-null, UTF-16 string order),
+ * then source_id as the final tie-break so repeated reads are byte-stable
+ * even when two observations share an instant. Sorting runs on the raw
+ * records BEFORE wire mapping.
  */
-function observedAtOf(sourceId: number): string {
-  return new Date(sourceId * 1000).toISOString();
-}
-
-/** SPEC-006 §5.1.7.5 source ordering: null-before-non-null, UTF-16 strings. */
 function compareNullableString(a: string | null, b: string | null): number {
   if (a === null && b === null) return 0;
   if (a === null) return -1;
@@ -163,17 +159,15 @@ function compareNullableString(a: string | null, b: string | null): number {
   return 0;
 }
 
-function compareSources(
-  left: McpInspectSource,
-  right: McpInspectSource,
-): number {
+function compareSourceRecords(left: SourceRecord, right: SourceRecord): number {
   return (
-    compareNullableString(left.source_type, right.source_type) ||
-    compareNullableString(left.local_path, right.local_path) ||
+    compareNullableString(left.sourceType, right.sourceType) ||
+    compareNullableString(left.localPath, right.localPath) ||
     compareNullableString(left.repository, right.repository) ||
-    compareNullableString(left.commit_sha, right.commit_sha) ||
-    compareNullableString(left.repository_path, right.repository_path) ||
-    compareNullableString(left.observed_at, right.observed_at)
+    compareNullableString(left.commitSha, right.commitSha) ||
+    compareNullableString(left.repositoryPath, right.repositoryPath) ||
+    compareNullableString(left.observedAt, right.observedAt) ||
+    (left.sourceId < right.sourceId ? -1 : left.sourceId > right.sourceId ? 1 : 0)
   );
 }
 
@@ -439,23 +433,33 @@ export function runInspectTool(
       );
     }
 
-    // 6. Source observations, deterministically ordered (SPEC-006 §5.1.7.5):
-    //    source_type, local_path, repository, commit_sha, repository_path,
-    //    observed_at — null-before-non-null, UTF-16 string order.
+    // 6. Source observations with STORED real observation instants (AMEND-07,
+    //    SPEC-003 §5.1.15): deterministically ordered by the frozen wire keys
+    //    plus the source_id final tie-break; a null stored instant (rows
+    //    written outside the importer/migration path) fails closed — V1 never
+    //    derives fake timestamps.
     const sources: McpInspectSource[] = listVersionSources(
       handle.db,
       args.skill_id,
       version.versionHash,
     )
-      .map((source) => ({
-        source_type: source.sourceType as "local" | "git",
-        local_path: source.localPath ?? null,
-        repository: source.repository ?? null,
-        commit_sha: source.commitSha ?? null,
-        repository_path: source.repositoryPath ?? null,
-        observed_at: observedAtOf(source.sourceId),
-      }))
-      .sort(compareSources);
+      .sort(compareSourceRecords)
+      .map((source) => {
+        if (source.observedAt === null) {
+          throw new McpContextError(
+            "E_REGISTRY_UNAVAILABLE",
+            `Local registry source observation ${source.sourceId} of skill ${JSON.stringify(args.skill_id)} has no recorded observation time`,
+          );
+        }
+        return {
+          source_type: source.sourceType as "local" | "git",
+          local_path: source.localPath ?? null,
+          repository: source.repository ?? null,
+          commit_sha: source.commitSha ?? null,
+          repository_path: source.repositoryPath ?? null,
+          observed_at: source.observedAt,
+        };
+      });
 
     // 7. L0 row (§5.1.7.5): identical in shape to a search result, with
     //    skill_id/version_hash equal to the top-level values.

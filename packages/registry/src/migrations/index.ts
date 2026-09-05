@@ -2,6 +2,10 @@ import type { DatabaseConnection } from "better-sqlite3";
 
 import { RegistryError } from "../errors.js";
 import { INITIAL_SCHEMA_SQL, INITIAL_SCHEMA_VERSION } from "./001-initial-schema.js";
+import {
+  SOURCE_OBSERVED_AT_SQL,
+  SOURCE_OBSERVED_AT_VERSION,
+} from "./002-source-observed-at.js";
 
 interface RegistryMigration {
   readonly version: number;
@@ -15,9 +19,14 @@ export const REGISTRY_MIGRATIONS: readonly RegistryMigration[] = [
     name: "001-initial-schema",
     sql: INITIAL_SCHEMA_SQL,
   },
+  {
+    version: SOURCE_OBSERVED_AT_VERSION,
+    name: "002-source-observed-at",
+    sql: SOURCE_OBSERVED_AT_SQL,
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = INITIAL_SCHEMA_VERSION;
+export const CURRENT_SCHEMA_VERSION = SOURCE_OBSERVED_AT_VERSION;
 
 export function runRegistryMigrations(db: DatabaseConnection, fromVersion: number): void {
   for (const migration of REGISTRY_MIGRATIONS) {
