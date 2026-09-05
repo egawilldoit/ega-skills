@@ -145,7 +145,7 @@ function queryOne<T>(db: unknown, sql: string, ...params: unknown[]): T | undefi
 
 function routerImplementationVersion(): string {
   try {
-    const pkgPath = fileURLToPath(new URL("../../package.json", import.meta.url));
+    const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
     const version =
       typeof parsed === "object" && parsed !== null
