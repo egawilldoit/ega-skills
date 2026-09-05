@@ -2,7 +2,11 @@
 
 Method: bare project dir (`/tmp/ega599/proj`, no fingerprint evidence — the
 conservative case), real CLI `resolve`, corpus home from EGA-598 staging
-(manifest-verified 70/70). Judged on ranking quality: SELECTED skill when
+(manifest-verified 70/70). Evaluated subset: the 66 IMPORTED skills;
+excluded are the 4 documented SPEC-001 rejects (`claude-api`,
+`parallel-debugging`, `startup-metrics-framework`, `workflow-patterns` —
+see docs/V1-CORPUS.md), which never enter any registry and therefore cannot
+be routed to. Judged on ranking quality: SELECTED skill when
 present, else top candidate. Confidence LOW with empty selection is CORRECT
 V1 conservatism (suggest mode), not a misroute.
 
