@@ -12,6 +12,17 @@ export {
 } from "./server.js";
 export type { McpToolError, McpToolErrorEnvelope } from "./server.js";
 export {
+  RESOLVE_MAX_SKILLS_MAX,
+  RESOLVE_MAX_SKILLS_MIN,
+  RESOLVE_MAX_TOKENS_MAX,
+  RESOLVE_MAX_TOKENS_MIN,
+  RESOLVE_OUTPUT_SCHEMA,
+  RESOLVE_TASK_MAX_CODE_POINTS,
+  runResolveTool,
+  toSnakeResolution,
+} from "./resolve.js";
+export type { ResolveToolArgs, ResolveToolOptions } from "./resolve.js";
+export {
   McpContextError,
   MCP_BOUNDARY_ERROR_CODES,
   openReadOnlyRegistry,

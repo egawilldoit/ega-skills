@@ -107,10 +107,10 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  // `search` (EGA-591) and `inspect` (EGA-592) are implemented: their
-  // placeholder assertions moved to their suites; resolve/get_content are
-  // still placeholders.
-  for (const name of ["resolve", "get_content"]) {
+  // `resolve` (EGA-590), `search` (EGA-591) and `inspect` (EGA-592) are
+  // implemented: their placeholder assertions moved to their suites;
+  // get_content is still a placeholder.
+  for (const name of ["get_content"]) {
     const call = await request(`call-${name}`, "tools/call", { name, arguments: VALID_ARGS[name] });
     assert.equal(call.result.isError, true, `${name} is marked as an error result`);
     const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
@@ -133,6 +133,10 @@ async function failsClosedWithoutRegistry(t, name, args) {
   assert.equal(envelope?.error?.code, "E_REGISTRY_UNAVAILABLE");
   assert.equal(envelope?.error?.tool, name);
 }
+
+test("MCP skeleton: resolve is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "resolve", VALID_ARGS.resolve);
+});
 
 test("MCP skeleton: search is implemented and fails closed without a registry", async (t) => {
   await failsClosedWithoutRegistry(t, "search", VALID_ARGS.search);

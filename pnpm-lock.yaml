@@ -45,6 +45,9 @@ importers:
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry
+      '@ega-skills/router':
+        specifier: workspace:*
+        version: link:../router
       '@ega-skills/schema':
         specifier: workspace:*
         version: link:../schema
