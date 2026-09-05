@@ -1,0 +1,417 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >-
+  Be concise, technical, skeptical, and evidence-based. Prioritize frozen-contract
+  correctness, determinism, data integrity, compatibility, and tests. For findings
+  give a concrete failure scenario, evidence, impact, and smallest safe fix.
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: >-
+    Summarize the implemented behavior, exact SPEC/TEST contract affected, package
+    boundaries touched, determinism or persistence risk, and verification evidence.
+    Distinguish implementation from observed CI/runtime evidence. Never treat skipped,
+    timed-out, unavailable, or unobserved checks as passing evidence.
+
+  review_status: true
+  review_details: true
+  review_progress: true
+  fail_commit_status: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: true
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+
+  poem: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: true
+
+  slop_detection:
+    enabled: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 10
+    drafts: false
+    ignore_title_keywords:
+      - WIP
+      - "[skip review]"
+    labels:
+      - "!do-not-review"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!**/.cache/**"
+    - "!**/*.map"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Report only actionable issues introduced or materially worsened by this PR.
+        Trace relevant callers, tests, frozen specs, and existing safeguards before
+        commenting. Apply checklist items only to affected behavior and only when
+        there is concrete impact. Give severity, location, failure scenario, evidence,
+        and the smallest safe fix. Consolidate findings with one root cause and do not
+        repeat CI/bot findings unless adding material information.
+
+        Untouched legacy code is not a finding unless this PR materially worsens it or
+        relies on it unsafely. Do not request repository-wide cleanup.
+
+        Flag new or broadened directives/exclusions that suppress type-checker, lint,
+        static-analysis, or test diagnostics without concrete adjacent justification,
+        including @ts-ignore/@ts-expect-error, skipped/focused tests, weakened rules,
+        and exclusions added primarily to make CI green.
+
+        docs/specs/ is the normative V1 behavioral authority. CONTRIBUTING.md and the
+        PR template define required traceability and verification. Do not invent
+        product behavior from these review instructions or from external sources.
+        If implementation conflicts with a frozen spec, require a reviewed spec/test
+        amendment rather than silently accepting code as the new contract.
+
+        Distinguish a proven violation, missing required evidence, and evidence that
+        is unavailable to the reviewer. For the last case, use Inconclusive rather
+        than an unsupported pass or failure.
+
+    - path: "docs/specs/**/*.{md,mdx}"
+      instructions: |
+        Treat frozen specs and TEST contracts as normative product authority. Review
+        amendments for internal consistency, exact section/error-code/schema updates,
+        corresponding normative tests/fixtures, and cross-spec references. Flag
+        behavior changes hidden as wording cleanup, incompatible changes without the
+        required version/schema/estimator bump, stale error codes, or amendments that
+        weaken deterministic Linux/Windows behavior. Do not rewrite frozen history or
+        accept implementation drift as justification by itself.
+
+    - path: "packages/schema/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-001 and TEST-002. Check strict non-repairing validation, UTF-8/NUL
+        control-file rules, portable-name/namespace/description boundaries, exact
+        E_* errors, canonical skill/reference semantics, routing normalization, alias
+        collision semantics, L0/L1/L2 definitions, TrustLevel defaults, and
+        ega-o200k-v1 binding. Flag silent lowercasing/repair/drop behavior, camelCase
+        wire keys entering canonical identity, binary token sentinel 0, script
+        execution, guessed trust, or contract behavior not traced to the frozen spec.
+
+    - path: "packages/hashing/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-002 and TEST-002. Check SHA-256 + canonicalize@4.0.0 JCS identity,
+        exact canonical text normalization, text/binary classification by bytes,
+        snake_case manifest shape, stable UTF-16 ordering, exact exclusion set, and
+        Linux/Windows hash equality. Treat path traversal as security-sensitive:
+        lstat before following, realpath containment without raw prefix checks,
+        fstat revalidation before read/hash, deterministic symlink/junction/cycle/
+        TOCTOU errors, and lexical in-root path identity. Flag Unicode normalization,
+        extension-based binary classification, source-byte-size hashing for text,
+        raw ega.yaml formatting entering identity, or fallbacks that change hashes.
+
+    - path: "packages/registry/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-003 plus referenced SPEC-001/002 rules. Check immutable
+        SkillVersions, current-version lifecycle, per-skill transactional imports,
+        globally unique monotonic aliases, source/provenance non-identity, exact FTS5
+        columns/tokenizer/query escaping/order, current-vs-locked visibility, and
+        exact-version no-fall-forward behavior. Cache writes must finalize and verify
+        blobs before committed DB references; orphan blobs may exist, broken committed
+        references may not. Flag binary token rows/sentinel 0, guessed namespaces or
+        trust, partial alias/source/FTS state, raw MATCH interpolation, historical
+        versions leaking into ordinary search, mutable migrations, or silent
+        downgrade/repair of registry state.
+
+    - path: "packages/registry/src/migrations/**/*.{ts,js,mjs,sql}"
+      instructions: |
+        Treat registry schema changes as frozen-contract and data-integrity sensitive.
+        Apply SPEC-003 exact table/constraint/index ownership. Check ordered immutable
+        migrations, existing on-disk data, foreign keys, uniqueness, FTS5 availability,
+        newer-schema rejection, rollout/recovery, and compatibility with current code.
+        Any new V1 column/table or semantic schema change requires a reviewed spec
+        amendment. Flag destructive or incompatible migration behavior that lacks a
+        concrete data/recovery story.
+
+    - path: "packages/router/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-004 and TEST-001. Preserve the exact resolve pipeline, request
+        validation, explicit-reference order, policy/lock validity, separate explicit
+        vs automatic budgets, max 3 automatic skills, content-size/budget rules,
+        deterministic fingerprinting, tiers, strong-evidence predicates, hard filters,
+        tie-break ordering, redundancy rules, confidence normalization, bounded
+        explanations, and deterministic collection ordering. Flag LLM/embedding/fuzzy
+        routing, hidden thresholds, absolute BM25 semantics, preference creating
+        relevance, missing-evidence platform mismatch, Tier C auto-selection,
+        truncation, estimator drift, or weakened/auto-regenerated golden scenarios.
+
+    - path: "packages/project/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-005 and relevant TEST-001 project fixtures. Check realpath project
+        normalization, nearest-config discovery with .git boundary, no hierarchical
+        merge, deterministic normalized config/JCS hash, exact policy precedence,
+        adjacent-lock semantics, lock estimator/config-hash validation, current-only
+        eligible catalog generation, fail-closed cache/version integrity, and explicit
+        refresh only. Flag symlinked control files being followed, unknown keys being
+        ignored, aliases/bare names in committed skill policy, lock fall-forward,
+        implicit regeneration, task-dependent lock contents, or global imports
+        silently changing an active project lock.
+
+    - path: "packages/mcp/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Apply SPEC-006 and TEST-002. V1 MCP is stdio-only, read-only, offline, and
+        exposes exactly resolve/search/inspect/get_content. Check stdout protocol
+        purity, stderr diagnostics, clean disconnect, shared realpath project context,
+        policy/lock enforcement before registry/cache reads, snake_case external
+        schemas, structuredContent/output-schema agreement, exact E_* error mapping,
+        and token-bounded tool definitions. Flag console/stdout diagnostics, HTTP or
+        extra tools/resources/prompts, registry/project writes, shell/network access,
+        skill-script execution, hidden activation/session state, existence leaks for
+        denied skills, content truncation, or L1/L2 bodies leaking from metadata-only
+        tools.
+
+    - path: "packages/cli/**/*.{ts,tsx,js,mjs}"
+      instructions: |
+        Review CLI behavior against the owning SPEC rather than inventing a parallel
+        contract. Preserve exact required import semantics, structured deterministic
+        outcomes, local/offline behavior, and registry/project/router reuse. Flag
+        guessed namespaces, silent repair, write behavior in read-only helper commands,
+        new public V1 semantics not backed by a frozen spec, nondeterministic output
+        that is contractually ordered, or error handling that loses the canonical E_*
+        code needed by callers/tests.
+
+    - path: "tests/**/*.{test,spec}.{ts,tsx,js,jsx,mjs}"
+      instructions: |
+        Treat tests as contract evidence. For frozen TEST-001/TEST-002 behavior, do not
+        weaken mustSelect/order/reason/token/vector assertions or regenerate expected
+        values merely to fit implementation. Require tests to exercise the real
+        production boundary when the spec requires it, including real project
+        fixtures, real hashing, current/locked registry behavior, MCP structured
+        output, and Linux/Windows determinism where applicable. Flag skipped/focused
+        tests, tautological mocks, timing flakes, permissive assertions that hide
+        ordering/error drift, or fixtures that bypass the behavior they claim to prove.
+
+    - path: "fixtures/**/*"
+      instructions: |
+        Frozen fixtures are contract inputs, not disposable snapshots. Check changes
+        against the owning SPEC/TEST and ensure canonical hashes/token boundaries/
+        project layouts remain intentional. Flag fixture edits that merely make tests
+        pass, fake precomputed hashes where real canonical hashing is required,
+        scenario-only fixtures leaking into unrelated catalogs, or platform-specific
+        paths/bytes that break Linux/Windows equivalence.
+
+    - path: ".github/workflows/**/*.{yml,yaml}"
+      instructions: |
+        Treat CI as release evidence. Preserve Node 24, pnpm 10/frozen-lock install,
+        build, typecheck, test, specs:check, lockfile-integrity, and Linux + Windows
+        coverage where required. Check path filters and specialized hashing traversal
+        gates for false-green risk. Flag skipped jobs presented as passes, removed
+        Windows evidence for cross-platform contracts, weakened frozen-vector/golden
+        coverage, unpinned/broadened permissions without need, or CI edits that make
+        failure invisible instead of fixing it.
+
+    - path: "scripts/specs/**/*.{js,mjs,ts}"
+      instructions: |
+        Treat the spec-drift checker as a guardrail. Review for false-green behavior,
+        exact frozen-file/inventory coverage, deterministic output, and failure on the
+        drift it claims to prevent. Flag broadened exclusions, swallowed failures,
+        mutable expected state, or checks weakened to accommodate an implementation
+        that no longer matches the normative specs.
+
+    - path: "**/package.json"
+      instructions: |
+        Review runtime/dependency/script changes against frozen versions and contract
+        behavior. Preserve Node 24/pnpm 10 workspace expectations and exact normative
+        libraries where a spec pins them, especially canonicalize@4.0.0,
+        js-tiktoken@1.0.21/o200k_base, better-sqlite3/SQLite FTS5, Zod/yaml, and MCP
+        v2 APIs. Flag dependency drift that silently changes hashes, token counts,
+        parsing, DB behavior, MCP wire semantics, or cross-platform support.
+
+    - path: "pnpm-lock.yaml"
+      instructions: |
+        Treat lockfile drift as intentional only when paired with an explained
+        dependency change. Check frozen-version compatibility, platform-native
+        dependencies, and Linux/Windows installability. Flag unrelated lock churn,
+        hidden major upgrades, or changes that bypass pnpm install --frozen-lockfile
+        reproducibility.
+
+    - path: ".github/pull_request_template.md"
+      instructions: |
+        Preserve mandatory SPEC/Section/TEST/Linear traceability, contract-impact
+        declaration, Linux/Windows evidence, and no-unrelated-behavior confirmation.
+        Do not weaken the template into optional prose without an explicit process
+        decision.
+
+  pre_merge_checks:
+    docstrings:
+      mode: off
+    title:
+      mode: warning
+      requirements: >-
+        The title must identify one coherent change and, for behavior work, make the
+        affected EGA capability clear. Avoid vague titles such as fix, updates,
+        changes, or cleanup without the subject.
+    description:
+      mode: warning
+    issue_assessment:
+      mode: off
+    custom_checks:
+      - name: Frozen contract traceability
+        mode: warning
+        instructions: >-
+          Pass when behavior-changing work identifies the exact applicable frozen
+          SPEC section and TEST scenario/vector where relevant, and the diff implements
+          that contract without silently redefining it. A required contract change
+          must amend and review the spec/tests first or in the authorized amendment
+          flow. Fail only for a proven contract drift or explicitly missing required
+          traceability. If relevant PR/spec evidence may exist but is inaccessible,
+          mark Inconclusive. Config/docs-only work that changes no frozen behavior may
+          pass with an explicit no-contract-impact explanation.
+
+      - name: Determinism and cross-platform
+        mode: warning
+        instructions: >-
+          Pass when affected deterministic behavior preserves byte/ordering/error/
+          token equivalence across Linux and Windows and has the required cross-platform
+          evidence. Fail only for a proven nondeterministic/platform-specific defect or
+          explicitly missing required evidence. If CI/platform evidence is inaccessible,
+          mark Inconclusive. Pay special attention to path case/separators, realpath,
+          Unicode/code-point handling, UTF-16 ordering, locale dependence, SQLite
+          ordering, hashes, token vectors, and fixture bytes.
+
+      - name: Canonical hashing safety
+        mode: warning
+        instructions: >-
+          For hashing/schema changes, pass only when SPEC-001/002 identity inputs,
+          canonical bytes, SHA-256/JCS wire shape, exclusions, byte sizes, path
+          containment, symlink/junction handling, lstat/fstat TOCTOU checks, and exact
+          error mappings remain correct. Fail for a proven identity/security drift or
+          explicitly missing required proof. If relevant evidence is inaccessible,
+          mark Inconclusive. If hashing and canonical identity are unaffected, pass.
+
+      - name: Registry and cache integrity
+        mode: warning
+        instructions: >-
+          For registry/import/cache changes, pass only when immutable versions,
+          current pointers, per-skill transactions, aliases, FTS visibility, token
+          rows, migrations, and atomic verified cache references preserve SPEC-003.
+          Fail for proven partial committed state, historical leakage, fall-forward,
+          mutable identity/history, unsafe migration, raw FTS injection, broken cache
+          references, or explicitly missing required evidence. If evidence is
+          inaccessible, mark Inconclusive. If registry state is unaffected, pass.
+
+      - name: Router and golden contract
+        mode: warning
+        instructions: >-
+          For routing changes, pass only when SPEC-004 pipeline, filters, evidence,
+          tiering, tie-breaks, budgets, max-3 composition, confidence, ordering, and
+          TEST-001 goldens remain exact. Fail for proven hidden/semantic ranking,
+          weakened goldens, nondeterministic ordering, invalid budget/content behavior,
+          or explicitly missing required evidence. If golden/CI evidence is
+          inaccessible, mark Inconclusive. If routing is unaffected, pass.
+
+      - name: Project lock reproducibility
+        mode: warning
+        instructions: >-
+          For project/config/lock changes, pass only when SPEC-005 nearest-config
+          discovery, normalized config hash, policy precedence, adjacent lock,
+          current-version eligibility, fail-closed integrity, exact locked versions,
+          and explicit refresh semantics remain reproducible. Fail for proven implicit
+          regeneration, stale-hash acceptance, fall-forward, task-dependent lock
+          contents, outer-config leakage, or explicitly missing required evidence.
+          If evidence is inaccessible, mark Inconclusive. If project locking is
+          unaffected, pass.
+
+      - name: MCP read-only protocol safety
+        mode: warning
+        instructions: >-
+          For MCP changes, pass only when SPEC-006 keeps exactly four stdio tools,
+          stdout protocol-only, structured snake_case schemas/errors, shared project
+          context, policy-before-read enforcement, offline/read-only behavior, exact
+          content semantics, and no script/shell/network/session state. Fail for a
+          proven boundary violation or explicitly missing required acceptance evidence.
+          If client/runtime evidence is inaccessible, mark Inconclusive. If MCP is
+          unaffected, pass.
+
+      - name: Verification and scope honesty
+        mode: warning
+        instructions: >-
+          Pass when the diff is coherent with the PR/Linear scope and claims about
+          build, typecheck, tests, specs:check, Linux, Windows, hashes, token vectors,
+          goldens, or client acceptance are supported by evidence on the reviewed
+          revision. Fail for proven unrelated scope, weakened diagnostics, skipped
+          checks described as passes, or completion claims beyond evidence. If required
+          evidence may exist but is inaccessible, mark Inconclusive rather than pass
+          or fail.
+
+  tools:
+    ast-grep:
+      essential_rules: true
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+
+chat:
+  art: false
+  allow_non_org_members: false
+  auto_reply: true
+
+knowledge_base:
+  web_search:
+    enabled: true
+
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - files: "CONTRIBUTING.md"
+        applyTo: "**/*"
+      - files: "docs/specs/SPEC-001-Skill-Schema-v1.md"
+        applyTo: "packages/schema/**/*"
+      - files: "docs/specs/TEST-002-Token-Estimator-Vectors.md"
+        applyTo: "packages/schema/**/*"
+      - files: "docs/specs/SPEC-002-Canonical-Hashing.md"
+        applyTo: "packages/hashing/**/*"
+      - files: "docs/specs/TEST-002-Token-Estimator-Vectors.md"
+        applyTo: "packages/hashing/**/*"
+      - files: "docs/specs/SPEC-003-Local-Registry-and-Cache.md"
+        applyTo: "packages/registry/**/*"
+      - files: "docs/specs/SPEC-004-Router-and-Resolution-Contract.md"
+        applyTo: "packages/router/**/*"
+      - files: "docs/specs/TEST-001-Router-Golden-Scenarios.md"
+        applyTo: "packages/router/**/*"
+      - files: "docs/specs/SPEC-005-Project-Config-and-Lockfile.md"
+        applyTo: "packages/project/**/*"
+      - files: "docs/specs/TEST-001-Router-Golden-Scenarios.md"
+        applyTo: "packages/project/**/*"
+      - files: "docs/specs/SPEC-006-MCP-Runtime-Contract.md"
+        applyTo: "packages/mcp/**/*"
+      - files: "docs/specs/TEST-002-Token-Estimator-Vectors.md"
+        applyTo: "packages/mcp/**/*"
+      - files: "docs/specs/TEST-001-Router-Golden-Scenarios.md"
+        applyTo: "tests/router/**/*"
+      - files: "docs/specs/TEST-002-Token-Estimator-Vectors.md"
+        applyTo: "tests/tokens/**/*"
+
+  learnings:
+    scope: local
+    approval_delay: 3
+
+  issues:
+    scope: local
+
+  pull_requests:
+    scope: local
