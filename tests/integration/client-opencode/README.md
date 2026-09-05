@@ -39,12 +39,16 @@ returned exactly the project-local declaration above; `mcp list` showed
 ## 2. Isolate (recommended for acceptance runs)
 
 ```sh
-export XDG_CONFIG_HOME=/tmp/ega-opencode-accept/fakexdg/config
-export XDG_DATA_HOME=/tmp/ega-opencode-accept/fakexdg/data
+# Private temp root first: mktemp -d creates mode 0700, so no local attacker
+# can pre-create the path and capture the credential copies below (CWE-377).
+export ACCEPT_ROOT="$(mktemp -d -t ega-opencode-accept-XXXXXX)"
+export XDG_CONFIG_HOME="$ACCEPT_ROOT/fakexdg/config"
+export XDG_DATA_HOME="$ACCEPT_ROOT/fakexdg/data"
 mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
-# Reuse YOUR OWN model credential (machine-local only, never commit):
-cp ~/.local/share/opencode/auth.json ~/.local/share/opencode/account.json "$XDG_DATA_HOME/"
-chmod 600 "$XDG_DATA_HOME/auth.json"
+# Reuse YOUR OWN model credential (machine-local only, never commit).
+# install -m 600 creates each copy restrictive from the start (no cp+chmod race).
+install -m 600 ~/.local/share/opencode/auth.json "$XDG_DATA_HOME/auth.json"
+install -m 600 ~/.local/share/opencode/account.json "$XDG_DATA_HOME/account.json"
 ```
 
 This keeps the real `~/.config/opencode` (which may declare unrelated
