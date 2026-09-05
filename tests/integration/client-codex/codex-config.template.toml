@@ -1,0 +1,22 @@
+# Codex MCP configuration template for the EGA Skills acceptance run
+# (EGA-595, SPEC-006 §5.1.10). Copy to an ISOLATED $CODEX_HOME/config.toml
+# (or add via `codex mcp add`; see README.md). Replace <ABS...> placeholders.
+#
+# The server is local stdio: no URL, no port, no network. Codex spawns it
+# with the FIXTURE EGA home so the acceptance registry can never touch a
+# real project. The binary path must point at a BUILT checkout
+# (packages/mcp/bin/ega-mcp.mjs after `pnpm build`).
+
+[mcp_servers.ega-skills]
+command = "<ABS-PATH-TO-NODE>"
+args = ["<ABS-PATH-TO-CHECKOUT>/packages/mcp/bin/ega-mcp.mjs"]
+
+[mcp_servers.ega-skills.env]
+EGA_SKILLS_HOME = "<ABS-PATH-TO-FIXTURE-ROOT>/home"
+
+# Automation approvals for the non-interactive acceptance run. WARNING:
+# approval_policy="never" BLOCKS MCP tool calls in Codex (observed
+# 2026-09-05, CLI 0.150.1: "MCP tool call requires approval, but approval
+# policy is never"). Use --approve-for-me on codex exec instead.
+approval_policy = "on-request"
+sandbox_mode = "read-only"
