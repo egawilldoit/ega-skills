@@ -34,8 +34,10 @@ node packages/cli/bin/ega-skills.mjs import <skills-root> --namespace <ns>
 Rules (SPEC-001, enforced, not warnings):
 
 - Each skill is a directory containing `SKILL.md` with `name:` +
-  `description:` frontmatter (description ≤ 1024 code points, closed schema —
-  no `version:` or other extra fields).
+  `description:` frontmatter (description ≤ 1024 code points). Optional
+  portable fields per SPEC-001 §5.1.6: `license`, `compatibility`,
+  `metadata`, `allowed-tools`. UNKNOWN fields (e.g. `version:`) are
+  rejected, never silently dropped.
 - Directory name MUST equal the skill name; canonical ID is `<ns>/<name>`.
 - `SKILL.core.md` (L1) and `ega.yaml` (routing metadata) are optional.
 - Import is deterministic: same bytes + namespace → same version hashes.
