@@ -99,7 +99,7 @@ test("MCP skeleton: initialize negotiates and lists exactly the four V1 tools", 
   );
 });
 
-test("MCP skeleton: tool call returns the frozen structured placeholder error", async (t) => {
+test("MCP skeleton: no tool returns the retired skeleton placeholder", async (t) => {
   const { send, request } = launch(t);
   await request(1, "initialize", {
     protocolVersion: PROTOCOL_VERSION,
@@ -107,14 +107,14 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  // `resolve` (EGA-590), `search` (EGA-591) and `inspect` (EGA-592) are
-  // implemented: their placeholder assertions moved to their suites;
-  // get_content is still a placeholder.
-  for (const name of ["get_content"]) {
+  // All four V1 tools are implemented (EGA-590..593): with a valid project
+  // but no registry home, every tool must fail closed with E_* — never with
+  // the retired E_TOOL_NOT_IMPLEMENTED placeholder.
+  for (const name of ["resolve", "search", "inspect", "get_content"]) {
     const call = await request(`call-${name}`, "tools/call", { name, arguments: VALID_ARGS[name] });
     assert.equal(call.result.isError, true, `${name} is marked as an error result`);
     const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
-    assert.equal(envelope?.error?.code, "E_TOOL_NOT_IMPLEMENTED", `${name} code`);
+    assert.notEqual(envelope?.error?.code, "E_TOOL_NOT_IMPLEMENTED", `${name} placeholder retired`);
     assert.equal(envelope?.error?.tool, name, `${name} names itself`);
   }
 });
@@ -144,6 +144,13 @@ test("MCP skeleton: search is implemented and fails closed without a registry", 
 
 test("MCP skeleton: inspect is implemented and fails closed without a registry", async (t) => {
   await failsClosedWithoutRegistry(t, "inspect", VALID_ARGS.inspect);
+});
+
+test("MCP skeleton: get_content is implemented and fails closed without a registry", async (t) => {
+  await failsClosedWithoutRegistry(t, "get_content", {
+    ...VALID_ARGS.get_content,
+    version_hash: `sha256:${"00".repeat(32)}`,
+  });
 });
 
 test("MCP skeleton: stderr stays protocol-free and stdin close exits cleanly", async (t) => {

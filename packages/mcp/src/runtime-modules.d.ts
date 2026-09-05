@@ -5,7 +5,8 @@
 // the emitted code imports the real Node builtin modules at runtime.
 //
 // The MCP runtime touches ONLY: node:process (env/cwd), node:path, node:fs
-// (pure presence/stat reads), and better-sqlite3 (read-only registry opens).
+// (pure presence/stat reads), node:util (strict UTF-8 decoding of verified
+// cache bytes), and better-sqlite3 (read-only registry opens).
 
 declare module "node:fs" {
   export interface Stats {
@@ -22,6 +23,13 @@ declare module "node:path" {
   export function dirname(path: string): string;
   export function join(...paths: string[]): string;
   export function resolve(...paths: string[]): string;
+}
+
+declare module "node:util" {
+  export class TextDecoder {
+    constructor(label: string, options?: { fatal?: boolean; ignoreBOM?: boolean });
+    decode(input: Uint8Array): string;
+  }
 }
 
 declare module "node:process" {
