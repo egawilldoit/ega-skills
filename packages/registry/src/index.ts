@@ -13,6 +13,7 @@ import { assertFts5Available } from "./fts5.js";
 import {
   ensureRegistryHome,
   resolveRegistryHome,
+  resolveRegistryPaths,
   type RegistryPaths,
 } from "./home.js";
 import {
@@ -89,6 +90,7 @@ export {
   recordVersion,
   rebuildSkillFts,
   resolveRegistryHome,
+  resolveRegistryPaths,
   searchSkills,
   serializeFtsArray,
   sha256DigestHex,
@@ -117,6 +119,14 @@ export type {
 export interface OpenRegistryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly userHome?: string;
+  /**
+   * Capability-enforced read-only open (SPEC-006 §5.3): resolves paths
+   * WITHOUT creating directories, opens SQLite with `readonly: true` (the
+   * file must already exist), and NEVER runs migrations — a stale schema
+   * fails with `E_REGISTRY_MIGRATION` instead of being upgraded as a side
+   * effect. Resolve paths use this; import/refresh keep read-write opens.
+   */
+  readonly readonly?: boolean;
 }
 
 export interface RegistryHandle {
@@ -150,11 +160,15 @@ function enableForeignKeys(db: DatabaseConnection): void {
 export function openRegistry(options: OpenRegistryOptions = {}): RegistryHandle {
   const env = options.env ?? process.env;
   const userHome = options.userHome ?? homedir();
-  const paths = ensureRegistryHome(env, userHome);
+  const readonly = options.readonly ?? false;
+  // Read-only opens must never materialize the home tree (no mkdir side
+  // effects); read-write opens keep the legacy ensure behavior for
+  // import/refresh flows.
+  const paths = readonly ? resolveRegistryPaths(env, userHome) : ensureRegistryHome(env, userHome);
 
   let db: DatabaseConnection;
   try {
-    db = new Database(paths.database);
+    db = readonly ? new Database(paths.database, { readonly: true }) : new Database(paths.database);
   } catch (error) {
     throw new RegistryError("E_REGISTRY_DB_OPEN", "Failed to open registry.sqlite", error);
   }
@@ -167,10 +181,22 @@ export function openRegistry(options: OpenRegistryOptions = {}): RegistryHandle 
         `Registry schema ${schemaVersion} is newer than supported schema ${CURRENT_SCHEMA_VERSION}`,
       );
     }
+    if (readonly) {
+      // A read-only open must never upgrade the file: stale (or
+      // uninitialized) schemas fail closed so the caller runs an explicit
+      // read-write flow (import/refresh) first.
+      if (schemaVersion !== CURRENT_SCHEMA_VERSION) {
+        throw new RegistryError(
+          "E_REGISTRY_MIGRATION",
+          `Registry schema ${schemaVersion} requires migration to ${CURRENT_SCHEMA_VERSION}; refusing read-only open`,
+        );
+      }
+    } else {
+      runRegistryMigrations(db, schemaVersion);
+    }
 
     enableForeignKeys(db);
     assertFts5Available(db);
-    runRegistryMigrations(db, schemaVersion);
 
     let closed = false;
     return {

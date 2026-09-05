@@ -30,7 +30,7 @@ import {
 import { applyAutomaticFilters } from "./filters.js";
 import { assessConfidence, type ConfidenceRow } from "./confidence.js";
 import { composeAutomatic, type ComposeAutomaticRow } from "./composition.js";
-import { resolveExplicitSkills, type EligibleSkill, type ExplicitPolicyInput } from "./explicit.js";
+import { resolveExplicitSkills, MAX_EXPLICIT_SKILLS, type EligibleSkill, type ExplicitPolicyInput } from "./explicit.js";
 import { normalizeTaskTerms } from "./match.js";
 import { suppressRedundant } from "./redundancy.js";
 import { assignTiers, type TierCandidate } from "./tiers.js";
@@ -357,6 +357,18 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     failInvalid(`task must be at most ${MAX_TASK_CODE_POINTS} Unicode code points.`);
   }
   const references = input.explicitSkills ?? [];
+  // Pure request-shape validation BEFORE touching the filesystem (EGA-601):
+  // malformed requests must fail E_RESOLVE_REQUEST_INVALID even when the
+  // registry is missing or stale. resolveExplicitSkills re-checks these
+  // identically downstream (defense in depth).
+  if (references.length > MAX_EXPLICIT_SKILLS) {
+    failInvalid(`At most ${MAX_EXPLICIT_SKILLS} explicit skills are allowed; got ${references.length}.`);
+  }
+  for (const ref of references) {
+    if (ref.trim().length === 0) {
+      failInvalid("Explicit skill references must be non-empty.");
+    }
+  }
   const policy = input.policy ?? deriveProjectPolicy(input.projectPath);
   checkBudgetRange("budget.maxSkills", input.budget?.maxSkills, 1, 3);
   checkBudgetRange("budget.maxTokens", input.budget?.maxTokens, 1, 1000000);
@@ -370,7 +382,9 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   const fingerprint = resolveProjectFingerprint(input.projectPath);
   const taskTerms = normalizeTaskTerms(input.task);
 
-  const registry = openRegistry({ env: input.env });
+  // Capability-enforced read-only open (SPEC-006 §5.3, EGA-601): resolve must
+  // never migrate the registry or materialize the home tree as a side effect.
+  const registry = openRegistry({ env: input.env, readonly: true });
   try {
     const loaded = loadL0Rows(registry, locked);
     const rows = loaded.rows;

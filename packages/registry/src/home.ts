@@ -27,21 +27,31 @@ export function resolveRegistryHome(
   return join(userHome, ".ega-skills");
 }
 
+/**
+ * Pure path resolution for the registry home: joins the standard layout
+ * WITHOUT creating anything. Read-only opens use this so a mere resolve can
+ * never materialize directories as a side effect (SPEC-006 §5.3).
+ */
+export function resolveRegistryPaths(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  userHome: string = homedir(),
+): RegistryPaths {
+  const home = resolveRegistryHome(env, userHome);
+  return {
+    home,
+    database: join(home, "registry.sqlite"),
+    cacheSha256: join(home, "cache", "sha256"),
+    logs: join(home, "logs"),
+    config: join(home, "config"),
+  };
+}
+
 export function ensureRegistryHome(
   env: Readonly<Record<string, string | undefined>> = process.env,
   userHome: string = homedir(),
 ): RegistryPaths {
-  let home: string;
   try {
-    home = resolveRegistryHome(env, userHome);
-    const paths: RegistryPaths = {
-      home,
-      database: join(home, "registry.sqlite"),
-      cacheSha256: join(home, "cache", "sha256"),
-      logs: join(home, "logs"),
-      config: join(home, "config"),
-    };
-
+    const paths = resolveRegistryPaths(env, userHome);
     mkdirSync(paths.home, { recursive: true });
     mkdirSync(paths.cacheSha256, { recursive: true });
     mkdirSync(paths.logs, { recursive: true });

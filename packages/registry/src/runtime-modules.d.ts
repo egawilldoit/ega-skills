@@ -75,8 +75,12 @@ declare module "better-sqlite3" {
     close(): void;
   }
 
+  interface DatabaseOpenOptions {
+    readonly readonly?: boolean;
+  }
+
   interface DatabaseConstructor {
-    new (filename: string): DatabaseConnection;
+    new (filename: string, options?: DatabaseOpenOptions): DatabaseConnection;
   }
 
   const Database: DatabaseConstructor;
