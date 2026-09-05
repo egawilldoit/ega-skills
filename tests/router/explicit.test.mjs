@@ -234,7 +234,9 @@ test("SPEC-004 §5.1.5: explicit list is not capped by automatic maxSkills", () 
 });
 
 test("AMEND-09: explicit references to user-only skills resolve (human /name invocation)", () => {
-  const userOnly = skill("ega/handoff");
+  // The explicit path bypasses the automatic-composition gate: even a row
+  // flagged user_only resolves with EXPLICIT_USER when the human names it.
+  const userOnly = skill("ega/handoff", { modelInvocation: "user_only" });
   const input = base({ eligible: [userOnly] });
   const result = resolveExplicitSkills({ ...input, references: ["ega/handoff"] });
   assert.deepEqual(result.explicit.map((s) => s.id), ["ega/handoff"]);

@@ -92,7 +92,10 @@ export function assessConfidence(input: ConfidenceInput): ConfidenceResult {
   const inPlay = [...input.selected, ...input.candidates]
     .filter((row) => isUseful(row))
     .filter((row) => row.tier === "A" || row.tier === "B");
-  const relevant = [...input.selected, ...input.candidates].filter((row) => row.evidence.length > 0);
+  const relevant = [...input.selected, ...input.candidates].filter(
+    // AMEND-09: the user-only gate stays visible even for evidence-free rows.
+    (row) => row.evidence.length > 0 || row.reasons.includes("USER_INVOCATION_ONLY"),
+  );
   const top = inPlay[0];
 
   let confidence: Confidence;

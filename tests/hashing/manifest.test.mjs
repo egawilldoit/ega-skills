@@ -4,7 +4,7 @@ import test from "node:test";
 const hashing = await import("../../packages/hashing/dist/index.js");
 const schema = await import("../../packages/schema/dist/index.js");
 
-const { buildCanonicalSkillVersionManifest } = hashing;
+const { buildCanonicalSkillVersionManifest, canonicalizeJson, hashCanonicalManifest } = hashing;
 const { parseEgaMetadata } = schema;
 
 const encoder = new TextEncoder();
@@ -255,4 +255,13 @@ test("AMEND-09: invocation fields map to frozen wire keys and enter identity", (
     portable: { ...baseInput().portable, disableModelInvocation: false },
   });
   assert.notDeepEqual(flipped, plain, "true->false flip changes identity");
+  // SPEC-002 §5.1.15: the new keys are real JCS identity bytes, and absence
+  // keeps the pre-amendment hash byte-stable.
+  const decoder = new TextDecoder();
+  const withFieldsJcs = decoder.decode(canonicalizeJson(manifest));
+  assert.ok(withFieldsJcs.includes('"disable_model_invocation":true'));
+  assert.ok(withFieldsJcs.includes('"argument_hint":"What next?"'));
+  assert.ok(!decoder.decode(canonicalizeJson(plain)).includes("disable_model_invocation"));
+  assert.match(hashCanonicalManifest(manifest), /^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(hashCanonicalManifest(manifest), hashCanonicalManifest(plain));
 });

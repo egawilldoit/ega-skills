@@ -3,7 +3,9 @@
 **Status:** FROZEN (V1 normative behavioral contract).
 **Incorporates:** AMEND-02 (EGA-607: §5.1.2 path-escape code, §5.1.13 byteSize,
 raw-`ega.yaml` identity, canonical wire keys, routing-array sort, collection
-discovery vs traversal, description code-point units; L1/L2 exact content).
+discovery vs traversal, description code-point units; L1/L2 exact content),
+AMEND-09 (EGA-614: `disable_model_invocation` + `argument_hint` portable
+identity-participating wire keys).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
 Linear amendment tickets (EGA-605..EGA-611) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
@@ -170,7 +172,10 @@ No unknown record fields exist in V1.
 ```text
 top level:      schema_version, skill_id, portable, routing, files
 portable optionals (omit when absent): name, description, license,
-                compatibility, metadata, allowed_tools
+                compatibility, metadata, allowed_tools,
+                disable_model_invocation, argument_hint (AMEND-09:
+                identity-participating; absent keys are omitted so
+                pre-amendment manifests are byte-stable)
 routing:        domains, platforms, frameworks, triggers, anti_triggers, aliases
 file record:    path, role, blob_hash, byte_size, content_kind
 ```

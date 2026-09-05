@@ -40,7 +40,7 @@ async function importWorld(t) {
     w.src,
     "thread-spec",
     "Turn the current thread into a published artifact with no interview.",
-    "domains: [planning]\ntriggers: [synthesize thread into spec, publish spec]\n",
+    "domains: [planning]\ntriggers: [publish spec, spec first]\n",
   );
   await writeSkill(
     w.src,
@@ -60,23 +60,20 @@ async function importWorld(t) {
 
 async function topId(w, task) {
   const result = await resolveSkills({ task, projectPath: w.proj, env: w.env });
-  const routed = [...result.selected, ...result.candidates];
-  assert.ok(routed.length > 0, `expected candidates for: ${task}`);
-  return routed[0].id;
+  assert.ok(result.selected.length > 0, `expected an automatic selection for: ${task}`);
+  return { selected: result.selected.map((s) => s.id), candidates: result.candidates.map((s) => s.id) };
 }
 
 test("curated triggers route spec-synthesis to the spec skill, not tickets", async (t) => {
   const w = await importWorld(t);
-  assert.equal(
-    await topId(w, "synthesize this thread into a spec and publish it, no interview"),
-    "ega/thread-spec",
-  );
+  const routed = await topId(w, "take this thread and publish spec with no interview");
+  assert.equal(routed.selected[0], "ega/thread-spec");
+  assert.ok(!routed.selected.includes("ega/thread-tickets"));
 });
 
 test("curated triggers route ticket-splitting to the tickets skill, not spec", async (t) => {
   const w = await importWorld(t);
-  assert.equal(
-    await topId(w, "split this plan into tracer-bullet tickets with blocking edges"),
-    "ega/thread-tickets",
-  );
+  const routed = await topId(w, "split this plan into tracer-bullet tickets with blocking edges");
+  assert.equal(routed.selected[0], "ega/thread-tickets");
+  assert.ok(!routed.selected.includes("ega/thread-spec"));
 });

@@ -309,7 +309,10 @@ frozen negative reason codes — no speculative reasons.
    represented ONLY by the deterministic fingerprint/workspace rules.
 4. If final confidence is LOW: publish `selected=[]`, set
    `automaticSelectedTokens=0`, and keep relevant provisional items in `candidates`
-   with their reasons. LOW NEVER leaks an automatic selection.
+   with their reasons. LOW NEVER leaks an automatic selection. "Relevant" means
+   evidence-carrying rows PLUS any row carrying `USER_INVOCATION_ONLY`
+   (AMEND-09): the user-only gate stays visible even when the row carries no
+   task evidence. The frozen three-candidate cap still applies in router order.
 5. When LOW is caused by `workspaceAmbiguous=true`, every relevant
    provisional/candidate item retained because of that ambiguity ALSO carries the
    negative reason `WORKSPACE_AMBIGUOUS`. This reason is explanatory, not a
