@@ -238,3 +238,21 @@ test("SPEC-002 §5.1.15: routing semantic change alters the manifest", () => {
   assert.notDeepEqual(ma, mb);
   assert.notDeepEqual(ma.routing, mb.routing);
 });
+
+test("AMEND-09: invocation fields map to frozen wire keys and enter identity", () => {
+  const input = baseInput();
+  input.portable.disableModelInvocation = true;
+  input.portable.argumentHint = "What next?";
+  const manifest = buildCanonicalSkillVersionManifest(input);
+  assert.equal(manifest.portable.disable_model_invocation, true);
+  assert.equal(manifest.portable.argument_hint, "What next?");
+  assert.ok(!Object.hasOwn(manifest.portable, "disableModelInvocation"));
+  assert.ok(!Object.hasOwn(manifest.portable, "argumentHint"));
+  const plain = buildCanonicalSkillVersionManifest(baseInput());
+  assert.notDeepEqual(manifest, plain, "field presence changes identity");
+  const flipped = buildCanonicalSkillVersionManifest({
+    ...baseInput(),
+    portable: { ...baseInput().portable, disableModelInvocation: false },
+  });
+  assert.notDeepEqual(flipped, plain, "true->false flip changes identity");
+});

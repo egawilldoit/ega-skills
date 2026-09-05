@@ -232,3 +232,11 @@ test("SPEC-004 §5.1.5: explicit list is not capped by automatic maxSkills", () 
   assert.equal(result.explicit.length, 4);
   assert.equal(result.explicitSelectedTokens, 400);
 });
+
+test("AMEND-09: explicit references to user-only skills resolve (human /name invocation)", () => {
+  const userOnly = skill("ega/handoff");
+  const input = base({ eligible: [userOnly] });
+  const result = resolveExplicitSkills({ ...input, references: ["ega/handoff"] });
+  assert.deepEqual(result.explicit.map((s) => s.id), ["ega/handoff"]);
+  assert.ok(result.explicit[0].reasons.includes("EXPLICIT_USER"));
+});

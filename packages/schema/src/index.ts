@@ -65,6 +65,8 @@ export interface PortableSkill {
   readonly compatibility?: string;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly allowedTools?: string;
+  readonly disableModelInvocation?: boolean;
+  readonly argumentHint?: string;
 }
 
 export interface ParsePortableSkillInput {
@@ -86,6 +88,8 @@ const portableFrontmatterSchema = z
     compatibility: z.string().optional(),
     metadata: z.record(z.string(), z.string()).optional(),
     "allowed-tools": z.string().optional(),
+    "disable-model-invocation": z.boolean().optional(),
+    "argument-hint": z.string().optional(),
   })
   .strict();
 
@@ -206,6 +210,8 @@ export function parsePortableSkill(input: ParsePortableSkillInput): PortableSkil
     compatibility?: string;
     metadata?: Readonly<Record<string, string>>;
     allowedTools?: string;
+    disableModelInvocation?: boolean;
+    argumentHint?: string;
   } = {
     name,
     description: frontmatter.description,
@@ -222,6 +228,12 @@ export function parsePortableSkill(input: ParsePortableSkillInput): PortableSkil
   }
   if (frontmatter["allowed-tools"] !== undefined) {
     result.allowedTools = frontmatter["allowed-tools"];
+  }
+  if (frontmatter["disable-model-invocation"] !== undefined) {
+    result.disableModelInvocation = frontmatter["disable-model-invocation"];
+  }
+  if (frontmatter["argument-hint"] !== undefined) {
+    result.argumentHint = frontmatter["argument-hint"];
   }
 
   return result;

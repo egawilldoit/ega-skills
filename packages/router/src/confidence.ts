@@ -80,6 +80,8 @@ const NOT_USEFUL_REASONS: ReadonlySet<string> = new Set([
   "TOKEN_BUDGET",
   "CONTENT_MISSING",
   "CONTENT_OVERSIZED",
+  // AMEND-09: user-only rows can never select, so they confer no confidence.
+  "USER_INVOCATION_ONLY",
 ]);
 
 function isUseful(row: ConfidenceRow): boolean {

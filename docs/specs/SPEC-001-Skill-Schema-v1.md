@@ -2,9 +2,10 @@
 
 **Status:** FROZEN (V1 normative behavioral contract).
 **Incorporates:** AMEND-02 (EGA-607: canonical path-error code, description code-point units),
-AMEND-03 (EGA-608: TrustLevel assignment, alias lifecycle terminology).
+AMEND-03 (EGA-608: TrustLevel assignment, alias lifecycle terminology),
+AMEND-09 (EGA-614: `disable-model-invocation` + `argument-hint` portable fields).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
-Linear amendment tickets (EGA-605..EGA-611) are provenance/history only.
+Linear amendment tickets (EGA-605..EGA-614) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
 (Linear: EGA-550 gate; EGA-605 parent gate).
 
@@ -76,13 +77,28 @@ Section numbering and titles are preserved from the frozen bundle.
 ## §5.1.6 Optional portable metadata
 
 1. The following optional portable fields are preserved with frozen types when present:
-   `license`, `compatibility`, `metadata`, `allowed-tools`.
+   `license`, `compatibility`, `metadata`, `allowed-tools`,
+   `disable-model-invocation`, `argument-hint`.
    (`allowed-tools` uses the portable hyphenated key in source; see §5.1.15 for the
-   canonical wire-key mapping.)
+   canonical wire-key mapping. `disable-model-invocation` and `argument-hint`
+   likewise keep their hyphenated source keys; canonical wire keys are
+   `disable_model_invocation` and `argument_hint`.)
 2. Absent optional properties are omitted from all canonical forms — never materialized
    as `null`/`undefined` (see SPEC-002 manifest identity).
 3. Unknown portable semantic fields are rejected by the strict V1 schema; they are
    never silently dropped (consistent with §5.1.10).
+4. (AMEND-09) `disable-model-invocation` is a strict boolean. When `true`, the
+   skill is user-invoked only: automatic routing MUST never select it
+   (SPEC-004), while explicit user references, search/inspect discovery, and
+   exact content fetch remain available. Absent or `false` means
+   model-invocable (default). Non-boolean values fail with
+   `E_SKILL_FRONTMATTER_INVALID`.
+5. (AMEND-09) `argument-hint` is a display-only string (autocomplete hint for
+   human invocation menus); it carries no routing or parsing semantics and is
+   preserved verbatim. Non-string values fail with
+   `E_SKILL_FRONTMATTER_INVALID`.
+6. (AMEND-09) Both fields participate in manifest identity when present: any
+   change produces a new immutable SkillVersion (SPEC-002).
 
 ## §5.1.7 Content levels L0 / L1 / L2
 

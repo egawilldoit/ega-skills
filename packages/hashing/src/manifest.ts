@@ -21,6 +21,8 @@ export interface ManifestPortableInput {
   readonly compatibility?: string;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly allowedTools?: string;
+  readonly disableModelInvocation?: boolean;
+  readonly argumentHint?: string;
 }
 
 export interface ManifestRoutingInput {
@@ -54,6 +56,8 @@ export interface ManifestPortableWire {
   readonly compatibility?: string;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly allowed_tools?: string;
+  readonly disable_model_invocation?: boolean;
+  readonly argument_hint?: string;
 }
 
 export interface ManifestRoutingWire {
@@ -117,6 +121,12 @@ export function buildCanonicalSkillVersionManifest(
   }
   if (input.portable.allowedTools !== undefined) {
     portable["allowed_tools"] = input.portable.allowedTools;
+  }
+  if (input.portable.disableModelInvocation !== undefined) {
+    portable["disable_model_invocation"] = input.portable.disableModelInvocation;
+  }
+  if (input.portable.argumentHint !== undefined) {
+    portable["argument_hint"] = input.portable.argumentHint;
   }
 
   const routing: ManifestRoutingWire = Object.freeze({
