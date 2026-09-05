@@ -125,9 +125,18 @@ test("SPEC-004 §5.1.17 rule 2: CONTENT_OVERSIZED Tier B is not useful — LOW w
 // SPEC-004 §5.1.18 reason-code closure.
 
 test("SPEC-004 §5.1.18: only frozen codes validate", () => {
-  for (const code of ["EXPLICIT_USER", "TOKEN_EFFICIENT", "LOCKED_VERSION", "NAMESPACE_DENIED", "REDUNDANT_HIGHER_RANKED", "WORKSPACE_AMBIGUOUS", "EXPLICIT_PLATFORM_MISMATCH"]) {
+  for (const code of ["EXPLICIT_USER", "TOKEN_EFFICIENT", "LOCKED_VERSION", "NAMESPACE_DENIED", "REDUNDANT_HIGHER_RANKED", "WORKSPACE_AMBIGUOUS", "EXPLICIT_PLATFORM_MISMATCH", "USER_INVOCATION_ONLY"]) {
     assert.equal(isFrozenReasonCode(code), true, code);
   }
   assert.equal(isFrozenReasonCode("MADE_UP_REASON"), false);
   assert.equal(isFrozenReasonCode(""), false);
+});
+
+test("AMEND-09: LOW normalization retains evidence-free user-only rows", () => {
+  const lone = row("ega/solo", "C", [], ["USER_INVOCATION_ONLY"]);
+  const result = assessConfidence({ selected: [], candidates: [lone], automaticSelectedTokens: 0, workspaceAmbiguous: false });
+  assert.equal(result.confidence, "LOW");
+  assert.deepEqual(result.selected, []);
+  assert.equal(result.candidates.length, 1);
+  assert.ok(result.candidates[0].reasons.includes("USER_INVOCATION_ONLY"));
 });

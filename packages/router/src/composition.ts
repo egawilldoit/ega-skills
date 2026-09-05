@@ -50,6 +50,12 @@ export interface ComposeAutomaticRow {
   readonly recommendedContentLevel: ContentLevel;
   readonly recommendedContentTokens: number | null;
   readonly l2SizeClass: L2SizeClass;
+  /**
+   * Invocation gate (AMEND-09): `"user_only"` rows (disable-model-invocation)
+   * NEVER auto-select and stay candidates with `USER_INVOCATION_ONLY`.
+   * Absent means model-invocable (default; all pre-amendment rows).
+   */
+  readonly modelInvocation?: "model" | "user_only";
 }
 
 export interface ComposeAutomaticInput {
@@ -130,8 +136,21 @@ export function composeAutomatic(input: ComposeAutomaticInput): ComposeAutomatic
   for (const row of input.rows) {
     const effective = input.locked === true ? withLocked(row) : row;
     if (effective.tier !== "A" && effective.tier !== "B") {
-      // Tier C (or any non-A/B row) is candidate-only, untouched.
-      candidates.push(effective);
+      // Tier C (or any non-A/B row) is candidate-only, untouched — except the
+      // AMEND-09 gate, which stays visible wherever a user-only skill surfaces.
+      candidates.push(
+        effective.modelInvocation === "user_only"
+          ? withNegatives(effective, ["USER_INVOCATION_ONLY"])
+          : effective,
+      );
+      continue;
+    }
+    if (effective.modelInvocation === "user_only") {
+      // AMEND-09 (SPEC-004 §5.1.6 rule 3b): user-invoked-only skills never
+      // auto-select, regardless of tier/budget/evidence. Explicit references
+      // bypass composition entirely, so this gate cannot block /name-style
+      // human invocation.
+      candidates.push(withNegatives(effective, ["USER_INVOCATION_ONLY"]));
       continue;
     }
     if (effective.l2SizeClass === "OVERSIZED") {

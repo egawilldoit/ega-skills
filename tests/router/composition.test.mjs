@@ -285,3 +285,28 @@ test("selected preserves router-rank order, evidence and incoming reasons", () =
   assert.deepEqual(result.selected[1].reasons, ["DOMAIN_MATCH"]);
   assert.deepEqual(result.selected.map((s) => s.warnings), [[], []]);
 });
+test("AMEND-09: user-only skills are never automatically selected", () => {
+  const result = compose([row("ns/handoff", { modelInvocation: "user_only" })], { maxSkills: 3, maxTokens: 5000 });
+
+  assert.deepEqual(result.selected, []);
+  assert.equal(result.candidates.length, 1);
+  assert.ok(result.candidates[0].reasons.includes("USER_INVOCATION_ONLY"));
+});
+
+test("AMEND-09: user-only rows defer to model-invocable rows without disturbing them", () => {
+  const result = compose([
+    row("ns/handoff", { modelInvocation: "user_only" }),
+    row("ns/worker"),
+  ], { maxSkills: 3, maxTokens: 5000 });
+
+  assert.deepEqual(result.selected.map((s) => s.id), ["ns/worker"]);
+  assert.deepEqual(result.candidates.map((c) => c.id), ["ns/handoff"]);
+});
+
+test("AMEND-09: tier-C user-only rows stay candidates with the visible gate", () => {
+  const result = compose([row("ns/quiet", { tier: "C", modelInvocation: "user_only" })], { maxSkills: 3, maxTokens: 5000 });
+
+  assert.deepEqual(result.selected, []);
+  assert.equal(result.candidates.length, 1);
+  assert.ok(result.candidates[0].reasons.includes("USER_INVOCATION_ONLY"));
+});

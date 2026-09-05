@@ -247,3 +247,40 @@ test("SPEC-001: optional portable metadata type violations are frontmatter error
     { path: "frontend-design/SKILL.md" },
   );
 });
+
+test("AMEND-09: disable-model-invocation + argument-hint are preserved with frozen types", () => {
+  const parsed = parsePortableSkill({
+    directoryName: "handoff",
+    skillMd: skillMd({
+      name: "handoff",
+      description: "Compact the conversation into a handoff document.",
+      extra: `argument-hint: "What will the next session be used for?"\ndisable-model-invocation: true`,
+    }),
+  });
+
+  assert.deepEqual(parsed, {
+    name: "handoff",
+    description: "Compact the conversation into a handoff document.",
+    disableModelInvocation: true,
+    argumentHint: "What will the next session be used for?",
+  });
+});
+
+test("AMEND-09: invocation fields reject non-frozen types", () => {
+  expectSchemaError(
+    () =>
+      parsePortableSkill({
+        directoryName: "handoff",
+        skillMd: skillMd({ name: "handoff", extra: `disable-model-invocation: "yes"` }),
+      }),
+    "E_SKILL_FRONTMATTER_INVALID",
+  );
+  expectSchemaError(
+    () =>
+      parsePortableSkill({
+        directoryName: "handoff",
+        skillMd: skillMd({ name: "handoff", extra: `argument-hint:\n  - list` }),
+      }),
+    "E_SKILL_FRONTMATTER_INVALID",
+  );
+});

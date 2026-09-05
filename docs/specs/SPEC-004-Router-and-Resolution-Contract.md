@@ -7,9 +7,10 @@ AMEND-03 (EGA-608: FTS exactness basis, current/locked version visibility),
 AMEND-04 (EGA-609: request validation, match predicates, fingerprint algorithm,
 public output types, explicit accounting, stopping rule, budget precedence,
 confidence, reason emission, collection semantics, implementation version),
-AMEND-05 (EGA-610: policy semantics basis, effective-budget precedence).
+AMEND-05 (EGA-610: policy semantics basis, effective-budget precedence),
+AMEND-09 (EGA-614: user-invoked-only exclusion + USER_INVOCATION_ONLY reason).
 **Authority note:** This file is normative. `docs/specs/` is the V1 implementation authority;
-Linear amendment tickets (EGA-605..EGA-611) are provenance/history only.
+Linear amendment tickets (EGA-605..EGA-614) are provenance/history only.
 If implementation reveals a contradiction, amend this spec and its tests before changing behavior
 (Linear: EGA-550 gate; EGA-605 parent gate).
 
@@ -107,6 +108,11 @@ canonical-dedupe preserving first occurrence (§5.1.2).
    a relevant too-large LARGE remains a candidate with negative reason `TOKEN_BUDGET`.
 3. `OVERSIZED` L2 NEVER auto-selects in V1 — even under a 20,000-token budget — and
    remains a candidate with negative reason `CONTENT_OVERSIZED`.
+3b. (AMEND-09) A user-invoked-only skill (`disable-model-invocation: true`,
+   SPEC-001 §5.1.6 rule 4) NEVER auto-selects in V1 — regardless of tier,
+   budget, or evidence — and remains a candidate with negative reason
+   `USER_INVOCATION_ONLY`. Explicit user references to such skills resolve
+   normally (`EXPLICIT_USER`); only automatic selection is barred.
 4. NO silent truncation exists. A missing requested level is represented with
    `CONTENT_MISSING`, never with substitute content.
 5. Automatic selected token total NEVER exceeds `maxTokens`; automatic selected count
@@ -262,6 +268,7 @@ An automatic candidate is rejected with its deterministic negative reason when:
 | strong platform mismatch (§5.1.12) | `PLATFORM_MISMATCH` |
 | strong anti-trigger match (§5.1.11) | `ANTI_TRIGGER_MATCH` |
 | budget/size composition deferral | `TOKEN_BUDGET` / `CONTENT_MISSING` / `CONTENT_OVERSIZED` |
+| user-invoked-only skill in automatic composition (AMEND-09) | `USER_INVOCATION_ONLY` |
 | redundancy suppression (§5.1.16) | `REDUNDANT_HIGHER_RANKED` |
 | workspace-ambiguity explanatory retention (§5.1.17) | `WORKSPACE_AMBIGUOUS` |
 
@@ -302,7 +309,10 @@ frozen negative reason codes — no speculative reasons.
    represented ONLY by the deterministic fingerprint/workspace rules.
 4. If final confidence is LOW: publish `selected=[]`, set
    `automaticSelectedTokens=0`, and keep relevant provisional items in `candidates`
-   with their reasons. LOW NEVER leaks an automatic selection.
+   with their reasons. LOW NEVER leaks an automatic selection. "Relevant" means
+   evidence-carrying rows PLUS any row carrying `USER_INVOCATION_ONLY`
+   (AMEND-09): the user-only gate stays visible even when the row carries no
+   task evidence. The frozen three-candidate cap still applies in router order.
 5. When LOW is caused by `workspaceAmbiguous=true`, every relevant
    provisional/candidate item retained because of that ambiguity ALSO carries the
    negative reason `WORKSPACE_AMBIGUOUS`. This reason is explanatory, not a
@@ -330,10 +340,11 @@ Emission mapping (deterministic, one mapping):
 - active locked-version use → `LOCKED_VERSION`;
 - `TOKEN_EFFICIENT` only per §5.1.14 rule 4.
 
-Negative reasons (12, exhaustive): `NAMESPACE_DENIED`, `SKILL_DENIED`,
+Negative reasons (13, exhaustive): `NAMESPACE_DENIED`, `SKILL_DENIED`,
 `VERSION_NOT_LOCKED`, `VERSION_MISSING`, `INVALID_SKILL`, `PLATFORM_MISMATCH`,
 `ANTI_TRIGGER_MATCH`, `REDUNDANT_HIGHER_RANKED`, `TOKEN_BUDGET`, `CONTENT_MISSING`,
-`CONTENT_OVERSIZED`, `WORKSPACE_AMBIGUOUS` (see §5.1.15 table).
+`CONTENT_OVERSIZED`, `WORKSPACE_AMBIGUOUS`, `USER_INVOCATION_ONLY` (AMEND-09;
+appended last, existing order preserved — see §5.1.15 table).
 
 Compatibility warnings (3, exhaustive):
 

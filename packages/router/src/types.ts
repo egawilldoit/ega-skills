@@ -57,6 +57,8 @@ export const NEGATIVE_REASONS: readonly string[] = Object.freeze([
   "CONTENT_MISSING",
   "CONTENT_OVERSIZED",
   "WORKSPACE_AMBIGUOUS",
+  // AMEND-09 appends last; existing order is frozen.
+  "USER_INVOCATION_ONLY",
 ]);
 
 export const COMPATIBILITY_WARNINGS: readonly CompatibilityWarning[] = Object.freeze([

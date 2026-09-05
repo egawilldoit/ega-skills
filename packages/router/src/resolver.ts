@@ -112,6 +112,7 @@ interface L0Row {
   readonly domains: readonly string[];
   readonly antiTriggers: readonly string[];
   readonly description: string;
+  readonly modelInvocation: "model" | "user_only";
 }
 
 function failInvalid(message: string): never {
@@ -246,14 +247,24 @@ function loadL0Rows(
       if (file.path === "SKILL.core.md" && count !== undefined) l1Tokens = count.token_count;
     }
     let antiTriggers: string[] = [];
+    let modelInvocation: "model" | "user_only" = "model";
     try {
       const manifest: unknown = JSON.parse(version.manifest_json);
-      const routing = (manifest as Record<string, unknown>)["routing"];
+      const record = typeof manifest === "object" && manifest !== null ? (manifest as Record<string, unknown>) : {};
+      const routing = record["routing"];
       const raw =
         typeof routing === "object" && routing !== null
           ? ((routing as Record<string, unknown>)["anti_triggers"] as unknown)
           : undefined;
       if (Array.isArray(raw)) antiTriggers = raw.filter((entry): entry is string => typeof entry === "string");
+      // AMEND-09: the invocation gate rides the stored manifest (no schema
+      // migration); absent key means model-invocable (all pre-amendment rows).
+      const portable = record["portable"];
+      const flag =
+        typeof portable === "object" && portable !== null
+          ? ((portable as Record<string, unknown>)["disable_model_invocation"] as unknown)
+          : undefined;
+      if (flag === true) modelInvocation = "user_only";
     } catch {
       antiTriggers = [];
     }
@@ -278,6 +289,7 @@ function loadL0Rows(
       domains: splitLines(fts.domains),
       antiTriggers,
       description: fts.description,
+      modelInvocation,
     });
   }
   return { rows, knownSkills };
@@ -458,6 +470,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
           recommendedContentLevel: useL1 ? "L1" : "L2",
           recommendedContentTokens: tieredRow.recommendedContentTokens,
           l2SizeClass: full.l2SizeClass,
+          modelInvocation: full.modelInvocation,
         };
       }),
       maxSkills,

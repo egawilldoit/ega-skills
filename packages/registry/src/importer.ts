@@ -189,6 +189,10 @@ async function importSkillRoot(
       ...(portable.compatibility !== undefined ? { compatibility: portable.compatibility } : {}),
       ...(portable.metadata !== undefined ? { metadata: portable.metadata } : {}),
       ...(portable.allowedTools !== undefined ? { allowedTools: portable.allowedTools } : {}),
+      ...(portable.disableModelInvocation !== undefined
+        ? { disableModelInvocation: portable.disableModelInvocation }
+        : {}),
+      ...(portable.argumentHint !== undefined ? { argumentHint: portable.argumentHint } : {}),
     },
     routing: {
       domains: routing.domains,

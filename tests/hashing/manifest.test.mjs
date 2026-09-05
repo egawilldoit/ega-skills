@@ -4,7 +4,7 @@ import test from "node:test";
 const hashing = await import("../../packages/hashing/dist/index.js");
 const schema = await import("../../packages/schema/dist/index.js");
 
-const { buildCanonicalSkillVersionManifest } = hashing;
+const { buildCanonicalSkillVersionManifest, canonicalizeJson, hashCanonicalManifest } = hashing;
 const { parseEgaMetadata } = schema;
 
 const encoder = new TextEncoder();
@@ -237,4 +237,31 @@ test("SPEC-002 §5.1.15: routing semantic change alters the manifest", () => {
   });
   assert.notDeepEqual(ma, mb);
   assert.notDeepEqual(ma.routing, mb.routing);
+});
+
+test("AMEND-09: invocation fields map to frozen wire keys and enter identity", () => {
+  const input = baseInput();
+  input.portable.disableModelInvocation = true;
+  input.portable.argumentHint = "What next?";
+  const manifest = buildCanonicalSkillVersionManifest(input);
+  assert.equal(manifest.portable.disable_model_invocation, true);
+  assert.equal(manifest.portable.argument_hint, "What next?");
+  assert.ok(!Object.hasOwn(manifest.portable, "disableModelInvocation"));
+  assert.ok(!Object.hasOwn(manifest.portable, "argumentHint"));
+  const plain = buildCanonicalSkillVersionManifest(baseInput());
+  assert.notDeepEqual(manifest, plain, "field presence changes identity");
+  const flipped = buildCanonicalSkillVersionManifest({
+    ...baseInput(),
+    portable: { ...baseInput().portable, disableModelInvocation: false },
+  });
+  assert.notDeepEqual(flipped, plain, "true->false flip changes identity");
+  // SPEC-002 §5.1.15: the new keys are real JCS identity bytes, and absence
+  // keeps the pre-amendment hash byte-stable.
+  const decoder = new TextDecoder();
+  const withFieldsJcs = decoder.decode(canonicalizeJson(manifest));
+  assert.ok(withFieldsJcs.includes('"disable_model_invocation":true'));
+  assert.ok(withFieldsJcs.includes('"argument_hint":"What next?"'));
+  assert.ok(!decoder.decode(canonicalizeJson(plain)).includes("disable_model_invocation"));
+  assert.match(hashCanonicalManifest(manifest), /^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(hashCanonicalManifest(manifest), hashCanonicalManifest(plain));
 });
