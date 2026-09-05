@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ega-skills": {
+      "type": "local",
+      "command": ["<ABS-PATH-TO-NODE>", "<ABS-PATH-TO-CHECKOUT>/packages/mcp/bin/ega-mcp.mjs"],
+      "environment": { "EGA_SKILLS_HOME": "<ABS-PATH-TO-FIXTURE-ROOT>/home" },
+      "enabled": true
+    }
+  }
+}
