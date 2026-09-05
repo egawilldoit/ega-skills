@@ -1,0 +1,393 @@
+[
+  {
+    "name": "resolve",
+    "description": "Resolve a task to the best local skill set (SPEC-006 \u00a75.1.5)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "project_path": {
+          "type": "string"
+        },
+        "explicit_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_skills": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "task"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/properties/result/$defs/resolveOutput"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    }
+  },
+  {
+    "name": "search",
+    "description": "Search project-visible skill L0 metadata by query",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "project_path": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/properties/result/$defs/searchOutput"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    }
+  },
+  {
+    "name": "inspect",
+    "description": "Inspect one canonical skill version's L0 metadata",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "skill_id": {
+          "type": "string"
+        },
+        "project_path": {
+          "type": "string"
+        },
+        "version_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill_id"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "skill_id": {
+          "type": "string"
+        },
+        "version_hash": {
+          "type": "string"
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "OWNED",
+            "EXTERNAL",
+            "UNKNOWN"
+          ]
+        },
+        "l0": {
+          "type": "object",
+          "properties": {
+            "skill_id": {
+              "type": "string"
+            },
+            "version_hash": {
+              "type": "string"
+            },
+            "namespace": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "domains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "frameworks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "anti_triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "l1_status": {
+              "type": "string",
+              "enum": [
+                "AUTHORED",
+                "MISSING"
+              ]
+            },
+            "l1_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "l2_tokens": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "skill_id",
+            "version_hash"
+          ]
+        },
+        "token_metadata": {
+          "type": "object",
+          "properties": {
+            "estimator_id": {
+              "type": "string",
+              "const": "ega-o200k-v1"
+            },
+            "l1_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "l2_tokens": {
+              "type": "integer"
+            },
+            "l2_size_class": {
+              "type": "string",
+              "enum": [
+                "NORMAL",
+                "LARGE",
+                "OVERSIZED"
+              ]
+            }
+          },
+          "required": [
+            "estimator_id",
+            "l1_tokens",
+            "l2_tokens",
+            "l2_size_class"
+          ]
+        },
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "type": "integer"
+            },
+            "skill_id": {
+              "type": "string"
+            },
+            "portable": {
+              "type": "object"
+            },
+            "routing": {
+              "type": "object"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "blob_hash": {
+                    "type": "string"
+                  },
+                  "byte_size": {
+                    "type": "integer"
+                  },
+                  "content_kind": {
+                    "type": "string",
+                    "enum": [
+                      "TEXT",
+                      "BINARY"
+                    ]
+                  }
+                },
+                "required": [
+                  "path",
+                  "role",
+                  "blob_hash",
+                  "byte_size",
+                  "content_kind"
+                ]
+              }
+            }
+          },
+          "required": [
+            "schema_version",
+            "skill_id",
+            "portable",
+            "routing",
+            "files"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_type": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "git"
+                ]
+              },
+              "local_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "repository": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "commit_sha": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "repository_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "observed_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source_type",
+              "local_path",
+              "repository",
+              "commit_sha",
+              "repository_path",
+              "observed_at"
+            ]
+          }
+        }
+      },
+      "required": [
+        "skill_id",
+        "version_hash",
+        "trust_level",
+        "l0",
+        "token_metadata",
+        "manifest",
+        "sources"
+      ]
+    }
+  },
+  {
+    "name": "get_content",
+    "description": "Return exact canonical L1/L2 content for a version",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "skill_id": {
+          "type": "string"
+        },
+        "version_hash": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "L1",
+            "L2"
+          ]
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "project_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill_id",
+        "version_hash",
+        "level",
+        "max_tokens"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/properties/result/$defs/getContentOutput"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    }
+  }
+]

@@ -16,6 +16,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -46,6 +47,24 @@ const DESCRIPTION_BUDGET = 40;
 const COMBINED_BUDGET = 1000;
 
 const EXPECTED_TOOLS = ["resolve", "search", "inspect", "get_content"];
+
+/**
+ * Independently-reviewed frozen truth for the complete runtime-advertised
+ * descriptors (Fix A review, 2026-09-05): dumped from a live tools/list
+ * response, then verified field-by-field against packages/mcp/src/server.ts
+ * registrations (names, descriptions, input fields/ranges/required) and the
+ * per-tool output-schema projections (resolve/search/get_content expose the
+ * frozen $ref container references; inspect exposes the full projection
+ * minus additionalProperties flags). The pinned SDK v2 wraps $ref outputs as
+ * {properties:{result:...},required:[result]} while embedding full-object
+ * outputs directly — that asymmetry is SDK behavior, frozen here as observed.
+ * Not generated blindly: any descriptor drift (description text, added or
+ * removed fields, schema or additionalProperties changes) fails this test by
+ * design. Budget measurement still runs over the live runtime definitions.
+ */
+const EXPECTED_DESCRIPTORS = JSON.parse(
+  readFileSync(new URL("./contract-expected-tools.json", import.meta.url), "utf8"),
+);
 
 const tempRoots = new Set();
 async function makeTempRoot(name) {
@@ -140,6 +159,12 @@ test("contract: exactly the four V1 tools are registered, in order", async (t) =
     tools.map((tool) => tool.name),
     EXPECTED_TOOLS,
   );
+});
+
+test("contract: advertised descriptors match the frozen reviewed truth", async (t) => {
+  const home = join(await makeTempRoot("home"), "absent");
+  const { tools } = await listTools(t, { ...process.env, EGA_SKILLS_HOME: home });
+  assert.deepEqual(tools, EXPECTED_DESCRIPTORS);
 });
 
 test("contract: input schemas expose the frozen required fields", async (t) => {
@@ -265,6 +290,8 @@ test("contract: success payloads validate against their output schemas", async (
   for (const name of EXPECTED_TOOLS) {
     const call = await request(`ok-${name}`, "tools/call", { name, arguments: calls[name] });
     assert.equal(call.result.isError, false, `${name} succeeds: ${JSON.stringify(call.result).slice(0, 200)}`);
+    assert.ok(Array.isArray(call.result.content), `${name} content is an array`);
+    assert.ok(call.result.content.length >= 1, `${name} includes a text fallback`);
     const payload = unwrap(call);
     assertValidates(schemas[name], payload, `${name} structuredContent`);
     for (const part of call.result.content) {
@@ -283,6 +310,53 @@ test("contract: success payloads validate against their output schemas", async (
     !bodies.includes("CONTRACT-BODY-1138"),
     "resolve/search/inspect structured payloads never carry instruction bodies",
   );
+});
+
+test("contract: unknown input fields are permitted and ignored", async (t) => {
+  // Frozen behavior (SPEC-006/AMEND-06 lists known fields without rejecting
+  // extras; the runtime validator and advertised schemas both allow them):
+  // unknown fields must not change the call outcome. No metadata change was
+  // needed to freeze this — the advertised schemas already permit extras.
+  const { home, versionHash } = await setupContractHome(t);
+  const project = await setupContractProject(t);
+  const env = { ...process.env, EGA_SKILLS_HOME: home };
+  const { send, request } = launch(t, env);
+  await request(1, "initialize", {
+    protocolVersion: PROTOCOL_VERSION,
+    capabilities: {},
+    clientInfo: { name: "contract-test", version: "0.0.0" },
+  });
+  send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+  const pairs = [
+    ["resolve", { task: "contract probe work", project_path: project }],
+    ["search", { query: "contract probe", project_path: project }],
+    ["inspect", { skill_id: "ega/contract", project_path: project }],
+    [
+      "get_content",
+      {
+        skill_id: "ega/contract",
+        version_hash: versionHash,
+        level: "L2",
+        max_tokens: 4000,
+        project_path: project,
+      },
+    ],
+  ];
+  for (const [name, args] of pairs) {
+    const plain = await request(`plain-${name}`, "tools/call", { name, arguments: args });
+    const extra = await request(`extra-${name}`, "tools/call", {
+      name,
+      arguments: { ...args, not_a_frozen_field: "ignored" },
+    });
+    assert.equal(plain.result.isError, false, `${name} baseline succeeds`);
+    assert.equal(extra.result.isError, false, `${name} tolerates unknown fields`);
+    const strip = (call) => {
+      const copy = JSON.parse(JSON.stringify(unwrap(call)));
+      delete copy.resolution_id;
+      return copy;
+    };
+    assert.deepEqual(strip(extra), strip(plain), `${name} ignores unknown input fields`);
+  }
 });
 
 test("contract: failures use isError plus the frozen McpToolError envelope", async (t) => {
