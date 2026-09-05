@@ -66,6 +66,9 @@ importers:
 
   packages/router:
     dependencies:
+      '@ega-skills/project':
+        specifier: workspace:*
+        version: link:../project
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry

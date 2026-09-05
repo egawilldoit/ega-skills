@@ -129,3 +129,27 @@ test("CLI resolve: no-match is a normal LOW result with exit 0", async (t) => {
   assert.deepEqual(resolved.selected, []);
   assert.equal(resolved.automaticSelectedTokens, 0);
 });
+
+// resolve: the CLI passes --project through with NO policy, so the router
+// derives the effective config/lock from the REAL project tree (EGA-587):
+// a skills.deny entry in the target project's .egaskills.yaml must filter
+// the automatic pool end-to-end, with the deny landing in `rejected`.
+
+test("CLI resolve: deny config in the target project filters automatic results", async (t) => {
+  const base = await isolatedHome(t);
+  const env = cliEnv(base);
+  const proj = await importFixture(base, env);
+  await writeFile(
+    join(proj, ".egaskills.yaml"),
+    "schema_version: 1\nskills:\n  deny:\n    - ega/react-helper\n",
+  );
+  const result = runCli(["resolve", "--project", proj, "--task", "please build widget with react"], env);
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+  const resolved = JSON.parse(result.stdout);
+  assert.ok(!resolved.selected.some((skill) => skill.id === "ega/react-helper"));
+  assert.ok(!resolved.candidates.some((skill) => skill.id === "ega/react-helper"));
+  const denied = resolved.rejected.find((skill) => skill.id === "ega/react-helper");
+  assert.ok(denied !== undefined);
+  assert.deepEqual(denied.reasons, ["SKILL_DENIED"]);
+});

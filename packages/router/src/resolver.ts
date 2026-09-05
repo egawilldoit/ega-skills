@@ -15,6 +15,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  PROJECT_CONFIG_V1_DEFAULTS,
+  discoverConfig,
+  readConfigAndLock,
+  resolveLockMode,
+} from "@ega-skills/project";
+
+import {
   openRegistry,
   searchSkills,
   type RegistryHandle,
@@ -308,6 +315,40 @@ function toTierCandidate(row: L0Row): TierCandidate {
   };
 }
 
+/**
+ * SPEC-005 §5.1.2/§5.1.12 effective-policy derivation (EGA-587): when the
+ * caller supplies no explicit policy, derive it from the REAL project tree —
+ * discoverConfig bounds the walk at the repo boundary, readConfigAndLock
+ * runs the §5.1.14 control-file gate (stray locks without a selected config
+ * are ignored; linked/non-text files and stale hashes fail with their
+ * frozen codes), PROJECT_CONFIG_V1_DEFAULTS applies when no config is
+ * selected, and resolveLockMode makes the LOCKED/UNLOCKED decision
+ * (throwing E_LOCK_REQUIRED when locking is required and no lock exists).
+ */
+function deriveProjectPolicy(projectPath: string): ResolvePolicyInput {
+  const discovery = discoverConfig(projectPath);
+  const { config, lock } = readConfigAndLock(discovery);
+  const effectiveConfig = config ?? PROJECT_CONFIG_V1_DEFAULTS;
+  const modeData = resolveLockMode({ config: effectiveConfig, lock });
+  return {
+    allowedNamespaces: effectiveConfig.namespaces.allow,
+    deniedNamespaces: effectiveConfig.namespaces.deny,
+    deniedSkills: effectiveConfig.skills.deny,
+    prefer: effectiveConfig.skills.prefer,
+    defaultMaxSkills: effectiveConfig.routing.max_skills,
+    defaultMaxTokens: effectiveConfig.routing.max_tokens,
+    lockedVersions:
+      modeData.mode === "LOCKED"
+        ? new Map(
+            Object.entries(modeData.lock.skills).map(([skillId, entry]) => [
+              skillId,
+              entry.version_hash,
+            ]),
+          )
+        : null,
+  };
+}
+
 /** Resolve a full ResolutionResult. No instruction bodies enter the output. */
 export async function resolveSkills(input: ResolveInput): Promise<ResolutionResult> {
   const task = input.task.trim();
@@ -316,7 +357,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     failInvalid(`task must be at most ${MAX_TASK_CODE_POINTS} Unicode code points.`);
   }
   const references = input.explicitSkills ?? [];
-  const policy = input.policy ?? {};
+  const policy = input.policy ?? deriveProjectPolicy(input.projectPath);
   checkBudgetRange("budget.maxSkills", input.budget?.maxSkills, 1, 3);
   checkBudgetRange("budget.maxTokens", input.budget?.maxTokens, 1, 1000000);
   checkBudgetRange("config.maxSkills", policy.defaultMaxSkills, 1, 3);
