@@ -10,3 +10,16 @@ export {
   TOOL_NOT_IMPLEMENTED_ERROR,
 } from "./server.js";
 export type { McpToolError, McpToolErrorEnvelope } from "./server.js";
+export {
+  McpContextError,
+  MCP_BOUNDARY_ERROR_CODES,
+  openReadOnlyRegistry,
+  resolveMcpProjectContext,
+  toMcpErrorResult,
+} from "./project-context.js";
+export type {
+  McpBoundaryErrorCode,
+  McpProjectContext,
+  McpProjectContextOptions,
+  ReadOnlyRegistryHandle,
+} from "./project-context.js";

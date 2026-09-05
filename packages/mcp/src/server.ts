@@ -29,6 +29,12 @@ import {
 } from "@modelcontextprotocol/server/stdio";
 import process from "node:process";
 
+import {
+  McpContextError,
+  resolveMcpProjectContext,
+  toMcpErrorResult,
+} from "./project-context.js";
+
 /**
  * Frozen structured error carried by every tool error result (SPEC-006
  * §5.1.3.3): `isError` plus a structured `McpToolError` with the exact
@@ -280,6 +286,47 @@ const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEn
 };
 
 /**
+ * Context-first handler shell (EGA-589, SPEC-006 §5.1.4): resolves the shared
+ * project/runtime boundary before any tool logic. Boundary failures return
+ * the frozen structured error for that tool; success falls through to the
+ * tool body (the skeleton placeholder until EGA-590..EGA-593 land the real
+ * bodies, which reuse this same shell).
+ */
+function withProjectBoundary(
+  tool: ToolName,
+  placeholder: CallToolResult,
+): (args: Record<string, unknown>) => CallToolResult {
+  return (args) => {
+    const rawProjectPath: unknown = args["project_path"];
+    try {
+      resolveMcpProjectContext(
+        typeof rawProjectPath === "string" ? rawProjectPath : undefined,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_PROJECT_NOT_FOUND",
+              error instanceof Error ? error.message : "Project path does not exist",
+            );
+      return toMcpErrorResult(tool, contextError);
+    }
+    return placeholder;
+  };
+}
+
+/** Module-load-bound context-first handlers (one shared closure per tool). */
+const BOUND_HANDLERS: Readonly<
+  Record<ToolName, (args: Record<string, unknown>) => CallToolResult>
+> = Object.freeze({
+  resolve: withProjectBoundary("resolve", TOOL_NOT_IMPLEMENTED_RESULTS.resolve),
+  search: withProjectBoundary("search", TOOL_NOT_IMPLEMENTED_RESULTS.search),
+  inspect: withProjectBoundary("inspect", TOOL_NOT_IMPLEMENTED_RESULTS.inspect),
+  get_content: withProjectBoundary("get_content", TOOL_NOT_IMPLEMENTED_RESULTS.get_content),
+});
+
+/**
  * Constructs the MCP server with the four frozen V1 tool registrations.
  * Stateless: a fresh instance per connection (SPEC-006 §5.1.9).
  */
@@ -337,7 +384,7 @@ export function createMcpServer(): McpServer {
       inputSchema: resolveInput,
       outputSchema: OUTPUT_SCHEMA,
     },
-    () => TOOL_NOT_IMPLEMENTED_RESULTS.resolve,
+    (args: Record<string, unknown>) => BOUND_HANDLERS.resolve(args),
   );
   server.registerTool(
     "search",
@@ -346,7 +393,7 @@ export function createMcpServer(): McpServer {
       inputSchema: searchInput,
       outputSchema: OUTPUT_SCHEMA,
     },
-    () => TOOL_NOT_IMPLEMENTED_RESULTS.search,
+    (args: Record<string, unknown>) => BOUND_HANDLERS.search(args),
   );
   server.registerTool(
     "inspect",
@@ -355,7 +402,7 @@ export function createMcpServer(): McpServer {
       inputSchema: inspectInput,
       outputSchema: OUTPUT_SCHEMA,
     },
-    () => TOOL_NOT_IMPLEMENTED_RESULTS.inspect,
+    (args: Record<string, unknown>) => BOUND_HANDLERS.inspect(args),
   );
   server.registerTool(
     "get_content",
@@ -364,7 +411,7 @@ export function createMcpServer(): McpServer {
       inputSchema: getContentInput,
       outputSchema: OUTPUT_SCHEMA,
     },
-    () => TOOL_NOT_IMPLEMENTED_RESULTS.get_content,
+    (args: Record<string, unknown>) => BOUND_HANDLERS.get_content(args),
   );
 
   return server;
