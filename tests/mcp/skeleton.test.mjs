@@ -107,13 +107,33 @@ test("MCP skeleton: tool call returns the frozen structured placeholder error", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-  for (const name of ["resolve", "search", "inspect", "get_content"]) {
+  // `resolve` is the implemented tool (EGA-590): its placeholder assertion
+  // moved to the resolve suite; the remaining three are still placeholders.
+  for (const name of ["search", "inspect", "get_content"]) {
     const call = await request(`call-${name}`, "tools/call", { name, arguments: VALID_ARGS[name] });
     assert.equal(call.result.isError, true, `${name} is marked as an error result`);
     const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
     assert.equal(envelope?.error?.code, "E_TOOL_NOT_IMPLEMENTED", `${name} code`);
     assert.equal(envelope?.error?.tool, name, `${name} names itself`);
   }
+});
+
+test("MCP skeleton: resolve is implemented and fails closed without a registry", async (t) => {
+  const { send, request } = launch(t);
+  await request(1, "initialize", {
+    protocolVersion: PROTOCOL_VERSION,
+    capabilities: {},
+    clientInfo: { name: "skeleton-test", version: "0.0.0" },
+  });
+  send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+  const call = await request("call-resolve", "tools/call", {
+    name: "resolve",
+    arguments: VALID_ARGS.resolve,
+  });
+  assert.equal(call.result.isError, true, "resolve fails closed with no registry home");
+  const envelope = call.result.structuredContent?.result ?? call.result.structuredContent;
+  assert.equal(envelope?.error?.code, "E_REGISTRY_UNAVAILABLE");
+  assert.equal(envelope?.error?.tool, "resolve");
 });
 
 test("MCP skeleton: stderr stays protocol-free and stdin close exits cleanly", async (t) => {

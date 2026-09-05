@@ -33,7 +33,9 @@ import {
   McpContextError,
   resolveMcpProjectContext,
   toMcpErrorResult,
+  type McpProjectContext,
 } from "./project-context.js";
+import { RESOLVE_OUTPUT_SCHEMA, runResolveTool } from "./resolve.js";
 
 /**
  * Frozen structured error carried by every tool error result (SPEC-006
@@ -316,11 +318,62 @@ function withProjectBoundary(
   };
 }
 
+/**
+ * Context-first resolve handler (SPEC-006 §5.1.4, EGA-590): resolves the
+ * shared project boundary exactly like the shell, then runs the real
+ * `resolve` body. Async: the production resolver is async and the pinned
+ * SDK awaits handler promises. Boundary and body failures both map to the
+ * frozen structured error.
+ */
+function withResolveBoundary(): (
+  args: Record<string, unknown>,
+) => Promise<CallToolResult> {
+  return async (args) => {
+    const rawProjectPath: unknown = args["project_path"];
+    let context: McpProjectContext;
+    try {
+      context = resolveMcpProjectContext(
+        typeof rawProjectPath === "string" ? rawProjectPath : undefined,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_PROJECT_NOT_FOUND",
+              error instanceof Error ? error.message : "Project path does not exist",
+            );
+      return toMcpErrorResult("resolve", contextError);
+    }
+    try {
+      return await runResolveTool(
+        {
+          task: args["task"],
+          project_path: args["project_path"],
+          explicit_skills: args["explicit_skills"],
+          max_skills: args["max_skills"],
+          max_tokens: args["max_tokens"],
+        },
+        context,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_MCP_INPUT_INVALID",
+              error instanceof Error ? error.message : "Malformed resolve tool input",
+            );
+      return toMcpErrorResult("resolve", contextError);
+    }
+  };
+}
+
 /** Module-load-bound context-first handlers (one shared closure per tool). */
 const BOUND_HANDLERS: Readonly<
-  Record<ToolName, (args: Record<string, unknown>) => CallToolResult>
+  Record<ToolName, (args: Record<string, unknown>) => CallToolResult | Promise<CallToolResult>>
 > = Object.freeze({
-  resolve: withProjectBoundary("resolve", TOOL_NOT_IMPLEMENTED_RESULTS.resolve),
+  resolve: withResolveBoundary(),
   search: withProjectBoundary("search", TOOL_NOT_IMPLEMENTED_RESULTS.search),
   inspect: withProjectBoundary("inspect", TOOL_NOT_IMPLEMENTED_RESULTS.inspect),
   get_content: withProjectBoundary("get_content", TOOL_NOT_IMPLEMENTED_RESULTS.get_content),
@@ -382,7 +435,7 @@ export function createMcpServer(): McpServer {
       title: "Resolve a task to the best local skill set",
       description: "Resolve a task to the best local skill set (SPEC-006 §5.1.5)",
       inputSchema: resolveInput,
-      outputSchema: OUTPUT_SCHEMA,
+      outputSchema: RESOLVE_OUTPUT_SCHEMA,
     },
     (args: Record<string, unknown>) => BOUND_HANDLERS.resolve(args),
   );
