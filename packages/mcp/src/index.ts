@@ -23,3 +23,19 @@ export type {
   McpProjectContextOptions,
   ReadOnlyRegistryHandle,
 } from "./project-context.js";
+export {
+  inspectOutputSchema,
+  runInspectTool,
+  toInspectErrorResult,
+  toInspectSuccessResult,
+} from "./inspect.js";
+export type {
+  CanonicalVersionManifestSnakeCase,
+  McpInspectArgs,
+  McpInspectL0,
+  McpInspectOptions,
+  McpInspectOutput,
+  McpInspectSource,
+  McpInspectTokenMetadata,
+  McpInspectTrustLevel,
+} from "./inspect.js";
