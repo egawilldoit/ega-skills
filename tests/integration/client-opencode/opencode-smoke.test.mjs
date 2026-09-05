@@ -29,9 +29,8 @@ const EXPECTED_VERSION_HASH =
   "sha256:74e83090de8a7ee2624a1d24d5b298c7d34d8e3c44a7043e56f65ea8d5bca7e0";
 
 test("opencode config template declares the same local MCP server", async () => {
-  const template = JSON.parse(
-    await readFile(join(HERE, "opencode.json.template"), "utf8"),
-  );
+  const raw = await readFile(join(HERE, "opencode.json.template"), "utf8");
+  const template = JSON.parse(raw);
   const server = template?.mcp?.["ega-skills"];
   assert.ok(server, "template must declare mcp.ega-skills");
   assert.equal(server.type, "local");
@@ -50,6 +49,30 @@ test("opencode config template declares the same local MCP server", async () => 
     Object.keys(template.mcp),
     ["ega-skills"],
     "exactly one MCP server: no client-specific extras",
+  );
+  // Review (PR #51): the acceptance path substitutes placeholders before
+  // OpenCode ever sees the file, so prove a substituted render stays valid:
+  // every placeholder resolves, none survive, shape is preserved.
+  const placeholders = raw.match(/<ABS-[A-Z-]+>/g) ?? [];
+  assert.deepEqual(
+    [...new Set(placeholders)].sort(),
+    ["<ABS-PATH-TO-CHECKOUT>", "<ABS-PATH-TO-FIXTURE-ROOT>", "<ABS-PATH-TO-NODE>"],
+    "template exposes exactly the three documented placeholders",
+  );
+  const rendered = JSON.parse(
+    raw
+      .replaceAll("<ABS-PATH-TO-NODE>", process.execPath)
+      .replaceAll("<ABS-PATH-TO-CHECKOUT>", "/tmp/ega-checkout")
+      .replaceAll("<ABS-PATH-TO-FIXTURE-ROOT>", "/tmp/ega-fixture"),
+  );
+  assert.ok(!JSON.stringify(rendered).includes("<ABS-"), "no placeholder survives substitution");
+  assert.deepEqual(rendered.mcp["ega-skills"].command, [
+    process.execPath,
+    "/tmp/ega-checkout/packages/mcp/bin/ega-mcp.mjs",
+  ]);
+  assert.equal(
+    rendered.mcp["ega-skills"].environment.EGA_SKILLS_HOME,
+    "/tmp/ega-fixture/home",
   );
 });
 
