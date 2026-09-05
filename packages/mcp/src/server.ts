@@ -33,7 +33,9 @@ import {
   McpContextError,
   resolveMcpProjectContext,
   toMcpErrorResult,
+  type McpProjectContext,
 } from "./project-context.js";
+import { runSearchTool, SEARCH_OUTPUT_SCHEMA, type SearchToolArgs } from "./search.js";
 
 /**
  * Frozen structured error carried by every tool error result (SPEC-006
@@ -316,12 +318,52 @@ function withProjectBoundary(
   };
 }
 
+/**
+ * Context-first search handler (SPEC-006 §5.1.4, EGA-591): resolves the shared
+ * project boundary exactly like the shell, then runs the real `search` body.
+ * Boundary failures and body failures both map to the frozen structured
+ * error (the body's own `E_MCP_INPUT_INVALID` / `E_REGISTRY_UNAVAILABLE`
+ * codes included).
+ */
+function withSearchBoundary(): (args: Record<string, unknown>) => CallToolResult {
+  return (args) => {
+    const rawProjectPath: unknown = args["project_path"];
+    let context: McpProjectContext;
+    try {
+      context = resolveMcpProjectContext(
+        typeof rawProjectPath === "string" ? rawProjectPath : undefined,
+      );
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_PROJECT_NOT_FOUND",
+              error instanceof Error ? error.message : "Project path does not exist",
+            );
+      return toMcpErrorResult("search", contextError);
+    }
+    try {
+      return runSearchTool(args as SearchToolArgs, context);
+    } catch (error) {
+      const contextError =
+        error instanceof McpContextError
+          ? error
+          : new McpContextError(
+              "E_MCP_INPUT_INVALID",
+              error instanceof Error ? error.message : "Malformed search tool input",
+            );
+      return toMcpErrorResult("search", contextError);
+    }
+  };
+}
+
 /** Module-load-bound context-first handlers (one shared closure per tool). */
 const BOUND_HANDLERS: Readonly<
   Record<ToolName, (args: Record<string, unknown>) => CallToolResult>
 > = Object.freeze({
   resolve: withProjectBoundary("resolve", TOOL_NOT_IMPLEMENTED_RESULTS.resolve),
-  search: withProjectBoundary("search", TOOL_NOT_IMPLEMENTED_RESULTS.search),
+  search: withSearchBoundary(),
   inspect: withProjectBoundary("inspect", TOOL_NOT_IMPLEMENTED_RESULTS.inspect),
   get_content: withProjectBoundary("get_content", TOOL_NOT_IMPLEMENTED_RESULTS.get_content),
 });
@@ -391,7 +433,7 @@ export function createMcpServer(): McpServer {
     {
       description: "Search project-visible skill L0 metadata by query",
       inputSchema: searchInput,
-      outputSchema: OUTPUT_SCHEMA,
+      outputSchema: SEARCH_OUTPUT_SCHEMA,
     },
     (args: Record<string, unknown>) => BOUND_HANDLERS.search(args),
   );
