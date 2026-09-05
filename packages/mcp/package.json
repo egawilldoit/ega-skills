@@ -19,6 +19,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0"
+    "@ega-skills/project": "workspace:*",
+    "@ega-skills/registry": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0",
+    "better-sqlite3": "13.0.3"
   }
 }

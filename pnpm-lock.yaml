@@ -36,9 +36,18 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@ega-skills/project':
+        specifier: workspace:*
+        version: link:../project
+      '@ega-skills/registry':
+        specifier: workspace:*
+        version: link:../registry
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
 
   packages/project:
     dependencies:
