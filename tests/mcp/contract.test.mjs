@@ -294,11 +294,45 @@ test("contract: success payloads validate against their output schemas", async (
     assert.ok(call.result.content.length >= 1, `${name} includes a text fallback`);
     const payload = unwrap(call);
     assertValidates(schemas[name], payload, `${name} structuredContent`);
-    for (const part of call.result.content) {
-      assert.ok(
-        part.text.length <= 300,
-        `${name} text fallback stays compact (${part.text.length} chars)`,
+    // Text-fallback bounds (SPEC-006 §5.1.3 rule 2; EGA-597: fallbacks MUST
+    // also be sufficient for text-only clients — ids/hashes/instants and the
+    // requested body — so bounds are per-tool, not one blanket cap).
+    const text = call.result.content.map((part) => part.text).join("\n");
+    if (name === "get_content") {
+      assert.equal(
+        text,
+        `${text.split("\n")[0]}\n${payload.content}`,
+        "get_content text fallback is exactly summary + requested body",
       );
+    } else if (name === "search") {
+      for (const row of payload.results) {
+        assert.ok(
+          text.includes(row.skill_id) && text.includes(row.version_hash),
+          `search text fallback carries ${row.skill_id} essentials`,
+        );
+      }
+      assert.ok(
+        text.length <= 128 + payload.results.length * 192,
+        `search text fallback stays compact (${text.length} chars)`,
+      );
+    } else if (name === "inspect") {
+      for (const source of payload.sources) {
+        assert.ok(
+          text.includes(source.observed_at),
+          "inspect text fallback carries per-source observed_at",
+        );
+      }
+      assert.ok(
+        text.length <= 320 + payload.sources.length * 192,
+        `inspect text fallback stays compact (${text.length} chars)`,
+      );
+    } else {
+      for (const part of call.result.content) {
+        assert.ok(
+          part.text.length <= 300,
+          `${name} text fallback stays compact (${part.text.length} chars)`,
+        );
+      }
     }
   }
   const bodies = JSON.stringify([

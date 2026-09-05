@@ -548,17 +548,25 @@ export function toInspectErrorResult(error: unknown): CallToolResult {
 
 /**
  * Successful inspect call result: exact `McpInspectOutput` as
- * structuredContent plus a COMPACT text fallback that never duplicates the
- * structured payload (SPEC-006 §5.1.3.2).
+ * structuredContent plus a COMPACT text fallback. The fallback carries the
+ * machine-essential facts (identity, trust, token counts, per-source
+ * `observed_at`) so text-only clients can proceed without `structuredContent`
+ * (EGA-597: real OpenCode runs); it never carries instruction bodies or
+ * verbose prose (SPEC-006 §5.1.3 rule 2).
  */
 export function toInspectSuccessResult(
   output: McpInspectOutput,
 ): CallToolResult {
+  const sourceLines = output.sources.map(
+    (source) =>
+      `source ${source.source_type} ${source.local_path ?? source.repository ?? "?"} observed_at=${source.observed_at}`,
+  );
   const text =
     `inspect ${output.skill_id} ${output.version_hash} ` +
     `trust=${output.trust_level} l1=${String(output.token_metadata.l1_tokens)} ` +
     `l2=${String(output.token_metadata.l2_tokens)} l2_size_class=${output.token_metadata.l2_size_class} ` +
-    `files=${output.manifest.files.length} sources=${output.sources.length}`;
+    `files=${output.manifest.files.length} sources=${output.sources.length}` +
+    (sourceLines.length > 0 ? `\n${sourceLines.join("\n")}` : "");
   return Object.freeze({
     content: Object.freeze([{ type: "text", text }]),
     structuredContent: output,

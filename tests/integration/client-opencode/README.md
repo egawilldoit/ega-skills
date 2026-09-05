@@ -53,20 +53,22 @@ installed as a native opencode skill.
 
 ## 3. Prove parity (EGA-597)
 
-From the fixture project dir, with a cheap pinned model
-(EGA-597 ran `-m openai/gpt-4o-mini`):
+From the fixture project dir, with a cheap pinned model. Pick an id from
+`opencode models` (EGA-597 ran `-m opencode/muse-spark-1.3-contributor-free`
+in the isolated env; bare `gpt-4o-mini`-style ids are NOT accepted — the
+flag needs the full `provider/model` form):
 
 ```sh
 export VH=sha256:74e83090de8a7ee2624a1d24d5b298c7d34d8e3c44a7043e56f65ea8d5bca7e0
-opencode run --format json -m openai/gpt-4o-mini \
+opencode run --format json -m opencode/muse-spark-1.3-contributor-free \
   "List every MCP tool available to you. Reply with ONLY the tool names, one per line."
-opencode run --format json -m openai/gpt-4o-mini \
+opencode run --format json -m opencode/muse-spark-1.3-contributor-free \
   "Call the ega-skills resolve tool with task 'codex acceptance probe contract verification'. Reply with ONLY the selected skill ids and confidence."
-opencode run --format json -m openai/gpt-4o-mini \
+opencode run --format json -m opencode/muse-spark-1.3-contributor-free \
   "Call the ega-skills search tool with query 'codex acceptance probe'. Reply with ONLY the returned skill ids."
-opencode run --format json -m openai/gpt-4o-mini \
+opencode run --format json -m opencode/muse-spark-1.3-contributor-free \
   "Call the ega_skills inspect tool with skill_id 'ega/contract-probe'. Reply with ONLY version_hash and each source observed_at."
-opencode run --format json -m openai/gpt-4o-mini \
+opencode run --format json -m opencode/muse-spark-1.3-contributor-free \
   "Call the ega-skills get_content tool with skill_id 'ega/contract-probe', version_hash '$VH', level 'L2', max_tokens 2000. Reply with ONLY the exact text content returned."
 ```
 

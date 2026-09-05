@@ -47,6 +47,11 @@ Section numbering and titles are preserved from the frozen bundle.
 2. Every tool defines its input schema AND output schema, and every tool call returns
    `structuredContent` matching its output schema. The text fallback stays compact
    and MUST NOT duplicate large structured payloads in verbose prose.
+   (EGA-597 clarification: some real clients never forward `structuredContent`
+   to the model, so each fallback MUST still carry the machine-essential facts
+   — selected/returned ids and version hashes, per-source `observed_at`, and
+   for `get_content` the exact requested body within its per-call budget —
+   while staying compact and body-free everywhere else.)
 3. Runtime errors use `isError` plus a structured `McpToolError` carrying the exact
    `E_*` code. Golden-harness `GOLDEN_*` diagnostics are NEVER runtime errors.
 4. All external MCP field names use ONE convention: snake_case (§5.1.5–§5.1.8). The
