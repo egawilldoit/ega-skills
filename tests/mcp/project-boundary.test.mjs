@@ -422,15 +422,15 @@ test("boundary (wire): valid project falls through to the tool body", async (t) 
   writeConfig(project);
   const { send, request } = launch(t, envFor(home));
   await handshake(request, send);
+  // `search` now has a real body (EGA-591), so `inspect` — still a skeleton
+  // placeholder — proves the boundary runs FIRST without swallowing success.
   const call = await request("wire-valid", "tools/call", {
-    name: "search",
-    arguments: { query: "flaky crash", project_path: project },
+    name: "inspect",
+    arguments: { skill_id: "ega/not-installed", project_path: project },
   });
   assert.equal(call.result.isError, true);
-  // Bodies land in EGA-590..593: a valid context still reaches the skeleton
-  // placeholder, proving the boundary runs FIRST without swallowing success.
   assert.equal(envelopeOf(call)?.error?.code, "E_TOOL_NOT_IMPLEMENTED");
-  assert.equal(envelopeOf(call)?.error?.tool, "search");
+  assert.equal(envelopeOf(call)?.error?.tool, "inspect");
 });
 
 test("boundary: fixture stat snapshot is stable across repeated resolutions", () => {
