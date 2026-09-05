@@ -97,14 +97,23 @@ function normalizedPath(path) {
  */
 function comparableResult(result) {
   const fingerprint = result.projectFingerprint;
+  // G042 symlinked-cwd contract: the two runs build byte-identical trees in
+  // DIFFERENT temp dirs, so absolute project roots can never be equal. Map
+  // the (already realpath-normalized) project root to a stable placeholder;
+  // evidence sources are project-relative and compare as-is.
+  const root = normalizedPath(fingerprint.projectPath);
+  const atRoot = (path) =>
+    typeof path === "string" && typeof root === "string" && path.startsWith(root)
+      ? `<project>${path.slice(root.length)}`
+      : path;
   return {
     ...result,
     resolutionId: undefined,
     projectFingerprint: {
       ...fingerprint,
-      projectPath: normalizedPath(fingerprint.projectPath),
-      packageRoot: normalizedPath(fingerprint.packageRoot),
-      workspaceRoot: normalizedPath(fingerprint.workspaceRoot),
+      projectPath: atRoot(normalizedPath(fingerprint.projectPath)),
+      packageRoot: atRoot(normalizedPath(fingerprint.packageRoot)),
+      workspaceRoot: atRoot(normalizedPath(fingerprint.workspaceRoot)),
       evidence: fingerprint.evidence.map((record) => ({
         ...record,
         source: normalizedPath(record.source),

@@ -36,8 +36,10 @@ function portableNameOf(canonicalId) {
   return canonicalId.slice(canonicalId.indexOf("/") + 1);
 }
 
-/** Deterministic description derived from the fixture identity itself. */
+/** Deterministic description: the frozen entry description when the catalog
+ *  specifies one (TEST-001 §5.1.1.1 exact text), else derived identity filler. */
 function descriptionOf(entry) {
+  if (typeof entry.description === "string" && entry.description.length > 0) return entry.description;
   return `Golden TEST-001 fixture skill for ${entry.canonicalId} (${entry.fixtureId}).`;
 }
 

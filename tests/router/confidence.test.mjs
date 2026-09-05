@@ -97,6 +97,31 @@ test("SPEC-004 §5.1.17: LOW keeps at most three relevant candidates", () => {
   assert.deepEqual(result.candidates.map((row) => row.id), ["ega/a", "ega/b", "ega/c"]);
 });
 
+test("SPEC-004 §5.1.17 rule 2: TOKEN_BUDGET-deferred Tier B is not useful — LOW with retained candidate (TEST-001 G035)", () => {
+  const large = row("ega/large-reference", "B", [ev("TASK_TRIGGER", "large reference"), ev("DOMAIN", "large-reference")], [
+    "TASK_TRIGGER_MATCH",
+    "DOMAIN_MATCH",
+    "TOKEN_BUDGET",
+  ]);
+  const result = assessConfidence({ selected: [], candidates: [large], automaticSelectedTokens: 0, workspaceAmbiguous: false });
+  assert.equal(result.confidence, "LOW");
+  assert.deepEqual(result.selected, []);
+  assert.equal(result.candidates.length, 1);
+});
+
+test("SPEC-004 §5.1.17 rule 2: CONTENT_OVERSIZED Tier B is not useful — LOW with retained candidate (TEST-001 G037)", () => {
+  const over = row(
+    "ega/oversized-reference",
+    "B",
+    [ev("TASK_TRIGGER", "oversized reference"), ev("DOMAIN", "oversized-reference")],
+    ["TASK_TRIGGER_MATCH", "DOMAIN_MATCH", "CONTENT_OVERSIZED"],
+  );
+  const result = assessConfidence({ selected: [], candidates: [over], automaticSelectedTokens: 0, workspaceAmbiguous: false });
+  assert.equal(result.confidence, "LOW");
+  assert.deepEqual(result.selected, []);
+  assert.equal(result.candidates.length, 1);
+});
+
 // SPEC-004 §5.1.18 reason-code closure.
 
 test("SPEC-004 §5.1.18: only frozen codes validate", () => {

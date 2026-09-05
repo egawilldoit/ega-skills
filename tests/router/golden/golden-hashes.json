@@ -6,10 +6,10 @@
     "l2Tokens": 72
   },
   "skill-alpha-lexical-v1": {
-    "versionHash": "sha256:0ca067cbe99fc52e8a38f22516128db93fdc5f6d09f09d26a178c22966ed3e44",
+    "versionHash": "sha256:2c8fc24f3b6ba19845f0a1a2f1df32baa25dedcf37b5f42856a689716b250fb9",
     "l1Status": "AUTHORED",
     "l1Tokens": 600,
-    "l2Tokens": 66
+    "l2Tokens": 48
   },
   "skill-angular-frontend-v1": {
     "versionHash": "sha256:cc0e9db8c83ba2485956bf8ab214863f856bde1ba1cb14d8f7673339b94d4400",
@@ -72,10 +72,10 @@
     "l2Tokens": 9000
   },
   "skill-omega-lexical-v1": {
-    "versionHash": "sha256:10a2dc403d54b8f9750e9946baedc74ac19ebb9d8047aadc22f55d03066f82f2",
+    "versionHash": "sha256:858b75167a8386484546b1674caab527f6a6b4fea6c65ca691bb141e3a31efce",
     "l1Status": "AUTHORED",
     "l1Tokens": 600,
-    "l2Tokens": 67
+    "l2Tokens": 48
   },
   "skill-oversized-reference-v1": {
     "versionHash": "sha256:4235f82bea0016040401c009a63cbc3ff9c4f2f3b152d853e4d831b48315e68c",

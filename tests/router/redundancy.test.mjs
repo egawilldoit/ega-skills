@@ -188,6 +188,14 @@ test("SPEC-004 §5.1.16: evidence-free Tier C behind an earlier A is suppressed 
   assert.deepEqual(result.suppressed, rejects([c]));
 });
 
+test("SPEC-004 §5.1.16: bare earlier row covers nothing — exact lexical tie composes (TEST-001 G041)", () => {
+  const alpha = row("ega/alpha-lexical", "C", [ev("LEXICAL", "orbital checksum")]);
+  const omega = row("ega/omega-lexical", "C", [ev("LEXICAL", "orbital checksum")]);
+  const result = run([alpha, omega]);
+  assert.deepEqual(result.kept.map((r) => r.id), ["ega/alpha-lexical", "ega/omega-lexical"]);
+  assert.deepEqual(result.suppressed, []);
+});
+
 test("SPEC-004 §5.1.16: no earlier A - lone candidate stays kept", () => {
   const a = row("ega/a", "B", [ev("TASK_TRIGGER", "build widget")]);
   const result = run([a]);

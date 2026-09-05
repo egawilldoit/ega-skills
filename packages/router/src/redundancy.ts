@@ -61,6 +61,16 @@ function categoryValues(
 /** TRUE when `earlier` covers `row` per §5.1.16.1 conditions 1–3. */
 function coveredBy(earlier: RedundancyRow, row: RedundancyRow): boolean {
   if (tierRank(earlier.tier) > tierRank(row.tier)) return false;
+  // Non-vacuity: "the same relevant coverage" requires the suppressor to
+  // BRING coverage — an earlier row with no FRAMEWORK/PLATFORM/TASK_TRIGGER/
+  // DOMAIN values covers nothing, so a likewise-bare row composes instead of
+  // suppressing (TEST-001 G041 exact lexical tie). Suppression behind a
+  // covered A (even of an evidence-free B) is preserved.
+  let coveringCount = 0;
+  for (const category of COVERAGE_CATEGORIES) {
+    coveringCount += categoryValues(earlier.evidence, category).size;
+  }
+  if (coveringCount === 0) return false;
   for (const category of COVERAGE_CATEGORIES) {
     const earlierValues = categoryValues(earlier.evidence, category);
     for (const value of categoryValues(row.evidence, category)) {
