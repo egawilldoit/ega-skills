@@ -6,5 +6,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../project" }, { "path": "../registry" }]
+  "references": [{ "path": "../hashing" }, { "path": "../project" }, { "path": "../registry" }, { "path": "../schema" }]
 }
