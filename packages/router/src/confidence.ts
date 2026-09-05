@@ -71,10 +71,25 @@ export function isFrozenReasonCode(code: string): boolean {
   );
 }
 
+/** Budget/size-deferred rows are never "useful" for confidence: a candidate
+ *  that cannot be selected under this budget (TOKEN_BUDGET) or ever
+ *  automatically (CONTENT_OVERSIZED, CONTENT_MISSING) must not confer
+ *  MEDIUM/HIGH — TEST-001 G035/G037 expect LOW (SPEC-004 §5.1.17 rule 2,
+ *  "no useful candidate"). Retention below still keeps them as candidates. */
+const NOT_USEFUL_REASONS: ReadonlySet<string> = new Set([
+  "TOKEN_BUDGET",
+  "CONTENT_MISSING",
+  "CONTENT_OVERSIZED",
+]);
+
+function isUseful(row: ConfidenceRow): boolean {
+  return !row.reasons.some((reason) => NOT_USEFUL_REASONS.has(reason));
+}
+
 export function assessConfidence(input: ConfidenceInput): ConfidenceResult {
-  const inPlay = [...input.selected, ...input.candidates].filter(
-    (row) => row.tier === "A" || row.tier === "B",
-  );
+  const inPlay = [...input.selected, ...input.candidates]
+    .filter((row) => isUseful(row))
+    .filter((row) => row.tier === "A" || row.tier === "B");
   const relevant = [...input.selected, ...input.candidates].filter((row) => row.evidence.length > 0);
   const top = inPlay[0];
 

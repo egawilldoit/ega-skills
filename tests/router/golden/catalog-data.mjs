@@ -242,6 +242,9 @@ export const SKILL_FIXTURES = [
   {
     fixtureId: 'skill-alpha-lexical-v1',
     canonicalId: 'ega/alpha-lexical',
+    // Frozen exact description (TEST-001 §5.1.1.1): the lexical-tie query
+    // text. The materializer uses entry.description when present.
+    description: 'Orbital checksum helper.',
     domains: [],
     platforms: [],
     frameworks: [],
@@ -254,6 +257,9 @@ export const SKILL_FIXTURES = [
   {
     fixtureId: 'skill-omega-lexical-v1',
     canonicalId: 'ega/omega-lexical',
+    // Frozen exact description (TEST-001 §5.1.1.1): identical to alpha so the
+    // FTS lexical tie is exact.
+    description: 'Orbital checksum helper.',
     domains: [],
     platforms: [],
     frameworks: [],
