@@ -1,0 +1,7 @@
+{
+  "journal_version": 1,
+  "source_id": "mattpocock",
+  "expected_old_commit": "3cca18b368ae95cdbdebbff572ccafa662551015",
+  "target_commit": "7d2e9f43681ab95cdbdebbff572ccafa66255101",
+  "state": "COMMITTED"
+}
