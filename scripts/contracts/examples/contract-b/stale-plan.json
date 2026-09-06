@@ -1,0 +1,27 @@
+{
+  "object_type": "ega.update-plan",
+  "schema_version": 1,
+  "payload": {
+    "source_id": "mattpocock",
+    "source_config_digest": "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
+    "expected_old": {
+      "resolved_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "selected_skill_tree_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "target_commit": "7d2e9f43681ab95cdbdebbff572ccafa66255101",
+    "new_selected_tree_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "new_vendored_snapshot_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "added_skills": [
+      {
+        "skill_ref": "mattpocock/grilling",
+        "version_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "removed_skills": [],
+    "changed_skills": [],
+    "unselected_new_skills": [],
+    "provenance_changes": [],
+    "extraction_contract": 1
+  },
+  "digest": "sha256:ec3a9e9eddd0efc7308622c8e8b371cf1176d1338c00cdd51a41c3618fb391df"
+}
