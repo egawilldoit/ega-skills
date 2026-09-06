@@ -1,7 +1,8 @@
-# EGA Skills V1.0.0 — Operator Guide
+# EGA Skills V1.0.1 — Operator Guide
 
 Local-first registry + deterministic resolver for coding-agent skills.
-This guide covers shipped V1 behavior only.
+This guide covers shipped V1.0.1 behavior only (V1.0.0 + patch fixes;
+see docs/RELEASE-NOTES-1.0.1.md).
 
 ## 1. Install
 
@@ -9,14 +10,15 @@ Prerequisites: Node.js 24 LTS, pnpm 10.
 
 ```sh
 git clone https://github.com/egawilldoit/ega-skills && cd ega-skills
-git checkout v1.0.0
+git checkout v1.0.1
 pnpm install --frozen-lockfile
 pnpm build
-node packages/cli/bin/ega-skills.mjs --version   # 1.0.0
+node packages/cli/bin/ega-skills.mjs --version   # 1.0.1
 ```
 
 No public package publication in V1; the version-stamped tree is the
-distribution unit. Verify with `pnpm test` (592 pass / 0 fail reference).
+distribution unit. Verify with `pnpm test` (reference count in
+docs/RELEASE-NOTES-1.0.1.md).
 
 ## 2. Home directory
 
@@ -56,6 +58,8 @@ In your project root:
 
 ```sh
 node packages/cli/bin/ega-skills.mjs init [<project-dir>]   # directory must exist
+node packages/cli/bin/ega-skills.mjs lock [<project-dir>]   # initial lock creation
+node packages/cli/bin/ega-skills.mjs lock --refresh [<project-dir>]  # regenerate + diff
 ```
 
 - `.egaskills.yaml` — routing policy (namespaces allow/deny, skills
@@ -65,6 +69,10 @@ node packages/cli/bin/ega-skills.mjs init [<project-dir>]   # directory must exi
 - An empty `skills: {}` lock is a VALID active lock (freezes to nothing).
 - Locked projects ignore unrelated later imports until an explicit refresh;
   refresh computes exact +/-/~ diffs and fails closed on corruption.
+- `lock` refuses when a lock already exists (use `--refresh`); symlinked
+  lock paths are rejected, never followed; writes are atomic (temp +
+  rename), so a failed run leaves the previous lock byte-unchanged.
+- Full flow with no hand-editing: `init` → `lock` → `resolve`.
 - Commit both files with your project.
 
 ## 6. Resolve (CLI)
@@ -89,6 +97,9 @@ node packages/cli/bin/ega-skills.mjs inspect <canonical-id>
 
 Metadata only — instruction bodies come exclusively from `get_content`
 after selection (progressive disclosure: L0 routes, L1/L2 follow).
+Supporting files (`references/`, other TEXT companions) are retrievable
+through `get_content` with `file_path` (exact manifest path, L2-only);
+scripts, assets, binaries, and control files are never served.
 
 ## 8. Codex MCP setup
 
@@ -183,4 +194,5 @@ no-network suites cover the same property.
 - docs/V1-CORPUS.md — 70-skill real corpus record + manifest.
 - docs/EVAL-599.md — 12 real-task evaluation.
 - docs/PLATFORM-600.md — platform/offline/performance evidence.
-- docs/RELEASE-NOTES-1.0.0.md — release notes.
+- docs/RELEASE-NOTES-1.0.0.md — V1.0.0 release notes.
+- docs/RELEASE-NOTES-1.0.1.md — V1.0.1 patch notes (this release).
