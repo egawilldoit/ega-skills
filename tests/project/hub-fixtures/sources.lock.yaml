@@ -1,0 +1,34 @@
+schema_version: 1
+
+sources:
+  cursor-pstack:
+    source_config_digest: sha256:4854f1cae5082f0319da306e2678a6f525a3dba369a3e44245455d03f0490067
+    repository: https://github.com/cursor/plugins
+    requested_ref: main
+    namespace: cursor
+    selection:
+      roots:
+        - pstack/skills/architect
+        - pstack/skills/typescript-best-practices
+    provenance_files:
+      - pstack/LICENSE
+    resolved_commit: 0123456789abcdef0123456789abcdef01234567
+    selected_skill_tree_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    vendored_snapshot_digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    extraction_contract: 1
+  mattpocock:
+    source_config_digest: sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547
+    repository: https://github.com/mattpocock/skills
+    requested_ref: main
+    namespace: mattpocock
+    selection:
+      roots:
+        - skills/engineering/code-review
+        - skills/engineering/tdd
+        - skills/productivity/grilling
+    provenance_files:
+      - LICENSE
+    resolved_commit: 3cca18b368ae95cdbdebbff572ccafa662551015
+    selected_skill_tree_digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    vendored_snapshot_digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    extraction_contract: 1
