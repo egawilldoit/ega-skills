@@ -1,0 +1,7 @@
+{
+  "aliases": {
+    "architect": "cursor/architect",
+    "pr-review": "ega/pr-review",
+    "tdd": "mattpocock/tdd"
+  }
+}

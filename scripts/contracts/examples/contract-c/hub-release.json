@@ -1,0 +1,49 @@
+{
+  "object_type": "ega.hub-release",
+  "schema_version": 1,
+  "payload": {
+    "hub_id": "personal",
+    "skill_versions": {
+      "cursor/architect": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "ega/pr-review": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "mattpocock/code-review": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "mattpocock/tdd": "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb"
+    },
+    "alias_map_digest": "sha256:2244137825c6017f255c0e3ffc8c096861bb10972732fea4f7740a3374b712a6",
+    "search_index_input_digest": "sha256:36df37fe5886d9d90a48cb51449849b600e28f7e4d2a9a4f4479f0d3f1527831",
+    "token_artifact_digest": "sha256:4c660e5b7b9d74099686a3ebae22c0a6cbbad391ca372c8e8ed4d938457cfd19",
+    "adopted_sources": [
+      {
+        "source_id": "mattpocock",
+        "source_config_digest": "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
+        "resolved_commit": "3cca18b368ae95cdbdebbff572ccafa662551015",
+        "selected_skill_tree_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "vendored_snapshot_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "source_id": "cursor-pstack",
+        "source_config_digest": "sha256:4854f1cae5082f0319da306e2678a6f525a3dba369a3e44245455d03f0490067",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "selected_skill_tree_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "vendored_snapshot_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "contracts": {
+      "schema": "v1.0.1",
+      "hashing": 1,
+      "router": 1,
+      "search": 1,
+      "token_estimator": "ega-o200k-v1",
+      "importer_build": 1,
+      "hub_contract": "A1",
+      "update_contract": "B1",
+      "build_contract": "C1"
+    },
+    "build": {
+      "fresh_registry": true,
+      "import_failures": 0,
+      "expected_catalog_match": true
+    }
+  },
+  "digest": "sha256:d3838fdcc7c16a5460f2ff381b3ac36df35a62733b053765fbb813074450e649"
+}
