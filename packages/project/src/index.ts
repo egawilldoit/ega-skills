@@ -34,6 +34,8 @@ export {
 export type { HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
+export { buildHub } from "./hub/builder.js";
+export type { HubBuildResult, HubBuildSkill } from "./hub/builder.js";
 export type {
   AddedSkill,
   AdoptedSourceView,
