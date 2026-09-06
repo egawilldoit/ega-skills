@@ -33,6 +33,7 @@ import {
   lockedVersionFor,
   parseProjectConfig,
   readConfigAndLock,
+  serializeLockfile,
   validateLockfile,
 } from "../../packages/project/dist/index.js";
 
@@ -445,5 +446,68 @@ test("SPEC-005 §5.1.12 rule 1: stale lock (hash mismatch) fails through readCon
   assert.throws(
     () => readConfigAndLock(discoverConfig(dir)),
     (err) => err instanceof ProjectLockError && err.code === E_LOCK_CONFIG_MISMATCH,
+  );
+});
+test("EGA-616: serializeLockfile emits the frozen deterministic layout and round-trips", () => {
+  const lock = {
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: VHASH(HEX_64) },
+    skills: {
+      "ega/beta": { name: "beta", version_hash: VHASH(HEX_64_B) },
+      "ega/alpha": { name: "alpha", version_hash: VHASH(HEX_64) },
+    },
+  };
+  const text = serializeLockfile(lock);
+  assert.equal(
+    text,
+    `generated_from:\n` +
+      `  config_hash: ${VHASH(HEX_64)}\n` +
+      `lockfile_version: 1\n` +
+      `skills:\n` +
+      `  ega/alpha:\n` +
+      `    name: alpha\n` +
+      `    version_hash: ${VHASH(HEX_64)}\n` +
+      `  ega/beta:\n` +
+      `    name: beta\n` +
+      `    version_hash: ${VHASH(HEX_64_B)}\n` +
+      `token_estimator: ega-o200k-v1\n`,
+  );
+  // Semantic validity: the equivalent parsed object passes the strict
+  // validator (the YAML-text path is proven end to end: CLI writes the file,
+  // resolve reads and enforces it).
+  assert.deepEqual(validateLockfile({
+    generated_from: { config_hash: VHASH(HEX_64) },
+    lockfile_version: 1,
+    skills: {
+      "ega/alpha": { name: "alpha", version_hash: VHASH(HEX_64) },
+      "ega/beta": { name: "beta", version_hash: VHASH(HEX_64_B) },
+    },
+    token_estimator: "ega-o200k-v1",
+  }, VHASH(HEX_64)), {
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: VHASH(HEX_64) },
+    skills: {
+      "ega/alpha": { name: "alpha", version_hash: VHASH(HEX_64) },
+      "ega/beta": { name: "beta", version_hash: VHASH(HEX_64_B) },
+    },
+  });
+});
+
+test("EGA-616: serializeLockfile writes skills: {} for the empty catalog", () => {
+  const text = serializeLockfile({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: VHASH(HEX_64) },
+    skills: {},
+  });
+  assert.equal(
+    text,
+    `generated_from:\n` +
+      `  config_hash: ${VHASH(HEX_64)}\n` +
+      `lockfile_version: 1\n` +
+      `skills: {}\n` +
+      `token_estimator: ega-o200k-v1\n`,
   );
 });

@@ -36,6 +36,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills list",
     "  ega-skills inspect <skill-id>",
     "  ega-skills init [<project-dir>] [--force]",
+    "  ega-skills lock [<project-dir>] [--refresh]",
     "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
     "",
     "Options:",

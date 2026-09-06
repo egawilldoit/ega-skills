@@ -17,12 +17,18 @@ importers:
 
   packages/cli:
     dependencies:
+      '@ega-skills/project':
+        specifier: workspace:*
+        version: link:../project
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry
       '@ega-skills/router':
         specifier: workspace:*
         version: link:../router
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   packages/hashing:
     dependencies:
