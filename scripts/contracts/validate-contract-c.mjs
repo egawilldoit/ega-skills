@@ -201,8 +201,12 @@ if (release && r1 && aliasMap && tokenArtifact) {
         fail("E_RELEASE_SCHEMA", `hub-release.json unknown envelope field "${k}"`);
     if (release.object_type !== "ega.hub-release") fail("E_RELEASE_SCHEMA", 'hub-release.json object_type must be "ega.hub-release"');
     if (release.schema_version !== 1) fail("E_RELEASE_SCHEMA", "hub-release.json schema_version must be 1");
-    releaseDigest = digestOf({ object_type: release.object_type, payload: release.payload, schema_version: release.schema_version });
-    if (release.digest !== releaseDigest) fail("E_RELEASE_DIGEST", `hub-release.json digest mismatch (want ${releaseDigest})`);
+    // Guarded: a missing payload must fail closed with E_RELEASE_SCHEMA below,
+    // not abort inside canonicalization.
+    if (isPlainObject(release.payload)) {
+      releaseDigest = digestOf({ object_type: release.object_type, payload: release.payload, schema_version: release.schema_version });
+      if (release.digest !== releaseDigest) fail("E_RELEASE_DIGEST", `hub-release.json digest mismatch (want ${releaseDigest})`);
+    }
 
     const p = release.payload;
     const allowed = new Set([

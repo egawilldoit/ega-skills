@@ -124,6 +124,15 @@ test("explicit null fails closed", () => {
   assert.match(out, /E_STABLE|E_RELEASE_SCHEMA/);
 });
 
+test("missing release payload fails closed with E_RELEASE_SCHEMA (no canonicalization abort)", () => {
+  const doc = JSON.parse(read("hub-release.json"));
+  delete doc.payload;
+  const out = withSwappedFiles({ "hub-release.json": JSON.stringify(doc, null, 2) }, runBad);
+  assert.match(out, /E_RELEASE_SCHEMA: hub-release\.json payload must be an object/);
+  assert.match(out, /CONTRACT-C-FAIL/);
+  assert.doesNotMatch(out, /HashIdentityError|TypeError|ReferenceError/);
+});
+
 test("frozen release digest vector is stable", () => {
   const out = runOk();
   assert.match(out, /CONTRACT-C-OK/);
