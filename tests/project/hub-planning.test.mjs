@@ -141,6 +141,38 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   assert.ok(cfg);
 });
 
+test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {
+  const { dir, shaA } = makeFixtureRepo();
+  const { src } = loadConfig(dir);
+  const work = mkdtempSync(join(tmpdir(), "ega-plan-work-"));
+  const zeros = `sha256:${"00".repeat(32)}`;
+  // Reverse insertion order on purpose: output must still be sorted.
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: zeros,
+      treeDigest: zeros,
+      versions: { "plan/beta": zeros, "plan/alpha": zeros, "plan/zulu": zeros },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: work,
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.deepEqual(
+    res.plan.payload.changed_skills.map((s) => s.skill_ref),
+    ["plan/alpha", "plan/beta"],
+  );
+  assert.deepEqual(
+    res.plan.payload.removed_skills.map((s) => s.skill_ref),
+    ["plan/zulu"],
+  );
+  assert.deepEqual(
+    res.plan.payload.added_skills.map((s) => s.skill_ref),
+    ["plan/gamma"],
+  );
+});
+
 test("symlink escape fails E_EXTRACTION_POLICY", () => {
   const { dir } = makeFixtureRepo();
   symlinkSync(join(dir, "LICENSE"), join(dir, "skills", "alpha", "evil.md"));

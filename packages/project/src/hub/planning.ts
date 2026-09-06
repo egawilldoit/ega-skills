@@ -119,12 +119,15 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       }
       candidate[ref] = latest.versionHash;
     }
+    const byRef = (a: { skill_ref: string }, b: { skill_ref: string }): number => (a.skill_ref < b.skill_ref ? -1 : 1);
     const added: AddedSkill[] = Object.entries(candidate)
       .filter(([ref]) => !(ref in adopted.versions))
-      .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }));
+      .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }))
+      .sort(byRef);
     const removed: AddedSkill[] = Object.entries(adopted.versions)
       .filter(([ref]) => !(ref in candidate))
-      .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }));
+      .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }))
+      .sort(byRef);
     const changed: PlanSkillChange[] = Object.entries(candidate)
       .filter(([ref, hash]) => ref in adopted.versions && adopted.versions[ref] !== hash)
       .map(([skill_ref, new_version]) => ({
@@ -133,7 +136,8 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
         old_version: adopted.versions[skill_ref] as string,
         raw_changed: true,
         skill_ref,
-      }));
+      }))
+      .sort(byRef);
     // Provenance-only change: the selected tree is identical but the snapshot
     // (roots + provenance) moved, so the difference must be in provenance files.
     const provenanceChanges =
