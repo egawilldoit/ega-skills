@@ -7,7 +7,7 @@ export { HubError } from "./hub/errors.js";
 export type { HubErrorCode } from "./hub/errors.js";
 export { parseHubYaml, verifyHubCoverage } from "./hub/hub-config.js";
 export type { HubConfig, OwnedEntry } from "./hub/hub-config.js";
-export { normalizeSourceConfig, parseSourcesYaml, sourceConfigDigest } from "./hub/sources-config.js";
+export { isValidRepository, normalizeSourceConfig, parseSourcesYaml, sourceConfigDigest } from "./hub/sources-config.js";
 export type { SourceConfig, SourceSelection, SourcesConfig } from "./hub/sources-config.js";
 export { parseSourcesLockYaml, verifySourcesLock } from "./hub/sources-lock.js";
 export type { LockedSelection, SourceLockRecord, SourcesLock } from "./hub/sources-lock.js";

@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   HubError,
+  isValidRepository,
   parseHubYaml,
   parseSourcesLockYaml,
   parseSourcesYaml,
@@ -97,4 +98,52 @@ test("hub lists exactly the configured sources", () => {
 
 test("explicit null rejected (missing and null differ)", () => {
   assert.equal(codeOf(() => parseHubYaml("schema_version: 1\nhub: null\nowned: []\nexternal: []\n")), "E_HUB_SCHEMA");
+});
+
+// Final Contract A reconciliation: runtime accepts exactly what the
+// executable validator accepts — no divergence in either direction.
+test("credential-bearing repository rejected (E_SOURCE_SCHEMA)", () => {
+  const bad = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: https://user:s3cret@github.com/mattpocock/skills",
+  );
+  assert.equal(codeOf(() => parseSourcesYaml(bad)), "E_SOURCE_SCHEMA");
+  assert.equal(isValidRepository("https://user:s3cret@github.com/mattpocock/skills"), false);
+});
+
+test("bare https:// with no host rejected (E_SOURCE_SCHEMA)", () => {
+  const bad = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: https://",
+  );
+  assert.equal(codeOf(() => parseSourcesYaml(bad)), "E_SOURCE_SCHEMA");
+  assert.equal(isValidRepository("https://"), false);
+});
+
+test("file:// and absolute local paths accepted, relative rejected", () => {
+  assert.equal(isValidRepository("file:///mirror/skills"), true);
+  assert.equal(isValidRepository("/mirror/skills"), true);
+  assert.equal(isValidRepository("C:/mirror/skills"), true);
+  assert.equal(isValidRepository("//server/share/skills"), true);
+  assert.equal(isValidRepository("mirror/skills"), false);
+  const fileYaml = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: file:///mirror/skills",
+  );
+  const cfg = parseSourcesYaml(fileYaml);
+  assert.equal(cfg.sources["mattpocock"].repository, "file:///mirror/skills");
+});
+
+test("drive-rooted selection root rejected (E_SOURCE_SELECTION)", () => {
+  const bad = read("sources.yaml").replace("        - skills/engineering/code-review", "        - C:/escape");
+  assert.equal(codeOf(() => parseSourcesYaml(bad)), "E_SOURCE_SELECTION");
+});
+
+test("provenance missing/null/empty rejected (E_SOURCE_SCHEMA)", () => {
+  const missing = read("sources.yaml").replace("    provenance_files:\n      - LICENSE\n", "");
+  assert.equal(codeOf(() => parseSourcesYaml(missing)), "E_SOURCE_SCHEMA");
+  const nulled = read("sources.yaml").replace("    provenance_files:\n      - LICENSE\n", "    provenance_files: null\n");
+  assert.equal(codeOf(() => parseSourcesYaml(nulled)), "E_SOURCE_SCHEMA");
+  const emptied = read("sources.yaml").replace("    provenance_files:\n      - LICENSE\n", "    provenance_files: []\n");
+  assert.equal(codeOf(() => parseSourcesYaml(emptied)), "E_SOURCE_SCHEMA");
 });

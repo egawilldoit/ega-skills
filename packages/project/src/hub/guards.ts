@@ -11,14 +11,18 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Repository-relative posix path: no backslashes, no leading slash, no dot segments. */
+/** Repository-relative posix path, byte-aligned with the Contract A validator:
+ *  reject empty, backslashes, leading slash, `..` segments, and
+ *  drive-letter prefixes. Dotted/empty segments the validator accepts stay
+ *  accepted here: runtime MUST NOT reject validator-valid input. */
 export function assertRelativePosix(path: string, what: string): void {
   const segments = path.split("/");
   if (
     path.length === 0 ||
     path.includes("\\") ||
     path.startsWith("/") ||
-    segments.some((s) => s.length === 0 || s === "." || s === "..")
+    segments.includes("..") ||
+    /^[A-Za-z]:/.test(path)
   ) {
     throw new HubError("E_SOURCE_SELECTION", `${what} must be a repository-relative posix path: ${path}`);
   }

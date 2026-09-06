@@ -35,6 +35,28 @@ function sourceFieldError(source: string, message: string): HubError {
   return new HubError("E_SOURCE_SCHEMA", `sources.yaml source ${source}: ${message}`);
 }
 
+/**
+ * Final Contract A repository rule (validator-identical): https:// with a
+ * non-empty hostname and no credentials; file:// without credentials; absolute
+ * local paths (posix, Windows drive, UNC). Relative paths and bare hosts fail.
+ */
+export function isValidRepository(repo: unknown): boolean {
+  if (typeof repo !== "string" || repo.length === 0) return false;
+  if (repo.startsWith("https://") || repo.startsWith("file://")) {
+    try {
+      const url = new URL(repo);
+      if (url.username.length > 0 || url.password.length > 0) return false;
+      if (url.protocol === "file:") return true;
+      return url.protocol === "https:" && url.hostname.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  if (/^[A-Za-z]:[\\/]/.test(repo)) return true;
+  if (repo.startsWith("//") || repo.startsWith("/")) return true;
+  return false;
+}
+
 export function parseSourcesYaml(text: string): SourcesConfig {
   const doc = parseYamlMapping(text, "sources.yaml");
   for (const key of Object.keys(doc)) {
@@ -62,8 +84,8 @@ export function parseSourcesYaml(text: string): SourcesConfig {
     if (entry["type"] !== "git") {
       throw sourceFieldError(name, 'type must be "git"');
     }
-    if (typeof entry["repository"] !== "string" || !entry["repository"].startsWith("https://")) {
-      throw sourceFieldError(name, "repository must be an https URL");
+    if (!isValidRepository(entry["repository"])) {
+      throw sourceFieldError(name, "repository must be https:// (with host, no credentials), file:// (no credentials), or an absolute local path");
     }
     if (typeof entry["ref"] !== "string" || entry["ref"].length === 0) {
       throw sourceFieldError(name, "ref must be a non-empty string");
@@ -83,9 +105,11 @@ export function parseSourcesYaml(text: string): SourcesConfig {
       return root;
     });
     assertSortedUnique(roots, `sources.yaml source ${name} selection.roots`);
-    const provenanceRaw = entry["provenance_files"] ?? [];
-    if (!Array.isArray(provenanceRaw)) {
-      throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} provenance_files must be a list`);
+    // Final Contract A: provenance_files MUST be non-empty; missing, null,
+    // and empty all fail closed (no reviewed-exception record exists in v1).
+    const provenanceRaw = entry["provenance_files"];
+    if (!Array.isArray(provenanceRaw) || provenanceRaw.length === 0) {
+      throw sourceFieldError(name, "provenance_files must be a non-empty list (missing and null are different; null is never valid)");
     }
     const provenanceFiles = provenanceRaw.map((file) => {
       if (typeof file !== "string") {
@@ -106,14 +130,16 @@ export function parseSourcesYaml(text: string): SourcesConfig {
   return { schemaVersion: 1, sources };
 }
 
-/** Normalized preimage for source_config_digest (Contract A section 4.1). */
+/** Normalized preimage for source_config_digest (Contract A section 4.1).
+ *  Dedupe-then-sort exactly like the validator so digests byte-match. */
 export function normalizeSourceConfig(src: SourceConfig): Record<string, unknown> {
+  const sortedUnique = (items: readonly string[]): string[] => [...new Set(items)].sort();
   return {
     namespace: src.namespace,
-    provenance_files: [...src.provenanceFiles].sort(),
+    provenance_files: sortedUnique(src.provenanceFiles),
     repository: src.repository,
     requested_ref: src.ref,
-    selection_roots: [...src.selection.roots].sort(),
+    selection_roots: sortedUnique(src.selection.roots),
     type: src.type,
   };
 }
