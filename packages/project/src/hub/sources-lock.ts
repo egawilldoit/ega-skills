@@ -75,7 +75,7 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     }
     // Fail fast with the same codes the validator emits for the same defect
     // (validator §5: digest recompute, intent equality, format regexes).
-    if (typeof entry["source_config_digest"] !== "string") {
+    if (typeof entry["source_config_digest"] !== "string" || !SHA256_RE.test(entry["source_config_digest"] as string)) {
       throw new HubError("E_LOCK_DIGEST", `sources.lock.yaml source ${name} source_config_digest must match sha256:<64hex>`);
     }
     for (const field of ["repository", "requested_ref", "namespace"] as const) {
@@ -91,15 +91,15 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     if (!Array.isArray(provenance)) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} provenance_files must be a list`);
     }
-    if (typeof entry["resolved_commit"] !== "string") {
+    if (typeof entry["resolved_commit"] !== "string" || !COMMIT_RE.test(entry["resolved_commit"] as string)) {
       throw new HubError("E_LOCK_COMMIT", `sources.lock.yaml source ${name} resolved_commit must be 40 lowercase hex`);
     }
     for (const field of ["selected_skill_tree_digest", "vendored_snapshot_digest"] as const) {
-      if (typeof entry[field] !== "string") {
+      if (typeof entry[field] !== "string" || !SHA256_RE.test(entry[field] as string)) {
         throw new HubError("E_TREE_DIGEST", `sources.lock.yaml source ${name} ${field} must match sha256:<64hex>`);
       }
     }
-    if (typeof entry["extraction_contract"] !== "number") {
+    if (entry["extraction_contract"] !== 1) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} extraction_contract must be 1`);
     }
     sources[name] = {

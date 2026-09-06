@@ -107,6 +107,18 @@ test("lock record missing scalar fields fails fast with validator codes", () => 
   assert.equal(codeOf(() => parseSourcesLockYaml(noRepo)), "E_LOCK_MISMATCH");
 });
 
+test("lock record malformed formats fail fast at parse with validator codes", () => {
+  const badDigest = read("sources.lock.yaml").replace(
+    "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
+    "sha256:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+  );
+  assert.equal(codeOf(() => parseSourcesLockYaml(badDigest)), "E_LOCK_DIGEST");
+  const badCommit = read("sources.lock.yaml").replace("resolved_commit: 0123456789abcdef0123456789abcdef01234567", "resolved_commit: NOTACOMMIT");
+  assert.equal(codeOf(() => parseSourcesLockYaml(badCommit)), "E_LOCK_COMMIT");
+  const badContract = read("sources.lock.yaml").replace("    extraction_contract: 1", "    extraction_contract: 2");
+  assert.equal(codeOf(() => parseSourcesLockYaml(badContract)), "E_LOCK_MISMATCH");
+});
+
 test("hub lists exactly the configured sources", () => {
   const hub = parseHubYaml(read("hub.yaml"));
   const cfg = parseSourcesYaml(read("sources.yaml"));
