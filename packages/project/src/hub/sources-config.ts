@@ -31,6 +31,14 @@ export interface SourcesConfig {
 const TOP_FIELDS = new Set(["schema_version", "sources"]);
 const SOURCE_FIELDS = new Set(["type", "repository", "ref", "namespace", "selection", "provenance_files"]);
 
+export function isValidRepository(repo: unknown): repo is string {
+  if (typeof repo !== "string" || repo.length === 0) return false;
+  if (repo.startsWith("https://") || repo.startsWith("file://")) return true;
+  if (/^[A-Za-z]:[\\/]/.test(repo)) return true;
+  if (repo.startsWith("//") || repo.startsWith("/")) return true;
+  return false;
+}
+
 function sourceFieldError(source: string, message: string): HubError {
   return new HubError("E_SOURCE_SCHEMA", `sources.yaml source ${source}: ${message}`);
 }
@@ -62,8 +70,8 @@ export function parseSourcesYaml(text: string): SourcesConfig {
     if (entry["type"] !== "git") {
       throw sourceFieldError(name, 'type must be "git"');
     }
-    if (typeof entry["repository"] !== "string" || !entry["repository"].startsWith("https://")) {
-      throw sourceFieldError(name, "repository must be an https URL");
+    if (!isValidRepository(entry["repository"])) {
+      throw sourceFieldError(name, "repository must be https://, file://, or an absolute local path (AMEND-01)");
     }
     if (typeof entry["ref"] !== "string" || entry["ref"].length === 0) {
       throw sourceFieldError(name, "ref must be a non-empty string");

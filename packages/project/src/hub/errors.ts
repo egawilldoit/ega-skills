@@ -10,7 +10,18 @@ export type HubErrorCode =
   | "E_TREE_DIGEST"
   | "E_PROVENANCE"
   | "E_EXTRACTION_POLICY"
-  | "E_AUTO_ADOPT";
+  | "E_AUTO_ADOPT"
+  | "E_PLAN_SCHEMA"
+  | "E_PLAN_DIGEST"
+  | "E_PLAN_COMMIT"
+  | "E_PLAN_REFETCH"
+  | "E_PLAN_STALE"
+  | "E_PLAN_NOOP"
+  | "E_JOURNAL_SCHEMA"
+  | "E_JOURNAL_STATE"
+  | "E_RECOVERY_REQUIRED"
+  | "E_PLAN_RESOLVE"
+  | "E_PLAN_FETCH";
 
 export class HubError extends Error {
   readonly code: HubErrorCode;
