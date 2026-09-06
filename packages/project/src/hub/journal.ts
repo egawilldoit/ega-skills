@@ -39,7 +39,8 @@ export function journalPath(hubDir: string): string {
 export function writeFileAtomic(path: string, text: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, text);
-  const fd = openSync(tmp, "r");
+  // NOTE (Windows): fsync requires a writable handle — "r" fails EPERM.
+  const fd = openSync(tmp, "r+");
   try {
     fsyncSync(fd);
   } finally {
