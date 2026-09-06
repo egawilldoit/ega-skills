@@ -61,10 +61,16 @@ After publishing V1.0.1, the release was tested again as a real user from a
 fresh checkout of the public tag. This was a manual end-to-end validation of
 the released product, separate from CI and the pre-release test suite.
 
+This documentation records observed runtime results only; it does not change
+or replace the frozen contracts in [`SPEC-004`](specs/SPEC-004-Router-and-Resolution-Contract.md),
+[`SPEC-005`](specs/SPEC-005-Project-Config-and-Lockfile.md), or
+[`SPEC-006`](specs/SPEC-006-MCP-Runtime-Contract.md).
+
 ### Test environment
 
 - Public tag: `v1.0.1`
-- Release commit: `cb6a9ae890487e12796bf91c4627d132e86e5e27`
+- Release commit observed after `git checkout v1.0.1`:
+  `cb6a9ae890487e12796bf91c4627d132e86e5e27`
 - Fresh checkout: clean detached HEAD at the release tag
 - Package/CLI version observed: `1.0.1`
 - Host: Ubuntu
@@ -76,18 +82,18 @@ the released product, separate from CI and the pre-release test suite.
 
 | Scenario | Real-user result |
 | --- | --- |
-| Fresh release checkout | **PASS** — HEAD matched the public `v1.0.1` commit, working tree clean, package version `1.0.1`. |
+| Fresh release checkout | **PASS** — `git checkout v1.0.1` produced HEAD `cb6a9ae...`; working tree was clean and package version was `1.0.1`. |
 | Frozen install + build + CLI | **PASS** — `pnpm install --frozen-lockfile`, `pnpm build`, CLI `--version`, and CLI help all succeeded; the new `lock` command was present. |
 | Real unmodified third-party import | **PASS** — 37 skills staged, **37 imported, 0 failed** from the pinned upstream corpus. |
 | Fresh-project lock workflow | **PASS** — `init` wrote `locking.required: true`; `lock` created a 37-skill lock; `resolve` worked immediately with no YAML hand-editing. |
-| Real deterministic routing | **PASS** — task `I want to use TDD to build a feature test-first.` selected `mattpocock/tdd` as Tier B / MEDIUM confidence with `lockStatus: LOCKED`. |
-| Lock refresh stability | **PASS** — `lock --refresh` returned `added: []`, `removed: []`, `changed: []`, `skills: 37`. |
+| Real routing | **PASS** — task `I want to use TDD to build a feature test-first.` selected `mattpocock/tdd` as Tier B / MEDIUM confidence with `lockStatus: LOCKED`. |
+| No-op lock refresh | **PASS** — the exact `lock /tmp/ega-v101-project --refresh` run returned `added: []`, `removed: []`, `changed: []`, `skills: 37`. |
 | Local-first persistence after source removal | **PASS** — the original `mattpocock/skills` checkout was deleted; EGA still inspected the immutable TDD version and its manifested files from the local registry/cache. |
 | OpenCode MCP connectivity | **PASS** — OpenCode reported `ega-skills connected` using the released MCP server. |
 | Companion retrieval after source deletion | **PASS** — OpenCode used `ega-skills_inspect` + `ega-skills_get_content` with `file_path: "tests.md"`; retrieval succeeded after the source tree had been deleted, returning the real `# Good and Bad Tests` heading. |
 | Natural client skill discovery | **PASS** — without naming EGA, MCP, or tool names, a project-skill prompt caused OpenCode to use `search → resolve → get_content`; missing L1 was rejected and the client correctly fell back to L2. |
 | User-only skill cannot auto-select | **PASS** — `mattpocock/to-spec` matched as Tier B but remained a candidate with `USER_INVOCATION_ONLY`; `selected` stayed empty and automatic selected tokens stayed `0`. |
-| Explicit human invocation of user-only skill | **PASS** — `--explicit mattpocock/to-spec` produced Tier E with `EXPLICIT_USER` and the exact locked version. |
+| Explicit human invocation of user-only skill | **PASS** — `--explicit mattpocock/to-spec` produced Tier E with `EXPLICIT_USER`; the observed row used version hash `sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb` and reason `LOCKED_VERSION`. |
 | Companion path traversal | **PASS** — `file_path: "../tests.md"` was rejected. L1+`file_path` failed input validation; the valid L2 attempt failed closed with `E_CONTENT_FILE_UNKNOWN`. No normalized traversal or file disclosure occurred. |
 
 Across the real E2E session, all four public MCP tools were exercised:
@@ -104,11 +110,13 @@ served, and this was not a V1.0.1 release blocker.
 
 ### E2E conclusion
 
-**PASS.** V1.0.1 was independently validated after release through a real
-install/import/project/client workflow, including the three patch goals:
+**PASS for the observed real-user session.** V1.0.1 completed a fresh
+install/import/project/client workflow covering the three patch goals:
 third-party compatibility, companion access after source disappearance, and
-fresh-project lock UX. The session also re-proved deterministic lock behavior,
-user-only invocation semantics, and traversal rejection in the released build.
+fresh-project lock UX. The same session also observed user-only invocation
+semantics and traversal rejection in the released build. Determinism and
+cross-platform guarantees remain backed by the automated frozen contract/test
+suite and Ubuntu + Windows CI rather than this single manual run.
 
 Detailed retained transcript/evidence:
 [`docs/evidence/V1.0.1-REAL-E2E-2026-09-06.md`](evidence/V1.0.1-REAL-E2E-2026-09-06.md).
