@@ -51,9 +51,10 @@ test("good fixtures validate (CONTRACT-A-OK)", () => {
   assert.match(out, /sources\.lock\.yaml self-contained/);
 });
 
-test("unknown top-level field in hub.yaml fails closed", () => {
+test("unknown top-level field in hub.yaml fails closed [E_HUB_SCHEMA]", () => {
   const out = withSwappedFiles({ "hub.yaml": `${read("hub.yaml")}\nbogus_field: 1\n` }, runBad);
-  assert.match(out, /unknown top-level field/);
+  assert.match(out, /\[E_HUB_SCHEMA\]: hub\.yaml has unknown top-level field/);
+  assert.doesNotMatch(out, /ReferenceError/);
 });
 
 test("unsorted selection roots fail closed", () => {

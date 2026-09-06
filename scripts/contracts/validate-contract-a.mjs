@@ -53,9 +53,9 @@ function readYaml(name, code) {
   }
 }
 
-function checkStrictTop(doc, name, allowed) {
+function checkStrictTop(doc, name, allowed, code) {
   if (!isPlainObject(doc)) {
-    fail(`${name} top level must be a mapping`);
+    fail(code, `${name} top level must be a mapping`);
     return;
   }
   for (const k of Object.keys(doc)) {
