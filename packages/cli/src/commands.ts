@@ -250,6 +250,24 @@ function refuseSymlinkLock(lockFile: string): void {
   }
 }
 
+/**
+ * Complete descriptor write: `write` may transfer fewer bytes than requested
+ * (disk-full, rlimit, signal), so loop on the byte offset until the whole
+ * buffer lands. Operates on UTF-8 bytes (never string slices) so multibyte
+ * characters cannot split.
+ */
+function writeAllSync(fd: number, text: string): void {
+  const bytes = Buffer.from(text, "utf8");
+  let written = 0;
+  while (written < bytes.length) {
+    const count = writeSync(fd, bytes.subarray(written));
+    if (count <= 0) {
+      throw new Error(`Short write while persisting lock file (${written}/${bytes.length} bytes)`);
+    }
+    written += count;
+  }
+}
+
 let lockTempCounter = 0;
 
 /**
@@ -276,7 +294,7 @@ function writeLockAtomically(lockFile: string, text: string): void {
       throw error;
     }
     try {
-      writeSync(fd, text);
+      writeAllSync(fd, text);
     } finally {
       closeSync(fd);
     }

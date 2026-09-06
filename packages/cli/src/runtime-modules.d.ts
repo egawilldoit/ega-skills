@@ -12,13 +12,18 @@ declare module "node:fs" {
   export function lstatSync(path: string): Stats;
   export function openSync(path: string, flags: string): number;
   export function closeSync(fd: number): void;
-  export function writeSync(fd: number, data: string): void;
+  export function writeSync(fd: number, data: string | Uint8Array): number;
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { force?: boolean }): void;
   export function statSync(path: string): Stats;
   export function writeFileSync(path: string, data: string): void;
 }
+
+declare const Buffer: {
+  byteLength(text: string, encoding: "utf8"): number;
+  from(text: string, encoding: "utf8"): Uint8Array;
+};
 
 declare module "node:path" {
   export function dirname(path: string): string;
