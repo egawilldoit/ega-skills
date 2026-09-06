@@ -27,7 +27,7 @@ import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import { importSkills, listSkillVersions, openRegistry } from "../../packages/registry/dist/index.js";
 
 function git(dir, ...args) {
-  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", ...args], { stdio: "pipe" });
+  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
 }
 
 function skill(name, body) {
@@ -72,7 +72,7 @@ function makeFixtureRepo() {
 
 function checkoutAt(repo, sha) {
   const dir = mkdtempSync(join(tmpdir(), "ega-adopt-co-"));
-  execFileSync("git", ["clone", "--quiet", repo, dir], { stdio: "pipe" });
+  execFileSync("git", ["-c", "core.autocrlf=false", "clone", "--quiet", repo, dir], { stdio: "pipe" });
   git(dir, "checkout", "--quiet", sha);
   return dir;
 }

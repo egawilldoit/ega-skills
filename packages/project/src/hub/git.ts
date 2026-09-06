@@ -43,8 +43,13 @@ export function resolveRefToCommit(repository: string, ref: string): string {
  * Mismatch means upstream moved during check: fail, never follow it.
  */
 export function fetchRefTip(repository: string, ref: string, expectedCommit: string, dir: string): void {
+  // NOTE (Windows): core.autocrlf must be off — CRLF conversion would change
+  // quarantined bytes (and therefore tree digests) per platform. EGA needs
+  // byte-deterministic checkouts; canonical line-ending rules live in SPEC-002.
+  const noEol = "-c";
+  const noEolValue = "core.autocrlf=false";
   try {
-    execFileSync("git", ["clone", "--quiet", "--depth", "1", "--branch", ref, "--", repository, dir], {
+    execFileSync("git", [noEol, noEolValue, "clone", "--quiet", "--depth", "1", "--branch", ref, "--", repository, dir], {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (e) {
