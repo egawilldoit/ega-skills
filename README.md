@@ -5,13 +5,13 @@ skills. It imports portable Agent Skills into immutable local storage, selects a
 small relevant set for a repository/task, and exposes them through a read-only
 local MCP for Codex and OpenCode/T3.
 
-Current state, in three lines:
+Current state:
 
-- **Specified:** the V1 behavioral contract is frozen under `docs/specs/`.
-- **Workspace bootstrap implemented:** seven buildable TypeScript package boundaries,
-  strict project references, and real root build/typecheck/test scripts exist.
-- **Product behavior not started yet:** package entrypoints are intentionally empty;
-  no SPEC-001+ business logic exists.
+- **Shipped:** V1.0.0 + patch V1.0.1 (`v1.0.1`, `1.0.1` across root + packages).
+- **Implemented:** schema validation, canonical hashing, SQLite registry/cache,
+  FTS5 search, deterministic router, project config/locks, four-tool MCP,
+  `init` → `lock` → `resolve` CLI workflow, Codex + OpenCode E2E.
+- **Contract:** the V1 behavioral contract is frozen under `docs/specs/`.
 
 ## Problem
 
@@ -78,6 +78,39 @@ Full content is retrieved only after a skill has been selected. References,
 assets, and scripts are catalogued according to the specs, but V1 does not
 execute skill scripts (see SPEC-001, SPEC-006).
 
+Supporting TEXT companions (for example `references/*.md`) are retrievable
+through `get_content` with an exact `file_path` (L2-only); scripts, assets,
+binaries, and control files are never served (see `OPERATOR-GUIDE.md` §7
+and SPEC-006).
+
+## Shipped V1.0.1 runtime
+
+V1.0.0 shipped the complete local-first runtime. V1.0.1 is a patch over V1.0.0:
+no architecture change, no new tools, no LLM routing. It fixes three real-user
+defects (third-party frontmatter compat, exact companion access, fresh-project
+lock UX). See [`docs/RELEASE-NOTES-1.0.1.md`](docs/RELEASE-NOTES-1.0.1.md).
+
+What exists in `packages/`:
+
+- `schema` — SPEC-001 validation, `ega.yaml` routing normalization,
+  L0/L1/L2 metadata and size rules, `ega-o200k-v1` token estimator.
+- `hashing` — SPEC-002 canonical text/binary handling, safe traversal,
+  canonical enumeration, SkillVersion manifest, JCS + SHA-256 identities.
+- `registry` — SPEC-003 SQLite schema/home lifecycle, content-addressed cache,
+  transactional importer, alias ownership, versions/sources/token records,
+  deterministic FTS5 search.
+- `router` — SPEC-004 fingerprint detectors, monorepo isolation, explicit and
+  automatic resolution, tiers/evidence/tie-breaks, redundancy suppression,
+  content-level and token-budget composition, confidence/reasons, resolver CLI.
+- `project` — SPEC-005 effective project path, `ProjectConfigV1` schema and
+  `init`, config hash + lockfile validation, eligible-catalog generation and
+  `lock --refresh`, empty/optional-lock semantics, resolver policy integration.
+- `mcp` — SPEC-006 `serveStdio` server, project realpath/offline/read-only
+  boundaries, exactly four tools (`resolve`, `search`, `inspect`,
+  `get_content`), tool metadata and structured-output contracts.
+- `cli` — `import`, `list`, `inspect`, `init`, `lock`, `lock --refresh`,
+  `resolve`; thin surfaces over the registry/router/project pipelines.
+
 ## Project configuration
 
 Projects are configured with two files:
@@ -88,8 +121,9 @@ Projects are configured with two files:
 
 The config defines policy; the lock freezes eligible versions. Unrelated future
 imports do not silently change a locked project's behavior — new skills enter
-only through explicit lock refresh. Both files are designed to be committed to
-the project repository. Details live in SPEC-005, not here:
+only through explicit lock refresh. Fresh projects run
+`init` → `lock` → `resolve` with no hand-editing. Both files are designed to be
+committed to the project repository. Details live in SPEC-005, not here:
 
 - [`docs/specs/SPEC-005-Project-Config-and-Lockfile.md`](docs/specs/SPEC-005-Project-Config-and-Lockfile.md)
 
@@ -127,9 +161,7 @@ See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runt
 
 ## Frozen V1 technology
 
-This is the frozen implementation stack. The TypeScript compiler is present for
-the workspace baseline; product/runtime dependency pinning remains Wave 0 work
-under EGA-548.
+Shipped implementation stack (pinned; install with `pnpm install --frozen-lockfile`):
 
 ```text
 Node.js 24 LTS
@@ -169,16 +201,17 @@ remote HTTP MCP
 
 ```text
 docs/specs/   frozen V1 behavioral contract (normative)
-packages/     buildable modular-monolith TypeScript package boundaries
-fixtures/     frozen fixture trees for hashing/projects/skills (populated by later waves)
-tests/        token vectors, router goldens, integration tests (populated by later waves)
-scripts/specs/  spec-drift checker (implemented)
+docs/         operator guide, release notes, corpus + evidence records
+packages/     shipped modular-monolith TypeScript implementation
+fixtures/     frozen fixture trees for hashing/projects/skills
+tests/        token vectors, router goldens, integration/client tests
+scripts/specs/  spec-drift checker
 .github/      issue/PR templates with mandatory spec-contract sections
 ```
 
-The package directories (`cli`, `hashing`, `mcp`, `project`, `registry`,
-`router`, `schema`) are real TypeScript packages with strict composite configs
-and intentionally empty entrypoints. Product behavior remains for later issues.
+`packages/` contains shipped V1.0.1 product behavior behind strict composite
+project references and real root `build` / `typecheck` / `test` /
+`specs:check` scripts.
 
 ## Specification authority
 
@@ -199,46 +232,52 @@ If implementation reveals a contradiction, update and review the relevant
 specification and tests before changing product behavior. Code must not
 silently become the new contract.
 
+## Shipped evidence
+
+- Operator workflow: [`docs/OPERATOR-GUIDE.md`](docs/OPERATOR-GUIDE.md)
+  (install, home lifecycle, import rules, `init` → `lock` → `resolve`,
+  Codex/OpenCode MCP setup, four-tool reference).
+- Release: [`docs/RELEASE-NOTES-1.0.1.md`](docs/RELEASE-NOTES-1.0.1.md)
+  (V1.0.1 patch scope, 624 pass / 0 fail reference, Ubuntu + Windows CI,
+  real-client proofs).
+- Post-release validation:
+  [`docs/evidence/V1.0.1-REAL-E2E-2026-09-06.md`](docs/evidence/V1.0.1-REAL-E2E-2026-09-06.md)
+  (fresh `v1.0.1` checkout, 37/37 third-party import, lock workflow,
+  routing, source-removal persistence, OpenCode MCP session).
+- Corpus basis: [`docs/V1-CORPUS.md`](docs/V1-CORPUS.md) plus
+  [`docs/V1-CORPUS.manifest.json`](docs/V1-CORPUS.manifest.json).
+
 ## Current status
 
 | Item | State |
 | ---- | ----- |
 | Architecture | frozen |
 | V1 specifications (SPEC-001–006) | complete |
-| Amendment review (AMEND-01–06) | complete |
+| Amendment review (AMEND-01–10) | complete |
 | TEST-001 42-case corpus (G001–G042) | frozen |
 | TEST-002 token vectors (T001–T009, `ega-o200k-v1`) | frozen |
-| Repository foundation (workspace, checker, templates) | complete |
-| Spec drift checker (`pnpm specs:check`) | complete |
-| GitHub repository | initialized |
-| Product implementation (schema/router/registry/MCP) | not started |
-| Wave 0 workspace bootstrap (EGA-547) | implemented on review branch |
+| Product implementation (schema/hashing/registry/router/project/mcp/cli) | shipped in V1.0.0, patched in V1.0.1 |
+| Real corpus + hardening + acceptance (W8–W9, EGA-598–604) | complete |
+| V1.0.1 release (`v1.0.1`) + operator docs + post-release E2E (EGA-614–618) | complete |
+| Final Post-V1 Release Specification (1.1 → 1.2 → 1.3 → 2.0) | merged for review; implementation not started |
 
-Schema, router, registry, and MCP are **not** implemented. Nothing in
-`packages/` contains product behavior.
+## Post-V1 direction
 
-## Implementation roadmap
+The next milestones are defined (not implemented) in
+[`docs/EGA Skills — Final Post-V1 Release Specification.md`](docs/EGA%20Skills%20—%20Final%20Post-V1%20Release%20Specification.md):
 
-| Wave | Scope |
-| ---- | ----- |
-| Wave 0 — Bootstrap | Workspace, strict TS baseline, repo automation |
-| Wave 1 — Schema + token estimator | SPEC-001 validation, `ega-o200k-v1` (TEST-002) |
-| Wave 2 — Canonical hashing | SPEC-002 hashing + version identity |
-| Wave 3 — Registry + cache + importer | SPEC-003 storage, cache, import pipeline |
-| Wave 4 — Router + resolve CLI | SPEC-004 routing, TEST-001 goldens, CLI |
-| Wave 5 — Project config + lockfile | SPEC-005 config, locks, refresh |
-| Wave 6 — MCP runtime + Codex | SPEC-006 server, Codex acceptance |
-| Wave 7 — OpenCode/T3 | Second client acceptance |
-| Wave 8 — Real corpus + hardening | Real skills, performance gates, edge coverage |
-| Wave 9 — V1 release | Docs, release checklist, V1 tag |
+```text
+1.1 — Skill Hub (curated immutable catalog + reproducible releases)
+1.2 — Hosted Personal EGA (authenticated remote MCP, same four tools)
+1.3 — Remote Projects (immutable project contexts, remote lock plans)
+2.0 — Multi-user EGA (workspaces, authorization, audit/revocation/quotas)
+```
+
+Implementation gate: freeze Contracts A–C before any 1.1 code, then Contract D
+before 1.2, Contract E before 1.3, and Contract F before 2.0. Local stdio and
+offline operation remain supported alongside hosted operation.
 
 Detailed execution tickets are managed in Linear.
-
-## Current next step
-
-The specification gate (EGA-550) is complete. After EGA-547 is reviewed and
-merged, Wave 0 continues with dependency/runtime pinning (EGA-548) and the
-remaining bootstrap tickets.
 
 ## Development rules
 
@@ -250,5 +289,5 @@ Contributors start at [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Run `git diff --check` — it must be clean.
 - Do not modify frozen behavior only in code: amend the spec and its tests
   first, then change behavior.
-- Linux + Windows become required implementation gates (determinism,
-  hashing, token vectors, goldens).
+- Linux + Windows remain required gates for determinism-sensitive changes
+  (hashing, token vectors, goldens, filesystem/CLI behavior).
