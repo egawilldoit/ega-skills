@@ -33,7 +33,7 @@ sources:
 `;
 
 function git(dir, ...args) {
-  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", ...args], { stdio: "pipe" });
+  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
 }
 
 function skill(name, body) {
