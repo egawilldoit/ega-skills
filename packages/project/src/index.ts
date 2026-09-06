@@ -36,6 +36,26 @@ export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill } from "./hub/builder.js";
+export {
+  RELEASE_TOKEN_ESTIMATOR,
+  checkAliasMap,
+  checkSearchIndexInput,
+  checkTokenArtifact,
+  createReleaseFtsTable,
+  deriveAliasMap,
+  deriveSearchIndexInput,
+  deriveTokenArtifact,
+  queryReleaseFts,
+  verifyReleaseCorpus,
+} from "./hub/release-state.js";
+export type {
+  AliasMapDoc,
+  ReleaseFtsDb,
+  SearchIndexInputDoc,
+  SearchIndexRow,
+  TokenArtifactDoc,
+  TokenCountRow,
+} from "./hub/release-state.js";
 export type {
   AddedSkill,
   AdoptedSourceView,
