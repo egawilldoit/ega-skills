@@ -68,6 +68,17 @@ function sortedUnique(arr) {
   return [...new Set(arr)].sort();
 }
 
+// AMEND-01: https:// for tracked upstreams, plus file:// and absolute local
+// paths for mirrors and offline fixtures. Relative paths never resolve
+// deterministically across machines, so they stay rejected.
+function isValidRepository(repo) {
+  if (typeof repo !== "string" || repo.length === 0) return false;
+  if (repo.startsWith("https://") || repo.startsWith("file://")) return true;
+  if (/^[A-Za-z]:[\\/]/.test(repo)) return true;
+  if (repo.startsWith("//") || repo.startsWith("/")) return true;
+  return false;
+}
+
 function normalizeSourceConfig(name, src) {
   // Normalized preimage for source_config_digest (Contract A §4).
   return {
@@ -129,8 +140,8 @@ if (sourcesDoc) {
       const allowed = new Set(["type", "repository", "ref", "namespace", "selection", "provenance_files"]);
       for (const k of Object.keys(src)) if (!allowed.has(k)) fail(`sources.yaml source ${name} unknown field "${k}"`);
       if (src.type !== "git") fail(`sources.yaml source ${name} type must be "git"`);
-      if (typeof src.repository !== "string" || !src.repository.startsWith("https://"))
-        fail(`sources.yaml source ${name} repository must be an https URL`);
+      if (!isValidRepository(src.repository))
+        fail(`sources.yaml source ${name} repository must be https://, file://, or an absolute local path`);
       if (typeof src.ref !== "string" || src.ref.length === 0) fail(`sources.yaml source ${name} ref must be non-empty`);
       if (typeof src.namespace !== "string" || !NS_RE.test(src.namespace))
         fail(`sources.yaml source ${name} namespace invalid`);

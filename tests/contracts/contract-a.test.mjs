@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
@@ -97,6 +98,39 @@ test("unsafe traversal root fails closed", () => {
   );
   const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
   assert.match(out, /unsafe/);
+});
+
+test("AMEND-01: file:// repository validates with recomputed digests", () => {
+  const sources = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: file:///mirror/skills",
+  );
+  const digestOf = (obj) => `sha256:${sha256Hex(canonicalizeJson(obj))}`;
+  const norm = {
+    namespace: "mattpocock",
+    provenance_files: ["LICENSE"],
+    repository: "file:///mirror/skills",
+    requested_ref: "main",
+    selection_roots: ["skills/engineering/code-review", "skills/engineering/tdd", "skills/productivity/grilling"],
+    type: "git",
+  };
+  const lock = read("sources.lock.yaml")
+    .replace("    repository: https://github.com/mattpocock/skills", "    repository: file:///mirror/skills")
+    .replace(
+      "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
+      digestOf(norm),
+    );
+  const out = withSwappedFiles({ "sources.yaml": sources, "sources.lock.yaml": lock }, runGood);
+  assert.match(out, /CONTRACT-A-OK/);
+});
+
+test("AMEND-01: relative repository path fails closed", () => {
+  const bad = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: mirror/skills",
+  );
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /repository must be https:\/\/, file:\/\/, or an absolute local path/);
 });
 
 test("frozen source_config_digest vectors are stable", () => {

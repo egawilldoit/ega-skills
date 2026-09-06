@@ -97,7 +97,15 @@ sources:
 Rules:
 
 - `type` MUST be `"git"`. Unknown source fields are REJECTED.
-- `repository` MUST be an `https://` URL. `ref` is the tracked mutable ref
+- `repository` MUST be one of:
+  - an `https://` URL (standard tracked upstream), or
+  - a `file://` URL or absolute local path (posix `/...`, Windows drive
+    `C:/...` / `C:\...`, or UNC `//...`) for mirrors and offline fixtures.
+  Relative paths and all other schemes are REJECTED.
+  (AMEND-01: `https://`-only made offline checks and local mirrors
+  impossible; scheme treatment downstream — quarantine, digests, plans — is
+  identical regardless of scheme.)
+  `ref` is the tracked mutable ref
   (for example `main`); it is intent, never identity.
 - `namespace` MUST match `^[a-z0-9][a-z0-9-]*$`.
 - `selection.roots` is a NON-EMPTY list of repository-relative posix paths
