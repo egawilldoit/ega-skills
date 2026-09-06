@@ -194,3 +194,23 @@ test("CLI lock: symlinked lock paths are refused, never followed", async (t) => 
   }
   assert.equal(await readFile(target, "utf8"), "stale: true\n");
 });
+
+test("CLI lock: a planted temp-path symlink cannot redirect the write", async (t) => {
+  const { project, env } = await setupProject(t, [["alpha", "alpha skill"]]);
+  const { symlink, unlink } = await import("node:fs/promises");
+  const target = join(project, "decoy.txt");
+  await writeFile(target, "decoy\n");
+  const tempLink = `${lockPath(project)}.tmp`;
+  try {
+    await symlink(target, tempLink);
+  } catch {
+    t.skip("symlink creation needs privileges on this platform");
+    return;
+  }
+  t.after(() => unlink(tempLink).catch(() => {}));
+  const result = runCli(["lock"], project, env);
+  assert.equal(result.status, 0, `lock failed: ${result.stderr}`);
+  // The planted link was never followed: decoy intact, real lock written.
+  assert.equal(await readFile(target, "utf8"), "decoy\n");
+  assert.ok((await readFile(lockPath(project), "utf8")).includes("ega/alpha"));
+});

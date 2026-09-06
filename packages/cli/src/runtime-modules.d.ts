@@ -10,6 +10,9 @@ declare module "node:fs" {
   }
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): Stats;
+  export function openSync(path: string, flags: string): number;
+  export function closeSync(fd: number): void;
+  export function writeSync(fd: number, data: string): void;
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { force?: boolean }): void;

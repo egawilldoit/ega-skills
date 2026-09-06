@@ -6,7 +6,7 @@
 // sync/approve surface exists in V1. init (EGA-583) writes the frozen
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import {
@@ -255,24 +255,46 @@ let lockTempCounter = 0;
 /**
  * Crash-safe lock persistence (§5.1.10 rule 4): serialize to a temporary
  * sibling and atomically rename over the lock path, so a failed write can
- * never leave a truncated lock behind. rename replaces a symlink itself
- * rather than its target, and symlinks are refused above in any case.
+ * never leave a truncated lock behind. The temp file is created EXCLUSIVELY
+ * (O_CREAT|O_EXCL, flag "wx"): creation fails when the name already exists
+ * and NEVER follows a pre-existing symlink, so a planted tmp-path link
+ * cannot redirect the write — collisions retry with a fresh unique name.
+ * rename replaces a symlink itself rather than its target, and lock-path
+ * symlinks are refused above in any case.
  */
 function writeLockAtomically(lockFile: string, text: string): void {
-  lockTempCounter += 1;
-  const tempFile = `${lockFile}.tmp-${Date.now()}-${lockTempCounter}`;
-  try {
-    writeFileSync(tempFile, text);
-    renameSync(tempFile, lockFile);
-  } catch (error) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    lockTempCounter += 1;
+    // Deterministic first candidate (attack-testable), unique on retry.
+    const tempFile =
+      attempt === 0 ? `${lockFile}.tmp` : `${lockFile}.tmp-${Date.now()}-${lockTempCounter}`;
+    let fd: number;
     try {
-      rmSync(tempFile, { force: true });
-    } catch {
-      // Best-effort temp cleanup only; the original error propagates.
+      fd = openSync(tempFile, "wx");
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "EEXIST") continue;
+      throw error;
     }
-    throw error;
+    try {
+      writeSync(fd, text);
+    } finally {
+      closeSync(fd);
+    }
+    try {
+      renameSync(tempFile, lockFile);
+    } catch (error) {
+      try {
+        rmSync(tempFile, { force: true });
+      } catch {
+        // Best-effort temp cleanup only; the original error propagates.
+      }
+      throw error;
+    }
+    return;
   }
+  throw new Error(`Could not create a temporary lock file next to ${lockFile} (6 name collisions)`);
 }
+
 /**
  * Reads a previous adjacent lock leniently for diff purposes ONLY: the file
  * must be well-formed (self-consistent shape), but its config hash is NOT
