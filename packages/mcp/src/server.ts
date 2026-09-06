@@ -527,7 +527,7 @@ const BOUND_HANDLERS: Readonly<
  */
 export function createMcpServer(): McpServer {
   const server = new McpServer(
-    { name: "ega-skills", version: "1.0.0" },
+    { name: "ega-skills", version: "1.0.1" },
     { capabilities: { tools: {} } },
   );
 
