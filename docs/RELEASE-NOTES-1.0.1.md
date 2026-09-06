@@ -1,8 +1,8 @@
 # EGA Skills 1.0.1 — Release Notes
 
 Patch release over V1.0.0. No architecture change, no new tools, no LLM
-routing. Three real-user defects, all proven before the fix and regressed
-after it.
+routing. Three real-user defects, all proven before the fix and
+regression-tested after it.
 
 ## What changed
 
