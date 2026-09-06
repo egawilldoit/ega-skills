@@ -1,0 +1,265 @@
+// 1.1[D] exact update application (EGA-626). Contract B sections 5-6.
+//
+// Applies ONE approved UpdatePlan to the adopted Hub state, exactly as
+// described: plan digest, config binding, stale check, exact commit, stage
+// digest verification, destination cleanliness, full-Hub validation — then
+// the crash-safe swap from journal.ts. Never re-resolves the tracked ref.
+// The server (and this function) NEVER mutates the caller's project files;
+// it mutates only the Hub directory it owns.
+
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
+import { join } from "node:path";
+import { stringify as stringifyYaml } from "yaml";
+import { verifyEnvelope } from "@ega-skills/hashing";
+import { HubError } from "./errors.js";
+import { COMMIT_RE, SHA256_RE, isPlainObject } from "./guards.js";
+import {
+  clearJournal,
+  journalPath,
+  readJournal,
+  recoverIfNeeded,
+  requireCleanJournal,
+  writeFileAtomic,
+  writeJournal,
+} from "./journal.js";
+import type { HubJournal } from "./journal.js";
+import { digestStagedTree } from "./quarantine.js";
+import { parseSourcesLockYaml, type SourceLockRecord } from "./sources-lock.js";
+import type { UpdatePlanDocument } from "./planning.js";
+
+export interface HubLock {
+  release(): void;
+}
+
+function lockPath(hubDir: string): string {
+  return join(hubDir, ".hub.lock");
+}
+
+/** Exclusive Hub mutation lock (create-exclusive; held locks fail closed). */
+export function acquireHubLock(hubDir: string): HubLock {
+  mkdirSync(hubDir, { recursive: true });
+  let fd: number;
+  try {
+    fd = openSync(lockPath(hubDir), "wx");
+  } catch {
+    throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+  }
+  closeSync(fd);
+  let released = false;
+  return {
+    release() {
+      if (!released) {
+        released = true;
+        rmSync(lockPath(hubDir), { force: true });
+      }
+    },
+  };
+}
+
+export interface ApplyInput {
+  hubDir: string;
+  plan: UpdatePlanDocument;
+  stageDir: string;
+}
+
+function busyGuard<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    const code = (e as { code?: unknown })?.code;
+    // Windows: an open file blocking rename surfaces here. Never continue
+    // half-swapped; the journal records exactly how far the swap went.
+    if (e instanceof HubError) throw e;
+    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") {
+      throw new HubError("E_HUB_LOCKED", `hub busy (file locked by another process): ${String(code)}`);
+    }
+    throw e;
+  }
+}
+
+function copyDirTree(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  const entries: Dirent[] = readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const from = join(src, entry.name);
+    const to = join(dest, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new HubError("E_EXTRACTION_POLICY", `symlink forbidden in staged tree: ${entry.name}`);
+    }
+    if (entry.isDirectory()) {
+      copyDirTree(from, to);
+    } else if (entry.isFile()) {
+      writeFileSync(to, readFileSync(from));
+    } else {
+      throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in staged tree: ${entry.name}`);
+    }
+  }
+}
+
+interface VerifiedPlan {
+  sourceId: string;
+  targetCommit: string;
+  newTreeDigest: string;
+  newSnapshotDigest: string;
+  expectedCommit: string;
+  expectedTreeDigest: string;
+}
+
+function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
+  const doc = plan as unknown;
+  if (!isPlainObject(doc)) {
+    throw new HubError("E_PLAN_SCHEMA", "plan must be an object");
+  }
+  if (doc["object_type"] !== "ega.update-plan" || doc["schema_version"] !== 1) {
+    throw new HubError("E_PLAN_SCHEMA", "plan must be an ega.update-plan schema_version 1");
+  }
+  const verified = verifyEnvelope(doc);
+  if (!verified.ok) {
+    throw new HubError(
+      verified.code === "E_ARTIFACT_DIGEST" ? "E_PLAN_DIGEST" : "E_PLAN_SCHEMA",
+      `plan envelope invalid: ${verified.message}`,
+    );
+  }
+  const payload = doc["payload"];
+  if (!isPlainObject(payload)) {
+    throw new HubError("E_PLAN_SCHEMA", "plan payload must be an object");
+  }
+  for (const forbidden of ["ref", "target_ref", "branch", "rev"]) {
+    if (forbidden in payload) {
+      throw new HubError("E_PLAN_REFETCH", `plan must not carry "${forbidden}" (exact commit only)`);
+    }
+  }
+  const text = (field: string): string => {
+    if (typeof payload[field] !== "string") {
+      throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must be a string`);
+    }
+    return payload[field] as string;
+  };
+  const targetCommit = text("target_commit");
+  if (!COMMIT_RE.test(targetCommit)) {
+    throw new HubError("E_PLAN_COMMIT", "plan target_commit must be 40 lowercase hex");
+  }
+  const expected = payload["expected_old"];
+  if (!isPlainObject(expected)) {
+    throw new HubError("E_PLAN_SCHEMA", "plan payload expected_old must be an object");
+  }
+  if (typeof expected["resolved_commit"] !== "string" || !COMMIT_RE.test(expected["resolved_commit"] as string)) {
+    throw new HubError("E_PLAN_COMMIT", "plan expected_old.resolved_commit must be 40 lowercase hex");
+  }
+  if (typeof expected["selected_skill_tree_digest"] !== "string" || !SHA256_RE.test(expected["selected_skill_tree_digest"] as string)) {
+    throw new HubError("E_PLAN_SCHEMA", "plan expected_old.selected_skill_tree_digest must match sha256:<64hex>");
+  }
+  for (const field of ["new_selected_tree_digest", "new_vendored_snapshot_digest"] as const) {
+    if (typeof payload[field] !== "string" || !SHA256_RE.test(payload[field] as string)) {
+      throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must match sha256:<64hex>`);
+    }
+  }
+  return {
+    expectedCommit: expected["resolved_commit"] as string,
+    expectedTreeDigest: expected["selected_skill_tree_digest"] as string,
+    newSnapshotDigest: payload["new_vendored_snapshot_digest"] as string,
+    newTreeDigest: payload["new_selected_tree_digest"] as string,
+    sourceId: text("source_id"),
+    targetCommit,
+  };
+}
+
+export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord } {
+  const { hubDir, plan, stageDir } = input;
+  // A crashed predecessor is restored (or resumed cleanly) before anything
+  // else runs; a journal that still needs recovery blocks us.
+  recoverIfNeeded(hubDir);
+  requireCleanJournal(hubDir);
+  const lock = acquireHubLock(hubDir);
+  try {
+    const verified = verifyPlanShape(plan);
+    const lockFile = join(hubDir, "sources.lock.yaml");
+    let lockText: string;
+    try {
+      lockText = readFileSync(lockFile, "utf8");
+    } catch {
+      throw new HubError("E_LOCK_MISMATCH", "hub lock file missing");
+    }
+    const adopted = parseSourcesLockYaml(lockText);
+    const current = adopted.sources[verified.sourceId];
+    if (!current) {
+      throw new HubError("E_LOCK_MISMATCH", `plan source ${verified.sourceId} is not adopted`);
+    }
+    if (
+      current.resolved_commit !== verified.expectedCommit ||
+      current.selected_skill_tree_digest !== verified.expectedTreeDigest
+    ) {
+      throw new HubError("E_PLAN_STALE", "plan expected_old no longer matches adopted state");
+    }
+    // The staged tree must be exactly what the plan describes.
+    const staged = digestStagedTree(stageDir, current.selection.roots);
+    if (staged.treeDigest !== verified.newTreeDigest || staged.snapshotDigest !== verified.newSnapshotDigest) {
+      throw new HubError("E_PLAN_DIGEST", "staged tree does not match the approved plan");
+    }
+    // Destination cleanliness + full-Hub validation before committing.
+    const staging = join(hubDir, ".staging");
+    const backup = join(hubDir, ".backup");
+    if (existsSync(staging) || existsSync(backup) || readJournal(hubDir)) {
+      throw new HubError("E_LOCK_MISMATCH", "hub destination not clean (staging/backup/journal remnants)");
+    }
+    const liveTree = join(hubDir, "trees", verified.sourceId);
+    if (!existsSync(liveTree)) {
+      throw new HubError("E_LOCK_MISMATCH", `adopted tree missing for ${verified.sourceId}`);
+    }
+    const record: SourceLockRecord = {
+      ...current,
+      resolved_commit: verified.targetCommit,
+      selected_skill_tree_digest: staged.treeDigest,
+      vendored_snapshot_digest: staged.snapshotDigest,
+    };
+    const stagedSources: Record<string, SourceLockRecord> = {};
+    for (const name of Object.keys(adopted.sources)) {
+      stagedSources[name] = name === verified.sourceId ? record : (adopted.sources[name] as SourceLockRecord);
+    }
+    const newLockText = stringifyYaml({ schema_version: 1, sources: stagedSources });
+    // Build + validate the staged tree, then open the journal.
+    busyGuard(() => copyDirTree(stageDir, join(staging, verified.sourceId)));
+    const journal: HubJournal = {
+      backup: ".backup",
+      expected_old_commit: verified.expectedCommit,
+      journal_version: 1,
+      source_id: verified.sourceId,
+      staging: ".staging",
+      state: "PREPARED",
+      target_commit: verified.targetCommit,
+    };
+    writeJournal(hubDir, journal);
+    // Preserve the old tree + lock, install the staged tree.
+    busyGuard(() => {
+      mkdirSync(backup, { recursive: true });
+      renameSync(liveTree, join(backup, verified.sourceId));
+      writeFileSync(join(backup, "sources.lock.yaml"), lockText);
+      renameSync(join(staging, verified.sourceId), liveTree);
+    });
+    writeJournal(hubDir, { ...journal, state: "TREE_SWAPPED" });
+    // Atomically install the new lock.
+    busyGuard(() => writeFileAtomic(lockFile, newLockText));
+    writeJournal(hubDir, { ...journal, state: "LOCK_SWAPPED" });
+    // Verify the complete adopted state, then commit.
+    const reread = parseSourcesLockYaml(readFileSync(lockFile, "utf8"));
+    const landed = reread.sources[verified.sourceId];
+    if (!landed || landed.resolved_commit !== verified.targetCommit) {
+      throw new HubError("E_LOCK_MISMATCH", "adopted lock verification failed after install");
+    }
+    const reverified = digestStagedTree(liveTree, landed.selection.roots);
+    if (reverified.treeDigest !== verified.newTreeDigest) {
+      throw new HubError("E_LOCK_MISMATCH", "adopted tree verification failed after install");
+    }
+    writeJournal(hubDir, { ...journal, state: "COMMITTED" });
+    busyGuard(() => {
+      rmSync(backup, { force: true, recursive: true });
+      rmSync(staging, { force: true, recursive: true });
+    });
+    clearJournal(hubDir);
+    void journalPath;
+    return { record };
+  } finally {
+    lock.release();
+  }
+}

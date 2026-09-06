@@ -147,6 +147,43 @@ export function extractSelectedRoots(
 }
 
 /**
+ * Digest an already-extracted tree (e.g. apply-time stage verification)
+ * without copying: entries under `roots` are selected, the rest provenance.
+ */
+export function digestStagedTree(stageDir: string, roots: readonly string[]): Omit<ExtractedTree, "manifest"> & { manifest: TreeManifestEntry[] } {
+  const base = resolve(stageDir);
+  const manifest: TreeManifestEntry[] = [];
+  const under = (rel: string): boolean => roots.some((root) => rel === root || rel.startsWith(`${root}/`));
+  const walk = (abs: string, rel: string): void => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const childAbs = join(abs, entry.name);
+      const childRel = rel.length > 0 ? `${rel}/${entry.name}` : entry.name;
+      if (entry.name === ".git" || entry.name === ".gitmodules") {
+        throw new HubError("E_EXTRACTION_POLICY", `forbidden entry in staged tree: ${childRel}`);
+      }
+      checkSpecial(childAbs, childRel);
+      if (entry.isDirectory()) {
+        walk(childAbs, childRel);
+      } else if (entry.isFile()) {
+        const bytes = readFileSync(childAbs);
+        manifest.push({
+          blobSha256: blobDigest(bytes),
+          kind: "file",
+          path: childRel,
+          scope: under(childRel) ? "selected" : "provenance",
+        });
+      } else {
+        throw new HubError("E_EXTRACTION_POLICY", `non-regular file in staged tree: ${childRel}`);
+      }
+    }
+  };
+  walk(base, "");
+  manifest.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const selected = manifest.filter((entry) => entry.scope === "selected");
+  return { manifest, snapshotDigest: digestEntries(manifest), treeDigest: digestEntries(selected) };
+}
+
+/**
  * Report SKILL.md packages outside the selected roots (reported, never
  * adopted — explicit-selection-only, Contract A section 4).
  */
