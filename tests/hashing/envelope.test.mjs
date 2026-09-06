@@ -81,3 +81,23 @@ test("malformed envelopes fail E_ARTIFACT_SCHEMA", () => {
 test("non-IJSON payload cannot be enveloped", () => {
   assert.throws(() => createEnvelope({ object_type: "ega.t", payload: { f: () => 0 }, schema_version: 1 }));
 });
+
+test("createEnvelope on non-object preimage throws ArtifactError (not TypeError)", () => {
+  for (const bad of [null, 42, "x", []]) {
+    assert.throws(() => createEnvelope(bad), (e) => e instanceof Error && e.name === "ArtifactError" && e.code === "E_ARTIFACT_SCHEMA");
+  }
+});
+
+test("verifyEnvelope never throws on unreadable input", () => {
+  const hostile = {
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    payload: {},
+    schema_version: 1,
+    get object_type() {
+      throw new Error("hostile accessor");
+    },
+  };
+  const res = verifyEnvelope(hostile);
+  assert.equal(res.ok, false);
+  assert.equal(res.code, "E_ARTIFACT_SCHEMA");
+});

@@ -72,6 +72,9 @@ export function digestArtifactPreimage(preimage: ArtifactPreimage): string {
 
 /** Build a signed envelope for a preimage. Throws ArtifactError on bad input. */
 export function createEnvelope(preimage: ArtifactPreimage): ArtifactEnvelope {
+  if (!isPlainObject(preimage)) {
+    throw new ArtifactError("E_ARTIFACT_SCHEMA", "Preimage must be an object.");
+  }
   if (typeof preimage.object_type !== "string" || preimage.object_type.length === 0) {
     throw new ArtifactError("E_ARTIFACT_SCHEMA", "object_type must be a non-empty string.");
   }
@@ -88,6 +91,14 @@ export function createEnvelope(preimage: ArtifactPreimage): ArtifactEnvelope {
 
 /** Fail-closed envelope verification. Never throws on malformed input. */
 export function verifyEnvelope(doc: unknown): VerifyResult {
+  try {
+    return verifyEnvelopeInner(doc);
+  } catch {
+    return { code: "E_ARTIFACT_SCHEMA", message: "Envelope is not readable.", ok: false };
+  }
+}
+
+function verifyEnvelopeInner(doc: unknown): VerifyResult {
   if (!isPlainObject(doc)) {
     return { code: "E_ARTIFACT_SCHEMA", message: "Envelope must be an object.", ok: false };
   }
