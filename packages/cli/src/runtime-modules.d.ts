@@ -9,7 +9,10 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export function existsSync(path: string): boolean;
+  export function lstatSync(path: string): Stats;
   export function readFileSync(path: string, encoding: "utf8"): string;
+  export function renameSync(oldPath: string, newPath: string): void;
+  export function rmSync(path: string, options?: { force?: boolean }): void;
   export function statSync(path: string): Stats;
   export function writeFileSync(path: string, data: string): void;
 }

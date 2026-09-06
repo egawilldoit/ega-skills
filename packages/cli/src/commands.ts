@@ -6,7 +6,7 @@
 // sync/approve surface exists in V1. init (EGA-583) writes the frozen
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
-import { existsSync, readFileSync, statSync, writeFileSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import {
@@ -233,6 +233,47 @@ export interface LockCommandResult {
 }
 
 /**
+ * Rejects symlink/junction lock paths (SPEC-005 §5.1.14 rule 4, same
+ * convention as readControlFileText): a lock symlink is NEVER followed for
+ * reading and NEVER overwritten through — refresh must not become a write
+ * primitive into another file. A missing path is fine (fresh create).
+ */
+function refuseSymlinkLock(lockFile: string): void {
+  let stat: Stats | null = null;
+  try {
+    stat = lstatSync(lockFile);
+  } catch {
+    return;
+  }
+  if (stat !== null && stat.isSymbolicLink()) {
+    throw new Error(`Lock file ${lockFile} is a symlink/junction and is REJECTED rather than followed (SPEC-005 §5.1.14 rule 4)`);
+  }
+}
+
+let lockTempCounter = 0;
+
+/**
+ * Crash-safe lock persistence (§5.1.10 rule 4): serialize to a temporary
+ * sibling and atomically rename over the lock path, so a failed write can
+ * never leave a truncated lock behind. rename replaces a symlink itself
+ * rather than its target, and symlinks are refused above in any case.
+ */
+function writeLockAtomically(lockFile: string, text: string): void {
+  lockTempCounter += 1;
+  const tempFile = `${lockFile}.tmp-${Date.now()}-${lockTempCounter}`;
+  try {
+    writeFileSync(tempFile, text);
+    renameSync(tempFile, lockFile);
+  } catch (error) {
+    try {
+      rmSync(tempFile, { force: true });
+    } catch {
+      // Best-effort temp cleanup only; the original error propagates.
+    }
+    throw error;
+  }
+}
+/**
  * Reads a previous adjacent lock leniently for diff purposes ONLY: the file
  * must be well-formed (self-consistent shape), but its config hash is NOT
  * required to match the current config — a stale lock is exactly what
@@ -285,6 +326,7 @@ export async function runLock(options: LockCommandOptions): Promise<LockCommandR
     throw new Error("No .egaskills.yaml found — run `ega-skills init` first.");
   }
   const lockFile = join(dirname(discovery.configPath), ".egaskills.lock");
+  refuseSymlinkLock(lockFile);
   const previous = readPreviousLockForDiff(lockFile);
   if (previous !== undefined && options.refresh !== true) {
     throw new Error(`Lock already exists: ${lockFile} (use --refresh to regenerate it)`);
@@ -294,10 +336,10 @@ export async function runLock(options: LockCommandOptions): Promise<LockCommandR
     { registryHome: resolveRegistryHome(options.env), config },
     previous,
   );
-  writeFileSync(lockFile, serializeLockfile(result.lock));
+  writeLockAtomically(lockFile, serializeLockfile(result.lock));
   return {
     path: lockFile,
-    created: previous === undefined,
+    created: options.refresh !== true,
     diff: result.diff,
     skills: Object.keys(result.lock.skills).length,
   };

@@ -165,3 +165,32 @@ test("CLI lock --refresh: no changes is a byte-identical no-op with empty diff",
   assert.deepEqual(JSON.parse(refreshed.stdout).diff, { added: [], removed: [], changed: [] });
   assert.equal(await readFile(lockPath(project), "utf8"), before);
 });
+
+test("CLI lock --refresh: reports created false even with no previous lock", async (t) => {
+  const { project, env } = await setupProject(t, [["alpha", "alpha skill"]]);
+  const refreshed = runCli(["lock", "--refresh"], project, env);
+  assert.equal(refreshed.status, 0, `refresh failed: ${refreshed.stderr}`);
+  const summary = JSON.parse(refreshed.stdout);
+  assert.equal(summary.created, false);
+  assert.deepEqual(summary.diff, { added: ["ega/alpha"], removed: [], changed: [] });
+});
+
+test("CLI lock: symlinked lock paths are refused, never followed", async (t) => {
+  const { project, env } = await setupProject(t, [["alpha", "alpha skill"]]);
+  const { symlink, unlink } = await import("node:fs/promises");
+  const target = join(project, "elsewhere.lock");
+  await writeFile(target, "stale: true\n");
+  try {
+    await symlink(target, lockPath(project));
+  } catch {
+    t.skip("symlink creation needs privileges on this platform");
+    return;
+  }
+  t.after(() => unlink(lockPath(project)).catch(() => {}));
+  for (const args of [["lock"], ["lock", "--refresh"]]) {
+    const result = runCli(args, project, env);
+    assert.notEqual(result.status, 0, `${args.join(" ")} must refuse a symlinked lock`);
+    assert.match(result.stderr, /symlink/i);
+  }
+  assert.equal(await readFile(target, "utf8"), "stale: true\n");
+});

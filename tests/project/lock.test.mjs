@@ -502,5 +502,12 @@ test("EGA-616: serializeLockfile writes skills: {} for the empty catalog", () =>
     generated_from: { config_hash: VHASH(HEX_64) },
     skills: {},
   });
-  assert.ok(text.includes("skills: {}\n"));
+  assert.equal(
+    text,
+    `generated_from:\n` +
+      `  config_hash: ${VHASH(HEX_64)}\n` +
+      `lockfile_version: 1\n` +
+      `skills: {}\n` +
+      `token_estimator: ega-o200k-v1\n`,
+  );
 });
