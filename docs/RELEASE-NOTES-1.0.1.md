@@ -110,6 +110,9 @@ third-party compatibility, companion access after source disappearance, and
 fresh-project lock UX. The session also re-proved deterministic lock behavior,
 user-only invocation semantics, and traversal rejection in the released build.
 
+Detailed retained transcript/evidence:
+[`docs/evidence/V1.0.1-REAL-E2E-2026-09-06.md`](evidence/V1.0.1-REAL-E2E-2026-09-06.md).
+
 ## Upgrade / compatibility
 
 Drop-in: registry schema unchanged (version 2), no migration, no config or
