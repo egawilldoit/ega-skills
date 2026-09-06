@@ -1,0 +1,48 @@
+{
+  "rows": [
+    {
+      "skill_id": "cursor/architect",
+      "version_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "name": "architect",
+      "description": "Architecture review for TypeScript projects",
+      "domains": ["engineering"],
+      "platforms": ["web"],
+      "frameworks": ["typescript"],
+      "triggers": ["architecture", "review", "design"],
+      "aliases": ["architect"]
+    },
+    {
+      "skill_id": "ega/pr-review",
+      "version_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "name": "pr-review",
+      "description": "Review pull requests with testing discipline",
+      "domains": ["engineering"],
+      "platforms": ["web"],
+      "frameworks": [],
+      "triggers": ["review", "pull request", "testing"],
+      "aliases": ["pr-review"]
+    },
+    {
+      "skill_id": "mattpocock/code-review",
+      "version_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "name": "code-review",
+      "description": "Code review checklist for TypeScript",
+      "domains": ["engineering"],
+      "platforms": ["web"],
+      "frameworks": ["typescript"],
+      "triggers": ["review", "code quality"],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/tdd",
+      "version_hash": "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb",
+      "name": "tdd",
+      "description": "Test-driven development workflow",
+      "domains": ["engineering"],
+      "platforms": ["web"],
+      "frameworks": ["typescript"],
+      "triggers": ["tdd", "testing", "test-first"],
+      "aliases": ["tdd"]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "estimator": "ega-o200k-v1",
+  "counts": [
+    {
+      "skill_id": "cursor/architect",
+      "version_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "level": "L2",
+      "tokens": 1808
+    },
+    {
+      "skill_id": "ega/pr-review",
+      "version_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "level": "L2",
+      "tokens": 1668
+    },
+    {
+      "skill_id": "mattpocock/code-review",
+      "version_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "level": "L2",
+      "tokens": 734
+    },
+    {
+      "skill_id": "mattpocock/tdd",
+      "version_hash": "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb",
+      "level": "L2",
+      "tokens": 1228
+    }
+  ]
+}
