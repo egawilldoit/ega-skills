@@ -21,6 +21,19 @@ export {
 } from "./hub/quarantine.js";
 export type { ExtractedTree, ManifestScope, TreeManifestEntry } from "./hub/quarantine.js";
 export { checkForUpdates } from "./hub/planning.js";
+export { digestStagedTree } from "./hub/quarantine.js";
+export {
+  clearJournal,
+  journalPath,
+  readJournal,
+  recoverIfNeeded,
+  requireCleanJournal,
+  writeFileAtomic,
+  writeJournal,
+} from "./hub/journal.js";
+export type { HubJournal, JournalState } from "./hub/journal.js";
+export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
+export type { ApplyInput, HubLock } from "./hub/apply.js";
 export type {
   AddedSkill,
   AdoptedSourceView,
