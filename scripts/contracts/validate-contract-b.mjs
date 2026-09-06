@@ -103,10 +103,14 @@ if (plan && adopted) {
     if (plan.object_type !== "ega.update-plan") fail("E_PLAN_SCHEMA", 'update-plan.json object_type must be "ega.update-plan"');
     if (plan.schema_version !== 1) fail("E_PLAN_SCHEMA", "update-plan.json schema_version must be 1");
     // Digest preimage excludes digest (Contract B §3, post-V1 spec §2.2).
-    const recomputed = `sha256:${sha256Hex(
-      canonicalizeJson({ object_type: plan.object_type, payload: plan.payload, schema_version: plan.schema_version }),
-    )}`;
-    if (plan.digest !== recomputed) fail("E_PLAN_DIGEST", `update-plan.json digest mismatch (want ${recomputed})`);
+    // Guarded: a missing payload must fail closed with E_PLAN_SCHEMA below,
+    // not abort inside canonicalization.
+    if (isPlainObject(plan.payload)) {
+      const recomputed = `sha256:${sha256Hex(
+        canonicalizeJson({ object_type: plan.object_type, payload: plan.payload, schema_version: plan.schema_version }),
+      )}`;
+      if (plan.digest !== recomputed) fail("E_PLAN_DIGEST", `update-plan.json digest mismatch (want ${recomputed})`);
+    }
 
     const p = plan.payload;
     const allowedPayload = new Set([

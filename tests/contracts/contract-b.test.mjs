@@ -123,6 +123,15 @@ test("TREE_SWAPPED journal demands E_RECOVERY_REQUIRED", () => {
   assert.match(out, /E_RECOVERY_REQUIRED/);
 });
 
+test("missing payload fails closed with E_PLAN_SCHEMA (no canonicalization abort)", () => {
+  const doc = JSON.parse(read("update-plan.json"));
+  delete doc.payload;
+  const out = withSwappedFiles({ "update-plan.json": JSON.stringify(doc, null, 2) }, runBad);
+  assert.match(out, /E_PLAN_SCHEMA: update-plan\.json payload must be an object/);
+  assert.match(out, /CONTRACT-B-FAIL/);
+  assert.doesNotMatch(out, /HashIdentityError|TypeError|ReferenceError/);
+});
+
 test("frozen plan digest vectors are stable", () => {
   const out = runOk();
   assert.match(out, /CONTRACT-B-OK/);
