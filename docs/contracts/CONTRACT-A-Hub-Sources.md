@@ -68,7 +68,8 @@ Rules:
 - `schema_version` MUST be `1`. Unknown top-level or entry fields are REJECTED.
 - `hub.id` is a non-empty string naming this Hub.
 - `owned` is a list of `{path, namespace}`. `path` MUST be a repository-relative
-  posix path (no backslashes, no leading `/`, no `..` segments). `namespace`
+  posix path (no backslashes, no leading `/`, no `..` segments, no
+  drive-letter prefixes such as `C:/...`). `namespace`
   MUST match `^[a-z0-9][a-z0-9-]*$`.
 - `external` is a list of `{source}` referencing keys of `sources.yaml`.
   Every configured source MUST be listed here (no orphan sources); every listed
@@ -98,10 +99,13 @@ Rules:
 
 - `type` MUST be `"git"`. Unknown source fields are REJECTED.
 - `repository` MUST be one of:
-  - an `https://` URL (standard tracked upstream), or
-  - a `file://` URL or absolute local path (posix `/...`, Windows drive
-    `C:/...` / `C:\...`, or UNC `//...`) for mirrors and offline fixtures.
-  Relative paths and all other schemes are REJECTED.
+  - an `https://` URL with a non-empty hostname and no credentials
+    (userinfo) for standard tracked upstreams, or
+  - a `file://` URL without credentials or an absolute local path (posix
+    `/...`, Windows drive `C:/...` / `C:\...`, or UNC `//...`) for mirrors
+    and offline fixtures.
+  Relative paths and all other schemes are REJECTED. Bare `https://` (no
+  host) and credential-bearing URLs are REJECTED.
   (AMEND-01: `https://`-only made offline checks and local mirrors
   impossible; scheme treatment downstream — quarantine, digests, plans — is
   identical regardless of scheme.)
@@ -109,13 +113,16 @@ Rules:
   (for example `main`); it is intent, never identity.
 - `namespace` MUST match `^[a-z0-9][a-z0-9-]*$`.
 - `selection.roots` is a NON-EMPTY list of repository-relative posix paths
-  (same safety rule as §3). The list MUST be sorted and unique in the file;
+  (same safety rule as §3, which additionally forbids drive-letter prefixes
+  such as `C:/...`). The list MUST be sorted and unique in the file;
   validators MUST normalize before hashing but MUST reject unsorted files so
   Git diffs stay canonical.
-- `provenance_files` is a list (possibly empty only if the upstream genuinely
-  ships no license/notice file, which MUST then be recorded as a reviewed
-  exception) of repository-relative posix paths covered by the vendored
-  snapshot digest (§6).
+- `provenance_files` MUST be a NON-EMPTY list of repository-relative posix
+  paths covered by the vendored snapshot digest (§6). Missing, `null`, and
+  empty are all REJECTED: an empty list carries no redistribution provenance,
+  and there is no reviewed-exception mechanism in v1. (Freeze review: the
+  earlier "recorded as a reviewed exception" allowance promised a record that
+  no schema defines; fail-closed replaces it.)
 - EXPLICIT SELECTION ONLY: only `SKILL.md` packages at or under a selected
   root enter the Hub. A newly added upstream skill outside the selected roots
   is REPORTED by check tooling but MUST NOT enter the Hub until its root is
@@ -129,7 +136,7 @@ Rules:
 {
   "namespace": "<ns>",
   "provenance_files": ["<sorted unique>"],
-  "repository": "<https url>",
+  "repository": "<repository string exactly as configured>",
   "requested_ref": "<ref>",
   "selection_roots": ["<sorted unique>"],
   "type": "git"
@@ -138,8 +145,11 @@ Rules:
 
 Digest = `SHA-256(RFC8785-JCS(preimage))`, rendered `sha256:<64 lowercase hex>`
 using the proven V1 primitive (`canonicalize@4.0.0` via
-`packages/hashing/dist/identities.js`). Missing and `null` are different;
-`null` is never valid in source configuration.
+`packages/hashing/dist/identities.js`). The `repository` preimage is the
+configured string VERBATIM: no normalization, no trailing-slash trimming, no
+case folding, no URL re-encoding. Two configurations hash identically if and
+only if their repository strings are byte-identical. Missing and `null` are
+different; `null` is never valid in source configuration.
 
 Frozen vectors (validator-recomputed):
 
@@ -288,8 +298,9 @@ lock self-containment and vendored digests.
    `source_config_digest` vectors in §4.1.
 2. `node --test tests/contracts/contract-a.test.mjs` passes: good fixtures
    validate; each negative fixture (unknown field, unsorted roots, orphan
-   source, digest mismatch, null, unsafe path) fails closed with the
-   catalogued error class named in the output.
+   source, digest mismatch, null, unsafe path, credential-bearing or hostless
+   URL, drive-rooted path, missing/empty provenance_files) fails closed with
+   the catalogued error class named in the output.
 3. `pnpm specs:check` still passes (V1 frozen set untouched).
 4. `pnpm build` + `pnpm typecheck` pass; `git diff --check` clean.
 5. Linux + Windows CI green (path-semantics rules are cross-platform by

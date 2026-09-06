@@ -72,12 +72,13 @@ test("orphan lock source fails closed", () => {
   assert.match(out, /must equal sources\.yaml sources/);
 });
 
-test("digest mismatch fails closed", () => {
+test("digest mismatch fails closed [E_LOCK_DIGEST]", () => {
   const bad = read("sources.lock.yaml").replace(
     "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
     "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   );
   const out = withSwappedFiles({ "sources.lock.yaml": bad }, runBad);
+  assert.match(out, /\[E_LOCK_DIGEST\]/);
   assert.match(out, /source_config_digest mismatch/);
 });
 
@@ -86,9 +87,11 @@ test("explicit null fails closed", () => {
     "    requested_ref: main\n    namespace: cursor",
     "    requested_ref: main\n    namespace: null",
   );
-  // YAML 1.1 parses unquoted null as null; validator must reject it.
+  // YAML 1.1 parses unquoted null as null; validator must reject it with the
+  // explicit-null rule (not merely the equality rule).
   const out = withSwappedFiles({ "sources.lock.yaml": bad }, runBad);
-  assert.match(out, /must not be null|namespace must equal sources\.yaml/);
+  assert.match(out, /\[E_LOCK_MISMATCH\]/);
+  assert.match(out, /namespace must not be null/);
 });
 
 test("unsafe traversal root fails closed", () => {
@@ -124,13 +127,14 @@ test("AMEND-01: file:// repository validates with recomputed digests", () => {
   assert.match(out, /CONTRACT-A-OK/);
 });
 
-test("AMEND-01: relative repository path fails closed", () => {
+test("AMEND-01: relative repository path fails closed [E_SOURCE_SCHEMA]", () => {
   const bad = read("sources.yaml").replace(
     "    repository: https://github.com/mattpocock/skills",
     "    repository: mirror/skills",
   );
   const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
-  assert.match(out, /repository must be https:\/\/, file:\/\/, or an absolute local path/);
+  assert.match(out, /\[E_SOURCE_SCHEMA\]/);
+  assert.match(out, /no credentials/);
 });
 
 test("frozen source_config_digest vectors are stable", () => {
@@ -139,4 +143,95 @@ test("frozen source_config_digest vectors are stable", () => {
   const lock = read("sources.lock.yaml");
   assert.match(lock, /sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547/);
   assert.match(lock, /sha256:4854f1cae5082f0319da306e2678a6f525a3dba369a3e44245455d03f0490067/);
+});
+
+test("freeze review: credential-bearing repository URL fails closed [E_SOURCE_SCHEMA]", () => {
+  const bad = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: https://user:s3cret@github.com/mattpocock/skills",
+  );
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /\[E_SOURCE_SCHEMA\]/);
+  assert.match(out, /no credentials/);
+});
+
+test("freeze review: bare https:// with no host fails closed [E_SOURCE_SCHEMA]", () => {
+  const bad = read("sources.yaml").replace(
+    "    repository: https://github.com/mattpocock/skills",
+    "    repository: https://",
+  );
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /\[E_SOURCE_SCHEMA\]/);
+  assert.match(out, /repository must be/);
+});
+
+test("freeze review: null provenance_files fails closed [E_SOURCE_SCHEMA]", () => {
+  const bad = read("sources.yaml").replace(
+    "    provenance_files:\n      - LICENSE",
+    "    provenance_files: null",
+  );
+  assert.notEqual(bad, read("sources.yaml"));
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /\[E_SOURCE_SCHEMA\]/);
+  assert.match(out, /provenance_files must be a non-empty list/);
+});
+
+test("freeze review: empty provenance_files fails closed [E_SOURCE_SCHEMA]", () => {
+  const bad = read("sources.yaml").replace(
+    "    provenance_files:\n      - LICENSE",
+    "    provenance_files: []",
+  );
+  assert.notEqual(bad, read("sources.yaml"));
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /\[E_SOURCE_SCHEMA\]/);
+  assert.match(out, /provenance_files must be a non-empty list/);
+});
+
+test("freeze review: drive-rooted selection root fails closed [E_SOURCE_SELECTION]", () => {
+  const bad = read("sources.yaml").replace(
+    "        - skills/engineering/code-review",
+    "        - C:/escape",
+  );
+  const out = withSwappedFiles({ "sources.yaml": bad }, runBad);
+  assert.match(out, /\[E_SOURCE_SELECTION\]/);
+  assert.match(out, /root unsafe/);
+});
+
+test("freeze review: drive-rooted owned.path fails closed [E_HUB_SCHEMA]", () => {
+  const bad = read("hub.yaml").replace("  - path: owned/ega", "  - path: C:/owned/ega");
+  const out = withSwappedFiles({ "hub.yaml": bad }, runBad);
+  assert.match(out, /\[E_HUB_SCHEMA\]/);
+  assert.match(out, /owned\.path unsafe/);
+});
+
+test("freeze review: local-form source_config_digest vectors are stable", () => {
+  const digestOf = (obj) => `sha256:${sha256Hex(canonicalizeJson(obj))}`;
+  const roots = [
+    "skills/engineering/code-review",
+    "skills/engineering/tdd",
+    "skills/productivity/grilling",
+  ];
+  // Frozen goldens: repository hashed verbatim (§4.1 raw-string rule).
+  assert.equal(
+    digestOf({
+      namespace: "mattpocock",
+      provenance_files: ["LICENSE"],
+      repository: "file:///mirror/skills",
+      requested_ref: "main",
+      selection_roots: roots,
+      type: "git",
+    }),
+    "sha256:e50a08f47b5f7093e65c9eece3a3a4fab52bd3173a6606d220bad3067ff7b59c",
+  );
+  assert.equal(
+    digestOf({
+      namespace: "mattpocock",
+      provenance_files: ["LICENSE"],
+      repository: "/mirror/skills",
+      requested_ref: "main",
+      selection_roots: roots,
+      type: "git",
+    }),
+    "sha256:2d737a29f5ce6fd50c6226d1558e319b90aefc306728553f82354730a7b611d0",
+  );
 });
