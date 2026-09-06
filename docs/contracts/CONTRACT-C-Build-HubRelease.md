@@ -16,7 +16,7 @@ from a FRESH EMPTY isolated registry plus a FRESH EMPTY release-specific
 search index, then:
 
 ```text
-1.  Parse Hub contracts (A冻: hub/sources/lock).
+1.  Parse Hub contracts (Contract A: hub/sources/lock).
 2.  Determine the complete expected catalog.
 3.  Validate all owned content (V1 validate surface).
 4.  Verify all external provenance (Contract A §6 digests).

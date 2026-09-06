@@ -133,6 +133,32 @@ test("missing release payload fails closed with E_RELEASE_SCHEMA (no canonicaliz
   assert.doesNotMatch(out, /HashIdentityError|TypeError|ReferenceError/);
 });
 
+test("null search row fails closed with E_SEARCH_INPUT (no stack abort)", () => {
+  const doc = JSON.parse(read("search-index-input.json"));
+  doc.rows[1] = null;
+  const out = withSwappedFiles({ "search-index-input.json": JSON.stringify(doc, null, 2) }, runBad);
+  assert.match(out, /E_SEARCH_INPUT: search-index-input\.json rows must be objects/);
+  assert.match(out, /CONTRACT-C-FAIL/);
+  assert.doesNotMatch(out, /TypeError|ReferenceError/);
+});
+
+test("duplicate token count masking an omission fails E_TOKEN_ARTIFACT", () => {
+  const doc = JSON.parse(read("token-artifact.json"));
+  doc.counts = [doc.counts[0], doc.counts[0], doc.counts[2], doc.counts[3]];
+  const out = withSwappedFiles({ "token-artifact.json": JSON.stringify(doc, null, 2) }, runBad);
+  assert.match(out, /E_TOKEN_ARTIFACT: token-artifact\.json duplicate count for /);
+  assert.match(out, /exactly the R1 catalog/);
+});
+
+test("duplicate adopted source masking an omission fails closed", () => {
+  const doc = JSON.parse(read("hub-release.json"));
+  const first = JSON.parse(JSON.stringify(doc.payload.adopted_sources[0]));
+  doc.payload.adopted_sources = [doc.payload.adopted_sources[0], first];
+  const out = withSwappedFiles({ "hub-release.json": resignRelease(doc) }, runBad);
+  assert.match(out, /E_RELEASE_SCHEMA: hub-release\.json adopted_sources must list exactly the adopted sources/);
+  assert.match(out, /CONTRACT-C-FAIL/);
+});
+
 test("frozen release digest vector is stable", () => {
   const out = runOk();
   assert.match(out, /CONTRACT-C-OK/);

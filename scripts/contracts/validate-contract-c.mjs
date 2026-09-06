@@ -99,9 +99,11 @@ function checkSearchInput(name) {
     return null;
   }
   const ids = new Set();
+  let rowsValid = true;
   for (const r of doc.rows) {
     if (!isPlainObject(r)) {
       fail("E_SEARCH_INPUT", `${name} rows must be objects`);
+      rowsValid = false;
       continue;
     }
     for (const k of Object.keys(r)) {
@@ -119,6 +121,9 @@ function checkSearchInput(name) {
     if (typeof r.name !== "string" || typeof r.description !== "string")
       fail("E_SEARCH_INPUT", `${name} row ${r.skill_id} needs name/description strings`);
   }
+  // A non-object row must fail closed here: the order check below
+  // dereferences skill_id and would abort with a stack trace instead.
+  if (!rowsValid) return null;
   // Deterministic order: rows sorted by skill_id.
   const order = doc.rows.map((r) => r.skill_id);
   if (JSON.stringify(order) !== JSON.stringify([...order].sort()))
@@ -168,6 +173,7 @@ if (tokenArtifact && r1) {
     if (!Array.isArray(tokenArtifact.counts)) fail("E_TOKEN_ARTIFACT", "token-artifact.json counts must be a list");
     else {
       const versions = new Map(r1.rows.map((r) => [r.skill_id, r.version_hash]));
+      const seen = new Set();
       for (const c of tokenArtifact.counts) {
         if (!isPlainObject(c)) {
           fail("E_TOKEN_ARTIFACT", "token-artifact.json counts entries must be objects");
@@ -176,14 +182,21 @@ if (tokenArtifact && r1) {
         for (const k of Object.keys(c))
           if (!["skill_id", "version_hash", "level", "tokens"].includes(k))
             fail("E_TOKEN_ARTIFACT", `token-artifact.json counts unknown field "${k}"`);
+        if (typeof c.skill_id === "string") {
+          if (seen.has(c.skill_id)) fail("E_TOKEN_ARTIFACT", `token-artifact.json duplicate count for ${c.skill_id}`);
+          seen.add(c.skill_id);
+        }
         if (versions.get(c.skill_id) !== c.version_hash)
           fail("E_TOKEN_ARTIFACT", `token-artifact.json count for ${c.skill_id} must match the R1 version`);
         if (!["L1", "L2"].includes(c.level)) fail("E_TOKEN_ARTIFACT", `token-artifact.json count ${c.skill_id} level must be L1/L2`);
         if (!Number.isInteger(c.tokens) || c.tokens < 0)
           fail("E_TOKEN_ARTIFACT", `token-artifact.json count ${c.skill_id} tokens must be a non-negative integer`);
       }
-      if (tokenArtifact.counts.length !== r1.rows.length)
-        fail("E_TOKEN_ARTIFACT", "token-artifact.json must cover exactly the R1 catalog (no ambient history)");
+      // Length equality alone admits duplicate-for-omission swaps: require the
+      // exact R1 skill-ID set.
+      const catalog = [...versions.keys()].sort();
+      if (JSON.stringify([...seen].sort()) !== JSON.stringify(catalog))
+        fail("E_TOKEN_ARTIFACT", "token-artifact.json must cover exactly the R1 catalog (no duplicates, no omissions)");
     }
     rejectNulls(tokenArtifact, "token-artifact.json");
   }
@@ -230,20 +243,25 @@ if (release && r1 && aliasMap && tokenArtifact) {
       if (p.alias_map_digest !== digestOf(aliasMap)) fail("E_RELEASE_DIGEST", "hub-release.json alias_map_digest mismatch");
       if (p.search_index_input_digest !== digestOf(r1)) fail("E_RELEASE_DIGEST", "hub-release.json search_index_input_digest mismatch");
       if (p.token_artifact_digest !== digestOf(tokenArtifact)) fail("E_RELEASE_DIGEST", "hub-release.json token_artifact_digest mismatch");
-      // Adopted sources pinned to Contract A vectors.
-      if (!Array.isArray(p.adopted_sources) || p.adopted_sources.length !== 2)
-        fail("E_RELEASE_SCHEMA", "hub-release.json adopted_sources must list exactly the 2 adopted sources");
+      // Adopted sources pinned to Contract A vectors. Length equality alone
+      // admits duplicate-for-omission swaps: require the exact adopted set.
+      const adoptedIds = Object.keys(ADOPTED).sort();
+      if (!Array.isArray(p.adopted_sources)) fail("E_RELEASE_SCHEMA", "hub-release.json adopted_sources must be a list");
       else {
+        const seenSources = [];
         for (const s of p.adopted_sources) {
           const want = ADOPTED[s?.source_id];
           if (!want) {
             fail("E_RELEASE_SCHEMA", `hub-release.json adopted_sources unknown source ${s?.source_id}`);
             continue;
           }
+          seenSources.push(s.source_id);
           for (const f of ["source_config_digest", "resolved_commit", "selected_skill_tree_digest", "vendored_snapshot_digest"]) {
             if (s[f] !== want[f]) fail("E_RELEASE_DIGEST", `hub-release.json adopted ${s.source_id}.${f} must equal the Contract A vector`);
           }
         }
+        if (JSON.stringify([...new Set(seenSources)].sort()) !== JSON.stringify(adoptedIds))
+          fail("E_RELEASE_SCHEMA", "hub-release.json adopted_sources must list exactly the adopted sources (no duplicates, no omissions)");
       }
       // Contract versions bound (later contracts change these explicitly).
       const c = p.contracts;
