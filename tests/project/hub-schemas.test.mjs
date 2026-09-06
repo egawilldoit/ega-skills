@@ -89,6 +89,24 @@ test("digest mismatch rejected (E_LOCK_DIGEST)", () => {
   assert.equal(codeOf(() => verifySourcesLock(cfg, lock)), "E_LOCK_DIGEST");
 });
 
+test("lock record missing scalar fields fails fast with validator codes", () => {
+  const noDigest = read("sources.lock.yaml").replace(
+    "    source_config_digest: sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547\n",
+    "",
+  );
+  assert.notEqual(noDigest, read("sources.lock.yaml"));
+  assert.equal(codeOf(() => parseSourcesLockYaml(noDigest)), "E_LOCK_DIGEST");
+  const noCommit = read("sources.lock.yaml").replace("    resolved_commit: 0123456789abcdef0123456789abcdef01234567\n", "");
+  assert.equal(codeOf(() => parseSourcesLockYaml(noCommit)), "E_LOCK_COMMIT");
+  const noTree = read("sources.lock.yaml").replace(
+    "    selected_skill_tree_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+    "",
+  );
+  assert.equal(codeOf(() => parseSourcesLockYaml(noTree)), "E_TREE_DIGEST");
+  const noRepo = read("sources.lock.yaml").replace("    repository: https://github.com/cursor/plugins\n", "");
+  assert.equal(codeOf(() => parseSourcesLockYaml(noRepo)), "E_LOCK_MISMATCH");
+});
+
 test("hub lists exactly the configured sources", () => {
   const hub = parseHubYaml(read("hub.yaml"));
   const cfg = parseSourcesYaml(read("sources.yaml"));

@@ -73,6 +73,16 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
         throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name}.${key} must not be null`);
       }
     }
+    // Fail fast with the same codes the validator emits for the same defect
+    // (validator §5: digest recompute, intent equality, format regexes).
+    if (typeof entry["source_config_digest"] !== "string") {
+      throw new HubError("E_LOCK_DIGEST", `sources.lock.yaml source ${name} source_config_digest must match sha256:<64hex>`);
+    }
+    for (const field of ["repository", "requested_ref", "namespace"] as const) {
+      if (typeof entry[field] !== "string") {
+        throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} ${field} must be a string`);
+      }
+    }
     const selection = entry["selection"];
     if (!isPlainObject(selection) || !Array.isArray(selection["roots"])) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} selection.roots must be a list`);
@@ -80,6 +90,17 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     const provenance = entry["provenance_files"];
     if (!Array.isArray(provenance)) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} provenance_files must be a list`);
+    }
+    if (typeof entry["resolved_commit"] !== "string") {
+      throw new HubError("E_LOCK_COMMIT", `sources.lock.yaml source ${name} resolved_commit must be 40 lowercase hex`);
+    }
+    for (const field of ["selected_skill_tree_digest", "vendored_snapshot_digest"] as const) {
+      if (typeof entry[field] !== "string") {
+        throw new HubError("E_TREE_DIGEST", `sources.lock.yaml source ${name} ${field} must match sha256:<64hex>`);
+      }
+    }
+    if (typeof entry["extraction_contract"] !== "number") {
+      throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} extraction_contract must be 1`);
     }
     sources[name] = {
       extraction_contract: entry["extraction_contract"] as number,
