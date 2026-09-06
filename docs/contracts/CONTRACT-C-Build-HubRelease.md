@@ -16,6 +16,9 @@ from a FRESH EMPTY isolated registry plus a FRESH EMPTY release-specific
 search index, then:
 
 ```text
+0.  Refuse while recovery is incomplete (Contract B §7: an incomplete journal
+    → `E_RECOVERY_REQUIRED`; `hub build` MUST NOT proceed until recovery
+    restores the exact previous adopted state).
 1.  Parse Hub contracts (Contract A: hub/sources/lock).
 2.  Determine the complete expected catalog.
 3.  Validate all owned content (V1 validate surface).
@@ -161,6 +164,7 @@ referenced by a lock, context, or audit policy).
 | `E_PACKAGE_BINDING` | hub_release_digest mismatch, bad artifact digest, row-count mismatch |
 | `E_STABLE` | stable pointer digest/ordering violation |
 | `E_BUILD_ATTESTATION` | non-fresh build, import failures, catalog mismatch |
+| `E_RECOVERY_REQUIRED` | incomplete journal; build refuses until recovery (defined by Contract B §7, enforced before step 0) |
 
 ## §11 Acceptance (executable)
 
