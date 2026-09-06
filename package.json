@@ -14,6 +14,8 @@
     "test": "node --test",
     "contracts:check-a": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-a.mjs",
     "contracts:test-a": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-a.test.mjs",
+    "contracts:check-b": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-b.mjs",
+    "contracts:test-b": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-b.test.mjs",
     "specs:check": "node scripts/specs/check-specs.mjs"
   },
   "devDependencies": {
