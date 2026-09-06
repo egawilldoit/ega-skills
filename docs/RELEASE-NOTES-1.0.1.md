@@ -63,8 +63,9 @@ the released product, separate from CI and the pre-release test suite.
 
 This documentation records observed runtime results only; it does not change
 or replace the frozen contracts in [`SPEC-004`](specs/SPEC-004-Router-and-Resolution-Contract.md),
-[`SPEC-005`](specs/SPEC-005-Project-Config-and-Lockfile.md), or
-[`SPEC-006`](specs/SPEC-006-MCP-Runtime-Contract.md).
+[`SPEC-005`](specs/SPEC-005-Project-Config-and-Lockfile.md),
+[`SPEC-006`](specs/SPEC-006-MCP-Runtime-Contract.md), or the frozen router
+scenarios in [`TEST-001`](specs/TEST-001-Router-Golden-Scenarios.md).
 
 ### Test environment
 
@@ -120,6 +121,8 @@ suite and Ubuntu + Windows CI rather than this single manual run.
 
 Detailed retained transcript/evidence:
 [`docs/evidence/V1.0.1-REAL-E2E-2026-09-06.md`](evidence/V1.0.1-REAL-E2E-2026-09-06.md).
+This documentation-only validation changes no frozen behavior or contract; the
+governing SPEC/TEST links are listed above and repeated in the evidence file.
 
 ## Upgrade / compatibility
 
