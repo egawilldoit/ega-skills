@@ -73,6 +73,13 @@ async function writeSkill(dir, name, options = {}) {
     await writeFile(join(root, "SKILL.core.md"), options.core);
   }
   await writeFile(join(root, "ega.yaml"), basicYaml(options.yamlExtra ?? ""));
+  // Optional extra package files (relative path -> string bytes), written
+  // BEFORE import so the real importer manifests them with real roles/kinds.
+  for (const [rel, content] of Object.entries(options.files ?? {})) {
+    const target = join(root, rel);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
   return { root, skillMd: full };
 }
 
@@ -491,4 +498,137 @@ test("get_content (wire): exact content retrieval over stdio", async (t) => {
   assert.equal(output.version_hash, hashes.wired);
   assert.equal(output.level, "L2");
   assert.ok(output.content.includes("wired"));
+});
+
+// --- Supporting-file access (V1.0.1): exact reference companions ---------
+
+const TESTS_MD = "# tests\\n\\nCompanion marker COMPANION-4417.\\n";
+const MOCKING_MD = "# mocking\\n\\nCompanion marker COMPANION-4418.\\n";
+
+async function setupHomeWithRefs(t) {
+  const { home, hashes, written } = await setupHome(t, [
+    ["alpha", { files: {
+      "references/tests.md": TESTS_MD,
+      "references/mocking.md": MOCKING_MD,
+      "references/logo.png": Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]),
+      "scripts/run.sh": "#!/bin/sh\\necho hi\\n",
+    } }],
+  ]);
+  return { home, hashes, written };
+}
+
+function fileArgs(hash, path, max = 4000) {
+  return { skill_id: "ega/alpha", version_hash: hash, level: "L2", max_tokens: max, file_path: path };
+}
+
+test("get_content file_path returns the exact companion bytes", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  const output = runGetContentTool(fileArgs(hashes.alpha, "references/tests.md"), ctxFor(project, home)).structuredContent;
+  assert.equal(output.skill_id, "ega/alpha");
+  assert.equal(output.version_hash, hashes.alpha);
+  assert.equal(output.level, "L2");
+  assert.equal(output.content, TESTS_MD);
+  assert.ok(output.token_count > 0);
+});
+
+test("get_content companion stays retrievable after source removal (cache-backed)", async (t) => {
+  const { home, hashes, written } = await setupHomeWithRefs(t);
+  const { rm } = await import("node:fs/promises");
+  await rm(written.alpha.root, { recursive: true, force: true });
+  const project = await makeProject();
+  const output = runGetContentTool(fileArgs(hashes.alpha, "references/mocking.md"), ctxFor(project, home)).structuredContent;
+  assert.equal(output.content, MOCKING_MD);
+});
+
+test("get_content unknown file path fails closed without listing the version", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  const error = expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, "references/nope.md"), ctxFor(project, home)),
+    "E_CONTENT_FILE_UNKNOWN",
+  );
+  assert.ok(!error.message.includes("tests.md"), "error must not enumerate version files");
+});
+
+test("get_content traversal-shaped paths never match (exact manifest equality)", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  for (const evil of ["../SKILL.md", "references/../SKILL.md", "references//tests.md", "references/tests.md/"]) {
+    expectCode(
+      () => runGetContentTool(fileArgs(hashes.alpha, evil), ctxFor(project, home)),
+      "E_CONTENT_FILE_UNKNOWN",
+    );
+  }
+  // The empty string never reaches lookup: malformed input under rule 0/6.
+  expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, ""), ctxFor(project, home)),
+    "E_MCP_INPUT_INVALID",
+  );
+});
+
+test("get_content SKILL.md via file_path is refused (use level)", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, "SKILL.md"), ctxFor(project, home)),
+    "E_CONTENT_FILE_FORBIDDEN",
+  );
+});
+
+test("get_content scripts are never served even as text", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, "scripts/run.sh"), ctxFor(project, home)),
+    "E_CONTENT_FILE_FORBIDDEN",
+  );
+});
+
+test("get_content binary companions are refused even under references/", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, "references/logo.png"), ctxFor(project, home)),
+    "E_CONTENT_FILE_FORBIDDEN",
+  );
+});
+
+test("get_content file_path requires level L2", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  expectCode(
+    () => runGetContentTool({ ...fileArgs(hashes.alpha, "references/tests.md"), level: "L1" }, ctxFor(project, home)),
+    "E_MCP_INPUT_INVALID",
+  );
+});
+
+test("get_content file respects lock gating before any cache read", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const configText = "schema_version: 1\n";
+  const project = await makeProject({
+    ".egaskills.yaml": configText,
+    ".egaskills.lock": lockYamlFor(configText, {
+      "ega/alpha": { name: "alpha", version_hash: hashes.alpha },
+    }),
+  });
+  // Sanity: locked exact version's companion is served.
+  const ok = runGetContentTool(fileArgs(hashes.alpha, "references/tests.md"), ctxFor(project, home)).structuredContent;
+  assert.equal(ok.content, TESTS_MD);
+  // Negative: a non-locked version hash through the file path hits the same
+  // lock gate (no bypass around policy/lock for companions).
+  const wrongHash = "sha256:" + "0".repeat(64);
+  expectCode(
+    () => runGetContentTool(fileArgs(wrongHash, "references/tests.md"), ctxFor(project, home)),
+    "E_VERSION_NOT_LOCKED",
+  );
+});
+
+test("get_content over-budget companion errors without truncation", async (t) => {
+  const { home, hashes } = await setupHomeWithRefs(t);
+  const project = await makeProject();
+  expectCode(
+    () => runGetContentTool(fileArgs(hashes.alpha, "references/tests.md", 1), ctxFor(project, home)),
+    "E_CONTENT_TOKEN_BUDGET",
+  );
 });

@@ -176,6 +176,10 @@ test("contract: input schemas expose the frozen required fields", async (t) => {
   assert.deepEqual(requiredOf("search"), ["query"]);
   assert.deepEqual(requiredOf("inspect"), ["skill_id"]);
   assert.deepEqual(requiredOf("get_content"), ["skill_id", "version_hash", "level", "max_tokens"]);
+  // AMEND-10: file_path is advertised but OPTIONAL (required list unchanged).
+  const contentInput = tools.find((tool) => tool.name === "get_content").inputSchema;
+  assert.ok("file_path" in (contentInput.properties ?? {}), "get_content advertises file_path");
+  assert.ok(!requiredOf("get_content").includes("file_path"), "file_path stays optional");
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", `${tool.name} input is an object schema`);
     assert.ok(tool.outputSchema !== undefined, `${tool.name} defines an output schema`);

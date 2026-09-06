@@ -132,7 +132,7 @@ Exactly four tools, project-scoped, read-only, offline:
 | resolve | task, project_path?, explicit_skills?, max_skills?, max_tokens? | selected/candidates/rejected, confidence, tiers, token + lock + budget status. NEVER bodies. |
 | search | query, project_path?, limit? (default 10, max 20) | L0 rows with skill_id + version_hash. No bodies, no BM25. |
 | inspect | skill_id, project_path?, version_hash? | identity, L0/routing/manifest/provenance/tokens, per-source observed_at. No bodies. |
-| get_content | skill_id, version_hash, level, max_tokens, project_path? | EXACT requested bytes or a frozen error. No fallback/truncation/substitution. |
+| get_content | skill_id, version_hash, level, max_tokens, file_path?, project_path? | EXACT requested bytes (level body, or ONE exact TEXT companion via file_path, L2-only: file_path with L1 is E_MCP_INPUT_INVALID) or a frozen error. No fallback/truncation/substitution. |
 
 Text fallbacks are self-sufficient (some clients never forward
 structuredContent): search/inspect carry ids/hashes/instants;
