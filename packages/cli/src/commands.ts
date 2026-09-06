@@ -293,12 +293,21 @@ function writeLockAtomically(lockFile: string, text: string): void {
       if ((error as { code?: unknown }).code === "EEXIST") continue;
       throw error;
     }
+    // Any failure below removes the temp file best-effort and rethrows the
+    // ORIGINAL error: write/close failures must not leak `.tmp` siblings
+    // (repeated leaks would collide with future candidates).
     try {
-      writeAllSync(fd, text);
-    } finally {
+      try {
+        writeAllSync(fd, text);
+      } catch (error) {
+        try {
+          closeSync(fd);
+        } catch {
+          // The write error takes precedence over a close error here.
+        }
+        throw error;
+      }
       closeSync(fd);
-    }
-    try {
       renameSync(tempFile, lockFile);
     } catch (error) {
       try {

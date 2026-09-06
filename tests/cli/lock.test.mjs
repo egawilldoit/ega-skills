@@ -214,3 +214,20 @@ test("CLI lock: a planted temp-path symlink cannot redirect the write", async (t
   assert.equal(await readFile(target, "utf8"), "decoy\n");
   assert.ok((await readFile(lockPath(project), "utf8")).includes("ega/alpha"));
 });
+
+test("CLI lock: temp-name collisions retry cleanly and leak no stray files", async (t) => {
+  const { project, env } = await setupProject(t, [["alpha", "alpha skill"]]);
+  const { mkdir, readdir, rm } = await import("node:fs/promises");
+  // Occupy the deterministic first candidate with a directory: exclusive
+  // creation collides (EEXIST), the write retries elsewhere and succeeds.
+  const blocker = `${lockPath(project)}.tmp`;
+  await mkdir(blocker);
+  t.after(() => rm(blocker, { recursive: true, force: true }));
+  const result = runCli(["lock"], project, env);
+  assert.equal(result.status, 0, `lock failed: ${result.stderr}`);
+  assert.ok((await readFile(lockPath(project), "utf8")).includes("ega/alpha"));
+  const leftovers = (await readdir(project)).filter(
+    (name) => name.startsWith(".egaskills.lock.tmp-"),
+  );
+  assert.deepEqual(leftovers, [], "no retried temp files may leak");
+});
