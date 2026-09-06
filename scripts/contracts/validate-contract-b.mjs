@@ -223,7 +223,7 @@ if (journal) {
     if (journal.state === "COMMITTED") {
       if ("staging" in journal || "backup" in journal)
         fail("E_JOURNAL_SCHEMA", "journal.json COMMITTED must not retain staging/backup");
-    } else if (process.exitCode !== 1) {
+    } else if (JOURNAL_STATES.includes(journal.state)) {
       if (typeof journal.staging !== "string" || journal.staging.length === 0)
         fail("E_JOURNAL_SCHEMA", "journal.json non-COMMITTED state needs a staging location");
       if (typeof journal.backup !== "string" || journal.backup.length === 0)

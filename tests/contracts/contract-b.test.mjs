@@ -132,6 +132,27 @@ test("missing payload fails closed with E_PLAN_SCHEMA (no canonicalization abort
   assert.doesNotMatch(out, /HashIdentityError|TypeError|ReferenceError/);
 });
 
+test("journal recovery fields validate independently of plan failures", () => {
+  const journal = JSON.stringify(
+    {
+      journal_version: 1,
+      source_id: "mattpocock",
+      expected_old_commit: "3cca18b368ae95cdbdebbff572ccafa662551015",
+      target_commit: "7d2e9f43681ab95cdbdebbff572ccafa66255101",
+      state: "PREPARED",
+    },
+    null,
+    2,
+  );
+  const out = withSwappedFiles(
+    { "update-plan.json": read("stale-plan.json"), "journal.json": journal },
+    runBad,
+  );
+  assert.match(out, /E_PLAN_STALE/);
+  assert.match(out, /E_JOURNAL_SCHEMA: journal\.json non-COMMITTED state needs a staging location/);
+  assert.match(out, /E_JOURNAL_SCHEMA: journal\.json non-COMMITTED state needs a backup location/);
+});
+
 test("frozen plan digest vectors are stable", () => {
   const out = runOk();
   assert.match(out, /CONTRACT-B-OK/);
