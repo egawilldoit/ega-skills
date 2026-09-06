@@ -11,11 +11,11 @@
 // the checker; apply-time reporting refines this against the preserved old
 // tree). Canonical identity always comes from the V1 importer, never invented.
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEnvelope } from "@ega-skills/hashing";
-import { importSkills, listSkillVersions, openRegistry } from "@ega-skills/registry";
+import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
 import { discoverUnselectedSkills, extractSelectedRoots } from "./quarantine.js";
@@ -90,20 +90,29 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     // The same commit cannot yield changes: no fetch, no mutation, no plan.
     return { status: "NO_CHANGE", targetCommit: target };
   }
-  const fetchDir = mkdtempSync(join(workDir, "fetch-"));
-  fetchRefTip(config.repository, config.ref, target, fetchDir);
-  const quarantineDir = mkdtempSync(join(workDir, "quarantine-"));
-  const tree = extractSelectedRoots(fetchDir, config.selection.roots, config.provenanceFiles, quarantineDir);
-  const unselected = discoverUnselectedSkills(fetchDir, config.selection.roots);
-  if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
-    return { status: "NO_CHANGE", targetCommit: target };
-  }
-  // Candidate SkillVersions via the V1 importer in a scratch home. The env is
-  // fully explicit (no process inheritance) so checks never observe ambient state.
-  const scratchHome = mkdtempSync(join(tmpdir(), "ega-plan-scratch-"));
-  const registry = openRegistry({ env: { EGA_SKILLS_HOME: scratchHome }, userHome: tmpdir() });
+  // Every temp directory this check creates is removed in the outer finally
+  // (registry closed first): successful and failed checks leave nothing
+  // behind in workDir or the system temp area.
+  const tempDirs: string[] = [];
+  let registry: RegistryHandle | null = null;
   try {
-    const summary = await importSkills(registry, { namespace: config.namespace, path: quarantineDir });
+    const fetchDir = mkdtempSync(join(workDir, "fetch-"));
+    tempDirs.push(fetchDir);
+    fetchRefTip(config.repository, config.ref, target, fetchDir);
+    const quarantineDir = mkdtempSync(join(workDir, "quarantine-"));
+    tempDirs.push(quarantineDir);
+    const tree = extractSelectedRoots(fetchDir, config.selection.roots, config.provenanceFiles, quarantineDir);
+    const unselected = discoverUnselectedSkills(fetchDir, config.selection.roots);
+    if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
+      return { status: "NO_CHANGE", targetCommit: target };
+    }
+    // Candidate SkillVersions via the V1 importer in a scratch home. The env is
+    // fully explicit (no process inheritance) so checks never observe ambient state.
+    const scratchHome = mkdtempSync(join(tmpdir(), "ega-plan-scratch-"));
+    tempDirs.push(scratchHome);
+    const opened = openRegistry({ env: { EGA_SKILLS_HOME: scratchHome }, userHome: tmpdir() });
+    registry = opened;
+    const summary = await importSkills(opened, { namespace: config.namespace, path: quarantineDir });
     if (summary.failed > 0) {
       const first = summary.failures[0];
       throw new HubError("E_PLAN_FETCH", `candidate tree failed V1 import: ${first ? first.error : "unknown"}`);
@@ -169,6 +178,19 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       status: "UPDATE_AVAILABLE",
     };
   } finally {
-    registry.close();
+    if (registry !== null) {
+      try {
+        registry.close();
+      } catch {
+        // Close is best-effort here: temp removal below must still run.
+      }
+    }
+    for (const dir of tempDirs) {
+      try {
+        rmSync(dir, { force: true, recursive: true });
+      } catch {
+        // Best-effort cleanup must never mask the check result.
+      }
+    }
   }
 }

@@ -130,6 +130,9 @@ export function extractSelectedRoots(
       }
       out.files += 1;
       out.bytes += bytes.length;
+      if (out.files > QUARANTINE_MAX_FILES || out.bytes > QUARANTINE_MAX_TOTAL_BYTES) {
+        throw new HubError("E_EXTRACTION_POLICY", "upstream tree exceeds quarantine caps");
+      }
       const parentParts = rel.split("/");
       parentParts.pop();
       if (parentParts.length > 0) mkdirSync(join(destDir, ...parentParts), { recursive: true });

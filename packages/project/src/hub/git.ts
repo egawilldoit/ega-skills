@@ -12,29 +12,41 @@ function gitError(code: "E_PLAN_RESOLVE" | "E_PLAN_FETCH", message: string): Hub
   return new HubError(code, message);
 }
 
-/** Resolve a tracked ref to its exact commit via `git ls-remote`. Read-only. */
+/** Resolve a tracked ref to its exact commit via `git ls-remote`. Read-only.
+ *  Annotated tags resolve to the PEELED commit (`refs/tags/<tag>^{}`), which
+ *  is what `git clone --branch <tag>` checks out; otherwise check would
+ *  resolve the tag object while fetch materializes the commit. */
 export function resolveRefToCommit(repository: string, ref: string): string {
   let stdout: string;
   try {
-    stdout = execFileSync("git", ["ls-remote", "--", repository, ref], {
+    // Both patterns: the bare ref plus its peeled form, so annotated tags
+    // advertise `refs/tags/<tag>^{}` (a bare pattern alone omits it).
+    stdout = execFileSync("git", ["ls-remote", "--", repository, ref, `${ref}^{}`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (e) {
     throw gitError("E_PLAN_RESOLVE", `cannot resolve ref ${ref}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
   }
+  const seen = new Map<string, string>();
   for (const line of stdout.split("\n")) {
     const tab = line.indexOf("\t");
     if (tab < 0) continue;
     const sha = line.slice(0, tab);
     const name = line.slice(tab + 1);
-    if (name === ref || name === `refs/heads/${ref}` || name === `refs/tags/${ref}`) {
-      if (!COMMIT_RE.test(sha)) {
-        throw gitError("E_PLAN_RESOLVE", `upstream returned a malformed commit for ${ref}`);
-      }
-      return sha;
+    if (!COMMIT_RE.test(sha)) {
+      throw gitError("E_PLAN_RESOLVE", `upstream returned a malformed commit for ${ref}`);
     }
+    if (!seen.has(name)) seen.set(name, sha);
   }
+  const peeled = seen.get(`refs/tags/${ref}^{}`);
+  if (peeled !== undefined) return peeled;
+  const head = seen.get(`refs/heads/${ref}`);
+  if (head !== undefined) return head;
+  const exact = seen.get(ref);
+  if (exact !== undefined) return exact;
+  const tag = seen.get(`refs/tags/${ref}`);
+  if (tag !== undefined) return tag;
   throw gitError("E_PLAN_RESOLVE", `ref ${ref} not found upstream`);
 }
 

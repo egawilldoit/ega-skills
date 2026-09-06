@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -68,6 +68,14 @@ function loadConfig(repoDir) {
   return { cfg, src: cfg.sources["plan"] };
 }
 
+/** Extracts the adopted tree at an exact commit via an isolated clone. */
+function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
+  const clone = mkdtempSync(join(tmpdir(), "ega-plan-adopt-"));
+  execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
+  execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
+  return extractSelectedRoots(clone, roots, provenanceFiles, mkdtempSync(join(tmpdir(), "ega-adopt-")));
+}
+
 function codeOf(fn) {
   return Promise.resolve()
     .then(fn)
@@ -107,13 +115,14 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   const { dir, shaA, shaB } = makeFixtureRepo();
   const { cfg, src } = loadConfig(dir);
   const work = mkdtempSync(join(tmpdir(), "ega-plan-work-"));
-  // Adopted tree state for commit A, built with the same extractor the
-  // planner uses (proves the NO_CHANGE path would have matched at A).
-  const adoptedTree = extractSelectedRoots(dir, src.selection.roots, src.provenanceFiles, mkdtempSync(join(tmpdir(), "ega-adopt-")));
+  // Adopted tree state for the exact commit A (isolated clone at shaA, using
+  // only the roots that exist at A): the NO_CHANGE path matches these digests
+  // if check ever targets A again.
+  const adoptedTree = adoptedTreeAt(dir, shaA, ["skills/alpha", "skills/beta"], src.provenanceFiles);
   const res = await checkForUpdates({
     adopted: {
       commit: shaA,
-      snapshotDigest: adoptedTree.treeDigest,
+      snapshotDigest: adoptedTree.snapshotDigest,
       treeDigest: adoptedTree.treeDigest,
       versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
     },
@@ -183,6 +192,35 @@ test(".gitmodules fails E_EXTRACTION_POLICY", () => {
   const { dir } = makeFixtureRepo();
   writeFileSync(join(dir, "skills", "alpha", ".gitmodules"), "[submodule]\n");
   assert.throws(() => extractSelectedRoots(dir, ["skills/alpha"], [], mkdtempSync(join(tmpdir(), "ega-x-"))), (e) => e instanceof HubError && e.code === "E_EXTRACTION_POLICY");
+});
+
+test("annotated tags resolve to the peeled commit", () => {
+  const { dir, shaA } = makeFixtureRepo();
+  git(dir, "tag", "-a", "-m", "release A", "v1", shaA);
+  assert.equal(resolveRefToCommit(dir, "v1"), shaA);
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
+  fetchRefTip(dir, "v1", shaA, dest);
+  assert.equal(readFileSync(join(dest, "skills", "alpha", "SKILL.md"), "utf8").includes("Alpha body A."), true);
+});
+
+test("successful checks leave no temp directories behind", async () => {
+  const { dir, shaA } = makeFixtureRepo();
+  const { src } = loadConfig(dir);
+  const work = mkdtempSync(join(tmpdir(), "ega-plan-work-"));
+  const adoptedTree = adoptedTreeAt(dir, shaA, ["skills/alpha", "skills/beta"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: work,
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.deepEqual(readdirSync(work), []);
 });
 
 test("fetch tip mismatch fails E_PLAN_FETCH (upstream moved during check)", async () => {
