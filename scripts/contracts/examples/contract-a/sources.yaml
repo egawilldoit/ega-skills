@@ -1,0 +1,26 @@
+schema_version: 1
+
+sources:
+  cursor-pstack:
+    type: git
+    repository: https://github.com/cursor/plugins
+    ref: main
+    namespace: cursor
+    selection:
+      roots:
+        - pstack/skills/architect
+        - pstack/skills/typescript-best-practices
+    provenance_files:
+      - pstack/LICENSE
+  mattpocock:
+    type: git
+    repository: https://github.com/mattpocock/skills
+    ref: main
+    namespace: mattpocock
+    selection:
+      roots:
+        - skills/engineering/code-review
+        - skills/engineering/tdd
+        - skills/productivity/grilling
+    provenance_files:
+      - LICENSE

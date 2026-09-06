@@ -12,6 +12,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false --force",
     "test": "node --test",
+    "contracts:check-a": "node scripts/contracts/validate-contract-a.mjs",
+    "contracts:test-a": "node --test tests/contracts/contract-a.test.mjs",
     "specs:check": "node scripts/specs/check-specs.mjs"
   },
   "devDependencies": {
