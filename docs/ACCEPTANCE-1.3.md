@@ -2,7 +2,8 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `a8ec090f79894f56d2ddb85627fe49448386e774`.
+Implementation candidate tested: `13a23037030630eb0fb32d6d289e826af2e8e5ce`.
+Final code candidate HEAD: `ff688ea90491f95b97216d0f2ee5c523561798c6`.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -26,3 +27,4 @@ Implementation candidate tested: `a8ec090f79894f56d2ddb85627fe49448386e774`.
 Gate summary: local authenticated publication and revocation PASS. The
 remaining row requires a real staging control plane and fresh client. No
 production deployment or remote mutation was performed.
+The exact-head Ubuntu/Windows foundation CI run `34131637759` passed.

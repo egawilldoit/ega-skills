@@ -2,7 +2,8 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `a8ec090f79894f56d2ddb85627fe49448386e774`.
+Implementation candidate tested: `13a23037030630eb0fb32d6d289e826af2e8e5ce`.
+Final code candidate HEAD: `ff688ea90491f95b97216d0f2ee5c523561798c6`.
 The hosted focused suite passed 10 tests before the final provenance-only test
 was added; the full regression at the parent candidate passed 798 total, 793
 passed, 0 failed, 5 skipped.
@@ -29,4 +30,4 @@ passed, 0 failed, 5 skipped.
 
 The local hosted HTTP/MCP integration is PASS. Cloud deployment, OAuth client
 registration, and fresh-client acceptance remain external operations.
-
+The exact-head Ubuntu/Windows foundation CI run `34131637759` passed.

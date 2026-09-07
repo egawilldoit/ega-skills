@@ -2,7 +2,8 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected audit checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
-Implementation candidate: `a8ec090f79894f56d2ddb85627fe49448386e774`.
+Implementation candidate tested locally: `13a23037030630eb0fb32d6d289e826af2e8e5ce`.
+Final code candidate HEAD: `ff688ea90491f95b97216d0f2ee5c523561798c6`.
 Branch: `repair/pr77-release-readiness`.
 
 This report records the validated disposition of every finding. Contract D
@@ -29,7 +30,7 @@ process described by the canonical specification.
 | F15 RemoteLockPlan release binding | VALID | Spec §5.10, §5.11 | Self-consistent lock outside target release | Apply requires exact release artifact and containment check | remote-project forged-candidate test | `d5f1331` | Remote focused suite passes | FIXED |
 | F16 actual publication path | VALID | Spec §5.6 | Local artifact generation was not a client/server path | Added authenticated HTTP control-plane handler, client, persistence, idempotency, revoke | remote-project local HTTP E2E | `d5f1331` | Authenticated publication and revoke pass | FIXED |
 | F17 fingerprint confinement | VALID | Spec §5.14–§5.19 | Caller inputs and symlink escape could affect identity | Derive bounded evidence and enforce lstat/realpath/root containment | remote-fingerprint adversarial tests | `d5f1331` | Fingerprint focused suite passes | FIXED |
-| F18 contract CI coverage | VALID | Spec §7–§10 | CI omitted candidate Contract D/E gates | Added A to E check/test commands and package E scripts on matrix CI | workflow plus local command run | `d9bf5a6` | Local gates pass; exact-head GitHub run pending PR | FIXED |
+| F18 contract CI coverage | VALID | Spec §7–§10 | CI omitted candidate Contract D/E gates | Added A to E check/test commands and package E scripts on matrix CI | workflow plus local command run | `d9bf5a6` | Exact-head CI `34131637759` passes Ubuntu and Windows; hashing CI `34131637767` passes both | FIXED |
 | F19 D/E status accuracy | VALID | Spec §7–§10 | Local candidate docs claimed FROZEN | Reclassified D/E docs as FREEZE CANDIDATE with required process | contract docs and validators | `d9bf5a6` | Governance text is explicit; authoritative freeze remains external | FIXED |
 | F20 exact evidence | VALID | User remediation gate | Stale counts and missing 1.1/1.2 ledgers | Added ledgers, report, decision trail, skip classifications, exact commits | this report and acceptance ledgers | `13a23037030630eb0fb32d6d289e826af2e8e5ce` | Final clean-head verification records exact final SHA | FIXED |
 
@@ -60,7 +61,6 @@ is present. It was not applied to any remote project.
 
 ## Remaining external operations
 
-- Exact-head Ubuntu and Windows CI must run on the remediation draft PR.
 - Independent exact-head review and the dedicated D/E freeze records remain
   required by governance.
 - Fresh Codex/OpenCode acceptance and a real authenticated staging control
