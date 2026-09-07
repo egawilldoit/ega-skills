@@ -184,6 +184,32 @@ test("orphan staging from pre-journal crash is discarded under the mutation lock
   assert.equal(readJournal(hub.hubDir), null);
 });
 
+test("PREPARED recovery discards staged data and preserves the adopted state", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const lockBytes = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const liveBytes = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"));
+
+  mkdirSync(join(hub.hubDir, ".staging", "plan"), { recursive: true });
+  writeFileSync(join(hub.hubDir, ".staging", "plan", "staged.txt"), "staged\n");
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: "b".repeat(40),
+  });
+
+  assert.deepEqual(recoverIfNeeded(hub.hubDir), { recovered: true });
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), lockBytes);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md")), liveBytes);
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
+  assert.equal(readJournal(hub.hubDir), null);
+});
+
 function makeFixtureRepoShaA(repo) {
   return execFileSync("git", ["-C", repo, "rev-parse", "main~1"], { encoding: "utf8" }).trim();
 }
