@@ -1,9 +1,11 @@
 // Contract E publication lifecycle seam.
 //
-// The store is intentionally an in-memory control-plane primitive: publishing
-// retains an immutable artifact, while revocation is a separate mutable marker.
-// It never reads or writes .egaskills.yaml/.egaskills.lock.
+// The store retains an immutable artifact, while revocation is a separate
+// mutable marker. Its persistence adapter is control-plane-owned and never
+// reads or writes .egaskills.yaml/.egaskills.lock.
 
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   REMOTE_PROJECT_ERROR_CODES,
   RemoteProjectError,
@@ -20,6 +22,13 @@ export interface ProjectContextStoreRecord extends PublishedProjectContext {
   readonly revoked: boolean;
 }
 
+/** Durable control-plane seam. Implementations may be a database adapter or
+ * the file adapter below; the MCP runtime never receives this capability. */
+export interface ProjectContextPersistence {
+  load(): readonly ProjectContextStoreRecord[];
+  save(record: ProjectContextStoreRecord): void;
+}
+
 function fail(code: typeof REMOTE_PROJECT_ERROR_CODES[keyof typeof REMOTE_PROJECT_ERROR_CODES], message: string): never {
   throw new RemoteProjectError(code, message);
 }
@@ -33,6 +42,28 @@ function assertContextId(contextId: string): void {
 export class ProjectContextStore {
   readonly #contexts = new Map<string, ProjectContext>();
   readonly #revoked = new Set<string>();
+  readonly #persistence: ProjectContextPersistence | undefined;
+
+  constructor(persistence?: ProjectContextPersistence) {
+    this.#persistence = persistence;
+    for (const record of persistence?.load() ?? []) {
+      assertContextId(record.contextId);
+      if (typeof record.revoked !== "boolean") {
+        fail(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `context ${record.contextId} has an invalid revocation state`);
+      }
+      verifyProjectContext(record.context);
+      if (this.#contexts.has(record.contextId)) {
+        fail(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `context ${record.contextId} is duplicated in persistence`);
+      }
+      this.#contexts.set(record.contextId, Object.freeze({ ...record.context }));
+      if (record.revoked) this.#revoked.add(record.contextId);
+    }
+  }
+
+  #persist(contextId: string): void {
+    const record = this.get(contextId);
+    if (record !== undefined) this.#persistence?.save(record);
+  }
 
   publish(input: PublishedProjectContext): ProjectContextStoreRecord {
     assertContextId(input.contextId);
@@ -44,6 +75,7 @@ export class ProjectContextStore {
     // a caller cannot mutate a structurally valid object after publication.
     const context = Object.freeze({ ...input.context });
     this.#contexts.set(input.contextId, context);
+    this.#persist(input.contextId);
     return this.get(input.contextId)!;
   }
 
@@ -66,6 +98,7 @@ export class ProjectContextStore {
       fail(REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND, `context ${contextId} is not published`);
     }
     this.#revoked.add(contextId);
+    this.#persist(contextId);
     return this.get(contextId)!;
   }
 
@@ -74,8 +107,45 @@ export class ProjectContextStore {
   }
 }
 
-export function createProjectContextStore(): ProjectContextStore {
-  return new ProjectContextStore();
+export function createProjectContextStore(persistence?: ProjectContextPersistence): ProjectContextStore {
+  return new ProjectContextStore(persistence);
+}
+
+/** Small local durable adapter for staging/integration tests. Production may
+ * replace it with the authenticated database control-plane implementation. */
+export class FileProjectContextPersistence implements ProjectContextPersistence {
+  constructor(readonly path: string) {}
+
+  load(): readonly ProjectContextStoreRecord[] {
+    if (!existsSync(this.path)) return [];
+    const value: unknown = JSON.parse(readFileSync(this.path, "utf8"));
+    if (!Array.isArray(value)) throw new Error("context persistence must contain an array");
+    return value as ProjectContextStoreRecord[];
+  }
+
+  save(record: ProjectContextStoreRecord): void {
+    mkdirSync(dirname(this.path), { recursive: true });
+    const temporaryDirectory = mkdtempSync(join(dirname(this.path), ".ega-context-store-"));
+    const temporaryPath = join(temporaryDirectory, "contexts.json");
+    try {
+      const records = this.load().filter((current) => current.contextId !== record.contextId);
+      records.push(record);
+      records.sort((a, b) => a.contextId < b.contextId ? -1 : a.contextId > b.contextId ? 1 : 0);
+      writeFileSync(temporaryPath, `${JSON.stringify(records, null, 2)}\n`);
+      try {
+        renameSync(temporaryPath, this.path);
+      } catch (error) {
+        // Windows does not replace an existing destination with renameSync.
+        // The temporary file is complete and remains private until this
+        // narrow replacement path; POSIX keeps the atomic rename above.
+        if (!existsSync(this.path)) throw error;
+        rmSync(this.path, { force: false });
+        renameSync(temporaryPath, this.path);
+      }
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
 }
 
 export interface ContextControlPlaneAuthorization {
@@ -158,6 +228,16 @@ export function createContextControlPlaneHandler(options: ContextControlPlaneOpt
         return jsonResponse(201, responseFor(published));
       }
       const revokeMatch = path.match(/^\/v1\/contexts\/([^/]+)$/);
+      if (revokeMatch !== null && request.method === "GET") {
+        const current = options.store.get(decodeURIComponent(revokeMatch[1]!));
+        if (current === undefined) return jsonResponse(404, { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
+        if (!(await options.authorize({
+          token,
+          workspaceId: current.context.workspace_id,
+          projectId: current.context.project_id,
+        }))) return jsonResponse(403, { code: "E_CONTEXT_FORBIDDEN" });
+        return jsonResponse(200, responseFor(current));
+      }
       if (revokeMatch !== null && request.method === "DELETE") {
         const current = options.store.get(decodeURIComponent(revokeMatch[1]!));
         if (current === undefined) return jsonResponse(404, { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
@@ -198,6 +278,27 @@ export async function publishProjectContext(
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context publication failed (${String(record["code"] ?? response.status)})`);
+  }
+  return body as PublishContextClientResult;
+}
+
+/** Retrieve immutable context metadata through the authenticated boundary. */
+export async function getProjectContext(
+  endpoint: string,
+  token: string,
+  contextId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<PublishContextClientResult> {
+  if (endpoint.length === 0 || token.length === 0 || contextId.length === 0) {
+    throw new Error("control-plane endpoint, token, and context id are required");
+  }
+  const response = await fetcher(new URL(`/v1/contexts/${encodeURIComponent(contextId)}`, endpoint), {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = await response.json() as unknown;
+  if (!response.ok) {
+    const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+    throw new Error(`Context retrieval failed (${String(record["code"] ?? response.status)})`);
   }
   return body as PublishContextClientResult;
 }

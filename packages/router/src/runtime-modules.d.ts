@@ -6,11 +6,17 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export interface Stats {
+    readonly size: number;
     isFile(): boolean;
     isDirectory(): boolean;
     isSymbolicLink(): boolean;
   }
   export function lstatSync(path: string): Stats;
+  export function openSync(path: string, flags: string | number): number;
+  export function fstatSync(fd: number): Stats;
+  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null): number;
+  export function closeSync(fd: number): void;
+  export const constants: { readonly O_RDONLY: number; readonly O_NOFOLLOW?: number };
   export function readdirSync(path: string): string[];
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function readFileSync(path: string): Uint8Array;

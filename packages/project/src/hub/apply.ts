@@ -7,7 +7,7 @@
 // The server (and this function) NEVER mutates the caller's project files;
 // it mutates only the Hub directory it owns.
 
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -41,6 +41,26 @@ function lockPath(hubDir: string): string {
   return join(hubDir, ".hub.lock");
 }
 
+function lockOwnerIsAlive(path: string): boolean {
+  let owner: string;
+  try {
+    owner = readFileSync(path, "utf8").trim();
+  } catch {
+    return true;
+  }
+  // Empty or malformed legacy markers fail closed. Only a numeric PID can be
+  // reclaimed, and only when the journal proves recovery is required.
+  if (!/^\d+$/.test(owner)) return true;
+  try {
+    const nodeProcess = (globalThis as { process?: { kill(pid: number, signal: number): void } }).process;
+    if (nodeProcess === undefined) return true;
+    nodeProcess.kill(Number(owner), 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: unknown }).code !== "ESRCH";
+  }
+}
+
 /** Exclusive Hub mutation lock (create-exclusive; held locks fail closed).
  *
  *  Crash-kill escape hatch (deliberate, documented): this lock is a
@@ -53,19 +73,36 @@ function lockPath(hubDir: string): string {
  */
 export function acquireHubLock(hubDir: string): HubLock {
   mkdirSync(hubDir, { recursive: true });
+  const path = lockPath(hubDir);
   let fd: number;
   try {
-    fd = openSync(lockPath(hubDir), "wx");
-  } catch {
-    throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+    fd = openSync(path, "wx");
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "EEXIST" || readJournal(hubDir) === null || lockOwnerIsAlive(path)) {
+      throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+    }
+    // The journal is the recovery authority. A dead PID marker may be
+    // reclaimed under that authority; the exclusive retry still fails closed
+    // if another process wins the race to acquire the lock.
+    rmSync(path, { force: false });
+    try {
+      fd = openSync(path, "wx");
+    } catch {
+      throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+    }
   }
-  closeSync(fd);
+  try {
+    const nodeProcess = (globalThis as { process?: { pid?: number } }).process;
+    writeSync(fd, typeof nodeProcess?.pid === "number" ? String(nodeProcess.pid) : "");
+  } finally {
+    closeSync(fd);
+  }
   let released = false;
   return {
     release() {
       if (!released) {
         released = true;
-        rmSync(lockPath(hubDir), { force: true });
+        rmSync(path, { force: true });
       }
     },
   };

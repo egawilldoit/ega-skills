@@ -186,6 +186,7 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
   assert.equal(readJournal(hub.hubDir), null);
   const lock = acquireHubLock(hub.hubDir);
+  assert.match(readFileSync(join(hub.hubDir, ".hub.lock"), "utf8"), /^\d+$/);
   lock.release();
 });
 
@@ -287,6 +288,37 @@ test("PREPARED recovery discards staged data and preserves the adopted state", a
   assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md")), liveBytes);
   assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
   assert.equal(readJournal(hub.hubDir), null);
+});
+
+test("apply recovers a journal when the previous mutation lock owner is dead", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  let stalePid = process.pid + 1000000;
+  while (true) {
+    try {
+      process.kill(stalePid, 0);
+      stalePid += 1;
+    } catch (error) {
+      if (error?.code === "ESRCH") break;
+      throw error;
+    }
+  }
+  writeFileSync(join(hub.hubDir, ".hub.lock"), `${stalePid}\n`);
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: plan.payload.target_commit,
+  });
+
+  await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
 });
 
 function makeFixtureRepoShaA(repo) {

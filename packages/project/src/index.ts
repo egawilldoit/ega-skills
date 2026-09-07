@@ -87,9 +87,10 @@ export {
   hashProjectLock,
   verifyProjectContext,
   verifyRemoteLockPlan,
+  verifyRemoteLockPlanAgainstLock,
 } from "./remote.js";
-export { createProjectContextStore, ProjectContextStore } from "./context-store.js";
-export { createContextControlPlaneHandler, publishProjectContext } from "./context-store.js";
+export { createProjectContextStore, FileProjectContextPersistence, ProjectContextStore } from "./context-store.js";
+export { createContextControlPlaneHandler, getProjectContext, publishProjectContext } from "./context-store.js";
 export type {
   CreateProjectContextInput,
   CreateRemoteLockPlanInput,
@@ -102,6 +103,7 @@ export type {
   ProjectContextCacheIdentity,
   ProjectContextCacheIdentityInput,
 } from "./remote.js";
+export type { ProjectContextPersistence } from "./context-store.js";
 export type {
   ContextControlPlaneAuthorization,
   ContextControlPlaneOptions,

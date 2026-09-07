@@ -5,7 +5,7 @@
 // absolute paths or uploading application source. Only bounded evidence-file
 // digests enter the relevant-input digest.
 
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 
@@ -16,6 +16,7 @@ import type { FingerprintEvidence, ProjectFingerprint } from "./fingerprint.js";
 
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
+const MAX_EVIDENCE_BYTES = 1_048_576;
 
 export type RemoteFingerprintRevision =
   | { readonly mode: "git-clean"; readonly commit_sha: string }
@@ -94,7 +95,20 @@ function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint
   if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${sep}`)) {
     fail("fingerprint evidence path must remain inside the repository root");
   }
-  return readFileSync(candidate);
+  let fd: number | undefined;
+  try {
+    const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+    fd = openSync(candidate, flags);
+    const opened = fstatSync(fd);
+    if (!opened.isFile()) fail(`fingerprint evidence path ${relativePath} is not a regular file`);
+    if (opened.size > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${relativePath} exceeds the bounded read limit`);
+    const bytes = new Uint8Array(MAX_EVIDENCE_BYTES + 1);
+    const read = readSync(fd, bytes, 0, bytes.byteLength, 0);
+    if (read > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${relativePath} exceeds the bounded read limit`);
+    return bytes.slice(0, read);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function sourcePath(evidence: FingerprintEvidence, fingerprint: ProjectFingerprint): string {

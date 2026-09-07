@@ -12,6 +12,7 @@ import {
   parseProjectConfig,
   serializeLockfile,
   createProjectContextStore,
+  FileProjectContextPersistence,
   createContextControlPlaneHandler,
   verifyProjectContext,
 } from "../../packages/project/dist/index.js";
@@ -164,6 +165,23 @@ test("remote lock apply rejects a self-consistent candidate outside its target r
   assert.deepEqual(readFileSync(join(project, ".egaskills.lock")), before);
 });
 
+test("remote lock apply rejects a self-consistent but false change summary", () => {
+  const { project, releasePath } = setupProject();
+  const planPath = join(project, "reviewed-plan.json");
+  const planned = runCli(project, "remote-lock", "plan", "--release", releasePath, "--workspace-id", "workspace-a", "--project-id", "project-a", "--without-fingerprint", "--output", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  const { plan_digest: _ignored, ...forgedArtifact } = { ...plan, added_entries: [] };
+  const forged = { ...forgedArtifact, plan_digest: hashBytes(canonicalizeJson(forgedArtifact)) };
+  const forgedPath = join(project, "false-summary-plan.json");
+  writeFileSync(forgedPath, `${JSON.stringify(forged)}\n`);
+  const before = readFileSync(join(project, ".egaskills.lock"));
+  const result = runCli(project, "remote-lock", "apply", "--plan", forgedPath, "--release", releasePath, "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /changes do not match/);
+  assert.deepEqual(readFileSync(join(project, ".egaskills.lock")), before);
+});
+
 test("context publish uses an authenticated local HTTP control plane and revocation", async () => {
   const { project, releasePath } = setupProject();
   const store = createProjectContextStore();
@@ -205,6 +223,9 @@ test("context publish uses an authenticated local HTTP control plane and revocat
     });
     assert.equal(published.publication?.context_id, "ctx-http");
     assert.equal(store.get("ctx-http")?.revoked, false);
+    const fetched = await fetch(`${endpoint}/v1/contexts/ctx-http`, { headers: { authorization: "Bearer staging-token" } });
+    assert.equal(fetched.status, 200);
+    assert.equal((await fetched.json()).context.context_digest, published.context.context_digest);
     const revoked = await fetch(`${endpoint}/v1/contexts/ctx-http`, { method: "DELETE", headers: { authorization: "Bearer staging-token" } });
     assert.equal(revoked.status, 200);
     assert.equal(store.get("ctx-http")?.revoked, true);
@@ -213,6 +234,31 @@ test("context publish uses an authenticated local HTTP control plane and revocat
     else process.env.EGA_TEST_CONTEXT_TOKEN = previousToken;
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
+});
+
+test("context persistence survives control-plane process reconstruction", async () => {
+  const { project, releasePath } = setupProject();
+  const published = await runContextPublish({
+    project,
+    release: releasePath,
+    workspaceId: "workspace-a",
+    projectId: "project-a",
+    contextId: "ctx-durable",
+    withoutFingerprint: true,
+  });
+  const persistence = new FileProjectContextPersistence(join(project, "control-plane", "contexts.json"));
+  const first = createProjectContextStore(persistence);
+  first.publish({ contextId: published.context_id, context: published.context });
+  const restored = createProjectContextStore(persistence);
+  assert.equal(restored.get("ctx-durable")?.context.context_digest, published.context.context_digest);
+  assert.equal(restored.get("ctx-durable")?.revoked, false);
+  assert.throws(
+    () => restored.publish({ contextId: published.context_id, context: published.context }),
+    /already published/,
+  );
+  restored.revoke("ctx-durable");
+  const restarted = createProjectContextStore(persistence);
+  assert.equal(restarted.isRevoked("ctx-durable"), true);
 });
 
 test("context publication fingerprints package-scoped monorepo inputs without absolute paths", () => {

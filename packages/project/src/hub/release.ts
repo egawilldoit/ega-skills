@@ -239,11 +239,18 @@ export function casUpdateStable(current: StablePointer | undefined, candidate: S
   return candidate;
 }
 
-/** Rollback creates another monotonic CAS update to a verified release from
- * the caller's retained-release store. A digest string is not an authority. */
-export function rollbackStable(current: StablePointer, retainedRelease: HubRelease, expectedCasVersion = current.cas_version): StablePointer {
+/** Rollback creates another monotonic CAS update to a verified release that is
+ * present in the caller's authoritative retention references. A digest string
+ * or an unretained release is not an authority. */
+export function rollbackStable(
+  current: StablePointer,
+  retainedRelease: HubRelease,
+  retainedReleaseDigests: readonly string[],
+  expectedCasVersion = current.cas_version,
+): StablePointer {
   verifyHubRelease(retainedRelease);
   if (retainedRelease.payload.hub_id !== current.hub_id) fail("E_STABLE", "rollback release belongs to a different Hub");
+  if (!isReleaseRetained(retainedRelease.digest, retainedReleaseDigests)) fail("E_STABLE", "rollback release is not retained");
   return casUpdateStable(
     current,
     { cas_version: current.cas_version + 1, hub_id: current.hub_id, stable_release_digest: retainedRelease.digest },

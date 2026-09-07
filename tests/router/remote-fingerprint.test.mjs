@@ -132,3 +132,17 @@ test("Contract E rejects symlinked evidence before hashing it", async () => {
     revision: { mode: "unversioned" },
   }), /contains a symlink/);
 });
+
+test("Contract E bounds evidence reads and rejects oversized manifest files", async () => {
+  const root = await monorepo();
+  await writeFile(join(root, "apps", "web", "package.json"), JSON.stringify({
+    name: "web",
+    description: "x".repeat(1_048_600),
+    dependencies: { next: "1.0.0" },
+  }));
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /bounded read limit/);
+});

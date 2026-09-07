@@ -75,15 +75,19 @@ test("stable publication is monotonic CAS and rollback remains a new version", (
   const second = casUpdateStable(undefined, first);
   assert.deepEqual(second, first);
   assert.throws(() => casUpdateStable(first, { ...first, cas_version: 3 }), (error) => error instanceof HubError && error.code === "E_STABLE");
-  const rolled = rollbackStable(first, retainedRelease);
+  const rolled = rollbackStable(first, retainedRelease, [retainedRelease.digest]);
   assert.equal(rolled.cas_version, 2);
   assert.equal(rolled.stable_release_digest, retainedRelease.digest);
+  assert.throws(
+    () => rollbackStable(first, retainedRelease, []),
+    (error) => error instanceof HubError && error.code === "E_STABLE" && /not retained/.test(error.message),
+  );
   assert.equal(isReleaseRetained(retainedRelease.digest, [retainedRelease.digest]), true);
   assert.equal(isReleaseRetained(HASH("f"), [HASH("e")]), false);
-  assert.throws(() => rollbackStable(first, HASH("e")), (error) => error instanceof HubError && error.code === "E_RELEASE_SCHEMA");
+  assert.throws(() => rollbackStable(first, HASH("e"), []), (error) => error instanceof HubError && error.code === "E_RELEASE_SCHEMA");
   return fixture("cross").then((other) => {
     const otherRelease = createHubRelease({ ...other, hubId: "other" }, other.artifacts);
-    assert.throws(() => rollbackStable(first, otherRelease), (error) => error instanceof HubError && error.code === "E_STABLE");
+    assert.throws(() => rollbackStable(first, otherRelease, [otherRelease.digest]), (error) => error instanceof HubError && error.code === "E_STABLE");
   });
   });
 });

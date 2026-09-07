@@ -36,6 +36,7 @@ import {
   serializeLockfile,
   validateLockfile,
   verifyRemoteLockPlan,
+  verifyRemoteLockPlanAgainstLock,
   hashProjectLock,
   hashNormalizedConfig,
   createProjectContextArtifact,
@@ -714,6 +715,7 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
     throw new Error(`Remote lock plan config digest ${plan.project_config_digest} does not match local config ${configHash}.`);
   }
   const gated = readConfigAndLock(discovery);
+  verifyRemoteLockPlanAgainstLock(plan, gated.lock);
   const existingDigest = gated.lock === null ? null : hashProjectLock(gated.lock);
   if (existingDigest !== plan.existing_lock_digest) {
     throw new Error("Remote lock plan existing-lock identity does not match the local lock; re-plan before applying.");

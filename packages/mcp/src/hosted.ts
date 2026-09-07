@@ -85,8 +85,8 @@ export interface HostedReleaseSnapshot {
   readonly releasePackage: ReleasePackage;
   readonly artifacts: ReleaseArtifacts;
   readonly ftsTable: string;
-  /** Mapping emitted by the isolated builder for source-scoped emergency deny. */
-  readonly skillSourceIds?: Readonly<Record<string, string>>;
+  /** Exact mapping emitted by the isolated builder; `null` means owned. */
+  readonly skillSourceIds: Readonly<Record<string, string | null>>;
 }
 
 export interface HostedContextSnapshot {
@@ -111,6 +111,7 @@ export interface HostedAuthorizationRequest {
   readonly versionHash?: string;
   readonly contextId?: string;
   readonly authInfo?: AuthInfo;
+  readonly signal?: AbortSignal;
 }
 
 export interface HostedRuntimeOptions {
@@ -133,6 +134,7 @@ export interface HostedRuntime {
     tool: HostedToolName,
     args: Record<string, unknown>,
     authInfo?: AuthInfo,
+    signal?: AbortSignal,
   ): Promise<CallToolResult>;
 }
 
@@ -407,6 +409,20 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
   } catch (error) {
     fail("E_STARTUP_INTEGRITY", `HubRelease verification failed: ${String(error instanceof Error ? error.message : error)}`);
   }
+  if (snapshot.skillSourceIds === undefined) {
+    fail("E_STARTUP_INTEGRITY", "release snapshot is missing SkillVersion source provenance");
+  }
+  const expectedSkillIds = Object.keys(snapshot.release.payload.skill_versions).sort();
+  const actualSkillIds = Object.keys(snapshot.skillSourceIds).sort();
+  if (JSON.stringify(actualSkillIds) !== JSON.stringify(expectedSkillIds)) {
+    fail("E_STARTUP_INTEGRITY", "release snapshot source provenance does not cover the exact catalog");
+  }
+  const adoptedSourceIds = new Set(snapshot.release.payload.adopted_sources.map((source) => source.source_id));
+  for (const [skillId, sourceId] of Object.entries(snapshot.skillSourceIds)) {
+    if (sourceId !== null && !adoptedSourceIds.has(sourceId)) {
+      fail("E_STARTUP_INTEGRITY", `source provenance for ${skillId} names a source outside the release`);
+    }
+  }
   try {
     const artifactDigest = `sha256:${sha256Hex(readFileSync(join(snapshot.registryHome, "registry.sqlite")))}`;
     if (artifactDigest !== snapshot.sqliteArtifactDigest) {
@@ -518,10 +534,46 @@ function denied(
   if (policy.releaseDigests?.includes(snapshot.release.digest)) return true;
   if (skillId !== undefined && versionHash !== undefined && policy.skillVersions?.includes(`${skillId}@${versionHash}`)) return true;
   if (skillId !== undefined) {
-    const sourceId = snapshot.skillSourceIds?.[skillId];
-    return sourceId !== undefined && (policy.sourceIds ?? []).includes(sourceId);
+    const sourceId = snapshot.skillSourceIds[skillId];
+    return sourceId !== undefined && sourceId !== null && (policy.sourceIds ?? []).includes(sourceId);
   }
   return false;
+}
+
+function loadDenyPolicy(
+  input: HostedRuntimeOptions["denyPolicy"],
+  startup: boolean,
+): HostedDenyPolicy | undefined {
+  const failUnavailable = (message: string): never => fail(
+    startup ? "E_STARTUP_INTEGRITY" : "E_DENY_UNAVAILABLE",
+    message,
+  );
+  let policy: HostedDenyPolicy | undefined;
+  try {
+    policy = typeof input === "function" ? input() : input;
+  } catch (error) {
+    return failUnavailable(`emergency deny policy is unavailable: ${String(error instanceof Error ? error.message : error)}`);
+  }
+  if (policy === undefined) return undefined;
+  if (policy === null || typeof policy !== "object" || Array.isArray(policy)) {
+    return failUnavailable("emergency deny policy must be an object");
+  }
+  const readList = (field: keyof HostedDenyPolicy): readonly string[] | undefined => {
+    const value = policy[field];
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+      return failUnavailable(`emergency deny policy ${field} must be a string list`);
+    }
+    return Object.freeze([...value]);
+  };
+  const releaseDigests = readList("releaseDigests");
+  const skillVersions = readList("skillVersions");
+  const sourceIds = readList("sourceIds");
+  return Object.freeze({
+    ...(releaseDigests === undefined ? {} : { releaseDigests }),
+    ...(skillVersions === undefined ? {} : { skillVersions }),
+    ...(sourceIds === undefined ? {} : { sourceIds }),
+  });
 }
 
 async function authorizeResourceResult(
@@ -532,21 +584,26 @@ async function authorizeResourceResult(
   authInfo: AuthInfo | undefined,
   authorize: HostedRuntimeOptions["authorize"],
   denyPolicy: HostedDenyPolicy | undefined,
+  signal?: AbortSignal,
 ): Promise<CallToolResult> {
   if (result.isError || result.structuredContent === undefined) return result;
   const structured = result.structuredContent as Record<string, unknown>;
   const isAllowed = async (skillId: unknown, versionHash: unknown): Promise<boolean> => {
     if (typeof skillId !== "string") return false;
+    if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
     const version = typeof versionHash === "string" ? versionHash : undefined;
     if (denied(denyPolicy, snapshot, skillId, version)) return false;
-    return authorize({
+    const authorized = await authorize({
       tool,
       releaseDigest: snapshot.release.digest,
       skillId,
       ...(version !== undefined ? { versionHash: version } : {}),
       ...(binding !== undefined ? { contextId: binding.contextId } : {}),
       ...(authInfo !== undefined ? { authInfo } : {}),
+      ...(signal !== undefined ? { signal } : {}),
     });
+    if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+    return authorized;
   };
   if (tool === "search") {
     const rows = Array.isArray(structured.results) ? structured.results : [];
@@ -613,6 +670,7 @@ function hostedError(error: unknown): { code: string; message: string } {
 export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntime {
   if (options.releases.length === 0) fail("E_STARTUP_INTEGRITY", "hosted runtime needs at least one release");
   if (typeof options.authorize !== "function") fail("E_STARTUP_INTEGRITY", "hosted runtime requires authorization");
+  loadDenyPolicy(options.denyPolicy, true);
   const snapshots = new Map<string, HostedReleaseSnapshot>();
   for (const snapshot of options.releases) {
     verifySnapshot(snapshot);
@@ -670,15 +728,17 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
     tool: HostedToolName,
     args: Record<string, unknown>,
     authInfo?: AuthInfo,
+    signal?: AbortSignal,
   ): Promise<CallToolResult> => {
     try {
+      if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
       if (!HOSTED_TOOL_NAMES.includes(tool)) throw new McpContextError("E_MCP_INPUT_INVALID", `Unknown hosted tool ${tool}`);
       const selected = await select(tool, args);
       const snapshot = selected.snapshot;
       const binding = selected.binding;
       const skillId = typeof args["skill_id"] === "string" ? args["skill_id"] : undefined;
       const versionHash = typeof args["version_hash"] === "string" ? args["version_hash"] : undefined;
-      const denyPolicy = typeof options.denyPolicy === "function" ? options.denyPolicy() : options.denyPolicy;
+      const denyPolicy = loadDenyPolicy(options.denyPolicy, false);
       if (denied(denyPolicy, snapshot, skillId, versionHash)) {
         throw new HostedRuntimeError("E_CONTENT_DENIED", "Requested immutable content is emergency-denied");
       }
@@ -689,13 +749,15 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         ...(versionHash !== undefined ? { versionHash } : {}),
         ...(binding !== undefined ? { contextId: binding.contextId } : {}),
         ...(authInfo !== undefined ? { authInfo } : {}),
+        ...(signal !== undefined ? { signal } : {}),
       });
+      if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
       if (!authorized) throw new HostedRuntimeError("E_AUTH_UNAUTHORIZED", "OAuth subject is not authorized for this release");
 
       const context = makeHostedContext(snapshot, binding);
       if (tool === "search") {
         const result = runSearchTool({ query: args["query"], limit: args["limit"] }, context);
-        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy, signal), snapshot.release.digest, binding);
       }
       if (tool === "resolve") {
         const result = await runResolveTool({
@@ -714,14 +776,14 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
             lockedVersions: new Map(Object.entries(binding.lock.skills).map(([skillId, entry]) => [skillId, entry.version_hash])),
           },
         });
-        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy, signal), snapshot.release.digest, binding);
       }
       if (tool === "inspect") {
         const result = toInspectSuccessResult(runInspectTool({
           skill_id: args["skill_id"] as string,
           ...(typeof args["version_hash"] === "string" ? { version_hash: args["version_hash"] } : {}),
         }, context));
-        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy, signal), snapshot.release.digest, binding);
       }
       const result = runGetContentTool({
         skill_id: args["skill_id"],
@@ -730,7 +792,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         max_tokens: args["max_tokens"],
         file_path: args["file_path"],
       }, context);
-      return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
+      return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy, signal), snapshot.release.digest, binding);
     } catch (error) {
       if (error instanceof HostedRuntimeError) {
         return errorResult(tool, error.code, error.message);
@@ -839,7 +901,7 @@ export function createHostedMcpServer(
       },
       async (args: Record<string, unknown>) => {
         try {
-          return await withHostedTimeout(runtime.call(name, args, authInfo), toolTimeoutMs);
+          return await withHostedTimeout((signal) => runtime.call(name, args, authInfo, signal), toolTimeoutMs);
         } catch (error) {
           const mapped = hostedError(error);
           return errorResult(name, mapped.code, mapped.message);
@@ -884,13 +946,25 @@ function jsonError(status: number, code: string, message: string): Response {
   });
 }
 
-async function withHostedTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+async function withHostedTimeout<T>(
+  operationFactory: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = Promise.resolve().then(() => operationFactory(controller.signal));
+  // A timed-out operation may still reject after the caller has received its
+  // bounded error. Attach a handler so that late work cannot become an
+  // unhandled rejection while its signal is being drained.
+  operation.catch(() => undefined);
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out")), timeoutMs);
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out"));
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -898,14 +972,40 @@ async function withHostedTimeout<T>(operation: Promise<T>, timeoutMs: number): P
   }
 }
 
-async function responseExceedsContentLimit(response: Response, maxContentBytes: number): Promise<boolean> {
+async function readBoundedBody(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<{ readonly bytes: Uint8Array; readonly exceeded: boolean }> {
+  if (body === null) return { bytes: new Uint8Array(), exceeded: false };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    const body = await response.clone().json() as { result?: { structuredContent?: { content?: unknown } } };
-    const content = body.result?.structuredContent?.content;
-    return typeof content === "string" && new TextEncoder().encode(content).byteLength > maxContentBytes;
-  } catch {
-    return false;
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = next.value;
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        // Do not await cancellation on a Fetch clone: some runtimes wait for
+        // the original request stream to finish before resolving cancel().
+        // The boundary has already stopped consuming after maxBytes+one
+        // chunk; the rejected/settled cancellation is only cleanup.
+        void reader.cancel("body exceeds configured byte limit").catch(() => undefined);
+        return { bytes: new Uint8Array(), exceeded: true };
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
   }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, exceeded: false };
 }
 
 /**
@@ -1014,8 +1114,8 @@ export function createHostedMcpHandler(
         if (contentLength !== null && Number(contentLength) > maxRequestBytes) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request exceeds the hosted MCP byte limit");
         }
-        const contentBytes = await request.clone().arrayBuffer();
-        if (contentBytes.byteLength > maxRequestBytes) {
+        const requestBody = await readBoundedBody(request.clone().body, maxRequestBytes);
+        if (requestBody.exceeded) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request content exceeds the hosted MCP byte limit");
         }
         const auth = await gate(request);
@@ -1024,12 +1124,29 @@ export function createHostedMcpHandler(
         // transport adapter invokes the SDK handler without importing a
         // network client or using a global request primitive.
         const response = await handler["fetch"](request, { authInfo: auth });
-        if (await responseExceedsContentLimit(response, maxContentBytes)) {
-          return jsonError(413, "E_CONTENT_LIMIT", "Returned skill content exceeds the hosted content byte limit");
+        const responseBody = await readBoundedBody(response.clone().body, maxResponseBytes);
+        if (responseBody.exceeded) {
+          return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
         }
-        const responseBytes = await response.clone().arrayBuffer();
+        try {
+          const body = JSON.parse(new TextDecoder().decode(responseBody.bytes)) as { result?: { structuredContent?: { content?: unknown } } };
+          const content = body.result?.structuredContent?.content;
+          if (typeof content === "string" && new TextEncoder().encode(content).byteLength > maxContentBytes) {
+            return jsonError(413, "E_CONTENT_LIMIT", "Returned skill content exceeds the hosted content byte limit");
+          }
+        } catch {
+          // The MCP SDK owns response-shape validation; this adapter only
+          // applies content limits when the JSON response exposes content.
+        }
         const responseLength = response.headers.get("content-length");
-        if ((responseLength !== null && Number(responseLength) > maxResponseBytes) || responseBytes.byteLength > maxResponseBytes) {
+        if (responseLength !== null && Number(responseLength) > maxResponseBytes) {
+          return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+        }
+        /*
+         * The body was bounded above, so no second full response buffering is
+         * needed here. Keep the byte-length check explicit for clarity.
+         */
+        if (responseBody.bytes.byteLength > maxResponseBytes) {
           return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
         }
         return response;
@@ -1038,14 +1155,21 @@ export function createHostedMcpHandler(
       if (connectionLimitReached()) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP connection limit reached");
       concurrent += 1;
       try {
-        return await withHostedTimeout(serve(), requestTimeoutMs);
+        const operation = withHostedTimeout(serve, requestTimeoutMs);
+        let released = false;
+        const release = (): void => {
+          if (!released) {
+            released = true;
+            concurrent -= 1;
+          }
+        };
+        void operation.then(release, release);
+        return await operation;
       } catch (error) {
         if (error instanceof HostedRuntimeError && error.code === "E_REQUEST_LIMIT") {
           return jsonError(408, error.code, error.message);
         }
         throw error;
-      } finally {
-        concurrent -= 1;
       }
     },
     close: handler.close,

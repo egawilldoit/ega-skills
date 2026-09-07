@@ -76,7 +76,7 @@ async function fixture(mixed = false) {
         { sourceId: "source-a", sourceConfigDigest: `sha256:${"a".repeat(64)}`, resolvedCommit: "a".repeat(40), selectedSkillTreeDigest: `sha256:${"b".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"c".repeat(64)}` },
         { sourceId: "source-b", sourceConfigDigest: `sha256:${"d".repeat(64)}`, resolvedCommit: "e".repeat(40), selectedSkillTreeDigest: `sha256:${"f".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"0".repeat(64)}` },
       ] : [],
-      skillSourceIds: mixed ? { "ega/alpha": "source-a", "ega/beta": "source-b" } : {},
+      skillSourceIds: mixed ? { "ega/alpha": "source-a", "ega/beta": "source-b" } : { "ega/alpha": null },
     };
     const artifacts = {
       aliasMap: deriveAliasMap(build),
@@ -326,6 +326,36 @@ test("authorization and emergency deny are checked before content delivery", asy
   assert.equal(deniedAfterReload.structuredContent.error.code, "E_CONTENT_DENIED");
 });
 
+test("startup integrity requires SkillVersion source provenance when hosted", async () => {
+  const value = await fixture(true);
+  const incomplete = snapshot(value);
+  delete incomplete.skillSourceIds;
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [incomplete],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+      denyPolicy: { sourceIds: ["source-b"] },
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /source provenance/.test(error.message),
+  );
+});
+
+test("startup integrity loads the emergency deny policy before readiness", async () => {
+  const value = await fixture();
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [snapshot(value)],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+      denyPolicy: () => {
+        throw new Error("deny store unavailable");
+      },
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /deny policy/.test(error.message),
+  );
+});
+
 test("hosted authorization and deny policy are enforced for every concrete result", async () => {
   const value = await fixture(true);
   const runtime = createHostedRuntime({
@@ -547,11 +577,19 @@ test("hosted HTTP applies request, response, timeout, concurrency, and connectio
   }
 
   // The SDK calls the runtime authorization seam during tool execution.
+  let toolAborted = false;
   const timeoutHandler = createHostedMcpHandler(createHostedRuntime({
     releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
-    authorize: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    authorize: async ({ signal }) => {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 25);
+        signal?.addEventListener("abort", () => {
+          toolAborted = true;
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
       return true;
     },
   }), {
@@ -562,6 +600,7 @@ test("hosted HTTP applies request, response, timeout, concurrency, and connectio
     const timed = await timeoutHandler.fetch(request({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } } }, { authorization: "Bearer valid" }));
     assert.equal(timed.status, 200);
     assert.equal((await timed.json()).result.structuredContent.error.code, "E_REQUEST_LIMIT");
+    assert.equal(toolAborted, true);
   } finally {
     await timeoutHandler.close();
   }
@@ -591,6 +630,37 @@ test("hosted HTTP applies request, response, timeout, concurrency, and connectio
     assert.equal((await rejected.json()).error.code, "E_REQUEST_LIMIT");
   } finally {
     await limited.close();
+  }
+});
+
+test("hosted HTTP bounds unknown-length request streams before consuming them", async () => {
+  const value = await fixture();
+  let pulls = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(33));
+      if (pulls >= 10) controller.close();
+    },
+  });
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)], stableReleaseDigest: value.release.digest, authorize: auth(),
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(), allowedHosts: ["mcp.example.test"], allowedOrigins: ["https://client.example.test"], maxRequestBytes: 32,
+  });
+  try {
+    const response = await handler.fetch(new Request("https://mcp.example.test/mcp", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", host: "mcp.example.test", origin: "https://client.example.test", authorization: "Bearer valid" },
+      body,
+      duplex: "half",
+    }));
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "E_REQUEST_LIMIT");
+    assert.ok(pulls < 10, `bounded reader consumed ${pulls} chunks`);
+  } finally {
+    await handler.close();
   }
 });
 
