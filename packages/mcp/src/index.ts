@@ -77,3 +77,21 @@ export type {
   SearchToolArgs,
   SearchToolOptions,
 } from "./search.js";
+export {
+  createHostedMcpHandler,
+  createHostedMcpServer,
+  createHostedRuntime,
+  HOSTED_TOOL_NAMES,
+  HOSTED_LIMITS,
+  HostedRuntimeError,
+} from "./hosted.js";
+export type {
+  HostedAuthorizationRequest,
+  HostedDenyPolicy,
+  HostedReleaseSnapshot,
+  HostedRuntime,
+  HostedRuntimeOptions,
+  HostedToolName,
+  HostedHttpHandler,
+  HostedHttpOptions,
+} from "./hosted.js";

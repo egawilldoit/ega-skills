@@ -15,6 +15,7 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export function existsSync(path: string): boolean;
+  export function readFileSync(path: string): Uint8Array;
   export function lstatSync(path: string): Stats;
   export function realpathSync(path: string): string;
 }
@@ -57,6 +58,7 @@ declare module "node:process" {
 declare module "better-sqlite3" {
   export interface Statement {
     get<T = unknown>(...params: unknown[]): T;
+    all<T = unknown>(...params: unknown[]): T[];
   }
   export interface DatabaseConnection {
     exec(sql: string): void;

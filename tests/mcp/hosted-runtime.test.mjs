@@ -1,0 +1,298 @@
+import assert from "node:assert/strict";
+import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
+import { createHostedMcpHandler, createHostedRuntime } from "../../packages/mcp/dist/hosted.js";
+import {
+  getCurrentVersionHash,
+  importSkills,
+  openRegistry,
+} from "../../packages/registry/dist/index.js";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+const RELEASE_CONTRACTS = {
+  build_contract: "C1",
+  hashing: 1,
+  hub_contract: "A1",
+  importer_build: 1,
+  router: 1,
+  schema: "v1.0.1",
+  search: 1,
+  token_estimator: "ega-o200k-v1",
+  update_contract: "B1",
+};
+
+const roots = new Set();
+test.after(async () => {
+  for (const root of roots) await rm(root, { recursive: true, force: true });
+});
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "ega-hosted-runtime-"));
+  roots.add(root);
+  const home = join(root, "release");
+  const source = join(root, "source");
+  await mkdir(join(source, "alpha"), { recursive: true });
+  await writeFile(
+    join(source, "alpha", "SKILL.md"),
+    "---\nname: alpha\ndescription: Alpha hosted skill\n---\n\n# Alpha\n\nHosted guidance.\n",
+  );
+  await writeFile(join(source, "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [alpha hosted]\n");
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
+  try {
+    const summary = await importSkills(registry, { path: source, namespace: "ega" });
+    assert.equal(summary.failed, 0);
+    const skillId = "ega/alpha";
+    const versionHash = getCurrentVersionHash(registry.db, skillId);
+    const release = createEnvelope({
+      object_type: "ega.hub-release",
+      schema_version: 1,
+      payload: {
+        hub_id: "personal",
+        skill_versions: { [skillId]: versionHash },
+        alias_map_digest: `sha256:${"1".repeat(64)}`,
+        search_index_input_digest: `sha256:${"2".repeat(64)}`,
+        token_artifact_digest: `sha256:${"3".repeat(64)}`,
+        adopted_sources: [],
+        contracts: RELEASE_CONTRACTS,
+        build: { fresh_registry: true, import_failures: 0, expected_catalog_match: true },
+      },
+    });
+    return {
+      home,
+      release,
+      skillId,
+      versionHash,
+      sqliteArtifactDigest: `sha256:${sha256Hex(await readFile(join(home, "registry.sqlite")))}`,
+    };
+  } finally {
+    registry.close();
+  }
+}
+
+function auth() {
+  return async () => true;
+}
+
+function modernEnvelope() {
+  return {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "hosted-test", version: "1.0.0" },
+    "io.modelcontextprotocol/clientCapabilities": {},
+  };
+}
+
+function request(body, headers = {}) {
+  return new Request("https://mcp.example.test/mcp", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      host: "mcp.example.test",
+      "mcp-method": body.method,
+      ...(body.params?.name ? { "mcp-name": body.params.name } : {}),
+      origin: "https://client.example.test",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test("hosted runtime verifies a release and exposes the exact four personal tools", async () => {
+  const value = await fixture();
+  const runtime = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  });
+  assert.deepEqual(runtime.toolNames, ["resolve", "search", "inspect", "get_content"]);
+
+  const search = await runtime.call("search", { query: "hosted" });
+  assert.equal(search.isError, false);
+  assert.equal(search.structuredContent.effective_release_digest, value.release.digest);
+  assert.equal(search.structuredContent.project_context, "NONE");
+  assert.equal(search.structuredContent.fingerprint_status, "NONE");
+  assert.equal(search.structuredContent.results[0].skill_id, value.skillId);
+
+  const resolved = await runtime.call("resolve", { task: "hosted" });
+  assert.equal(resolved.isError, false);
+  assert.equal(resolved.structuredContent.project_context, "NONE");
+  assert.equal(resolved.structuredContent.fingerprint_status, "NONE");
+  assert.equal(resolved.structuredContent.project_fingerprint.project_path, null);
+  assert.equal(resolved.structuredContent.project_fingerprint.package_root, null);
+  assert.equal(resolved.structuredContent.project_fingerprint.workspace_root, null);
+
+  const inspected = await runtime.call("inspect", {
+    skill_id: value.skillId,
+    release_digest: value.release.digest,
+  });
+  assert.equal(inspected.isError, false);
+  assert.equal(inspected.structuredContent.version_hash, value.versionHash);
+  assert.equal(inspected.structuredContent.effective_release_digest, value.release.digest);
+
+  const content = await runtime.call("get_content", {
+    skill_id: value.skillId,
+    version_hash: value.versionHash,
+    level: "L2",
+    max_tokens: 10000,
+    release_digest: value.release.digest,
+  });
+  assert.equal(content.isError, false);
+  assert.match(content.structuredContent.content, /Hosted guidance/);
+});
+
+test("hosted scope fails closed and never accepts a local project path", async () => {
+  const value = await fixture();
+  const runtime = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  });
+  const missingScope = await runtime.call("inspect", { skill_id: value.skillId });
+  assert.equal(missingScope.isError, true);
+  assert.equal(missingScope.structuredContent.error.code, "E_SCOPE_REQUIRED");
+  const projectPath = await runtime.call("search", { query: "hosted", project_path: value.home });
+  assert.equal(projectPath.isError, true);
+  assert.equal(projectPath.structuredContent.error.code, "E_MCP_INPUT_INVALID");
+  const wrongRelease = await runtime.call("inspect", {
+    skill_id: value.skillId,
+    release_digest: `sha256:${"f".repeat(64)}`,
+  });
+  assert.equal(wrongRelease.isError, true);
+  assert.equal(wrongRelease.structuredContent.error.code, "E_RELEASE_NOT_FOUND");
+  const missingContext = await runtime.call("search", { query: "hosted", context_id: "ctx-missing" });
+  assert.equal(missingContext.structuredContent.error.code, "E_CONTEXT_NOT_FOUND");
+});
+
+test("authorization and emergency deny are checked before content delivery", async () => {
+  const value = await fixture();
+  const runtime = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: async () => false,
+  });
+  const deniedAuth = await runtime.call("search", { query: "hosted" });
+  assert.equal(deniedAuth.structuredContent.error.code, "E_AUTH_UNAUTHORIZED");
+
+  const emergency = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+    denyPolicy: { releaseDigests: [value.release.digest] },
+  });
+  const deniedContent = await emergency.call("get_content", {
+    skill_id: value.skillId,
+    version_hash: value.versionHash,
+    level: "L2",
+    max_tokens: 10000,
+    release_digest: value.release.digest,
+  });
+  assert.equal(deniedContent.structuredContent.error.code, "E_CONTENT_DENIED");
+});
+
+test("startup integrity fails closed when a release catalog does not match SQLite", async () => {
+  const value = await fixture();
+  const badRelease = createEnvelope({
+    object_type: value.release.object_type,
+    schema_version: value.release.schema_version,
+    payload: { ...value.release.payload, skill_versions: {} },
+  });
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [{ release: badRelease, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+      stableReleaseDigest: badRelease.digest,
+      authorize: auth(),
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY",
+  );
+});
+
+test("startup integrity binds the exact SQLite artifact digest", async () => {
+  const value = await fixture();
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [{
+        release: value.release,
+        registryHome: value.home,
+        sqliteArtifactDigest: `sha256:${"0".repeat(64)}`,
+      }],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY",
+  );
+});
+
+test("hosted HTTP enforces transport gates and exposes only the four tools", async () => {
+  const value = await fixture();
+  const seenAuth = [];
+  const runtime = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: async (request) => {
+      seenAuth.push(request.authInfo);
+      return true;
+    },
+  });
+  const handler = createHostedMcpHandler(runtime, {
+    verifier: {
+      verifyAccessToken: async (token) => ({
+        token,
+        clientId: "test-client",
+        scopes: ["mcp"],
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      }),
+    },
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    requiredScopes: ["mcp"],
+  });
+  try {
+    const noAuth = await handler.fetch(request({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }));
+    assert.equal(noAuth.status, 401);
+
+    const badHost = await handler.fetch(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } },
+      { host: "evil.example.test", authorization: "Bearer valid" },
+    ));
+    assert.equal(badHost.status, 403);
+
+    const badOrigin = await handler.fetch(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } },
+      { origin: "https://evil.example.test", authorization: "Bearer valid" },
+    ));
+    assert.equal(badOrigin.status, 403);
+
+    const insecure = await handler.fetch(new Request("http://mcp.example.test/mcp", {
+      method: "POST",
+      headers: { authorization: "Bearer valid", "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }),
+    }));
+    assert.equal(insecure.status, 403);
+
+    const listed = await handler.fetch(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } },
+      { authorization: "Bearer valid" },
+    ));
+    assert.equal(listed.status, 200);
+    const listedBody = await listed.json();
+    assert.deepEqual(listedBody.result.tools.map((tool) => tool.name), ["resolve", "search", "inspect", "get_content"]);
+
+    const called = await handler.fetch(request(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } },
+      },
+      { authorization: "Bearer valid" },
+    ));
+    assert.equal(called.status, 200);
+    const calledBody = await called.json();
+    assert.equal(calledBody.result.structuredContent.effective_release_digest, value.release.digest);
+    assert.equal(seenAuth.at(-1).clientId, "test-client");
+  } finally {
+    await handler.close();
+  }
+});
