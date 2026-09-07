@@ -357,6 +357,10 @@ export function verifyRemoteLockPlan(plan: RemoteLockPlan): void {
   for (const skillId of plan.added_entries) {
     if (!candidateIds.has(skillId)) remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `added entry ${skillId} is absent from candidate lock`);
   }
+  for (const skillId of plan.removed_entries) {
+    if (candidateIds.has(skillId)) remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `removed entry ${skillId} remains in candidate lock`);
+  }
+  const changedIds: string[] = [];
   for (const change of plan.changed_entries) {
     if (typeof change !== "object" || change === null || Object.keys(change).sort().join(",") !== "candidate_version_hash,previous_version_hash,skill_id") {
       remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "changed_entries contains an invalid change");
@@ -366,6 +370,15 @@ export function verifyRemoteLockPlan(plan: RemoteLockPlan): void {
     }
     if (!candidateIds.has(change.skill_id) || candidateLock.skills[change.skill_id]!.version_hash !== change.candidate_version_hash) {
       remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `changed entry ${change.skill_id} does not match candidate lock`);
+    }
+    changedIds.push(change.skill_id);
+  }
+  sortedUnique(changedIds, "changed_entries");
+  const addedIds = new Set(plan.added_entries);
+  const removedIds = new Set(plan.removed_entries);
+  for (const skillId of changedIds) {
+    if (addedIds.has(skillId) || removedIds.has(skillId)) {
+      remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `changed entry ${skillId} overlaps another plan change`);
     }
   }
   const { plan_digest: actual, ...artifact } = plan;

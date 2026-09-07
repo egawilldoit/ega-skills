@@ -106,6 +106,30 @@ test("Contract E remote lock plans are immutable, reviewable, and diff exact ent
   );
 });
 
+test("Contract E rejects forged remote lock change sets", () => {
+  const candidate = lock({ [skillId]: { name: "alpha", version_hash: versionHash } });
+  const plan = createRemoteLockPlan({
+    workspace_id: "workspace-a",
+    project_id: "project-a",
+    config,
+    existing_lock: lock({}),
+    candidate_lock: candidate,
+    target_release: release,
+  });
+  const forged = {
+    ...plan,
+    removed_entries: [skillId],
+    changed_entries: [
+      { skill_id: skillId, previous_version_hash: versionHash, candidate_version_hash: versionHash },
+      { skill_id: skillId, previous_version_hash: versionHash, candidate_version_hash: versionHash },
+    ],
+  };
+  assert.throws(
+    () => verifyRemoteLockPlan({ ...forged, plan_digest: `sha256:${"a".repeat(64)}` }),
+    (error) => error?.code === REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT,
+  );
+});
+
 test("Contract E cache identity and lifecycle preserve exact artifacts across revocation", () => {
   const context = createProjectContextArtifact({
     workspace_id: "workspace-a",
