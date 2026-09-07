@@ -70,6 +70,13 @@ test("unknown source field rejected (E_SOURCE_SCHEMA)", () => {
   assert.equal(codeOf(() => parseSourcesYaml(bad)), "E_SOURCE_SCHEMA");
 });
 
+test("source mapping keys are path-safe", () => {
+  const badSources = read("sources.yaml").replace("  mattpocock:", "  ../escape:");
+  assert.equal(codeOf(() => parseSourcesYaml(badSources)), "E_SOURCE_SCHEMA");
+  const badLock = read("sources.lock.yaml").replace("  mattpocock:", "  ../escape:");
+  assert.equal(codeOf(() => parseSourcesLockYaml(badLock)), "E_LOCK_MISMATCH");
+});
+
 test("unknown hub field rejected (E_HUB_SCHEMA)", () => {
   assert.equal(codeOf(() => parseHubYaml(`${read("hub.yaml")}\nbogus: 1\n`)), "E_HUB_SCHEMA");
 });

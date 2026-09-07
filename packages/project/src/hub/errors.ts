@@ -21,7 +21,8 @@ export type HubErrorCode =
   | "E_JOURNAL_STATE"
   | "E_RECOVERY_REQUIRED"
   | "E_PLAN_RESOLVE"
-  | "E_PLAN_FETCH";
+  | "E_PLAN_FETCH"
+  | "E_HUB_LOCKED";
 
 export class HubError extends Error {
   readonly code: HubErrorCode;

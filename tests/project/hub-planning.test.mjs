@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   HubError,
   checkForUpdates,
+  digestStagedTree,
   discoverUnselectedSkills,
   extractSelectedRoots,
   fetchRefTip,
@@ -33,7 +34,7 @@ sources:
 `;
 
 function git(dir, ...args) {
-  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", ...args], { stdio: "pipe" });
+  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
 }
 
 function skill(name, body) {
@@ -257,6 +258,16 @@ test("extraction is deterministic across runs", () => {
   const b = extractSelectedRoots(dir, src.selection.roots, src.provenanceFiles, mkdtempSync(join(tmpdir(), "ega-x-")));
   assert.equal(a.treeDigest, b.treeDigest);
   assert.deepEqual(a.manifest, b.manifest);
+});
+
+test("overlapping selected and provenance declarations form one canonical set", () => {
+  const { dir } = makeFixtureRepo();
+  const dest = mkdtempSync(join(tmpdir(), "ega-overlap-"));
+  const extracted = extractSelectedRoots(dir, ["skills/alpha"], ["skills/alpha/SKILL.md"], dest);
+  assert.deepEqual(extracted.manifest.map((entry) => entry.path), ["skills/alpha/SKILL.md"]);
+  const staged = digestStagedTree(dest, ["skills/alpha"]);
+  assert.equal(extracted.treeDigest, staged.treeDigest);
+  assert.equal(extracted.snapshotDigest, staged.snapshotDigest);
 });
 
 test("frozen Contract B example plan still verifies (no drift)", () => {
