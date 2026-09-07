@@ -138,7 +138,7 @@ function lockTextFor(record) {
 
 function lockTextForSources(records) {
   return `schema_version: 1\nsources:\n${Object.entries(records)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([name, record]) => `  ${name}:\n${Object.entries(record)
       .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
       .join("\n")}`)

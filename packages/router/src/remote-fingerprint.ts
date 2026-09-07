@@ -107,14 +107,55 @@ function secureBoundedRead(repositoryRoot: string, absolutePath: string): Uint8A
     fd = openSync(candidate, flags);
     const opened = fstatSync(fd);
     if (!opened.isFile()) fail(`fingerprint evidence path ${absolutePath} is not a regular file`);
+    const expected = lstatSync(candidate);
+    if (!expected.isFile() || !sameFileIdentity(opened, expected)) {
+      fail(`fingerprint evidence path ${absolutePath} changed during opening`);
+    }
+    const openedPath = realpathSync(candidate);
+    const openedRelative = relative(root, openedPath);
+    if (openedRelative === ".." || openedRelative.startsWith(`..${sep}`)) {
+      fail("fingerprint evidence path must remain inside the repository root");
+    }
+    const current = lstatSync(candidate);
+    if (!current.isFile() || !sameFileIdentity(opened, current)) {
+      fail(`fingerprint evidence path ${absolutePath} changed during opening`);
+    }
     if (opened.size > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${absolutePath} exceeds the bounded read limit`);
     const bytes = new Uint8Array(MAX_EVIDENCE_BYTES + 1);
-    const read = readSync(fd, bytes, 0, bytes.byteLength, 0);
-    if (read > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${absolutePath} exceeds the bounded read limit`);
-    return bytes.slice(0, read);
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const read = readSync(fd, bytes, offset, bytes.byteLength - offset, offset);
+      if (read === 0) break;
+      offset += read;
+    }
+    if (offset > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${absolutePath} exceeds the bounded read limit`);
+    const finished = fstatSync(fd);
+    if (!sameFileState(opened, finished)) {
+      fail(`fingerprint evidence path ${absolutePath} changed during reading`);
+    }
+    return bytes.slice(0, offset);
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+type FileStatLike = {
+  readonly dev: unknown;
+  readonly ino: unknown;
+  readonly size: unknown;
+  readonly mtimeMs: unknown;
+  readonly ctimeMs: unknown;
+};
+
+function sameFileIdentity(left: FileStatLike, right: FileStatLike): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameFileState(left: FileStatLike, right: FileStatLike): boolean {
+  return sameFileIdentity(left, right) &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs;
 }
 
 function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint8Array {

@@ -6,7 +6,11 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export interface Stats {
+    readonly dev: number;
+    readonly ino: number;
     readonly size: number;
+    readonly mtimeMs: number;
+    readonly ctimeMs: number;
     isFile(): boolean;
     isDirectory(): boolean;
     isSymbolicLink(): boolean;

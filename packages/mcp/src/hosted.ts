@@ -380,6 +380,12 @@ function snapshotTableName(table: string): string {
   return `"${table}"`;
 }
 
+function compareUtf16(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
 function deriveSnapshotArtifacts(
   db: RegistryHandle["db"],
   expected: ReadonlyMap<string, string>,
@@ -397,7 +403,7 @@ function deriveSnapshotArtifacts(
     aliases: string[];
   }> = [];
   const counts: Array<{ skill_id: string; version_hash: string; level: "L2"; tokens: number }> = [];
-  for (const [skillId, versionHash] of [...expected].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [skillId, versionHash] of [...expected].sort(([a], [b]) => compareUtf16(a, b))) {
     const version = getSkillVersion(db, skillId, versionHash);
     const manifest = JSON.parse(version.manifestJson) as Record<string, any>;
     const portable = manifest.portable;
@@ -438,7 +444,7 @@ function deriveSnapshotArtifacts(
     counts.push({ skill_id: skillId, version_hash: versionHash, level: "L2", tokens: l2Tokens });
   }
   return {
-    aliasMap: { aliases: Object.fromEntries(Object.entries(aliases).sort(([a], [b]) => a.localeCompare(b))) },
+    aliasMap: { aliases: Object.fromEntries(Object.entries(aliases).sort(([a], [b]) => compareUtf16(a, b))) },
     searchIndexInput: { rows },
     tokenArtifact: { estimator: "ega-o200k-v1", counts },
   };
@@ -458,8 +464,8 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): Readonly<Record<string
   if (snapshot.skillSourceIds === undefined) {
     fail("E_STARTUP_INTEGRITY", "release snapshot is missing SkillVersion source provenance");
   }
-  const expectedSkillIds = Object.keys(snapshot.release.payload.skill_versions).sort();
-  const actualSkillIds = Object.keys(snapshot.skillSourceIds).sort();
+  const expectedSkillIds = Object.keys(snapshot.release.payload.skill_versions).sort(compareUtf16);
+  const actualSkillIds = Object.keys(snapshot.skillSourceIds).sort(compareUtf16);
   if (JSON.stringify(actualSkillIds) !== JSON.stringify(expectedSkillIds)) {
     fail("E_STARTUP_INTEGRITY", "release snapshot source provenance does not cover the exact catalog");
   }
@@ -569,10 +575,10 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): Readonly<Record<string
       verifiedSkillSourceIds[row.skill_id] = row.source_id;
     }
     const suppliedRows = Object.entries(snapshot.skillSourceIds)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => compareUtf16(a, b))
       .map(([skill_id, source_id]) => ({ skill_id, source_id }));
     const verifiedRows = Object.entries(verifiedSkillSourceIds)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => compareUtf16(a, b))
       .map(([skill_id, source_id]) => ({ skill_id, source_id }));
     if (!canonicalJsonEqual(suppliedRows, verifiedRows)) {
       fail("E_STARTUP_INTEGRITY", "deployment-supplied source provenance does not match immutable release provenance");

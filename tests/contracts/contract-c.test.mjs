@@ -107,7 +107,7 @@ test("wrong token estimator fails E_TOKEN_ARTIFACT", () => {
 test("self-consistent invented alias fails semantic ownership validation", () => {
   const aliasMap = JSON.parse(read("alias-map.json"));
   aliasMap.aliases.invented = "cursor/architect";
-  aliasMap.aliases = Object.fromEntries(Object.entries(aliasMap.aliases).sort(([a], [b]) => a.localeCompare(b)));
+  aliasMap.aliases = Object.fromEntries(Object.entries(aliasMap.aliases).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
   const out = withSwappedFiles(rebindSemanticFiles({ aliasMap }), runBad);
   assert.match(out, /E_ALIAS_SCOPE/);
 });

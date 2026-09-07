@@ -93,7 +93,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function sortedIds(build: HubBuildResult): string[] {
-  return build.skills.map((s) => s.skillId).sort((a, b) => (a < b ? -1 : 1));
+  return build.skills.map((s) => s.skillId).sort(compareUtf16);
+}
+
+function compareUtf16(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 function isBuildResult(value: HubBuildResult | readonly string[]): value is HubBuildResult {

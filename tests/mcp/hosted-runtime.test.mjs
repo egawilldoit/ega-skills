@@ -50,33 +50,55 @@ test.after(async () => {
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
 
-async function fixture(mixed = false) {
+async function fixture(mixed = false, punctuated = false) {
   const root = await mkdtemp(join(tmpdir(), "ega-hosted-runtime-"));
   roots.add(root);
   const home = join(root, "release");
   const source = join(root, "source");
-  await mkdir(join(source, "alpha"), { recursive: true });
-  await writeFile(
-    join(source, "alpha", "SKILL.md"),
-    "---\nname: alpha\ndescription: Alpha hosted skill\n---\n\n# Alpha\n\nHosted guidance.\n",
-  );
-  if (mixed) {
-    await mkdir(join(source, "beta"), { recursive: true });
+  if (punctuated) {
+    for (const [namespace, description] of [["ega-a", "Hyphen hosted skill"], ["ega_a", "Underscore hosted skill"]]) {
+      const namespaceSource = join(root, namespace);
+      await mkdir(join(namespaceSource, "foo"), { recursive: true });
+      await writeFile(
+        join(namespaceSource, "foo", "SKILL.md"),
+        `---\nname: foo\ndescription: ${description}\n---\n\n# Foo\n\nHosted guidance.\n`,
+      );
+      await writeFile(join(namespaceSource, "foo", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [hosted]\n");
+    }
+  } else {
+    await mkdir(join(source, "alpha"), { recursive: true });
     await writeFile(
-      join(source, "beta", "SKILL.md"),
-      "---\nname: beta\ndescription: Beta hosted skill\n---\n\n# Beta\n\nBeta guidance.\n",
+      join(source, "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: Alpha hosted skill\n---\n\n# Alpha\n\nHosted guidance.\n",
     );
-    await writeFile(join(source, "beta", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [beta hosted]\n");
+    if (mixed) {
+      await mkdir(join(source, "beta"), { recursive: true });
+      await writeFile(
+        join(source, "beta", "SKILL.md"),
+        "---\nname: beta\ndescription: Beta hosted skill\n---\n\n# Beta\n\nBeta guidance.\n",
+      );
+      await writeFile(join(source, "beta", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [beta hosted]\n");
+    }
+    await writeFile(join(source, "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [alpha hosted]\n");
   }
-  await writeFile(join(source, "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [alpha hosted]\n");
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
   try {
-    const summary = await importSkills(registry, { path: source, namespace: "ega" });
-    assert.equal(summary.failed, 0);
-    const skillIds = mixed ? ["ega/alpha", "ega/beta"] : ["ega/alpha"];
+    if (punctuated) {
+      for (const namespace of ["ega-a", "ega_a"]) {
+        const summary = await importSkills(registry, { path: join(root, namespace), namespace });
+        assert.equal(summary.failed, 0);
+      }
+    } else {
+      const summary = await importSkills(registry, { path: source, namespace: "ega" });
+      assert.equal(summary.failed, 0);
+    }
+    const skillIds = punctuated ? ["ega-a/foo", "ega_a/foo"] : mixed ? ["ega/alpha", "ega/beta"] : ["ega/alpha"];
     const versions = Object.fromEntries(skillIds.map((skillId) => [skillId, getCurrentVersionHash(registry.db, skillId)]));
-    const skillId = "ega/alpha";
+    const skillId = skillIds[0];
     const versionHash = versions[skillId];
+    const skillSourceIds = mixed
+      ? { "ega/alpha": "source-a", "ega/beta": "source-b" }
+      : Object.fromEntries(skillIds.map((id) => [id, null]));
     const build = {
       registryHome: home,
       skills: skillIds.map((id) => ({ skillId: id, versionHash: versions[id] })),
@@ -85,7 +107,7 @@ async function fixture(mixed = false) {
         { sourceId: "source-a", sourceConfigDigest: `sha256:${"a".repeat(64)}`, resolvedCommit: "a".repeat(40), selectedSkillTreeDigest: `sha256:${"b".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"c".repeat(64)}` },
         { sourceId: "source-b", sourceConfigDigest: `sha256:${"d".repeat(64)}`, resolvedCommit: "e".repeat(40), selectedSkillTreeDigest: `sha256:${"f".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"0".repeat(64)}` },
       ] : [],
-      skillSourceIds: mixed ? { "ega/alpha": "source-a", "ega/beta": "source-b" } : { "ega/alpha": null },
+      skillSourceIds,
     };
     const artifacts = {
       aliasMap: deriveAliasMap(build),
@@ -242,6 +264,18 @@ test("hosted runtime verifies a release and exposes the exact four personal tool
   });
   assert.equal(content.isError, false);
   assert.match(content.structuredContent.content, /Hosted guidance/);
+});
+
+test("hosted startup preserves release UTF-16 ordering for punctuation-bearing skill IDs", async () => {
+  const value = await fixture(false, true);
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  });
+  const result = await runtime.call("search", { query: "hosted", limit: 10 });
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.structuredContent.results.map((row) => row.skill_id), ["ega-a/foo", "ega_a/foo"]);
 });
 
 test("hosted startup rejects a deployment source remap when the immutable snapshot disagrees", async () => {
