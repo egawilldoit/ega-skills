@@ -1,0 +1,152 @@
+{
+  "contract_name": "Hosted MCP Contract",
+  "contract_version": 1,
+  "tools": {
+    "names": [
+      "resolve",
+      "search",
+      "inspect",
+      "get_content"
+    ],
+    "schemas": {
+      "resolve": {
+        "required": ["task"],
+        "optional": ["explicit_skills", "max_skills", "max_tokens", "release_digest", "context_id"],
+        "rejects": ["project_path"],
+        "response_fields": ["effective_release_digest", "project_context", "fingerprint_status"]
+      },
+      "search": {
+        "required": ["query"],
+        "optional": ["limit", "release_digest", "context_id"],
+        "rejects": ["project_path"],
+        "response_fields": ["effective_release_digest", "project_context", "fingerprint_status"]
+      },
+      "inspect": {
+        "required": ["skill_id"],
+        "optional": ["version_hash", "release_digest", "context_id"],
+        "rejects": ["project_path"],
+        "response_fields": ["effective_release_digest", "project_context", "fingerprint_status"]
+      },
+      "get_content": {
+        "required": ["skill_id", "version_hash", "level", "max_tokens"],
+        "optional": ["file_path", "release_digest", "context_id"],
+        "rejects": ["project_path"],
+        "response_fields": ["effective_release_digest", "project_context", "fingerprint_status"]
+      }
+    }
+  },
+  "scope": {
+    "release_field": "release_digest",
+    "context_field": "context_id",
+    "personal_mode_tools": ["resolve", "search"],
+    "inspect_get_content": {
+      "requires_explicit_scope": true,
+      "allowed_scope": ["release_digest", "context_id"]
+    },
+    "stable_resolution": "resolve_once_per_request",
+    "effective_release_field": "effective_release_digest",
+    "context_release_mismatch": "reject",
+    "missing_or_revoked_context": "reject",
+    "context_failure_fallback": "none",
+    "project_path": "reject"
+  },
+  "transport": {
+    "protocol": "streamable-http",
+    "endpoint": "/mcp",
+    "https_required": true,
+    "origin_validation": "allowlist",
+    "limits": {
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 8388608,
+      "request_timeout_ms": 30000,
+      "tool_timeout_ms": 15000,
+      "max_concurrent_requests": 32,
+      "max_connections": 128,
+      "max_content_bytes": 1048576
+    }
+  },
+  "auth": {
+    "mandatory": true,
+    "oauth": {
+      "discovery": true,
+      "browser_login": true,
+      "mcp_initialization": true,
+      "validate": ["issuer", "audience_resource", "signature", "expiry", "not_before", "scope", "revocation"]
+    },
+    "never_log": ["access_token", "refresh_token", "authorization_code", "client_secret"]
+  },
+  "authorization": {
+    "chain": ["user", "personal_workspace", "authorized_hub_release", "skill_version", "blob"],
+    "independent_per_tool": true,
+    "hash_is_not_authorization": true
+  },
+  "emergency_deny": {
+    "mutable": true,
+    "targets": ["hub_release", "skill_version", "source"],
+    "check_before_cache": true,
+    "error": "E_CONTENT_DENIED",
+    "no_substitution": true
+  },
+  "cache": {
+    "key_fields": [
+      "workspace",
+      "release_or_context",
+      "router_contract",
+      "search_contract",
+      "task_or_query",
+      "explicit_skill_selection",
+      "budget_overrides",
+      "policy_digest",
+      "fingerprint_digest"
+    ],
+    "authorization_recheck_before_delivery": true,
+    "deny_recheck_before_delivery": true
+  },
+  "startup": {
+    "integrity_order": [
+      "hub_release_digest",
+      "snapshot_artifact_digest",
+      "sqlite_readonly",
+      "database_integrity",
+      "embedded_release_identity",
+      "search_contract",
+      "index_row_identity",
+      "required_blobs",
+      "emergency_deny",
+      "healthy"
+    ],
+    "healthy_only_after_all": true
+  },
+  "credentials": {
+    "runtime_read_only": true,
+    "may_publish": false,
+    "may_modify_git": false,
+    "may_change_source_config": false,
+    "may_modify_hub": false,
+    "may_change_stable_pointer": false,
+    "publication_credentials_in_runtime": false
+  },
+  "recovery": {
+    "backup": ["stable_release_pointer", "auth_metadata", "authorization_metadata", "immutable_release_storage"],
+    "restore_test_required": true,
+    "rollback_test_required": true,
+    "rollback": "repoint_retained_release"
+  },
+  "responses": {
+    "personal_mode": {
+      "project_context": "NONE",
+      "fingerprint_status": "NONE",
+      "effective_release_required": true
+    }
+  },
+  "errors": {
+    "missing_scope": "E_SCOPE_REQUIRED",
+    "context_missing": "E_CONTEXT_NOT_FOUND",
+    "context_revoked": "E_CONTEXT_REVOKED",
+    "context_release_mismatch": "E_CONTEXT_RELEASE_MISMATCH",
+    "content_denied": "E_CONTENT_DENIED",
+    "origin_rejected": "E_ORIGIN_REJECTED",
+    "limit_exceeded": "E_REQUEST_LIMIT",
+    "startup_integrity": "E_STARTUP_INTEGRITY"
+  }
+}
