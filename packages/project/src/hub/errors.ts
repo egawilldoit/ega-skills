@@ -27,7 +27,11 @@ export type HubErrorCode =
   | "E_ALIAS_SCOPE"
   | "E_TOKEN_ARTIFACT"
   | "E_SEARCH_INPUT"
-  | "E_SEARCH_ISOLATION";
+  | "E_SEARCH_ISOLATION"
+  | "E_RELEASE_SCHEMA"
+  | "E_RELEASE_DIGEST"
+  | "E_PACKAGE_BINDING"
+  | "E_STABLE";
 
 export class HubError extends Error {
   readonly code: HubErrorCode;
