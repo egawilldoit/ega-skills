@@ -16,7 +16,7 @@
 // rules so 1.1[G] can verify artifacts before emitting a HubRelease.
 
 import { tmpdir } from "node:os";
-import { getSkillVersion, getTokenCount, listSkillAliases, openRegistry } from "@ega-skills/registry";
+import { getSkillVersion, getTokenCount, openRegistry } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import type { HubBuildResult } from "./builder.js";
 
@@ -75,12 +75,39 @@ function sortedIds(build: HubBuildResult): string[] {
   return build.skills.map((s) => s.skillId).sort((a, b) => (a < b ? -1 : 1));
 }
 
+function isBuildResult(value: HubBuildResult | readonly string[]): value is HubBuildResult {
+  return isPlainObject(value) && typeof value["registryHome"] === "string" && Array.isArray(value["skills"]);
+}
+
 function openBuildRegistry(registryHome: string) {
   try {
     return openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
   } catch (error) {
     throw new HubError("E_BUILD_ATTESTATION", `release state requires the build registry: ${String((error as Error)?.message ?? error)}`);
   }
+}
+
+function selectedManifest(registry: ReturnType<typeof openRegistry>, build: HubBuildResult, skillId: string): Record<string, unknown> {
+  const selected = build.skills.find((skill) => skill.skillId === skillId);
+  if (!selected) throw new HubError("E_BUILD_ATTESTATION", `release catalog is missing ${skillId}`);
+  try {
+    const manifest: unknown = JSON.parse(getSkillVersion(registry.db, skillId, selected.versionHash).manifestJson);
+    if (!isPlainObject(manifest)) throw new Error("manifest is not an object");
+    return manifest;
+  } catch (error) {
+    if (error instanceof HubError) throw error;
+    throw new HubError("E_BUILD_ATTESTATION", `cannot read selected manifest for ${skillId}`);
+  }
+}
+
+function selectedAliases(registry: ReturnType<typeof openRegistry>, build: HubBuildResult, skillId: string): string[] {
+  const manifest = selectedManifest(registry, build, skillId);
+  const routing = manifest["routing"];
+  const aliases = isPlainObject(routing) ? routing["aliases"] : undefined;
+  if (!Array.isArray(aliases) || aliases.some((alias) => typeof alias !== "string")) {
+    throw new HubError("E_ALIAS_SCOPE", `selected manifest for ${skillId} has invalid aliases`);
+  }
+  return [...aliases];
 }
 
 /**
@@ -92,7 +119,7 @@ export function deriveAliasMap(build: HubBuildResult): AliasMapDoc {
   try {
     const owned = new Map<string, string>();
     for (const skillId of sortedIds(build)) {
-      for (const alias of listSkillAliases(registry.db, skillId)) {
+      for (const alias of selectedAliases(registry, build, skillId)) {
         const prior = owned.get(alias);
         if (prior !== undefined && prior !== skillId) {
           throw new HubError("E_ALIAS_SCOPE", `alias ${JSON.stringify(alias)} claimed by ${prior} and ${skillId}`);
@@ -195,7 +222,7 @@ export function deriveSearchIndexInput(build: HubBuildResult): SearchIndexInputD
         platforms: arrays["platforms"] as string[],
         frameworks: arrays["frameworks"] as string[],
         triggers: arrays["triggers"] as string[],
-        aliases: listSkillAliases(registry.db, skillId),
+        aliases: selectedAliases(registry, build, skillId),
       });
     }
     return { rows };
@@ -208,7 +235,7 @@ export function deriveSearchIndexInput(build: HubBuildResult): SearchIndexInputD
 }
 
 /** Alias map must be exactly {aliases} with sorted keys resolving to selected skills. */
-export function checkAliasMap(doc: unknown, catalogSkillIds: readonly string[]): void {
+export function checkAliasMap(doc: unknown, expected: HubBuildResult | readonly string[]): void {
   if (!isPlainObject(doc) || !isPlainObject(doc["aliases"]) || Object.keys(doc).length !== 1) {
     throw new HubError("E_ALIAS_SCOPE", "alias map must be exactly {aliases: {...}}");
   }
@@ -217,7 +244,15 @@ export function checkAliasMap(doc: unknown, catalogSkillIds: readonly string[]):
   if (JSON.stringify(keys) !== JSON.stringify([...keys].sort((a, b) => (a < b ? -1 : 1)))) {
     throw new HubError("E_ALIAS_SCOPE", "alias map keys must be sorted");
   }
-  const selected = new Set(catalogSkillIds);
+  if (isBuildResult(expected)) {
+    const actual = aliases;
+    const expectedAliases = deriveAliasMap(expected).aliases;
+    if (JSON.stringify(actual) !== JSON.stringify(expectedAliases)) {
+      throw new HubError("E_ALIAS_SCOPE", "alias map must exactly match aliases claimed by selected SkillVersions");
+    }
+    return;
+  }
+  const selected = new Set(expected);
   for (const [alias, target] of Object.entries(aliases)) {
     if (typeof target !== "string" || !selected.has(target)) {
       throw new HubError("E_ALIAS_SCOPE", `alias ${alias} targets unselected skill ${String(target)} (no historical inheritance)`);
@@ -273,7 +308,7 @@ const SEARCH_ROW_FIELDS = [
 ];
 
 /** SearchIndexInput must be exactly {rows} sorted by skill_id with exact row shapes. */
-export function checkSearchIndexInput(doc: unknown): void {
+export function checkSearchIndexInput(doc: unknown, expected?: HubBuildResult): void {
   if (!isPlainObject(doc) || !Array.isArray(doc["rows"]) || Object.keys(doc).length !== 1) {
     throw new HubError("E_SEARCH_INPUT", "search index input must be exactly {rows: [...]}");
   }
@@ -312,6 +347,9 @@ export function checkSearchIndexInput(doc: unknown): void {
   const order = rows.map((r) => (r as SearchIndexRow).skill_id);
   if (JSON.stringify(order) !== JSON.stringify([...order].sort((a, b) => (a < b ? -1 : 1)))) {
     throw new HubError("E_SEARCH_INPUT", "search index rows must be sorted by skill_id");
+  }
+  if (expected && JSON.stringify(doc) !== JSON.stringify(deriveSearchIndexInput(expected))) {
+    throw new HubError("E_SEARCH_INPUT", "search index input must exactly match selected SkillVersion metadata");
   }
 }
 

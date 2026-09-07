@@ -140,7 +140,7 @@ test("happy path derives release-scoped alias map, token artifact, and search in
   const beta = input.rows.find((r) => r.skill_id === "plan/beta");
   assert.deepEqual(beta.aliases, []);
   // Pure checks accept the derived docs against the same catalog.
-  checkAliasMap(aliases, build.skills.map((s) => s.skillId));
+  checkAliasMap(aliases, build);
   checkTokenArtifact(tokens, Object.fromEntries(versions));
   checkSearchIndexInput(input);
 });
@@ -163,6 +163,15 @@ test("derived state is deterministic (byte-identical digests)", async () => {
 test("alias targeting an unselected skill fails (E_ALIAS_SCOPE)", async () => {
   assert.equal(
     await codeOf(() => checkAliasMap({ aliases: { ghost: "zzz/gone" } }, ["ega/reviewer"])),
+    "E_ALIAS_SCOPE",
+  );
+});
+
+test("alias map cannot invent an alias for an otherwise selected SkillVersion", async () => {
+  const build = await buildHub(setupStateHub());
+  const aliases = deriveAliasMap(build);
+  assert.equal(
+    await codeOf(() => checkAliasMap({ aliases: { ...aliases.aliases, "invented-alias": "ega/reviewer" } }, build)),
     "E_ALIAS_SCOPE",
   );
 });

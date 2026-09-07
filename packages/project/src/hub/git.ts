@@ -78,3 +78,37 @@ export function fetchRefTip(repository: string, ref: string, expectedCommit: str
     throw gitError("E_PLAN_FETCH", `upstream moved during check (resolved ${expectedCommit}, fetched ${tip}); re-run check`);
   }
 }
+
+/** Materialize one approved commit without consulting any tracked ref.
+ *  Apply uses this primitive after plan approval, so a later branch movement
+ *  cannot change the content being adopted. */
+export function fetchExactCommit(repository: string, commit: string, dir: string): void {
+  if (!COMMIT_RE.test(commit)) {
+    throw gitError("E_PLAN_FETCH", "approved commit must be 40 lowercase hex");
+  }
+  try {
+    execFileSync("git", ["-c", "core.autocrlf=false", "init", "--quiet", dir], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    execFileSync("git", ["-C", dir, "config", "core.autocrlf", "false"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    execFileSync("git", ["-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", repository, commit], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    throw gitError("E_PLAN_FETCH", `cannot fetch approved commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+  }
+  let landed: string;
+  try {
+    landed = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch (e) {
+    throw gitError("E_PLAN_FETCH", `cannot read fetched commit: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+  }
+  if (landed !== commit) {
+    throw gitError("E_PLAN_FETCH", `exact fetch landed ${landed}, expected approved commit ${commit}`);
+  }
+}

@@ -11,7 +11,7 @@ export { isValidRepository, normalizeSourceConfig, parseSourcesYaml, sourceConfi
 export type { SourceConfig, SourceSelection, SourcesConfig } from "./hub/sources-config.js";
 export { parseSourcesLockYaml, verifySourcesLock } from "./hub/sources-lock.js";
 export type { LockedSelection, SourceLockRecord, SourcesLock } from "./hub/sources-lock.js";
-export { fetchRefTip, resolveRefToCommit } from "./hub/git.js";
+export { fetchExactCommit, fetchRefTip, resolveRefToCommit } from "./hub/git.js";
 export {
   QUARANTINE_MAX_FILE_BYTES,
   QUARANTINE_MAX_FILES,
@@ -36,6 +36,8 @@ export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
+export { buildHubRelease } from "./hub/release-build.js";
+export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {
   RELEASE_TOKEN_ESTIMATOR,
   checkAliasMap,

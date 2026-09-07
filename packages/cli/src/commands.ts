@@ -43,8 +43,10 @@ import {
   verifyHubRelease,
   applyUpdatePlan,
   buildHub,
+  buildHubRelease,
   checkForUpdates,
   extractSelectedRoots,
+  fetchExactCommit,
   fetchRefTip,
   parseSourcesLockYaml,
   parseSourcesYaml,
@@ -55,6 +57,7 @@ import {
   type UpdatePlanDocument,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
+import { validatePortableSkillName } from "@ega-skills/schema";
 
 export type { ImportSummary };
 
@@ -150,7 +153,7 @@ function candidateLockForRelease(
 
 /** Run the complete Contract C build through the public CLI API. */
 export async function runHubBuild(options: HubCommandOptions = {}) {
-  return buildHub(resolve(options.hub ?? "."));
+  return buildHubRelease(resolve(options.hub ?? "."));
 }
 
 /** Read-only Contract B check. The existing Hub build supplies the adopted
@@ -188,7 +191,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
 
 /** Exact-commit Contract B apply. The target is fetched from the approved
  * plan and never re-resolved from the moving source ref. */
-export function runHubUpdate(options: HubUpdateCommandOptions) {
+export async function runHubUpdate(options: HubUpdateCommandOptions) {
   const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as UpdatePlanDocument;
   const source = config.sources[plan.payload?.source_id];
@@ -199,7 +202,7 @@ export function runHubUpdate(options: HubUpdateCommandOptions) {
   const stage = join(workspace, "stage");
   mkdirSync(stage, { recursive: true });
   try {
-    fetchRefTip(source.repository, source.ref, plan.payload.target_commit, fetched);
+    fetchExactCommit(source.repository, plan.payload.target_commit, fetched);
     extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
     return applyUpdatePlan({ hubDir, plan, stageDir: stage });
   } finally {
@@ -384,6 +387,66 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
   }
   writeFileSync(file, INIT_CONFIG_YAML);
   return { path: file, written: true };
+}
+
+export interface ValidateOptions {
+  readonly path: string;
+}
+
+export interface ValidateFailure {
+  readonly path: string;
+  readonly error: string;
+}
+
+export interface ValidateResult {
+  readonly path: string;
+  readonly valid: boolean;
+  readonly checked: number;
+  readonly failures: readonly ValidateFailure[];
+}
+
+/**
+ * Validate skill packages without writing to the target or the developer
+ * registry.  The existing importer owns the complete package validation
+ * pipeline; its only writes are directed to this disposable registry.
+ */
+export async function runValidate(options: ValidateOptions): Promise<ValidateResult> {
+  const target = resolve(options.path);
+  const validationHome = mkdtempSync(join(tmpdir(), "ega-skill-validate-"));
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: validationHome }, userHome: tmpdir() });
+  try {
+    const summary = await importSkills(registry, { path: target, namespace: "validation" });
+    return {
+      checked: summary.imported + summary.unchanged + summary.failed,
+      failures: summary.failures,
+      path: target,
+      valid: summary.failed === 0,
+    };
+  } finally {
+    registry.close();
+    rmSync(validationHome, { force: true, recursive: true });
+  }
+}
+
+export interface InitSkillOptions {
+  readonly name: string;
+}
+
+export interface InitSkillResult {
+  readonly path: string;
+  readonly files: readonly ["SKILL.md", "ega.yaml"];
+  readonly created: true;
+}
+
+/** Create the canonical two-file authoring scaffold. */
+export async function runInitSkill(options: InitSkillOptions): Promise<InitSkillResult> {
+  const name = validatePortableSkillName(options.name, { field: "name" });
+  const skillDir = resolve(name);
+  if (existsSync(skillDir)) throw new Error(`Refusing to overwrite existing path: ${skillDir}`);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${name}\ndescription: Describe what this skill does and when to use it.\n---\n\n# ${name}\n\nDescribe the skill instructions here.\n`);
+  writeFileSync(join(skillDir, "ega.yaml"), "schema_version: 1\n");
+  return { created: true, files: ["SKILL.md", "ega.yaml"], path: skillDir };
 }
 
 export interface LockCommandOptions {
