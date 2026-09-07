@@ -3,7 +3,8 @@
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected audit checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
 Implementation candidate tested locally: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-Final code candidate HEAD: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
+commits after the reviewed code candidate).
 Branch: `repair/pr77-release-readiness`.
 
 This report records the validated disposition of every finding. Contract D
@@ -50,9 +51,10 @@ the original F1–F20 table remains the historical disposition record.
 | F16 local control-plane durability | Authenticated context publication now has file persistence, GET/reconstruction, revoke persistence, and new-identity republication. | `remote-projects.test.mjs` process reconstruction test | `05f70f2` |
 | F17 evidence read boundary | Evidence reads reject symlinks, escapes, non-regular files, and oversized files with bounded reads. | `remote-fingerprint.test.mjs` oversized/symlink tests | `05f70f2` |
 
-Review disposition: PASS. The final code candidate was tested at
-`cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`; the consolidated local suite is
-806 total, 801 passed, 0 failed, 5 skipped.
+Review disposition: PASS. The implementation was reviewed and tested at code
+candidate `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`; the final repair HEAD
+`44a4dd441550ec0bb6da692cb062ccedccb247ce` contains evidence-only commits.
+The consolidated local suite is 806 total, 801 passed, 0 failed, 5 skipped.
 
 ## Skipped tests
 

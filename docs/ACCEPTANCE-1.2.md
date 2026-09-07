@@ -3,7 +3,8 @@
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
 Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-Final code candidate HEAD: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
+commits after the reviewed code candidate).
 The hosted focused suite passes 15 tests at this candidate; the full regression
 passes 806 total, 801 passed, 0 failed, 5 skipped.
 
@@ -29,4 +30,4 @@ passes 806 total, 801 passed, 0 failed, 5 skipped.
 
 The local hosted HTTP/MCP integration is PASS. Cloud deployment, OAuth client
 registration, and fresh-client acceptance remain external operations.
-The exact-head Ubuntu/Windows foundation CI run `34138751456` passed.
+The final-head Ubuntu/Windows foundation CI run `34140809559` passed.

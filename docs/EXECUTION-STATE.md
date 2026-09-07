@@ -6,13 +6,15 @@ Updated: 2026-09-07
 - Protected recovery checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92` on `review/full-1.3-checkpoint-b0b413e`.
 - Remediation branch: `repair/pr77-release-readiness`.
 - Local implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-- Final repair code HEAD: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+- Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
+  commits after the reviewed code candidate).
 - Linear parent: EGA-635, `PR #77 release-readiness remediation`.
 - Linear workstreams: EGA-637 through EGA-643 cover R1 through R8.
 - Contract A, B, and C remain authoritative frozen contracts. Contract D and
   Contract E are explicitly freeze candidates pending dedicated exact-head
   review, CI, merge, and freeze records.
-- Full regression at `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`: 806 total,
+- Full regression at final repair HEAD `44a4dd441550ec0bb6da692cb062ccedccb247ce`
+  (same implementation as `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`): 806 total,
   801 passed, 0 failed, 5 skipped. Build, typecheck, specs, and Contracts A
   through E passed. The focused final provenance regression at
   `a8ec090f79894f56d2ddb85627fe49448386e774` passed 17/17.
@@ -20,8 +22,9 @@ Updated: 2026-09-07
   `93b00b89ef425a9c1bac0d0b317dfc49c930ac99` and Matt commit
   `3cca18b368ae95cdbdebbff572ccafa662551015`.
 - CI workflow runs frozen candidate commands for Contracts A through E on both
-  Ubuntu and Windows. Exact-head foundation run `34138751456` and focused
-  hashing run `34138751458` both pass on both platforms.
+  Ubuntu and Windows. Final-head foundation run `34140809559` and focused
+  hashing run `34140809741` both pass on both platforms. The code-candidate
+  runs `34138751456` and `34138751458` also passed on both platforms.
 - Exact upstream lifecycle commits: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
   C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest recorded
