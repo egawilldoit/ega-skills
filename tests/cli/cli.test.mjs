@@ -82,3 +82,13 @@ test("hub build is available through the real CLI entrypoint", () => {
   assert.deepEqual(JSON.parse(result.stdout).skills, []);
   assert.equal(result.stderr, "");
 });
+
+test("hub flag values are not mistaken for positional hub paths", () => {
+  const check = runCli("hub", "check", "--output", "plan.json");
+  assert.equal(check.status, 1);
+  assert.match(check.stderr, /^Missing hub check <source-id>\./);
+
+  const update = runCli("hub", "update", "--plan", "plan.json");
+  assert.equal(update.status, 1);
+  assert.match(update.stderr, /^ENOENT: no such file or directory/);
+});
