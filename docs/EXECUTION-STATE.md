@@ -44,4 +44,12 @@ does not alter function ownership or SECURITY DEFINER behavior, and has no
 rollback migration. Production application remains a separately authorized
 staging operation.
 
+Staging safety assessment: the live Supabase inventory exposed only
+`Ega-House-Platform` (`ofpqkogwatceimtzvenh`), an existing active project with
+no database branches. It was not proven to be isolated EGA staging and was not
+mutated. No authorized isolated EGA staging URL, deployment adapter, OAuth
+client, or fresh Codex/OpenCode environment is available in this session.
+Hosted OAuth/MCP, fresh-client, backup/restore/rollback, and remote context
+publication therefore remain explicitly blocked external acceptance rows.
+
 Explicit non-goals: Contract F and release 2.0.
