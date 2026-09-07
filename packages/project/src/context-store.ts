@@ -213,6 +213,18 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
     if (!existsSync(this.path)) return [];
     const value: unknown = JSON.parse(readFileSync(this.path, "utf8"));
     if (!Array.isArray(value)) throw new Error("context persistence must contain an array");
+    for (const [index, record] of value.entries()) {
+      if (typeof record !== "object" || record === null || Array.isArray(record)) {
+        throw new Error(`context persistence record ${index} must be an object`);
+      }
+      const candidate = record as Record<string, unknown>;
+      if (typeof candidate["contextId"] !== "string" || typeof candidate["context"] !== "object" || candidate["context"] === null || Array.isArray(candidate["context"]) || typeof candidate["revoked"] !== "boolean") {
+        throw new Error(`context persistence record ${index} has an invalid shape`);
+      }
+      if (candidate["authority"] !== undefined && (typeof candidate["authority"] !== "object" || candidate["authority"] === null || Array.isArray(candidate["authority"]))) {
+        throw new Error(`context persistence record ${index} has an invalid authority`);
+      }
+    }
     return value as ProjectContextStoreRecord[];
   }
 
@@ -292,7 +304,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 function bearerToken(request: Request): string | undefined {
   const value = request.headers.get("authorization");
-  if (value === null || !value.startsWith("Bearer ")) return undefined;
+  if (value === null || value.slice(0, "Bearer ".length).toLowerCase() !== "bearer ") return undefined;
   const token = value.slice("Bearer ".length);
   return token.length === 0 || token.includes("\u0000") ? undefined : token;
 }
@@ -415,13 +427,26 @@ export function createContextControlPlaneHandler(options: ContextControlPlaneOpt
 export interface PublishContextClientResult extends PublishedContextResponse {}
 
 function controlPlaneUrl(endpoint: string, path: string): URL {
-  const url = new URL(path, endpoint);
+  // Resolve against the endpoint directory so an explicitly configured base
+  // path (for example https://host/api) remains part of the deployment URL.
+  const base = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
+  const url = new URL(path.replace(/^\/+/, ""), base);
   const loopback = url.protocol === "http:" &&
     (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
   if (url.protocol !== "https:" && !loopback) {
     throw new Error("HTTPS is required for remote control-plane endpoints");
   }
   return url;
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Publish through the authenticated control-plane boundary. */
@@ -439,7 +464,7 @@ export async function publishProjectContext(
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ context_id: contextId, context, authority }),
   });
-  const body = await response.json() as unknown;
+  const body = await readJsonResponse(response);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context publication failed (${String(record["code"] ?? response.status)})`);
@@ -460,7 +485,7 @@ export async function getProjectContext(
   const response = await fetcher(controlPlaneUrl(endpoint, `/v1/contexts/${encodeURIComponent(contextId)}`), {
     headers: { authorization: `Bearer ${token}` },
   });
-  const body = await response.json() as unknown;
+  const body = await readJsonResponse(response);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context retrieval failed (${String(record["code"] ?? response.status)})`);
@@ -480,7 +505,7 @@ export async function listProjectContexts(
   const response = await fetcher(controlPlaneUrl(endpoint, "/v1/contexts"), {
     headers: { authorization: `Bearer ${token}` },
   });
-  const body = await response.json() as unknown;
+  const body = await readJsonResponse(response);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context listing failed (${String(record["code"] ?? response.status)})`);
@@ -505,7 +530,7 @@ export async function revokeProjectContext(
     method: "DELETE",
     headers: { authorization: `Bearer ${token}` },
   });
-  const body = await response.json() as unknown;
+  const body = await readJsonResponse(response);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context revocation failed (${String(record["code"] ?? response.status)})`);

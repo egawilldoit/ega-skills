@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { renameSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
@@ -233,6 +233,38 @@ test("context clients reject remote cleartext endpoints before sending bearer cr
   assert.equal(fetches, 0);
 });
 
+test("context client preserves an endpoint base path and accepts case-insensitive bearer schemes", async () => {
+  const seen = [];
+  const fetcher = async (input, init) => {
+    seen.push({ url: new URL(input).toString(), authorization: init?.headers?.authorization });
+    return new Response(JSON.stringify({ contexts: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const listed = await listProjectContexts("http://127.0.0.1:8787/control-plane", "token-a", fetcher);
+  assert.deepEqual(listed.contexts, []);
+  assert.deepEqual(seen, [{
+    url: "http://127.0.0.1:8787/control-plane/v1/contexts",
+    authorization: "Bearer token-a",
+  }]);
+
+  const store = createProjectContextStore();
+  const handler = createContextControlPlaneHandler({
+    store,
+    authenticate: (token) => token === "token-a",
+    authorize: () => true,
+  });
+  const response = await handler(new Request("https://control.example.test/v1/contexts", {
+    headers: { authorization: "bEaReR token-a" },
+  }));
+  assert.equal(response.status, 200);
+});
+
+test("context clients report non-JSON control-plane failures by status", async () => {
+  await assert.rejects(
+    publishProjectContext("https://control.example.test", "token-a", "ctx-main", {}, {}, async () => new Response("upstream unavailable", { status: 503 })),
+    /Context publication failed \(503\)/,
+  );
+});
+
 test("context visibility changes only after durable persistence succeeds", () => {
   let records = [];
   let failSave = false;
@@ -293,6 +325,17 @@ test("file context replacement failure restores the previous durable store", asy
     assert.throws(() => failingReplacement.save({ ...previous, revoked: true }), /replacement failed/);
     assert.equal(targetAttempts, 3);
     assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("file context persistence rejects malformed record entries before store reconstruction", async () => {
+  const root = await mkdtemp(`${tmpdir()}/ega-context-invalid-`);
+  try {
+    const path = `${root}/contexts.json`;
+    writeFileSync(path, JSON.stringify([{ contextId: "ctx-main", revoked: false }]));
+    assert.throws(() => new FileProjectContextPersistence(path).load(), /invalid shape/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
