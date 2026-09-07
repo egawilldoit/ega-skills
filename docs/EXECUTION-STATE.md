@@ -3,9 +3,9 @@
 Updated: 2026-09-07
 
 - Canonical specification: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
-- Current remote main: `3743d9e8904f80b42196a9ac18757a66da19caf7`; local integrated main: `9caaddef5cc45d7bfbabe6d0d399903f3a0c1faf`
+- Current remote main: `3743d9e8904f80b42196a9ac18757a66da19caf7`; local integrated main: `87088824bb3de268d6b4cbf000930792a75386a0`
 - Current milestone: Contract E frozen; local 1.3 project identity, remote-lock plan/apply, context publication, lifecycle, hosted binding, fingerprint validation, and monorepo E2E are implemented. 1.1/1.2 release publication and remote deployment remain permission/environment-blocked
-- Active issue/PR: local `main` / `9caaddef`; PR #73 exact head remains `0331d69800364102bb8b7db7d4df37af0c90002e`
+- Active issue/PR: local `main` / `8708882`; PR #73 exact head remains `0331d69800364102bb8b7db7d4df37af0c90002e`
 - Frozen contracts: A / PR #67 merge `ec49ceb12e656141823d63f2c08ab8b898688abf`; B / PR #68 merge `1a0152432cdf16710edc2759201f3ffd1e45b7b3`; C / PR #69 merge `9638344e5eeec540ccc3668348720e0757036f7d`
 - Contract D: frozen locally in `a7bd8bf1d6ab264fd0951841b34d91294793cc95`; vector `sha256:6a0f5a9332cd66f2edf5f9fee22d908c69640da8a09d2a30bfb2893bca476f03`
 - Contract E: frozen locally in `b681b04`; vector `sha256:e4a56b717e01e3edc4d571ae7b839757344b0a94953127482390a6f6e39318ac`
