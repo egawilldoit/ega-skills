@@ -182,10 +182,26 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   const out = await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
   assert.equal(out.record.resolved_commit, shaB);
   assert.equal(out.record.selected_skill_tree_digest, plan.payload.new_selected_tree_digest);
+  assert.equal(out.record.vendored_snapshot_digest, plan.payload.new_vendored_snapshot_digest);
   assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
   assert.equal(readJournal(hub.hubDir), null);
   const lock = acquireHubLock(hub.hubDir);
   lock.release();
+});
+
+test("provenance-only stage tampering fails before adoption and preserves both digests", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const beforeTree = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"));
+
+  writeFileSync(join(stageDir, "LICENSE"), "Tampered provenance.\n");
+
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_PLAN_DIGEST");
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
+  assert.equal(readJournal(hub.hubDir), null);
 });
 
 test("prospective full-Hub validation rejects an independent global catalog conflict atomically", async () => {
