@@ -4,6 +4,11 @@ import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js"
 import { createHostedMcpHandler, createHostedRuntime } from "../../packages/mcp/dist/hosted.js";
 import { createHostedOAuthVerifier } from "../../packages/mcp/dist/hosted-auth.js";
 import {
+  createProjectContextArtifact,
+  hashNormalizedConfig,
+  parseProjectConfig,
+} from "../../packages/project/dist/index.js";
+import {
   getCurrentVersionHash,
   importSkills,
   openRegistry,
@@ -75,6 +80,30 @@ async function fixture() {
 
 function auth() {
   return async () => true;
+}
+
+function contextFor(value, contextId) {
+  const config = parseProjectConfig("schema_version: 1\nrouting:\n  max_skills: 1\n");
+  const lock = Object.freeze({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: Object.freeze({ config_hash: hashNormalizedConfig(config) }),
+    skills: Object.freeze({
+      [value.skillId]: Object.freeze({ name: "alpha", version_hash: value.versionHash }),
+    }),
+  });
+  return {
+    contextId,
+    config,
+    lock,
+    context: createProjectContextArtifact({
+      workspace_id: "workspace-test",
+      project_id: "project-test",
+      config,
+      lock,
+      release: value.release,
+    }),
+  };
 }
 
 function oauth() {
@@ -176,6 +205,40 @@ test("hosted scope fails closed and never accepts a local project path", async (
   assert.equal(wrongRelease.structuredContent.error.code, "E_RELEASE_NOT_FOUND");
   const missingContext = await runtime.call("search", { query: "hosted", context_id: "ctx-missing" });
   assert.equal(missingContext.structuredContent.error.code, "E_CONTEXT_NOT_FOUND");
+});
+
+test("hosted context selection binds exact lock/release and revocation has no fallback", async () => {
+  const value = await fixture();
+  const binding = contextFor(value, "ctx-main");
+  let revoked = false;
+  const runtime = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    contexts: [binding],
+    isContextRevoked: () => revoked,
+    authorize: auth(),
+  });
+  const search = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(search.isError, false);
+  assert.equal(search.structuredContent.project_context, binding.contextId);
+  assert.equal(search.structuredContent.fingerprint_status, "MISSING");
+  assert.deepEqual(search.structuredContent.results.map((row) => row.version_hash), [value.versionHash]);
+
+  const resolved = await runtime.call("resolve", { task: "hosted", context_id: binding.contextId });
+  assert.equal(resolved.isError, false);
+  assert.equal(resolved.structuredContent.lock_status, "LOCKED");
+  assert.equal(resolved.structuredContent.max_skills, 1);
+  assert.equal(resolved.structuredContent.project_context, binding.contextId);
+
+  const mismatch = await runtime.call("search", {
+    query: "hosted",
+    context_id: binding.contextId,
+    release_digest: `sha256:${"f".repeat(64)}`,
+  });
+  assert.equal(mismatch.structuredContent.error.code, "E_CONTEXT_RELEASE_MISMATCH");
+  revoked = true;
+  const denied = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(denied.structuredContent.error.code, "E_CONTEXT_REVOKED");
 });
 
 test("authorization and emergency deny are checked before content delivery", async () => {
@@ -385,8 +448,9 @@ test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA s
   assert.equal(authInfo.clientId, "client-1");
   assert.deepEqual(authInfo.scopes, ["mcp"]);
   assert.equal(jwksReads, 1);
+  const alteredSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
   await assert.rejects(
-    verifier.verifyAccessToken(`${signingInput}.${signature.slice(0, -1)}x`),
+    verifier.verifyAccessToken(`${signingInput}.${alteredSignature}`),
     /signature mismatch/,
   );
 });

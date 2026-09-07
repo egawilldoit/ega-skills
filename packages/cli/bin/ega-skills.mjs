@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInspect, runList, runLock, runResolve, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
+import { runImport, runInit, runInspect, runList, runLock, runRemoteLockApply, runResolve, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -21,6 +21,7 @@ function printHelp() {
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
       "  ega-skills lock [<project-dir>] [--refresh]",
+      "  ega-skills remote-lock apply --plan <plan.json> --yes [--project <project-dir>]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
@@ -274,6 +275,36 @@ async function main() {
         env: process.env,
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "remote-lock") {
+    const [subcommand, ...remoteRest] = rest;
+    if (subcommand !== "apply") fail(`Unknown remote-lock command: ${subcommand ?? ""}`);
+    let plan;
+    let project = ".";
+    let approve = false;
+    for (let i = 0; i < remoteRest.length; i += 1) {
+      const token = remoteRest[i];
+      if (token === "--yes") {
+        approve = true;
+      } else if (token === "--plan") {
+        plan = remoteRest[++i];
+        if (typeof plan !== "string" || plan.startsWith("--")) fail("Missing value for --plan <plan.json>.");
+      } else if (token === "--project") {
+        project = remoteRest[++i];
+        if (typeof project !== "string" || project.startsWith("--")) fail("Missing value for --project <project-dir>.");
+      } else {
+        fail(`Unknown command or option: ${token}`);
+      }
+    }
+    if (plan === undefined) fail("Missing required --plan <plan.json>.");
+    try {
+      const result = runRemoteLockApply({ project, plan, approve });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
     }

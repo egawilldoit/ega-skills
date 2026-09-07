@@ -1,0 +1,91 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import {
+  createRemoteProjectFingerprint,
+  detectRemoteFingerprintRevision,
+  hashRemoteFingerprint,
+} from "../../packages/router/dist/index.js";
+
+const roots = new Set();
+test.after(async () => {
+  for (const root of roots) await rm(root, { recursive: true, force: true });
+});
+
+async function monorepo() {
+  const root = await mkdtemp(join(tmpdir(), "ega-remote-fingerprint-"));
+  roots.add(root);
+  await mkdir(join(root, "apps", "web"), { recursive: true });
+  await mkdir(join(root, "apps", "mobile"), { recursive: true });
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n");
+  await writeFile(join(root, "apps", "web", "package.json"), JSON.stringify({
+    name: "web",
+    dependencies: { next: "1.0.0", react: "1.0.0" },
+  }));
+  await writeFile(join(root, "apps", "web", "next.config.js"), "module.exports = {};\n");
+  await writeFile(join(root, "apps", "mobile", "package.json"), JSON.stringify({
+    name: "mobile",
+    dependencies: { expo: "1.0.0", "react-native": "1.0.0" },
+  }));
+  await writeFile(join(root, "apps", "mobile", "app.json"), "{\"expo\":{}}\n");
+  return root;
+}
+
+test("Contract E fingerprints isolate web and mobile package scopes with relative evidence", async () => {
+  const root = await monorepo();
+  const commit = "a".repeat(40);
+  const web = createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "git-clean", commit_sha: commit },
+  });
+  const mobile = createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "mobile"),
+    revision: { mode: "git-dirty", base_commit_sha: commit },
+  });
+  assert.equal(web.package_root, "apps/web");
+  assert.equal(mobile.package_root, "apps/mobile");
+  assert.equal(web.workspace_root, ".");
+  assert.equal(mobile.workspace_root, ".");
+  assert.deepEqual(web.platforms, ["web"]);
+  assert.deepEqual(mobile.platforms, ["mobile"]);
+  assert.ok(web.frameworks.includes("nextjs"));
+  assert.ok(mobile.frameworks.includes("expo"));
+  assert.ok(web.evidence.every((record) => !record.path.startsWith("/")));
+  assert.ok(mobile.evidence.every((record) => !record.path.startsWith("/")));
+  assert.notEqual(web.relevant_input_digest, mobile.relevant_input_digest);
+  assert.notEqual(hashRemoteFingerprint(web), hashRemoteFingerprint(mobile));
+  assert.equal(web.revision.mode, "git-clean");
+  assert.equal(mobile.revision.mode, "git-dirty");
+});
+
+test("Contract E marks non-Git repositories unversioned", async () => {
+  const root = await monorepo();
+  const revision = detectRemoteFingerprintRevision(root);
+  assert.equal(revision.mode, "unversioned");
+});
+
+test("Contract E relevant-input digest changes only with bounded evidence bytes", async () => {
+  const root = await monorepo();
+  const revision = { mode: "unversioned" };
+  const first = createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision,
+  });
+  await writeFile(join(root, "apps", "web", "package.json"), JSON.stringify({
+    name: "web",
+    dependencies: { next: "2.0.0", react: "1.0.0" },
+  }));
+  const second = createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision,
+  });
+  assert.notEqual(first.relevant_input_digest, second.relevant_input_digest);
+  assert.equal(typeof (await readFile(join(root, "apps", "web", "package.json"))).byteLength, "number");
+});

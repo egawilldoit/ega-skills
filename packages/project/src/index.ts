@@ -74,6 +74,32 @@ export {
   rollbackStable,
   verifyHubRelease,
 } from "./hub/release.js";
+export {
+  REMOTE_PROJECT_ERROR_CODES,
+  REMOTE_PROJECTS_CONTRACT_VERSION,
+  RemoteProjectError,
+  assertLockInRelease,
+  createProjectContextCacheIdentity,
+  createProjectContextArtifact,
+  createRemoteLockPlan,
+  hashProjectLock,
+  verifyProjectContext,
+  verifyRemoteLockPlan,
+} from "./remote.js";
+export { createProjectContextStore, ProjectContextStore } from "./context-store.js";
+export type {
+  CreateProjectContextInput,
+  CreateRemoteLockPlanInput,
+  ProjectContext,
+  ProjectContextArtifact,
+  RemoteLockChange,
+  RemoteLockPlan,
+  RemoteLockPlanArtifact,
+  RemoteProjectErrorCode,
+  ProjectContextCacheIdentity,
+  ProjectContextCacheIdentityInput,
+} from "./remote.js";
+export type { PublishedProjectContext, ProjectContextStoreRecord } from "./context-store.js";
 export type {
   HubRelease,
   HubReleaseContracts,

@@ -19,7 +19,17 @@ import {
 } from "@modelcontextprotocol/server";
 
 import { sha256Hex } from "@ega-skills/hashing";
-import { verifyHubRelease, type HubRelease } from "@ega-skills/project";
+import {
+  assertLockInRelease,
+  hashNormalizedConfig,
+  hashProjectLock,
+  verifyHubRelease,
+  verifyProjectContext,
+  type HubRelease,
+  type ProjectConfigV1,
+  type ProjectContext,
+  type ProjectLockV1,
+} from "@ega-skills/project";
 import {
   CURRENT_SCHEMA_VERSION,
   getCacheBlob,
@@ -39,6 +49,7 @@ import { runInspectTool, toInspectErrorResult, toInspectSuccessResult } from "./
 import { runResolveTool } from "./resolve.js";
 import { runSearchTool } from "./search.js";
 import { oauthDiscoveryDocuments, type HostedOAuthMetadata } from "./hosted-auth.js";
+import { hashRemoteFingerprint, type RemoteProjectFingerprint } from "@ega-skills/router";
 
 export const HOSTED_TOOL_NAMES = Object.freeze([
   "resolve",
@@ -67,6 +78,15 @@ export interface HostedReleaseSnapshot {
   readonly sqliteArtifactDigest: string;
 }
 
+export interface HostedContextSnapshot {
+  /** Opaque published context identity. It is intentionally separate from the artifact digest. */
+  readonly contextId: string;
+  readonly context: ProjectContext;
+  readonly config: ProjectConfigV1;
+  readonly lock: ProjectLockV1;
+  readonly fingerprint?: RemoteProjectFingerprint | null;
+}
+
 export interface HostedDenyPolicy {
   readonly releaseDigests?: readonly string[];
   readonly skillVersions?: readonly string[];
@@ -85,6 +105,9 @@ export interface HostedAuthorizationRequest {
 export interface HostedRuntimeOptions {
   readonly releases: readonly HostedReleaseSnapshot[];
   readonly stableReleaseDigest: string;
+  readonly contexts?: readonly HostedContextSnapshot[];
+  /** Read-only control-plane seam; revocation is checked for every request. */
+  readonly isContextRevoked?: (contextId: string) => boolean | Promise<boolean>;
   /** Mandatory authorization seam; production supplies verified OAuth claims. */
   readonly authorize: (
     request: HostedAuthorizationRequest,
@@ -169,15 +192,18 @@ function rejectHostedProjectPath(args: Record<string, unknown>): void {
   }
 }
 
-function makeHostedContext(snapshot: HostedReleaseSnapshot): McpProjectContext {
+function makeHostedContext(
+  snapshot: HostedReleaseSnapshot,
+  binding?: HostedContextSnapshot,
+): McpProjectContext {
   return Object.freeze({
     projectPath: snapshot.registryHome,
     configPath: null,
     lockPath: null,
-    config: PROJECT_CONFIG_V1_DEFAULTS,
-    hasSelectedConfig: false,
-    lock: null,
-    lockMode: "UNLOCKED" as ProjectLockMode,
+    config: binding?.config ?? PROJECT_CONFIG_V1_DEFAULTS,
+    hasSelectedConfig: binding !== undefined,
+    lock: binding?.lock ?? null,
+    lockMode: binding === undefined ? "UNLOCKED" as ProjectLockMode : "LOCKED" as ProjectLockMode,
     registryHome: snapshot.registryHome,
     registryDatabase: join(snapshot.registryHome, "registry.sqlite"),
     registryAvailable: true,
@@ -187,10 +213,31 @@ function makeHostedContext(snapshot: HostedReleaseSnapshot): McpProjectContext {
 function structuredWithHostedMetadata(
   result: CallToolResult,
   releaseDigest: string,
+  binding?: HostedContextSnapshot,
 ): CallToolResult {
   if (result.structuredContent === undefined || result.isError) return result;
   const structured = result.structuredContent as Record<string, unknown>;
-  const projectFingerprint = structured.project_fingerprint;
+  const hasProjectFingerprint = structured.project_fingerprint !== undefined;
+  const fingerprint = binding?.fingerprint ?? null;
+  const projectFingerprint = fingerprint === null ? {
+    project_path: null,
+    package_root: null,
+    workspace_root: null,
+    workspace_ambiguous: false,
+    languages: [],
+    platforms: [],
+    frameworks: [],
+    evidence: [],
+  } : {
+    project_path: null,
+    package_root: fingerprint.package_root,
+    workspace_root: fingerprint.workspace_root,
+    workspace_ambiguous: fingerprint.workspace_ambiguous,
+    languages: [...fingerprint.languages],
+    platforms: [...fingerprint.platforms],
+    frameworks: [...fingerprint.frameworks],
+    evidence: fingerprint.evidence.map((item) => ({ ...item })),
+  };
   return Object.freeze({
     ...result,
     structuredContent: Object.freeze({
@@ -198,25 +245,61 @@ function structuredWithHostedMetadata(
       // The local resolver necessarily receives an internal directory so it
       // can reuse the frozen ranking pipeline. Personal hosted mode must not
       // disclose that path or imply project fingerprinting, however.
-      ...(projectFingerprint !== undefined
+      ...(hasProjectFingerprint
         ? {
-            project_fingerprint: {
-              project_path: null,
-              package_root: null,
-              workspace_root: null,
-              workspace_ambiguous: false,
-              languages: [],
-              platforms: [],
-              frameworks: [],
-              evidence: [],
-            },
+            project_fingerprint: projectFingerprint,
           }
         : {}),
       effective_release_digest: releaseDigest,
-      project_context: "NONE",
-      fingerprint_status: "NONE",
+      project_context: binding?.contextId ?? "NONE",
+      fingerprint_status: binding === undefined ? "NONE" : (fingerprint === null ? "MISSING" : "PUBLISHED"),
     }),
   }) as CallToolResult;
+}
+
+function assertContextId(contextId: string): void {
+  if (contextId.length === 0 || contextId.includes("\u0000")) {
+    fail("E_STARTUP_INTEGRITY", "published context identity must be non-empty text");
+  }
+}
+
+function verifyContextSnapshot(
+  binding: HostedContextSnapshot,
+  snapshots: ReadonlyMap<string, HostedReleaseSnapshot>,
+): void {
+  assertContextId(binding.contextId);
+  try {
+    verifyProjectContext(binding.context);
+  } catch (error) {
+    fail("E_STARTUP_INTEGRITY", `ProjectContext verification failed: ${String(error instanceof Error ? error.message : error)}`);
+  }
+  const release = snapshots.get(binding.context.release_digest);
+  if (release === undefined) {
+    fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} binds a release that is not retained`);
+  }
+  if (hashNormalizedConfig(binding.config) !== binding.context.config_digest) {
+    fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} config digest does not match`);
+  }
+  if (hashProjectLock(binding.lock) !== binding.context.lock_digest) {
+    fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} lock digest does not match`);
+  }
+  try {
+    assertLockInRelease(binding.lock, release.release);
+  } catch (error) {
+    fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} lock is not contained in its release`);
+  }
+  if (binding.context.fingerprint_digest === null) {
+    if (binding.fingerprint !== undefined && binding.fingerprint !== null) {
+      fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} has an unexpected fingerprint`);
+    }
+  } else {
+    if (binding.fingerprint === undefined || binding.fingerprint === null) {
+      fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} is missing its published fingerprint`);
+    }
+    if (hashRemoteFingerprint(binding.fingerprint) !== binding.context.fingerprint_digest) {
+      fail("E_STARTUP_INTEGRITY", `ProjectContext ${binding.contextId} fingerprint digest does not match`);
+    }
+  }
 }
 
 function readCatalog(db: RegistryHandle["db"]): Map<string, string> {
@@ -334,7 +417,17 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
   }
   if (!snapshots.has(options.stableReleaseDigest)) fail("E_STARTUP_INTEGRITY", "stable release is not retained");
 
-  const select = (tool: HostedToolName, args: Record<string, unknown>): HostedReleaseSnapshot => {
+  const contexts = new Map<string, HostedContextSnapshot>();
+  for (const binding of options.contexts ?? []) {
+    if (contexts.has(binding.contextId)) fail("E_STARTUP_INTEGRITY", `duplicate context identity ${binding.contextId}`);
+    verifyContextSnapshot(binding, snapshots);
+    contexts.set(binding.contextId, binding);
+  }
+
+  const select = async (tool: HostedToolName, args: Record<string, unknown>): Promise<{
+    readonly snapshot: HostedReleaseSnapshot;
+    readonly binding?: HostedContextSnapshot;
+  }> => {
     rejectHostedProjectPath(args);
     const contextId = stringArg(args, "context_id");
     const requested = releaseDigestArg(args);
@@ -342,7 +435,23 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
       // Contract E owns context publication and lookup. Until that contract is
       // installed, fail as a missing context rather than falling back to the
       // personal stable release or exposing an authorization distinction.
-      throw new HostedRuntimeError("E_CONTEXT_NOT_FOUND", `Project context ${contextId} is not available`);
+      const binding = contexts.get(contextId);
+      if (binding === undefined) throw new HostedRuntimeError("E_CONTEXT_NOT_FOUND", `Project context ${contextId} is not available`);
+      if (options.isContextRevoked !== undefined) {
+        let revoked: boolean;
+        try {
+          revoked = await options.isContextRevoked(contextId);
+        } catch (error) {
+          throw new HostedRuntimeError("E_CONTEXT_INVALID", `Project context revocation state is unavailable: ${String(error instanceof Error ? error.message : error)}`);
+        }
+        if (revoked) throw new HostedRuntimeError("E_CONTEXT_REVOKED", `Project context ${contextId} is revoked`);
+      }
+      const snapshot = snapshots.get(binding.context.release_digest);
+      if (snapshot === undefined) throw new HostedRuntimeError("E_CONTEXT_RELEASE_MISMATCH", `Project context ${contextId} release is not retained`);
+      if (requested !== undefined && requested !== snapshot.release.digest) {
+        throw new HostedRuntimeError("E_CONTEXT_RELEASE_MISMATCH", `Project context ${contextId} does not bind release ${requested}`);
+      }
+      return { snapshot, binding };
     }
     if ((tool === "inspect" || tool === "get_content") && requested === undefined) {
       throw new HostedRuntimeError("E_SCOPE_REQUIRED", `${tool} requires an explicit release_digest or context_id`);
@@ -350,7 +459,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
     const digest = requested ?? options.stableReleaseDigest;
     const snapshot = snapshots.get(digest);
     if (snapshot === undefined) throw new HostedRuntimeError("E_RELEASE_NOT_FOUND", `Release ${digest} is not available`);
-    return snapshot;
+    return { snapshot };
   };
 
   const call = async (
@@ -360,7 +469,9 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
   ): Promise<CallToolResult> => {
     try {
       if (!HOSTED_TOOL_NAMES.includes(tool)) throw new McpContextError("E_MCP_INPUT_INVALID", `Unknown hosted tool ${tool}`);
-      const snapshot = select(tool, args);
+      const selected = await select(tool, args);
+      const snapshot = selected.snapshot;
+      const binding = selected.binding;
       const skillId = typeof args["skill_id"] === "string" ? args["skill_id"] : undefined;
       const versionHash = typeof args["version_hash"] === "string" ? args["version_hash"] : undefined;
       const denyPolicy = typeof options.denyPolicy === "function" ? options.denyPolicy() : options.denyPolicy;
@@ -372,14 +483,15 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         releaseDigest: snapshot.release.digest,
         ...(skillId !== undefined ? { skillId } : {}),
         ...(versionHash !== undefined ? { versionHash } : {}),
+        ...(binding !== undefined ? { contextId: binding.contextId } : {}),
         ...(authInfo !== undefined ? { authInfo } : {}),
       });
       if (!authorized) throw new HostedRuntimeError("E_AUTH_UNAUTHORIZED", "OAuth subject is not authorized for this release");
 
-      const context = makeHostedContext(snapshot);
+      const context = makeHostedContext(snapshot, binding);
       if (tool === "search") {
         const result = runSearchTool({ query: args["query"], limit: args["limit"] }, context);
-        return structuredWithHostedMetadata(result, snapshot.release.digest);
+        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
       }
       if (tool === "resolve") {
         const result = await runResolveTool({
@@ -387,15 +499,25 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
           explicit_skills: args["explicit_skills"],
           max_skills: args["max_skills"],
           max_tokens: args["max_tokens"],
-        }, context);
-        return structuredWithHostedMetadata(result, snapshot.release.digest);
+        }, context, binding === undefined ? undefined : {
+          policy: {
+            deniedNamespaces: binding.config.namespaces.deny,
+            allowedNamespaces: binding.config.namespaces.allow,
+            deniedSkills: binding.config.skills.deny,
+            prefer: binding.config.skills.prefer,
+            defaultMaxSkills: binding.config.routing.max_skills,
+            defaultMaxTokens: binding.config.routing.max_tokens,
+            lockedVersions: new Map(Object.entries(binding.lock.skills).map(([skillId, entry]) => [skillId, entry.version_hash])),
+          },
+        });
+        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
       }
       if (tool === "inspect") {
         const result = toInspectSuccessResult(runInspectTool({
           skill_id: args["skill_id"] as string,
           ...(typeof args["version_hash"] === "string" ? { version_hash: args["version_hash"] } : {}),
         }, context));
-        return structuredWithHostedMetadata(result, snapshot.release.digest);
+        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
       }
       const result = runGetContentTool({
         skill_id: args["skill_id"],
@@ -404,7 +526,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         max_tokens: args["max_tokens"],
         file_path: args["file_path"],
       }, context);
-      return structuredWithHostedMetadata(result, snapshot.release.digest);
+      return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
     } catch (error) {
       if (error instanceof HostedRuntimeError) {
         return errorResult(tool, error.code, error.message);

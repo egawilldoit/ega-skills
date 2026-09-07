@@ -25,9 +25,13 @@ import { resolveSkills, type ResolutionResult } from "@ega-skills/router";
 import {
   discoverConfig,
   parseProjectConfig,
+  readConfigAndLock,
   refreshLock,
   serializeLockfile,
   validateLockfile,
+  verifyRemoteLockPlan,
+  hashProjectLock,
+  hashNormalizedConfig,
   applyUpdatePlan,
   buildHub,
   checkForUpdates,
@@ -326,6 +330,23 @@ export interface LockCommandResult {
   readonly skills: number;
 }
 
+export interface RemoteLockApplyOptions {
+  /** Project directory containing the authoritative config and lock. */
+  readonly project?: string;
+  /** JSON RemoteLockPlan produced by the reviewed remote planning step. */
+  readonly plan: string;
+  /** Explicit human/review approval; false never writes the local lock. */
+  readonly approve?: boolean;
+}
+
+export interface RemoteLockApplyResult {
+  readonly applied: true;
+  readonly path: string;
+  readonly plan_digest: string;
+  readonly target_release_digest: string;
+  readonly skills: number;
+}
+
 /**
  * Rejects symlink/junction lock paths (SPEC-005 §5.1.14 rule 4, same
  * convention as readControlFileText): a lock symlink is NEVER followed for
@@ -485,6 +506,39 @@ export async function runLock(options: LockCommandOptions): Promise<LockCommandR
     created: options.refresh !== true,
     diff: result.diff,
     skills: Object.keys(result.lock.skills).length,
+  };
+}
+
+/** Apply one reviewed remote lock plan to the adjacent local lock only. */
+export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockApplyResult {
+  if (options.approve !== true) {
+    throw new Error("Remote lock plan requires explicit approval (--yes); planning never writes project files.");
+  }
+  const raw = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as unknown;
+  verifyRemoteLockPlan(raw as Parameters<typeof verifyRemoteLockPlan>[0]);
+  const plan = raw as Parameters<typeof verifyRemoteLockPlan>[0];
+  const discovery = discoverConfig(options.project ?? ".");
+  if (discovery.configPath === null) throw new Error("No .egaskills.yaml found — remote lock apply requires a selected config.");
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configHash = hashNormalizedConfig(config);
+  if (configHash !== plan.project_config_digest) {
+    throw new Error(`Remote lock plan config digest ${plan.project_config_digest} does not match local config ${configHash}.`);
+  }
+  const gated = readConfigAndLock(discovery);
+  const existingDigest = gated.lock === null ? null : hashProjectLock(gated.lock);
+  if (existingDigest !== plan.existing_lock_digest) {
+    throw new Error("Remote lock plan existing-lock identity does not match the local lock; re-plan before applying.");
+  }
+  const candidate = validateLockfile(plan.candidate_lock, configHash);
+  const lockFile = join(dirname(discovery.configPath), ".egaskills.lock");
+  refuseSymlinkLock(lockFile);
+  writeLockAtomically(lockFile, serializeLockfile(candidate));
+  return {
+    applied: true,
+    path: lockFile,
+    plan_digest: plan.plan_digest,
+    target_release_digest: plan.target_release_digest,
+    skills: Object.keys(candidate.skills).length,
   };
 }
 
