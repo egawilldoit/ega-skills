@@ -2,10 +2,11 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+Implementation tree tested: `036647d68e30feb87a17fb5f8335b507262f200b`.
 The hosted focused suite and persisted context lifecycle suite pass locally;
-the full regression passes 832 total, 827 passed, 0 failed, 5 classified
-skips. Fresh exact-head CI identities are recorded after this evidence update.
+the full regression passes 835 total, 830 passed, 0 failed, 5 classified
+skips. Exact implementation-tree CI is foundation `34170586093` and hashing
+traversal `34170586088`, both passing on Ubuntu and Windows.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -24,12 +25,11 @@ skips. Fresh exact-head CI identities are recorded after this evidence update.
 | Physical connection limit | BLOCKED / NOT YET PROVEN | Requires the production deployment connection adapter; local in-process accounting is not evidence of physical socket enforcement |
 | Startup verifies release integrity | PASS | snapshot tamper tests for package, SQLite, catalog, FTS, and artifacts |
 | Hosted backup and recovery | BLOCKED / NOT YET PROVEN | The local Hub journal tests prove 1.1 transaction recovery, not hosted stable-pointer/auth/authorization metadata backup, immutable release storage restore, or hosted rollback |
-| Retained-release rollback is tested | PASS | stable pointer tests require a verified same-Hub release in the retained-reference set and reject arbitrary, cross-Hub, and unretained targets |
+| Retained-release rollback is tested locally | PASS locally / BLOCKED hosted | stable pointer tests require a verified same-Hub release in the retained-reference set and reject arbitrary, cross-Hub, and unretained targets; hosted rollback still requires staging evidence |
 | Fresh Codex E2E | BLOCKED | Requires `EGA_CODEX_ACCEPTANCE=1` and a fresh client environment |
 | Fresh OpenCode E2E | BLOCKED | Requires `EGA_OPENCODE_ACCEPTANCE=1` and a fresh client environment |
 
 The local hosted HTTP/MCP integration is PASS. Cloud deployment, OAuth client
 registration, and fresh-client acceptance remain external operations.
-No hosted backup/restore, physical connection, or fresh-client acceptance is
-claimed by this local ledger. Fresh exact-head CI identities are recorded
-after the evidence update.
+No hosted backup/restore, hosted rollback, physical connection, or fresh-client
+acceptance is claimed by this local ledger.

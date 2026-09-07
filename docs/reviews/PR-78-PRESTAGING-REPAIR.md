@@ -2,8 +2,8 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
-Implementation tree verified before this evidence update:
-`47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+Implementation tree verified by the latest repair tests:
+`036647d68e30feb87a17fb5f8335b507262f200b`.
 Branch: `repair/pr77-release-readiness`.
 
 This report records the pre-staging repair wave. It does not claim a hosted
@@ -15,7 +15,7 @@ deployment, a release, or repository-authoritative Contract D/E freezes.
 | --- | --- | --- | --- |
 | B1 exact token artifact authority | FIXED | Forged counts, wrong level, and self-consistent forged release artifacts are rejected; the supplied artifact must equal the freshly derived semantic artifact. | `ec67e4e` |
 | B2 Contract C executable gate | FIXED | Independent mutation fixtures recompute dependent digests and reject invented aliases, wrong token values/levels, and invented normalized search metadata. Contract C is 18/18. | `ec67e4e`, `47508e8` |
-| B3 mutation lock reclamation | FIXED | Ownership-token lock protocol, fail-closed malformed/live owners, stale recovery, and real multiprocess contender tests pass. | `037783c` |
+| B3 mutation lock reclamation | FIXED | Ownership-token lock protocol, fail-closed malformed/live owners, stale recovery, real multiprocess contender tests, and cross-platform child-process completion handling pass. | `037783c`, `651454c`, `04f6c10` |
 | B4 declared owned roots | FIXED | Prospective validation parses and copies the configured owned roots using normal Hub confinement; custom-root and traversal tests pass. | `037783c` |
 | B5 source provenance authority | FIXED | Per-SkillVersion provenance is persisted in the release SQLite snapshot, digest-bound, checked at startup, and used instead of deployment-supplied authority. | `a647025` |
 | B6 eligible selection | FIXED | Authorization and deny filtering produce the eligible view before search/resolve limits, budgets, ranking, and aggregates. | `a647025` |
@@ -23,7 +23,7 @@ deployment, a release, or repository-authoritative Contract D/E freezes.
 | B8 bounded context HTTP | FIXED | Content-Length and unknown-length request bodies are bounded while streaming; remote cleartext bearer transmission is rejected. | `a647025` |
 | B9 durable-before-visible context state | FIXED | Failed publish/revoke persistence leaves visible state unchanged; replacement failure restores the prior durable file. | `a647025` |
 | B10 revocation before delivery | FIXED | Context authority is rechecked immediately before successful delivery; revoked requests return `E_CONTEXT_REVOKED` without fallback. | `a647025` |
-| B11 persisted remote lifecycle | FIXED locally | Authenticated POST/list/GET/restart/runtime/revoke lifecycle uses persisted authority. Real hosted staging acceptance remains external. | `a647025`, `47508e8` |
+| B11 persisted remote lifecycle | FIXED locally | Authenticated POST/list/GET/restart/runtime/revoke lifecycle uses persisted authority, bounded response handling, base-path support, and malformed-store rejection. Real hosted staging acceptance remains external. | `a647025`, `47508e8`, `036647d` |
 | Fingerprint confinement follow-up | FIXED at the portable Node boundary | Discovery uses one bounded, confined reader with symlink, realpath, file-identity, and post-read mutation checks; adversarial static cases pass. A native directory-handle adapter would be required for a stronger OS-specific guarantee. | `90a15c0`, `47508e8` |
 
 ## Adjacent review items
@@ -41,7 +41,7 @@ deployment, a release, or repository-authoritative Contract D/E freezes.
 
 On the implementation tree above:
 
-- Full suite: 832 total, 827 passed, 0 failed, 5 classified skips.
+- Full suite: 835 total, 830 passed, 0 failed, 5 classified skips.
 - Focused exact-head repair suite: 48/48 passed.
 - Contract A: 17/17; B: 11/11; C: 18/18; D: 9/9; E: 6/6.
 - Real upstream lifecycle: PASS. Cursor commit
@@ -54,8 +54,12 @@ On the implementation tree above:
 
 The five skips are two Windows-only containment tests, two fresh hosted-client
 gates, and one real-network upstream gate. The upstream gate was separately
-executed and passed. Fresh exact-head Ubuntu/Windows and hashing CI identities
-are recorded after this evidence commit; historical CI runs are not reused.
+executed and passed. Exact implementation-tree foundation CI
+`34170586093` and hashing traversal CI `34170586088` passed on Ubuntu and
+Windows.
+
+The final context-boundary follow-up also passed the targeted persisted-context
+suite (20/20), the mutation-lock suite (23/23), and the full regression above.
 
 ## Readiness boundary
 

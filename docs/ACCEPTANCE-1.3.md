@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
-The evidence update is a separate documentation commit; fresh exact-head CI
-identities are recorded after that commit.
+Implementation tree tested: `036647d68e30feb87a17fb5f8335b507262f200b`.
+Exact implementation-tree CI: foundation `34170586093`; hashing traversal
+`34170586088` (Ubuntu and Windows).
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -30,5 +30,4 @@ remaining row requires a real staging control plane and fresh client. No
 production deployment or remote mutation was performed.
 Local persisted publication/list/restart/revocation E2E passes. Real hosted
 control-plane and fresh-machine acceptance remain blocked until an isolated
-staging environment exists. Fresh exact-head CI identities are recorded after
-this evidence update.
+staging environment exists.

@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
-The evidence update is a separate documentation commit; final branch SHA and
-fresh CI identities are recorded after that commit.
+Implementation tree tested: `036647d68e30feb87a17fb5f8335b507262f200b`.
+Exact implementation-tree CI: foundation `34170586093`; hashing traversal
+`34170586088` (Ubuntu and Windows).
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -45,8 +45,7 @@ recorded in the latest run was
 `sha256:6f77e29c7a8c28befcb168833d2bde9a920119e7471b5c91353ffef65bab50f`;
 the tracked ref advanced to C and apply still landed B while preserving R1.
 
-Final implementation-tree gate summary: full regression PASS, 832 total, 827
+Final implementation-tree gate summary: full regression PASS, 835 total, 830
 passed, 0 failed, 5 classified skips. Build, typecheck, specs, and Contracts A
-through E passed. Fresh exact-head CI identities are intentionally recorded
-after this evidence update rather than reusing historical runs.
+through E passed. The focused exact-head repair suite passed 48/48.
 No 1.1 release tag or publication was performed.

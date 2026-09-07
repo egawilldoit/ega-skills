@@ -90,3 +90,14 @@ is present. It was not applied to any remote project.
 - Fresh Codex/OpenCode acceptance and a real authenticated staging control
   plane remain external.
 - No production deployment, release tag, Contract F, or 2.0 work is in scope.
+
+## Later pre-staging repair follow-up
+
+The B1–B11 and fingerprint follow-up repair is recorded in
+`docs/reviews/PR-78-PRESTAGING-REPAIR.md`. Its latest implementation code tree
+is `036647d68e30feb87a17fb5f8335b507262f200b`; the full regression is 835 total,
+830 passed, 0 failed, and 5 classified skips. Foundation CI
+`34170586093` and hashing traversal CI `34170586088` pass on Ubuntu and
+Windows. These are current follow-up facts; the F1–F20 table above remains the
+historical audit disposition and its commit references are intentionally
+unchanged.

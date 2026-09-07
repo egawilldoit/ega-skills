@@ -5,24 +5,25 @@ Updated: 2026-09-07
 - Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 - Protected recovery checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92` on `review/full-1.3-checkpoint-b0b413e`.
 - Remediation branch: `repair/pr77-release-readiness`.
-- Local implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
-- This evidence update follows the implementation tree; the final branch SHA is
-  reported by the exact-head verification record and PR metadata.
+- Local implementation tree tested: `036647d68e30feb87a17fb5f8335b507262f200b`.
+- The final documentation commit is evidence-only; the implementation tree
+  above is the exact code tested by the current repair verification.
 - Linear parent: EGA-635, `PR #77 release-readiness remediation`.
 - Linear workstreams: EGA-637 through EGA-643 cover R1 through R8.
 - Contract A, B, and C remain authoritative frozen contracts. Contract D and
   Contract E are explicitly freeze candidates pending dedicated exact-head
   review, CI, merge, and freeze records.
-- Full regression on implementation tree `47508e87dbe873acb65a86ed7bbb44f585ba6d59`:
-  832 total, 827 passed, 0 failed, 5 classified skips. Build, typecheck,
+- Full regression on implementation tree `036647d68e30feb87a17fb5f8335b507262f200b`:
+  835 total, 830 passed, 0 failed, 5 classified skips. Build, typecheck,
   specs, and Contracts A through E passed. The focused exact-head suite
   passed 48/48, including the deterministic ordering and fingerprint checks.
 - Real upstream E2E passed with Cursor commit
   `e8d856f0273b42ebafe0ec3546bd645709e7c1b0` and Matt commit
   `3cca18b368ae95cdbdebbff572ccafa662551015`.
 - CI workflow runs frozen candidate commands for Contracts A through E on both
-  Ubuntu and Windows. Fresh exact-head CI is required after this evidence
-  update; the prior runs are historical and are not reused as final evidence.
+  Ubuntu and Windows. Exact implementation-tree foundation CI
+  `34170586093` and hashing traversal CI `34170586088` passed on both
+  platforms.
 - Exact upstream lifecycle commits: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
   C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest recorded
