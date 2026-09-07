@@ -9,10 +9,27 @@ declare module "node:fs" {
     isDirectory(): boolean;
     isFile(): boolean;
     isSymbolicLink(): boolean;
+    isFIFO(): boolean;
+    isSocket(): boolean;
+    isBlockDevice(): boolean;
+    isCharacterDevice(): boolean;
+  }
+  export interface Dirent {
+    name: string;
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
   }
   export function lstatSync(path: string): Stats;
   export function readFileSync(path: string): Uint8Array;
+  export function readFileSync(path: string, encoding: "utf8"): string;
   export function realpathSync(path: string): string;
+  export function readdirSync(path: string): string[];
+  export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
+  export function writeFileSync(path: string, data: Uint8Array | string): void;
+  export function mkdirSync(path: string, options?: { recursive?: boolean }): string | undefined;
+  export function mkdtempSync(prefix: string): string;
+  export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
 }
 
 declare module "node:util" {
@@ -23,9 +40,30 @@ declare module "node:util" {
 }
 
 declare module "node:path" {
+  export const sep: string;
+  export function basename(path: string): string;
   export function dirname(path: string): string;
   export function join(...paths: string[]): string;
   export function resolve(...paths: string[]): string;
+}
+
+declare module "node:os" {
+  export function tmpdir(): string;
+}
+
+declare module "node:child_process" {
+  export function execFileSync(
+    file: string,
+    args: readonly string[],
+    options: { encoding: "utf8"; stdio?: unknown },
+  ): string;
+  export function execFileSync(file: string, args: readonly string[], options?: { stdio?: unknown }): Uint8Array;
+}
+
+declare module "node:crypto" {
+  export function createHash(algorithm: string): {
+    update(data: Uint8Array): { digest(encoding: string): string };
+  };
 }
 
 declare module "node:process" {
