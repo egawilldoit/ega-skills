@@ -174,9 +174,9 @@ function artifactsFor(build: HubBuildResult): ReleaseArtifacts {
 
 function validateArtifacts(build: HubBuildResult, artifacts: ReleaseArtifacts): void {
   const { aliasMap, searchIndexInput, tokenArtifact } = artifacts;
-  checkAliasMap(aliasMap, build.skills.map((skill) => skill.skillId));
+  checkAliasMap(aliasMap, build);
   checkTokenArtifact(tokenArtifact, Object.fromEntries(build.skills.map((skill) => [skill.skillId, skill.versionHash])));
-  checkSearchIndexInput(searchIndexInput);
+  checkSearchIndexInput(searchIndexInput, build);
 }
 
 /** Emit the semantic HubRelease only after all three release artifacts pass. */
@@ -239,10 +239,16 @@ export function casUpdateStable(current: StablePointer | undefined, candidate: S
   return candidate;
 }
 
-/** Rollback creates another monotonic CAS update to a retained release. */
-export function rollbackStable(current: StablePointer, retainedReleaseDigest: string, expectedCasVersion = current.cas_version): StablePointer {
-  checkDigest(retainedReleaseDigest, "retained release digest", "E_STABLE");
-  return casUpdateStable(current, { cas_version: current.cas_version + 1, hub_id: current.hub_id, stable_release_digest: retainedReleaseDigest }, expectedCasVersion);
+/** Rollback creates another monotonic CAS update to a verified release from
+ * the caller's retained-release store. A digest string is not an authority. */
+export function rollbackStable(current: StablePointer, retainedRelease: HubRelease, expectedCasVersion = current.cas_version): StablePointer {
+  verifyHubRelease(retainedRelease);
+  if (retainedRelease.payload.hub_id !== current.hub_id) fail("E_STABLE", "rollback release belongs to a different Hub");
+  return casUpdateStable(
+    current,
+    { cas_version: current.cas_version + 1, hub_id: current.hub_id, stable_release_digest: retainedRelease.digest },
+    expectedCasVersion,
+  );
 }
 
 /** A release referenced by a lock/context/audit record is never eligible for pruning. */

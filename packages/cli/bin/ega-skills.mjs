@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInspect, runList, runLock, runResolve, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
+import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -20,6 +20,8 @@ function printHelp() {
       "  ega-skills list",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
+      "  ega-skills validate <path> [--json]",
+      "  ega-skills init-skill <name>",
       "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "  ega-skills hub build [<hub-dir>]",
@@ -199,6 +201,34 @@ async function main() {
     return;
   }
 
+  if (command === "validate") {
+    const positional = rest.filter((token) => !token.startsWith("-"));
+    const json = rest.includes("--json");
+    const extra = rest.filter((token) => token !== "--json" && token !== positional[0]);
+    if (positional.length === 0) fail("Missing validate <path>.");
+    if (positional.length > 1 || extra.length > 0) fail(`Unknown command or option: ${extra[0] ?? positional[1]}`);
+    try {
+      const result = await runValidate({ path: positional[0] });
+      if (json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else process.stdout.write(`${result.valid ? "Valid" : "Invalid"}: ${result.checked} skill(s) checked\n`);
+      if (!result.valid) process.exitCode = 1;
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "init-skill") {
+    if (rest.length !== 1 || rest[0].startsWith("-")) fail("Usage: ega-skills init-skill <name>");
+    try {
+      const result = await runInitSkill({ name: rest[0] });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
   if (command === "lock") {
     let refresh = false;
     const positional = [];
@@ -315,7 +345,7 @@ async function main() {
       if (plan === undefined) fail("Missing required --plan <plan.json>.");
       if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
       try {
-        const result = runHubUpdate({ plan, hub: positional[0] ?? "." });
+        const result = await runHubUpdate({ plan, hub: positional[0] ?? "." });
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
