@@ -43,7 +43,7 @@ const SOURCES = [
   },
 ];
 
-test("real Matt and Cursor upstream corpus builds a release", { skip: !enabled }, async () => {
+test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !enabled }, async () => {
   const workspace = mkdtempSync(join(tmpdir(), "ega-real-upstream-"));
   const hubDir = join(workspace, "hub");
   mkdirSync(join(hubDir, "owned", "ega", "real-e2e"), { recursive: true });
@@ -126,9 +126,7 @@ test("real Matt and Cursor upstream corpus builds a release", { skip: !enabled }
     Object.fromEntries(Object.entries(observations).map(([id, value]) => [id, value.commit])),
   );
   process.stdout.write(`real-upstream-observations ${JSON.stringify(observations)}\n`);
-});
-
-test("real upstream A-to-B-to-C lifecycle applies the approved commit", { skip: !enabled }, async () => {
+  {
   // These are immutable commits from the Matt Pocock upstream observed by
   // the release candidate. The local bare mirror controls only the tracked
   // ref, allowing the test to reproduce B -> C after approval without
@@ -231,4 +229,5 @@ test("real upstream A-to-B-to-C lifecycle applies the approved commit", { skip: 
   assert.deepEqual(readFileSync(join(release1.registryHome, "registry.sqlite")), release1FtsBytes);
   assert.equal(approvedPlanDigest, checked.plan.digest);
   process.stdout.write(`real-upstream-lifecycle ${JSON.stringify({ commitA, commitB, commitC, approvedPlanDigest })}\n`);
+  }
 });
