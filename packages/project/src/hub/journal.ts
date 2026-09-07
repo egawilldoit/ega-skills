@@ -13,9 +13,9 @@
 //   .hub-journal.json    this journal
 
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { HubError } from "./errors.js";
-import { COMMIT_RE, isPlainObject } from "./guards.js";
+import { COMMIT_RE, assertSourceId, isPlainObject } from "./guards.js";
 
 export type JournalState = "PREPARED" | "TREE_SWAPPED" | "LOCK_SWAPPED" | "COMMITTED";
 
@@ -35,18 +35,56 @@ export function journalPath(hubDir: string): string {
   return join(hubDir, ".hub-journal.json");
 }
 
-/** Durable atomic file write: temp + fsync + rename. */
-export function writeFileAtomic(path: string, text: string): void {
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, text);
+function syncFile(path: string): void {
   // NOTE (Windows): fsync requires a writable handle — "r" fails EPERM.
-  const fd = openSync(tmp, "r+");
+  const fd = openSync(path, "r+");
   try {
     fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, path);
+}
+
+/** Sync directory metadata where the platform exposes directory fsync. */
+export function syncDirectory(path: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    fsyncSync(fd);
+  } catch (e) {
+    const code = (e as { code?: unknown })?.code;
+    // Windows does not expose POSIX directory handles. File fsync plus the
+    // successful rename remains the strongest supported guarantee there.
+    if (!["EINVAL", "EISDIR", "ENOTSUP", "EOPNOTSUPP", "EPERM"].includes(String(code))) throw e;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+export function writeFileDurable(path: string, data: string | Uint8Array): void {
+  writeFileSync(path, data);
+  syncFile(path);
+  syncDirectory(dirname(path));
+}
+
+export function durableRename(from: string, to: string): void {
+  syncDirectory(dirname(from));
+  renameSync(from, to);
+  syncDirectory(dirname(from));
+  if (dirname(from) !== dirname(to)) syncDirectory(dirname(to));
+}
+
+export function removePathDurable(path: string): void {
+  rmSync(path, { force: true, recursive: true });
+  syncDirectory(dirname(path));
+}
+
+/** Durable atomic file write: temp + fsync + rename + parent-directory sync. */
+export function writeFileAtomic(path: string, text: string): void {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, text);
+  syncFile(tmp);
+  durableRename(tmp, path);
 }
 
 function checkJournalShape(value: unknown): asserts value is HubJournal {
@@ -61,9 +99,7 @@ function checkJournalShape(value: unknown): asserts value is HubJournal {
   if (value["journal_version"] !== 1) {
     throw new HubError("E_JOURNAL_SCHEMA", "journal journal_version must be 1");
   }
-  if (typeof value["source_id"] !== "string" || (value["source_id"] as string).length === 0) {
-    throw new HubError("E_JOURNAL_SCHEMA", "journal source_id must be a non-empty string");
-  }
+  assertSourceId(value["source_id"], "journal source_id", "E_JOURNAL_SCHEMA");
   for (const field of ["expected_old_commit", "target_commit"] as const) {
     if (typeof value[field] !== "string" || !COMMIT_RE.test(value[field] as string)) {
       throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must be 40 lowercase hex`);
@@ -84,6 +120,41 @@ function checkJournalShape(value: unknown): asserts value is HubJournal {
   }
 }
 
+interface JournalPaths {
+  staging: string;
+  backup: string;
+  backupTree: string;
+  backupLock: string;
+  liveTree: string;
+  liveLock: string;
+}
+
+function confinedJournalPath(hubDir: string, value: string, field: string): string {
+  if (value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value) || value.split("/").includes("..")) {
+    throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must remain beneath the Hub directory`);
+  }
+  const root = resolve(hubDir);
+  const candidate = resolve(root, value);
+  if (candidate === root || !candidate.startsWith(`${root}${sep}`)) {
+    throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must remain beneath the Hub directory`);
+  }
+  return candidate;
+}
+
+function journalPaths(hubDir: string, journal: HubJournal): JournalPaths {
+  const root = resolve(hubDir);
+  const staging = confinedJournalPath(root, journal.staging, "staging");
+  const backup = confinedJournalPath(root, journal.backup, "backup");
+  return {
+    backup,
+    backupLock: join(backup, "sources.lock.yaml"),
+    backupTree: join(backup, journal.source_id),
+    liveLock: join(root, "sources.lock.yaml"),
+    liveTree: join(root, "trees", journal.source_id),
+    staging,
+  };
+}
+
 /** Null when no journal exists. Corrupt journals fail closed. */
 export function readJournal(hubDir: string): HubJournal | null {
   const path = journalPath(hubDir);
@@ -95,21 +166,23 @@ export function readJournal(hubDir: string): HubJournal | null {
     throw new HubError("E_JOURNAL_SCHEMA", "journal is not valid JSON");
   }
   checkJournalShape(parsed);
+  journalPaths(hubDir, parsed);
   return parsed;
 }
 
 export function writeJournal(hubDir: string, journal: HubJournal): void {
   checkJournalShape(journal as unknown);
+  journalPaths(hubDir, journal);
   mkdirSync(hubDir, { recursive: true });
   writeFileAtomic(journalPath(hubDir), JSON.stringify(journal, null, 2));
 }
 
 export function clearJournal(hubDir: string): void {
-  rmSync(journalPath(hubDir), { force: true });
+  removePathDurable(journalPath(hubDir));
 }
 
 function removeIfPresent(path: string): void {
-  if (existsSync(path)) rmSync(path, { force: true, recursive: true });
+  if (existsSync(path)) removePathDurable(path);
 }
 
 /**
@@ -120,25 +193,22 @@ function removeIfPresent(path: string): void {
 export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
   const journal = readJournal(hubDir);
   if (!journal) return { recovered: false };
+  const paths = journalPaths(hubDir, journal);
   if (journal.state === "COMMITTED") {
-    removeIfPresent(join(hubDir, journal.staging));
-    removeIfPresent(join(hubDir, journal.backup));
+    removeIfPresent(paths.staging);
+    removeIfPresent(paths.backup);
     clearJournal(hubDir);
     return { recovered: true };
   }
-  const backupTree = join(hubDir, journal.backup, journal.source_id);
-  const backupLock = join(hubDir, journal.backup, "sources.lock.yaml");
-  const liveTree = join(hubDir, "trees", journal.source_id);
-  const liveLock = join(hubDir, "sources.lock.yaml");
-  if (existsSync(backupTree) || existsSync(backupLock)) {
-    if (existsSync(liveTree)) rmSync(liveTree, { force: true, recursive: true });
-    if (existsSync(backupTree)) renameSync(backupTree, liveTree);
-    if (existsSync(backupLock)) {
-      writeFileAtomic(liveLock, readFileSync(backupLock, "utf8"));
+  if (existsSync(paths.backupTree) || existsSync(paths.backupLock)) {
+    if (existsSync(paths.liveTree)) removePathDurable(paths.liveTree);
+    if (existsSync(paths.backupTree)) durableRename(paths.backupTree, paths.liveTree);
+    if (existsSync(paths.backupLock)) {
+      writeFileAtomic(paths.liveLock, readFileSync(paths.backupLock, "utf8"));
     }
   }
-  removeIfPresent(join(hubDir, journal.staging));
-  removeIfPresent(join(hubDir, journal.backup));
+  removeIfPresent(paths.staging);
+  removeIfPresent(paths.backup);
   clearJournal(hubDir);
   return { recovered: true };
 }
@@ -157,7 +227,8 @@ export function requireCleanJournal(hubDir: string): void {
       `incomplete journal (${journal.state}) requires recovery before this command`,
     );
   }
-  removeIfPresent(join(hubDir, journal.staging));
-  removeIfPresent(join(hubDir, journal.backup));
+  const paths = journalPaths(hubDir, journal);
+  removeIfPresent(paths.staging);
+  removeIfPresent(paths.backup);
   clearJournal(hubDir);
 }

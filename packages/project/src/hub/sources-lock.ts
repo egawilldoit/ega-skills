@@ -1,7 +1,7 @@
 // 1.1[B] sources.lock.yaml runtime (EGA-624). Contract A section 5.
 
 import { HubError } from "./errors.js";
-import { COMMIT_RE, SHA256_RE, isPlainObject, parseYamlMapping } from "./guards.js";
+import { COMMIT_RE, SHA256_RE, assertSourceId, isPlainObject, parseYamlMapping } from "./guards.js";
 import { sourceConfigDigest, type SourceConfig, type SourcesConfig } from "./sources-config.js";
 
 export interface LockedSelection {
@@ -60,6 +60,7 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
   }
   const sources: Record<string, SourceLockRecord> = {};
   for (const [name, entry] of Object.entries(raw)) {
+    assertSourceId(name, `sources.lock.yaml source ${name}`, "E_LOCK_MISMATCH");
     if (!isPlainObject(entry)) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} must be a mapping`);
     }
