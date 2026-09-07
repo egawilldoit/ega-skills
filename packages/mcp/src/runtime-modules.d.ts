@@ -15,8 +15,22 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
   }
   export function existsSync(path: string): boolean;
+  export function readFileSync(path: string): Uint8Array;
   export function lstatSync(path: string): Stats;
   export function realpathSync(path: string): string;
+}
+
+declare module "node:crypto" {
+  export interface KeyObject {}
+  export interface Verify {
+    update(data: string, inputEncoding?: string): Verify;
+    verify(key: KeyObject, signature: Uint8Array): boolean;
+  }
+  export function createPublicKey(options: {
+    key: Record<string, unknown>;
+    format: "jwk";
+  }): KeyObject;
+  export function createVerify(algorithm: string): Verify;
 }
 
 declare module "node:path" {
@@ -57,6 +71,7 @@ declare module "node:process" {
 declare module "better-sqlite3" {
   export interface Statement {
     get<T = unknown>(...params: unknown[]): T;
+    all<T = unknown>(...params: unknown[]): T[];
   }
   export interface DatabaseConnection {
     exec(sql: string): void;

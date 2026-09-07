@@ -17,6 +17,14 @@ declare module "node:fs" {
   export function realpathSync(path: string): string;
 }
 
+declare module "node:child_process" {
+  export function execFileSync(
+    file: string,
+    args: readonly string[],
+    options: { encoding: "utf8"; stdio?: unknown },
+  ): string;
+}
+
 declare module "node:path" {
   export const sep: "\\" | "/";
   export function dirname(path: string): string;

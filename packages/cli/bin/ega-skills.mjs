@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInspect, runList, runLock, runResolve } from "../dist/index.js";
+import { runImport, runInit, runInspect, runList, runLock, runRemoteLockApply, runRemoteLockPlan, runContextPublish, runResolve, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -21,7 +21,13 @@ function printHelp() {
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
       "  ega-skills lock [<project-dir>] [--refresh]",
+      "  ega-skills remote-lock plan --release <release.json> --workspace-id <id> --project-id <id> [--output <plan.json>]",
+      "  ega-skills remote-lock apply --plan <plan.json> --yes [--project <project-dir>]",
+      "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
+      "  ega-skills hub build [<hub-dir>]",
+      "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
       "",
       "Options:",
       "  --help     Show this help.",
@@ -68,6 +74,28 @@ function readFlag(rest, name) {
     }
   }
   return undefined;
+}
+
+function readHubPositionals(rest, valueFlags) {
+  const positional = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const token = rest[i];
+    if (token.startsWith("--")) {
+      const equals = token.indexOf("=");
+      const name = token.slice(2, equals === -1 ? undefined : equals);
+      if (!valueFlags.has(name)) fail(`Unknown command or option: ${token}`);
+      if (equals === -1) {
+        const value = rest[i + 1];
+        if (typeof value !== "string" || value.startsWith("--")) {
+          fail(`Missing value for --${name}.`);
+        }
+        i += 1;
+      }
+      continue;
+    }
+    positional.push(token);
+  }
+  return positional;
 }
 
 function readRepeatableFlag(rest, name) {
@@ -253,6 +281,152 @@ async function main() {
       fail(error instanceof Error ? error.message : String(error));
     }
     return;
+  }
+
+  if (command === "remote-lock") {
+    const [subcommand, ...remoteRest] = rest;
+    if (subcommand !== "apply" && subcommand !== "plan") fail(`Unknown remote-lock command: ${subcommand ?? ""}`);
+    if (subcommand === "plan") {
+      let release;
+      let workspaceId;
+      let projectId;
+      let project = ".";
+      let repositoryRoot;
+      let output;
+      let withoutFingerprint = false;
+      for (let i = 0; i < remoteRest.length; i += 1) {
+        const token = remoteRest[i];
+        if (token === "--without-fingerprint") {
+          withoutFingerprint = true;
+        } else if (token === "--release" || token === "--workspace-id" || token === "--project-id" || token === "--project" || token === "--repository-root" || token === "--output") {
+          const value = remoteRest[++i];
+          if (typeof value !== "string" || value.startsWith("--")) fail(`Missing value for ${token}.`);
+          if (token === "--release") release = value;
+          else if (token === "--workspace-id") workspaceId = value;
+          else if (token === "--project-id") projectId = value;
+          else if (token === "--project") project = value;
+          else if (token === "--repository-root") repositoryRoot = value;
+          else output = value;
+        } else {
+          fail(`Unknown command or option: ${token}`);
+        }
+      }
+      if (release === undefined || workspaceId === undefined || projectId === undefined) fail("remote-lock plan requires --release, --workspace-id, and --project-id.");
+      try {
+        const result = runRemoteLockPlan({ release, workspaceId, projectId, project, repositoryRoot, output, withoutFingerprint });
+        process.stdout.write(`${JSON.stringify(result.plan, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    let plan;
+    let project = ".";
+    let approve = false;
+    for (let i = 0; i < remoteRest.length; i += 1) {
+      const token = remoteRest[i];
+      if (token === "--yes") {
+        approve = true;
+      } else if (token === "--plan") {
+        plan = remoteRest[++i];
+        if (typeof plan !== "string" || plan.startsWith("--")) fail("Missing value for --plan <plan.json>.");
+      } else if (token === "--project") {
+        project = remoteRest[++i];
+        if (typeof project !== "string" || project.startsWith("--")) fail("Missing value for --project <project-dir>.");
+      } else {
+        fail(`Unknown command or option: ${token}`);
+      }
+    }
+    if (plan === undefined) fail("Missing required --plan <plan.json>.");
+    try {
+      const result = runRemoteLockApply({ project, plan, approve });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "context") {
+    const [subcommand, ...contextRest] = rest;
+    if (subcommand !== "publish") fail(`Unknown context command: ${subcommand ?? ""}`);
+    let release;
+    let workspaceId;
+    let projectId;
+    let contextId;
+    let project = ".";
+    let repositoryRoot;
+    let withoutFingerprint = false;
+    for (let i = 0; i < contextRest.length; i += 1) {
+      const token = contextRest[i];
+      if (token === "--without-fingerprint") {
+        withoutFingerprint = true;
+      } else if (token === "--release" || token === "--workspace-id" || token === "--project-id" || token === "--context-id" || token === "--project" || token === "--repository-root") {
+        const value = contextRest[++i];
+        if (typeof value !== "string" || value.startsWith("--")) fail(`Missing value for ${token}.`);
+        if (token === "--release") release = value;
+        else if (token === "--workspace-id") workspaceId = value;
+        else if (token === "--project-id") projectId = value;
+        else if (token === "--context-id") contextId = value;
+        else if (token === "--project") project = value;
+        else repositoryRoot = value;
+      } else {
+        fail(`Unknown command or option: ${token}`);
+      }
+    }
+    if (release === undefined || workspaceId === undefined || projectId === undefined) fail("context publish requires --release, --workspace-id, and --project-id.");
+    try {
+      const result = runContextPublish({ release, workspaceId, projectId, contextId, project, repositoryRoot, withoutFingerprint });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "hub") {
+    const [subcommand, ...hubRest] = rest;
+    if (subcommand === "build") {
+      if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {
+        fail(`Unknown command or option: ${hubRest[1] ?? hubRest[0]}`);
+      }
+      try {
+        const result = await runHubBuild({ hub: hubRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "check") {
+      const output = readFlag(hubRest, "output");
+      const positional = readHubPositionals(hubRest, new Set(["output"]));
+      const [sourceId, hub] = positional;
+      if (sourceId === undefined) fail("Missing hub check <source-id>.");
+      if (output === undefined) fail("Missing required --output <plan.json>.");
+      if (positional.length > 2) fail(`Unknown command or option: ${positional[2]}`);
+      try {
+        const result = await runHubCheck({ sourceId, output, hub: hub ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "update") {
+      const plan = readFlag(hubRest, "plan");
+      const positional = readHubPositionals(hubRest, new Set(["plan"]));
+      if (plan === undefined) fail("Missing required --plan <plan.json>.");
+      if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+      try {
+        const result = runHubUpdate({ plan, hub: positional[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    fail(`Unknown hub command: ${subcommand ?? ""}`);
   }
 
   fail(`Unknown command or option: ${command ?? ""}`);

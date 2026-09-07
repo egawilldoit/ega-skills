@@ -1,0 +1,125 @@
+{
+  "contract_name": "Remote Projects Contract",
+  "contract_version": 1,
+  "identity": {
+    "digest_algorithm": "sha256",
+    "canonical_encoding": "RFC8785-JCS",
+    "id_format": "opaque-nonempty-utf8",
+    "ids": ["workspace_id", "project_id", "context_id"],
+    "digest_prefix": "sha256:"
+  },
+  "local_authority": {
+    "config_file": ".egaskills.yaml",
+    "lock_file": ".egaskills.lock",
+    "remote_must_not_mutate_files": true,
+    "local_refresh_command_unchanged": "ega-skills lock --refresh",
+    "remote_apply_is_explicit": true
+  },
+  "context": {
+    "artifact_fields": [
+      "workspace_id",
+      "project_id",
+      "config_digest",
+      "lock_digest",
+      "release_digest",
+      "fingerprint_digest",
+      "context_contract_version"
+    ],
+    "digest_field": "context_digest",
+    "immutable": true,
+    "single_release_binding": true,
+    "fingerprint_nullable": true,
+    "contract_version": 1
+  },
+  "lock": {
+    "config_digest_source": "normalized_project_config_jcs",
+    "lock_digest_source": "validated_normalized_lock_jcs",
+    "target_release_required": true,
+    "all_versions_must_be_in_target_release": true,
+    "cross_release_behavior": "reject",
+    "implicit_union_behavior": "reject"
+  },
+  "remote_lock_plan": {
+    "artifact_fields": [
+      "workspace_id",
+      "project_id",
+      "project_config_digest",
+      "existing_lock_digest",
+      "target_release_digest",
+      "candidate_lock",
+      "added_entries",
+      "removed_entries",
+      "changed_entries",
+      "fingerprint_digest"
+    ],
+    "digest_field": "plan_digest",
+    "immutable": true,
+    "review_required_before_apply": true,
+    "apply_writes_only_local_lock": true
+  },
+  "fingerprint": {
+    "fields": [
+      "package_root",
+      "workspace_root",
+      "workspace_ambiguous",
+      "languages",
+      "platforms",
+      "frameworks",
+      "evidence",
+      "revision",
+      "relevant_input_digest"
+    ],
+    "roots": "repository-relative-posix-or-null",
+    "evidence_path": "repository-relative-posix",
+    "evidence_kind": "package-manifest-or-tooling-marker",
+    "arrays": "sorted-unique",
+    "revision_modes": ["git-clean", "git-dirty", "unversioned"],
+    "dirty_requires_base_commit": true,
+    "revision_digest_required": true,
+    "source_upload": "never",
+    "absolute_paths": "reject"
+  },
+  "selection": {
+    "request_field": "context_id",
+    "exact_binding": ["config_digest", "lock_digest", "release_digest", "fingerprint_digest"],
+    "missing_behavior": "E_CONTEXT_NOT_FOUND",
+    "revoked_behavior": "E_CONTEXT_REVOKED",
+    "release_mismatch_behavior": "E_CONTEXT_RELEASE_MISMATCH",
+    "failure_fallback": "none",
+    "no_silent_substitution": true
+  },
+  "lifecycle": {
+    "publish": "immutable-create",
+    "retain_old_contexts": true,
+    "revoke": "mark-context-revoked-without-mutation",
+    "revoked_identity_retained": true,
+    "republication": "new-context-id"
+  },
+  "cache": {
+    "key_fields": [
+      "workspace_id",
+      "project_id",
+      "context_id",
+      "config_digest",
+      "lock_digest",
+      "release_digest",
+      "fingerprint_digest",
+      "router_contract",
+      "search_contract",
+      "task_or_query",
+      "explicit_skill_selection",
+      "budget_overrides"
+    ],
+    "authorization_recheck_before_delivery": true,
+    "revocation_recheck_before_delivery": true
+  },
+  "errors": {
+    "invalid_context": "E_CONTEXT_INVALID",
+    "context_missing": "E_CONTEXT_NOT_FOUND",
+    "context_revoked": "E_CONTEXT_REVOKED",
+    "context_release_mismatch": "E_CONTEXT_RELEASE_MISMATCH",
+    "lock_release_mismatch": "E_LOCK_RELEASE_MISMATCH",
+    "plan_review_required": "E_REMOTE_LOCK_REVIEW_REQUIRED",
+    "fingerprint_invalid": "E_FINGERPRINT_INVALID"
+  }
+}

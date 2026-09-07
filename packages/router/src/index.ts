@@ -14,6 +14,20 @@ export { RouterError } from "./errors.js";
 export type { RouterErrorCode } from "./errors.js";
 export { resolveProjectFingerprint } from "./workspace.js";
 export {
+  createRemoteProjectFingerprint,
+  detectRemoteFingerprintRevision,
+  hashRemoteFingerprint,
+  verifyRemoteProjectFingerprint,
+  RemoteFingerprintError,
+} from "./remote-fingerprint.js";
+export type {
+  CreateRemoteFingerprintInput,
+  RelevantFingerprintInput,
+  RemoteFingerprintEvidence,
+  RemoteFingerprintRevision,
+  RemoteProjectFingerprint,
+} from "./remote-fingerprint.js";
+export {
   isContiguousSubsequence,
   matchesStrongAntiTrigger,
   normalizeIdentifierPhrase,

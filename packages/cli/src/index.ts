@@ -1,4 +1,16 @@
-export { runImport, runInit, runInspect, runList, runLock } from "./commands.js";
+export {
+  runImport,
+  runInit,
+  runInspect,
+  runList,
+  runLock,
+  runRemoteLockApply,
+  runRemoteLockPlan,
+  runContextPublish,
+  runHubBuild,
+  runHubCheck,
+  runHubUpdate,
+} from "./commands.js";
 export { runResolve } from "./commands.js";
 export type {
   ImportSummary,
@@ -11,4 +23,13 @@ export type {
   ListEntry,
   LockCommandOptions,
   LockCommandResult,
+  RemoteLockApplyOptions,
+  RemoteLockApplyResult,
+  RemoteLockPlanOptions,
+  RemoteLockPlanResult,
+  ContextPublishOptions,
+  ContextPublishResult,
+  HubCommandOptions,
+  HubCheckCommandOptions,
+  HubUpdateCommandOptions,
 } from "./commands.js";

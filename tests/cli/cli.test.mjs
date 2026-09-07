@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -37,7 +38,13 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills inspect <skill-id>",
     "  ega-skills init [<project-dir>] [--force]",
     "  ega-skills lock [<project-dir>] [--refresh]",
+    "  ega-skills remote-lock plan --release <release.json> --workspace-id <id> --project-id <id> [--output <plan.json>]",
+    "  ega-skills remote-lock apply --plan <plan.json> --yes [--project <project-dir>]",
+    "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>]",
     "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
+    "  ega-skills hub build [<hub-dir>]",
+    "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+    "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
     "",
     "Options:",
     "  --help     Show this help.",
@@ -65,4 +72,26 @@ test("unknown commands fail clearly on stderr with a nonzero exit", () => {
 
 test("the package bin wiring points at the subprocess entrypoint under test", () => {
   assert.equal(cliPackage.bin?.["ega-skills"], "./bin/ega-skills.mjs");
+});
+
+test("hub build is available through the real CLI entrypoint", () => {
+  const hub = mkdtempSync(join(tmpdir(), "ega-cli-hub-"));
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: cli\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const result = runCli("hub", "build", hub);
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout).skills, []);
+  assert.equal(result.stderr, "");
+});
+
+test("hub flag values are not mistaken for positional hub paths", () => {
+  const check = runCli("hub", "check", "--output", "plan.json");
+  assert.equal(check.status, 1);
+  assert.match(check.stderr, /^Missing hub check <source-id>\./);
+
+  const update = runCli("hub", "update", "--plan", "plan.json");
+  assert.equal(update.status, 1);
+  assert.match(update.stderr, /^ENOENT: no such file or directory/);
 });

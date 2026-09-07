@@ -25,6 +25,7 @@ import type { CallToolResult, StandardSchemaWithJSON } from "@modelcontextprotoc
 
 import {
   resolveSkills,
+  type ResolvePolicyInput,
   type ResolutionResult,
 } from "@ega-skills/router";
 
@@ -51,6 +52,8 @@ export interface ResolveToolArgs {
 
 export interface ResolveToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Hosted callers may supply an already-published immutable policy. */
+  readonly policy?: ResolvePolicyInput;
 }
 
 function inputInvalid(message: string): never {
@@ -265,6 +268,7 @@ export async function runResolveTool(
             },
           }
         : {}),
+      ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
       env,
     });
   } catch (error) {

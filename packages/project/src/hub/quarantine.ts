@@ -61,7 +61,14 @@ function checkSpecial(abs: string, rel: string): void {
   }
 }
 
-function copyTree(srcDir: string, relBase: string, destDir: string, scope: ManifestScope, out: Collector): void {
+function copyTree(
+  srcDir: string,
+  relBase: string,
+  destDir: string,
+  scope: ManifestScope,
+  out: Collector,
+  seenFiles: Set<string>,
+): void {
   for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
     const abs = join(srcDir, entry.name);
     const rel = relBase.length > 0 ? `${relBase}/${entry.name}` : entry.name;
@@ -71,8 +78,12 @@ function copyTree(srcDir: string, relBase: string, destDir: string, scope: Manif
     checkSpecial(abs, rel);
     if (entry.isDirectory()) {
       mkdirSync(join(destDir, ...rel.split("/")), { recursive: true });
-      copyTree(abs, rel, destDir, scope, out);
+      copyTree(abs, rel, destDir, scope, out, seenFiles);
     } else if (entry.isFile()) {
+      // Contract A uses canonical set-union semantics for selected roots and
+      // provenance. Overlapping declarations must produce one manifest entry
+      // so extraction and apply-time tree digests cannot disagree.
+      if (seenFiles.has(rel)) continue;
       const bytes = readFileSync(abs);
       if (bytes.length > QUARANTINE_MAX_FILE_BYTES) {
         throw new HubError("E_EXTRACTION_POLICY", `file exceeds quarantine cap: ${rel}`);
@@ -84,6 +95,7 @@ function copyTree(srcDir: string, relBase: string, destDir: string, scope: Manif
       }
       writeFileSync(join(destDir, ...rel.split("/")), bytes);
       out.manifest.push({ blobSha256: blobDigest(bytes), kind: "file", path: rel, scope });
+      seenFiles.add(rel);
     } else {
       throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in upstream tree: ${rel}`);
     }
@@ -104,6 +116,7 @@ export function extractSelectedRoots(
 ): ExtractedTree {
   const base = resolve(repoDir);
   const out: Collector = { bytes: 0, files: 0, manifest: [] };
+  const seenFiles = new Set<string>();
   const admit = (rel: string, scope: ManifestScope): void => {
     assertRelativePosix(rel, "quarantine path");
     const abs = resolve(base, rel);
@@ -121,8 +134,9 @@ export function extractSelectedRoots(
     }
     if (st.isDirectory()) {
       mkdirSync(join(destDir, ...rel.split("/")), { recursive: true });
-      copyTree(abs, rel, destDir, scope, out);
+      copyTree(abs, rel, destDir, scope, out, seenFiles);
     } else if (st.isFile()) {
+      if (seenFiles.has(rel)) return;
       checkSpecial(abs, rel);
       const bytes = readFileSync(abs);
       if (bytes.length > QUARANTINE_MAX_FILE_BYTES) {
@@ -138,6 +152,7 @@ export function extractSelectedRoots(
       if (parentParts.length > 0) mkdirSync(join(destDir, ...parentParts), { recursive: true });
       writeFileSync(join(destDir, ...rel.split("/")), bytes);
       out.manifest.push({ blobSha256: blobDigest(bytes), kind: "file", path: rel, scope });
+      seenFiles.add(rel);
     } else {
       throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in upstream tree: ${rel}`);
     }
@@ -147,6 +162,43 @@ export function extractSelectedRoots(
   out.manifest.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const selected = out.manifest.filter((entry) => entry.scope === "selected");
   return { manifest: out.manifest, snapshotDigest: digestEntries(out.manifest), treeDigest: digestEntries(selected) };
+}
+
+/**
+ * Digest an already-extracted tree (e.g. apply-time stage verification)
+ * without copying: entries under `roots` are selected, the rest provenance.
+ */
+export function digestStagedTree(stageDir: string, roots: readonly string[]): Omit<ExtractedTree, "manifest"> & { manifest: TreeManifestEntry[] } {
+  const base = resolve(stageDir);
+  const manifest: TreeManifestEntry[] = [];
+  const under = (rel: string): boolean => roots.some((root) => rel === root || rel.startsWith(`${root}/`));
+  const walk = (abs: string, rel: string): void => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const childAbs = join(abs, entry.name);
+      const childRel = rel.length > 0 ? `${rel}/${entry.name}` : entry.name;
+      if (entry.name === ".git" || entry.name === ".gitmodules") {
+        throw new HubError("E_EXTRACTION_POLICY", `forbidden entry in staged tree: ${childRel}`);
+      }
+      checkSpecial(childAbs, childRel);
+      if (entry.isDirectory()) {
+        walk(childAbs, childRel);
+      } else if (entry.isFile()) {
+        const bytes = readFileSync(childAbs);
+        manifest.push({
+          blobSha256: blobDigest(bytes),
+          kind: "file",
+          path: childRel,
+          scope: under(childRel) ? "selected" : "provenance",
+        });
+      } else {
+        throw new HubError("E_EXTRACTION_POLICY", `non-regular file in staged tree: ${childRel}`);
+      }
+    }
+  };
+  walk(base, "");
+  manifest.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const selected = manifest.filter((entry) => entry.scope === "selected");
+  return { manifest, snapshotDigest: digestEntries(manifest), treeDigest: digestEntries(selected) };
 }
 
 /**
