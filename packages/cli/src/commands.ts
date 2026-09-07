@@ -6,8 +6,9 @@
 // sync/approve surface exists in V1. init (EGA-583) writes the frozen
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
-import { existsSync, lstatSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   RegistryError,
@@ -27,12 +28,105 @@ import {
   refreshLock,
   serializeLockfile,
   validateLockfile,
+  applyUpdatePlan,
+  buildHub,
+  checkForUpdates,
+  extractSelectedRoots,
+  fetchRefTip,
+  parseSourcesLockYaml,
+  parseSourcesYaml,
+  verifySourcesLock,
   type ProjectLockV1,
   type RefreshLockDiff,
+  type UpdatePlanDocument,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
 
 export type { ImportSummary };
+
+export interface HubCommandOptions {
+  readonly hub?: string;
+}
+
+export interface HubCheckCommandOptions extends HubCommandOptions {
+  readonly sourceId: string;
+  readonly output?: string;
+}
+
+export interface HubUpdateCommandOptions extends HubCommandOptions {
+  readonly plan: string;
+}
+
+function hubFile(hubDir: string, name: string): string {
+  return join(hubDir, name);
+}
+
+function readHubContracts(hub: string) {
+  const hubDir = resolve(hub);
+  const config = parseSourcesYaml(readFileSync(hubFile(hubDir, "sources.yaml"), "utf8"));
+  const lock = parseSourcesLockYaml(readFileSync(hubFile(hubDir, "sources.lock.yaml"), "utf8"));
+  verifySourcesLock(config, lock);
+  return { config, hubDir, lock };
+}
+
+/** Run the complete Contract C build through the public CLI API. */
+export async function runHubBuild(options: HubCommandOptions = {}) {
+  return buildHub(resolve(options.hub ?? "."));
+}
+
+/** Read-only Contract B check. The existing Hub build supplies the adopted
+ * SkillVersion map without allowing ambient developer registry history in. */
+export async function runHubCheck(options: HubCheckCommandOptions) {
+  const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
+  const source = config.sources[options.sourceId];
+  const adopted = lock.sources[options.sourceId];
+  if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
+  const build = await buildHub(hubDir);
+  const prefix = `${source.namespace}/`;
+  const versions: Record<string, string> = {};
+  for (const skill of build.skills) {
+    if (skill.skillId.startsWith(prefix)) versions[skill.skillId] = skill.versionHash;
+  }
+  const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
+  try {
+    const result = await checkForUpdates({
+      adopted: {
+        commit: adopted.resolved_commit,
+        snapshotDigest: adopted.vendored_snapshot_digest,
+        treeDigest: adopted.selected_skill_tree_digest,
+        versions,
+      },
+      config: source,
+      sourceId: options.sourceId,
+      workDir,
+    });
+    if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(result, null, 2)}\n`);
+    return result;
+  } finally {
+    rmSync(workDir, { force: true, recursive: true });
+  }
+}
+
+/** Exact-commit Contract B apply. The target is fetched from the approved
+ * plan and never re-resolved from the moving source ref. */
+export function runHubUpdate(options: HubUpdateCommandOptions) {
+  const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as UpdatePlanDocument;
+  const source = config.sources[plan.payload?.source_id];
+  const adopted = lock.sources[plan.payload?.source_id];
+  if (!source || !adopted) throw new Error(`Unknown adopted Hub source in plan: ${plan.payload?.source_id ?? ""}`);
+  const workspace = mkdtempSync(join(tmpdir(), "ega-cli-hub-update-"));
+  const fetched = join(workspace, "fetched");
+  const stage = join(workspace, "stage");
+  mkdirSync(stage, { recursive: true });
+  try {
+    fetchRefTip(source.repository, source.ref, plan.payload.target_commit, fetched);
+    extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
+    return applyUpdatePlan({ hubDir, plan, stageDir: stage });
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
+}
 
 export interface ResolveCommandOptions {
   readonly project: string;
