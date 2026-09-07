@@ -68,6 +68,17 @@ function spawnLockContender(hubDir, resultPath, releasePath) {
   });
 }
 
+async function exitedProcessPid() {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  const pid = child.pid;
+  assert.ok(pid);
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  return pid;
+}
+
 function skill(name, body) {
   return `---\nname: ${name}\ndescription: ${name} skill for adoption tests.\n---\n\n${body}\n`;
 }
@@ -349,16 +360,7 @@ test("apply recovers a journal when the previous mutation lock owner is dead", a
   const shaA = makeFixtureRepoShaA(repo);
   const hub = await setupHubAtA(repo, shaA);
   const { plan, stageDir } = await freshPlanAndStage(repo, hub);
-  let stalePid = process.pid + 1000000;
-  while (true) {
-    try {
-      process.kill(stalePid, 0);
-      stalePid += 1;
-    } catch (error) {
-      if (error?.code === "ESRCH") break;
-      throw error;
-    }
-  }
+  const stalePid = await exitedProcessPid();
   writeFileSync(join(hub.hubDir, ".hub.lock"), `${stalePid}\n`);
   writeJournal(hub.hubDir, {
     backup: ".backup",
@@ -380,16 +382,7 @@ test("apply recovers a dead owner from the current directory lock protocol", asy
   const shaA = makeFixtureRepoShaA(repo);
   const hub = await setupHubAtA(repo, shaA);
   const { plan, stageDir } = await freshPlanAndStage(repo, hub);
-  let stalePid = process.pid + 1000000;
-  while (true) {
-    try {
-      process.kill(stalePid, 0);
-      stalePid += 1;
-    } catch (error) {
-      if (error?.code === "ESRCH") break;
-      throw error;
-    }
-  }
+  const stalePid = await exitedProcessPid();
   mkdirSync(join(hub.hubDir, ".hub.lock"));
   writeFileSync(join(hub.hubDir, ".hub.lock", `owner.${"d".repeat(64)}`), JSON.stringify({ pid: stalePid, token: "d".repeat(64) }));
   writeJournal(hub.hubDir, {
@@ -528,16 +521,7 @@ test("two real stale-lock reclaimers cannot both acquire mutation authority", as
   const { dir: repo } = makeFixtureRepo();
   const shaA = makeFixtureRepoShaA(repo);
   const hub = await setupHubAtA(repo, shaA);
-  let stalePid = process.pid + 1000000;
-  while (true) {
-    try {
-      process.kill(stalePid, 0);
-      stalePid += 1;
-    } catch (error) {
-      if (error?.code === "ESRCH") break;
-      throw error;
-    }
-  }
+  const stalePid = await exitedProcessPid();
   writeFileSync(join(hub.hubDir, ".hub.lock"), `${stalePid}\n`);
   writeJournal(hub.hubDir, {
     backup: ".backup",
