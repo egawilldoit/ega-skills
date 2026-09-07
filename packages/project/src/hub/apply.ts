@@ -16,7 +16,6 @@ import { HubError } from "./errors.js";
 import { COMMIT_RE, SHA256_RE, isPlainObject } from "./guards.js";
 import {
   clearJournal,
-  journalPath,
   readJournal,
   recoverIfNeeded,
   requireCleanJournal,
@@ -36,7 +35,16 @@ function lockPath(hubDir: string): string {
   return join(hubDir, ".hub.lock");
 }
 
-/** Exclusive Hub mutation lock (create-exclusive; held locks fail closed). */
+/** Exclusive Hub mutation lock (create-exclusive; held locks fail closed).
+ *
+ *  Crash-kill escape hatch (deliberate, documented): this lock is a
+ *  best-effort mutual-exclusion aid, NOT the recovery authority — the journal
+ *  is. A kill -9 between acquire and release leaves `.hub.lock` behind while
+ *  the journal records exactly how far the swap went. Recovery: confirm no
+ *  live Hub process holds the directory, run recovery (which restores exact
+ *  state from backup), then remove the stale `.hub.lock`. Never remove the
+ *  lock while another process may be mutating: two live mutators corrupt.
+ */
 export function acquireHubLock(hubDir: string): HubLock {
   mkdirSync(hubDir, { recursive: true });
   let fd: number;
@@ -104,6 +112,7 @@ interface VerifiedPlan {
   newSnapshotDigest: string;
   expectedCommit: string;
   expectedTreeDigest: string;
+  sourceConfigDigest: string;
 }
 
 function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
@@ -155,11 +164,18 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
       throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must match sha256:<64hex>`);
     }
   }
+  if (payload["extraction_contract"] !== 1) {
+    throw new HubError("E_PLAN_SCHEMA", "plan extraction_contract must be 1 (this binary understands contract v1 only)");
+  }
+  if (typeof payload["source_config_digest"] !== "string" || !SHA256_RE.test(payload["source_config_digest"] as string)) {
+    throw new HubError("E_PLAN_SCHEMA", "plan source_config_digest must match sha256:<64hex>");
+  }
   return {
     expectedCommit: expected["resolved_commit"] as string,
     expectedTreeDigest: expected["selected_skill_tree_digest"] as string,
     newSnapshotDigest: payload["new_vendored_snapshot_digest"] as string,
     newTreeDigest: payload["new_selected_tree_digest"] as string,
+    sourceConfigDigest: payload["source_config_digest"] as string,
     sourceId: text("source_id"),
     targetCommit,
   };
@@ -191,6 +207,12 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
       current.selected_skill_tree_digest !== verified.expectedTreeDigest
     ) {
       throw new HubError("E_PLAN_STALE", "plan expected_old no longer matches adopted state");
+    }
+    // Contract B section 5: the plan binds the exact adopted configuration.
+    // A plan built for different sources.yaml intent (roots, provenance,
+    // ref) is not stale — it is a foreign plan and must be refused.
+    if (current.source_config_digest !== verified.sourceConfigDigest) {
+      throw new HubError("E_LOCK_MISMATCH", "plan source_config_digest does not match adopted configuration");
     }
     // The staged tree must be exactly what the plan describes.
     const staged = digestStagedTree(stageDir, current.selection.roots);
@@ -257,7 +279,6 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
       rmSync(staging, { force: true, recursive: true });
     });
     clearJournal(hubDir);
-    void journalPath;
     return { record };
   } finally {
     lock.release();
