@@ -35,7 +35,7 @@ export type { HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub } from "./hub/builder.js";
-export type { HubBuildResult, HubBuildSkill } from "./hub/builder.js";
+export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export {
   RELEASE_TOKEN_ESTIMATOR,
   checkAliasMap,
@@ -65,3 +65,21 @@ export type {
   UpdatePlanDocument,
   UpdatePlanPayload,
 } from "./hub/planning.js";
+export {
+  casUpdateStable,
+  createHubRelease,
+  createReleasePackage,
+  createStablePointer,
+  isReleaseRetained,
+  rollbackStable,
+  verifyHubRelease,
+} from "./hub/release.js";
+export type {
+  HubRelease,
+  HubReleaseContracts,
+  HubReleasePayload,
+  HubReleaseSource,
+  ReleaseArtifacts,
+  ReleasePackage,
+  StablePointer,
+} from "./hub/release.js";
