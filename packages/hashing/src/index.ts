@@ -31,3 +31,17 @@ export {
   sha256Hex,
 } from "./identities.js";
 export type { HashIdentityErrorCode } from "./identities.js";
+export {
+  ArtifactError,
+  createEnvelope,
+  digestArtifactPreimage,
+  verifyEnvelope,
+} from "./envelope.js";
+export type {
+  ArtifactEnvelope,
+  ArtifactErrorCode,
+  ArtifactPreimage,
+  VerifyFail,
+  VerifyOk,
+  VerifyResult,
+} from "./envelope.js";
