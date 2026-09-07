@@ -176,6 +176,10 @@ function validateArtifacts(build: HubBuildResult, artifacts: ReleaseArtifacts): 
   const { aliasMap, searchIndexInput, tokenArtifact } = artifacts;
   checkAliasMap(aliasMap, build);
   checkTokenArtifact(tokenArtifact, Object.fromEntries(build.skills.map((skill) => [skill.skillId, skill.versionHash])));
+  const authoritativeTokenArtifact = deriveTokenArtifact(build);
+  if (digestJson(tokenArtifact) !== digestJson(authoritativeTokenArtifact)) {
+    throw new HubError("E_TOKEN_ARTIFACT", "token artifact must equal the artifact derived from the selected SkillVersions");
+  }
   checkSearchIndexInput(searchIndexInput, build);
 }
 
