@@ -16,6 +16,7 @@ import {
   acquireHubLock,
   applyUpdatePlan,
   checkForUpdates,
+  digestStagedTree,
   extractSelectedRoots,
   parseSourcesYaml,
   readJournal,
@@ -96,8 +97,15 @@ async function versionsOf(treeDir, namespace, ids) {
 }
 
 function lockTextFor(record) {
-  return `schema_version: 1\nsources:\n  plan:\n${Object.entries(record)
-    .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+  return lockTextForSources({ plan: record });
+}
+
+function lockTextForSources(records) {
+  return `schema_version: 1\nsources:\n${Object.entries(records)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, record]) => `  ${name}:\n${Object.entries(record)
+      .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+      .join("\n")}`)
     .join("\n")}\n`;
 }
 
@@ -122,6 +130,11 @@ async function setupHubAtA(repo, shaA) {
     extraction_contract: 1,
   };
   writeFileSync(join(hubDir, "sources.lock.yaml"), lockTextFor(record));
+  writeFileSync(join(hubDir, "sources.yaml"), SOURCES_YAML.replace("PLACEHOLDER", repo));
+  writeFileSync(
+    join(hubDir, "hub.yaml"),
+    "schema_version: 1\nhub:\n  id: adoption-test\nowned: []\nexternal:\n  - source: plan\n",
+  );
   const versions = await versionsOf(treeDir, "plan", ["plan/alpha", "plan/beta"]);
   return { cfg, hubDir, record, versions };
 }
@@ -171,6 +184,27 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   assert.equal(readJournal(hub.hubDir), null);
   const lock = acquireHubLock(hub.hubDir);
   lock.release();
+});
+
+test("prospective full-Hub validation rejects an independent global catalog conflict atomically", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const beforeTree = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"));
+
+  const ownedConflict = join(hub.hubDir, "owned", "plan", "alpha");
+  mkdirSync(ownedConflict, { recursive: true });
+  writeFileSync(join(ownedConflict, "SKILL.md"), beforeTree);
+  writeFileSync(
+    join(hub.hubDir, "hub.yaml"),
+    "schema_version: 1\nhub:\n  id: adoption-test\nowned:\n  - path: owned/plan\n    namespace: plan\nexternal:\n  - source: plan\n",
+  );
+
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_BUILD_ATTESTATION");
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
+  assert.equal(readJournal(hub.hubDir), null);
 });
 
 test("orphan staging from pre-journal crash is discarded under the mutation lock", async () => {

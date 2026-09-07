@@ -7,9 +7,10 @@
 // The server (and this function) NEVER mutates the caller's project files;
 // it mutates only the Hub directory it owns.
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { stringify as stringifyYaml } from "yaml";
 import { verifyEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
@@ -30,6 +31,7 @@ import type { HubJournal } from "./journal.js";
 import { digestStagedTree } from "./quarantine.js";
 import { parseSourcesLockYaml, type SourceLockRecord } from "./sources-lock.js";
 import type { UpdatePlanDocument } from "./planning.js";
+import { buildHub } from "./builder.js";
 
 export interface HubLock {
   release(): void;
@@ -111,6 +113,34 @@ function copyDirTree(src: string, dest: string): void {
   }
 }
 
+/** Build the candidate lock and all adopted trees in isolation. This keeps
+ * global catalog/alias/import invariants outside the irreversible swap. */
+async function validateProspectiveHub(hubDir: string, sourceId: string, stageDir: string, lockText: string): Promise<void> {
+  const prospective = mkdtempSync(join(tmpdir(), "ega-hub-prospective-"));
+  let registryHome: string | undefined;
+  try {
+    for (const file of ["hub.yaml", "sources.yaml"]) {
+      writeFileDurable(join(prospective, file), readFileSync(join(hubDir, file)));
+    }
+    writeFileDurable(join(prospective, "sources.lock.yaml"), lockText);
+    const owned = join(hubDir, "owned");
+    if (existsSync(owned)) copyDirTree(owned, join(prospective, "owned"));
+    const adoptedTrees = join(hubDir, "trees");
+    mkdirSync(join(prospective, "trees"), { recursive: true });
+    for (const name of readdirSync(adoptedTrees)) {
+      const sourceTree = join(adoptedTrees, name);
+      const targetTree = join(prospective, "trees", name);
+      if (name === sourceId) copyDirTree(stageDir, targetTree);
+      else copyDirTree(sourceTree, targetTree);
+    }
+    const built = await buildHub(prospective);
+    registryHome = built.registryHome;
+  } finally {
+    if (registryHome !== undefined) rmSync(registryHome, { force: true, recursive: true });
+    rmSync(prospective, { force: true, recursive: true });
+  }
+}
+
 interface VerifiedPlan {
   sourceId: string;
   targetCommit: string;
@@ -189,7 +219,7 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
   };
 }
 
-export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord } {
+export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: SourceLockRecord }> {
   const { hubDir, plan, stageDir } = input;
   const lock = acquireHubLock(hubDir);
   try {
@@ -254,6 +284,10 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
       stagedSources[name] = name === verified.sourceId ? record : (adopted.sources[name] as SourceLockRecord);
     }
     const newLockText = stringifyYaml({ schema_version: 1, sources: stagedSources });
+    // Validate the complete candidate Hub before opening the journal. The
+    // real adopted tree and lock remain untouched if any global invariant
+    // fails, including duplicate IDs or malformed imported skills.
+    await validateProspectiveHub(hubDir, verified.sourceId, stageDir, newLockText);
     // Build + validate the staged tree, then open the journal.
     busyGuard(() => copyDirTree(stageDir, join(staging, verified.sourceId)));
     const journal: HubJournal = {
@@ -286,7 +320,7 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
       throw new HubError("E_LOCK_MISMATCH", "adopted lock verification failed after install");
     }
     const reverified = digestStagedTree(liveTree, landed.selection.roots);
-    if (reverified.treeDigest !== verified.newTreeDigest) {
+    if (reverified.treeDigest !== verified.newTreeDigest || reverified.snapshotDigest !== verified.newSnapshotDigest) {
       throw new HubError("E_LOCK_MISMATCH", "adopted tree verification failed after install");
     }
     writeJournal(hubDir, { ...journal, state: "COMMITTED" });

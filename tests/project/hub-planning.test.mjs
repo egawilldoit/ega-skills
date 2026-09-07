@@ -10,6 +10,7 @@ import {
   digestStagedTree,
   discoverUnselectedSkills,
   extractSelectedRoots,
+  fetchExactCommit,
   fetchRefTip,
   parseSourcesYaml,
   resolveRefToCommit,
@@ -244,6 +245,19 @@ test("fetch tip mismatch fails E_PLAN_FETCH (upstream moved during check)", asyn
   const { dir, shaA } = makeFixtureRepo();
   const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
   assert.equal(await codeOf(() => Promise.resolve(fetchRefTip(dir, "main", shaA, dest))), "E_PLAN_FETCH");
+});
+
+test("fetchExactCommit ignores a later movement of the tracked branch", () => {
+  const { dir, shaB } = makeFixtureRepo();
+  writeFileSync(join(dir, "skills", "beta", "SKILL.md"), skill("beta", "Beta body C, moved tip."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  assert.notEqual(shaC, shaB);
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-exact-"));
+  fetchExactCommit(dir, shaB, dest);
+  assert.equal(execFileSync("git", ["-C", dest, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), shaB);
+  assert.equal(readFileSync(join(dest, "skills", "beta", "SKILL.md"), "utf8"), skill("beta", "Beta body B, changed."));
 });
 
 test("discoverUnselectedSkills reports outside roots only", () => {
