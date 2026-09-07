@@ -19,6 +19,7 @@ import { parseHubYaml, verifyHubCoverage } from "./hub-config.js";
 import { digestStagedTree } from "./quarantine.js";
 import { requireCleanJournal } from "./journal.js";
 import { parseSourcesLockYaml } from "./sources-lock.js";
+import type { SourcesLock } from "./sources-lock.js";
 import { parseSourcesYaml } from "./sources-config.js";
 import { verifySourcesLock } from "./sources-lock.js";
 
@@ -27,9 +28,19 @@ export interface HubBuildSkill {
   versionHash: string;
 }
 
+export interface HubBuildSource {
+  sourceId: string;
+  sourceConfigDigest: string;
+  resolvedCommit: string;
+  selectedSkillTreeDigest: string;
+  vendoredSnapshotDigest: string;
+}
+
 export interface HubBuildResult {
   registryHome: string;
   skills: HubBuildSkill[];
+  hubId: string;
+  adoptedSources: HubBuildSource[];
 }
 
 interface ReadStatement {
@@ -143,7 +154,7 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
         throw new HubError("E_BUILD_ATTESTATION", `import failed with zero tolerance: ${first ? first.error : "unknown"}`);
       }
     }
-    return verifyCatalog(registryHome, registry, expected);
+    return verifyCatalog(registryHome, registry, expected, hub.hubId, adopted.sources);
   } finally {
     registry.close();
   }
@@ -153,6 +164,8 @@ function verifyCatalog(
   registryHome: string,
   registry: RegistryHandle,
   expected: Map<string, ExpectedRoot>,
+  hubId: string,
+  adoptedSources: SourcesLock["sources"],
 ): HubBuildResult {
   const db = registry.db as unknown as ReadableDb;
   const actual = new Set(
@@ -178,5 +191,18 @@ function verifyCatalog(
       }
       return { skillId, versionHash: latest.versionHash };
     });
-  return { registryHome, skills };
+  return {
+    adoptedSources: Object.entries(adoptedSources)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([sourceId, record]) => ({
+        resolvedCommit: record.resolved_commit,
+        selectedSkillTreeDigest: record.selected_skill_tree_digest,
+        sourceConfigDigest: record.source_config_digest,
+        sourceId,
+        vendoredSnapshotDigest: record.vendored_snapshot_digest,
+      })),
+    hubId,
+    registryHome,
+    skills,
+  };
 }
