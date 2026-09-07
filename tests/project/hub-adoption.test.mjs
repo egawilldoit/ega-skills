@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
+  rmSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,13 +27,45 @@ import {
   sourceConfigDigest,
   writeJournal,
 } from "../../packages/project/dist/index.js";
-import { buildHubRelease } from "../../packages/project/dist/index.js";
+import { buildHub, buildHubRelease } from "../../packages/project/dist/index.js";
 import { runHubUpdate } from "../../packages/cli/dist/index.js";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import { importSkills, listSkillVersions, openRegistry } from "../../packages/registry/dist/index.js";
 
 function git(dir, ...args) {
   execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
+}
+
+async function waitFor(path) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(path)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+function spawnLockContender(hubDir, resultPath, releasePath) {
+  const modulePath = new URL("../../packages/project/dist/index.js", import.meta.url).href;
+  const script = `
+    import { existsSync, writeFileSync } from "node:fs";
+    import { acquireHubLock } from ${JSON.stringify(modulePath)};
+    const hubDir = process.env.EGA_TEST_HUB;
+    const resultPath = process.env.EGA_TEST_RESULT;
+    const releasePath = process.env.EGA_TEST_RELEASE;
+    try {
+      const lock = acquireHubLock(hubDir);
+      writeFileSync(resultPath, "acquired");
+      while (!existsSync(releasePath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      lock.release();
+    } catch (error) {
+      writeFileSync(resultPath, "error:" + (error?.code ?? "UNKNOWN"));
+      process.exitCode = 0;
+    }
+  `;
+  return spawn(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, EGA_TEST_HUB: hubDir, EGA_TEST_RESULT: resultPath, EGA_TEST_RELEASE: releasePath },
+    stdio: "ignore",
+  });
 }
 
 function skill(name, body) {
@@ -186,6 +220,11 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
   assert.equal(readJournal(hub.hubDir), null);
   const lock = acquireHubLock(hub.hubDir);
+  const ownerFile = readdirSync(join(hub.hubDir, ".hub.lock")).find((name) => name.startsWith("owner."));
+  assert.ok(ownerFile);
+  const owner = JSON.parse(readFileSync(join(hub.hubDir, ".hub.lock", ownerFile), "utf8"));
+  assert.equal(owner.pid, process.pid);
+  assert.match(owner.token, /^[0-9a-f]{64}$/);
   lock.release();
 });
 
@@ -202,6 +241,22 @@ test("provenance-only stage tampering fails before adoption and preserves both d
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
   assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
   assert.equal(readJournal(hub.hubDir), null);
+});
+
+test("prospective validation preserves a custom declared owned root", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  mkdirSync(join(hub.hubDir, "custom", "ega", "local"), { recursive: true });
+  writeFileSync(join(hub.hubDir, "custom", "ega", "local", "SKILL.md"), skill("local", "Local owned skill."));
+  writeFileSync(join(hub.hubDir, "custom", "ega", "local", "ega.yaml"), "schema_version: 1\n");
+  writeFileSync(
+    join(hub.hubDir, "hub.yaml"),
+    "schema_version: 1\nhub:\n  id: adoption-test\nowned:\n  - path: custom/ega\n    namespace: custom\nexternal:\n  - source: plan\n",
+  );
+  await buildHub(hub.hubDir);
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
+  assert.equal(existsSync(join(hub.hubDir, "custom", "ega", "local", "SKILL.md")), true);
 });
 
 test("prospective full-Hub validation rejects an independent global catalog conflict atomically", async () => {
@@ -289,6 +344,69 @@ test("PREPARED recovery discards staged data and preserves the adopted state", a
   assert.equal(readJournal(hub.hubDir), null);
 });
 
+test("apply recovers a journal when the previous mutation lock owner is dead", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  let stalePid = process.pid + 1000000;
+  while (true) {
+    try {
+      process.kill(stalePid, 0);
+      stalePid += 1;
+    } catch (error) {
+      if (error?.code === "ESRCH") break;
+      throw error;
+    }
+  }
+  writeFileSync(join(hub.hubDir, ".hub.lock"), `${stalePid}\n`);
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: plan.payload.target_commit,
+  });
+
+  await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
+});
+
+test("apply recovers a dead owner from the current directory lock protocol", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  let stalePid = process.pid + 1000000;
+  while (true) {
+    try {
+      process.kill(stalePid, 0);
+      stalePid += 1;
+    } catch (error) {
+      if (error?.code === "ESRCH") break;
+      throw error;
+    }
+  }
+  mkdirSync(join(hub.hubDir, ".hub.lock"));
+  writeFileSync(join(hub.hubDir, ".hub.lock", `owner.${"d".repeat(64)}`), JSON.stringify({ pid: stalePid, token: "d".repeat(64) }));
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: plan.payload.target_commit,
+  });
+
+  await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
+});
+
 function makeFixtureRepoShaA(repo) {
   return execFileSync("git", ["-C", repo, "rev-parse", "main~1"], { encoding: "utf8" }).trim();
 }
@@ -361,6 +479,88 @@ test("held Hub lock fails closed (E_HUB_LOCKED)", async () => {
   }
   await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
   assert.equal(readJournal(hub.hubDir), null);
+});
+
+test("a released process cannot remove a replacement lock", async () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-lock-owner-"));
+  const firstResult = join(hubDir, "first.result");
+  const firstRelease = join(hubDir, "first.release");
+  const first = spawnLockContender(hubDir, firstResult, firstRelease);
+  await waitFor(firstResult);
+  assert.equal(readFileSync(firstResult, "utf8"), "acquired");
+
+  rmSync(join(hubDir, ".hub.lock"), { recursive: true });
+  const replacement = acquireHubLock(hubDir);
+  try {
+    writeFileSync(firstRelease, "release");
+    await new Promise((resolve, reject) => {
+      first.once("error", reject);
+      first.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`contender exited ${code}`)));
+    });
+    assert.equal(existsSync(join(hubDir, ".hub.lock")), true);
+    const ownerFile = readdirSync(join(hubDir, ".hub.lock")).find((name) => name.startsWith("owner."));
+    assert.ok(ownerFile);
+    assert.doesNotThrow(() => JSON.parse(readFileSync(join(hubDir, ".hub.lock", ownerFile), "utf8")));
+  } finally {
+    replacement.release();
+  }
+});
+
+test("two real contenders never both acquire Hub mutation authority", async () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-lock-contenders-"));
+  const firstResult = join(hubDir, "first.result");
+  const secondResult = join(hubDir, "second.result");
+  const releasePath = join(hubDir, "release");
+  const first = spawnLockContender(hubDir, firstResult, releasePath);
+  const second = spawnLockContender(hubDir, secondResult, releasePath);
+  await Promise.all([waitFor(firstResult), waitFor(secondResult)]);
+  const results = [readFileSync(firstResult, "utf8"), readFileSync(secondResult, "utf8")];
+  assert.equal(results.filter((result) => result === "acquired").length, 1);
+  assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
+  writeFileSync(releasePath, "release");
+  await Promise.all([
+    new Promise((resolve, reject) => { first.once("error", reject); first.once("exit", resolve); }),
+    new Promise((resolve, reject) => { second.once("error", reject); second.once("exit", resolve); }),
+  ]);
+});
+
+test("two real stale-lock reclaimers cannot both acquire mutation authority", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  let stalePid = process.pid + 1000000;
+  while (true) {
+    try {
+      process.kill(stalePid, 0);
+      stalePid += 1;
+    } catch (error) {
+      if (error?.code === "ESRCH") break;
+      throw error;
+    }
+  }
+  writeFileSync(join(hub.hubDir, ".hub.lock"), `${stalePid}\n`);
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: "b".repeat(40),
+  });
+  const resultPaths = [0, 1].map((index) => join(hub.hubDir, `.stale-contender-${index}.result`));
+  const releasePaths = [0, 1].map((index) => join(hub.hubDir, `.stale-contender-${index}.release`));
+  const children = resultPaths.map((resultPath, index) => spawnLockContender(hub.hubDir, resultPath, releasePaths[index]));
+  await Promise.all(resultPaths.map(waitFor));
+  const results = resultPaths.map((path) => readFileSync(path, "utf8"));
+  assert.equal(results.filter((result) => result === "acquired").length, 1);
+  assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
+  for (const releasePath of releasePaths) writeFileSync(releasePath, "release");
+  await Promise.all(children.map((child) => new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  })));
+  assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
 });
 
 test("crash after tree swap recovers exact previous state", async () => {
