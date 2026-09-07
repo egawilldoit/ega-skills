@@ -32,6 +32,7 @@ declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
+  export function rmdirSync(path: string): void;
   export function openSync(path: string, flags: string): number;
   export function writeSync(fd: number, data: string): number;
   export function fsyncSync(fd: number): void;
