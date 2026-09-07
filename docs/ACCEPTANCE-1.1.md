@@ -2,8 +2,8 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `13a23037030630eb0fb32d6d289e826af2e8e5ce`
-Final code candidate HEAD: `ff688ea90491f95b97216d0f2ee5c523561798c6`
+Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`
+Final code candidate HEAD: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`
 Focused provenance regression: `a8ec090f79894f56d2ddb85627fe49448386e774`.
 
 | Criterion | Status | Evidence |
@@ -37,8 +37,15 @@ Result: PASS, 1 test, 0 failures. Exact commits were Cursor
 `93b00b89ef425a9c1bac0d0b317dfc49c930ac99` and Matt
 `3cca18b368ae95cdbdebbff572ccafa662551015`.
 
-Candidate gate summary: full regression PASS, 798 total, 793 passed, 0
+The same gated test also proves the real Matt lifecycle with a controlled
+bare mirror: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
+B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
+C=`3cca18b368ae95cdbdebbff572ccafa662551015`. The approved B plan digest
+was `sha256:0acbb0f1f01626973185e98670518a96dc057951b63b20c892ac8db4e1057257`;
+the tracked ref advanced to C and apply still landed B while preserving R1.
+
+Candidate gate summary: full regression PASS, 806 total, 801 passed, 0
 failed, 5 skipped. Build, typecheck, specs, and Contracts A through E passed.
-Exact-head CI run `34131637759` passed on Ubuntu and Windows; the focused
-hashing run `34131637767` passed on both platforms.
+Exact-head CI run `34138751456` passed on Ubuntu and Windows; the focused
+hashing run `34138751458` passed on both platforms.
 No 1.1 release tag or publication was performed.

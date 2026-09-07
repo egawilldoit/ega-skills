@@ -2,11 +2,10 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `13a23037030630eb0fb32d6d289e826af2e8e5ce`.
-Final code candidate HEAD: `ff688ea90491f95b97216d0f2ee5c523561798c6`.
-The hosted focused suite passed 10 tests before the final provenance-only test
-was added; the full regression at the parent candidate passed 798 total, 793
-passed, 0 failed, 5 skipped.
+Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+Final code candidate HEAD: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+The hosted focused suite passes 15 tests at this candidate; the full regression
+passes 806 total, 801 passed, 0 failed, 5 skipped.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -24,10 +23,10 @@ passed, 0 failed, 5 skipped.
 | Request, response, content, timeout, concurrency, and connection limits | PASS | hosted adversarial transport test, each limit independently |
 | Startup verifies release integrity | PASS | snapshot tamper tests for package, SQLite, catalog, FTS, and artifacts |
 | Backup and recovery are tested | PASS | Hub journal PREPARED/TREE_SWAPPED recovery tests |
-| Retained-release rollback is tested | PASS | stable pointer tests reject arbitrary and cross-Hub hashes |
+| Retained-release rollback is tested | PASS | stable pointer tests require a verified same-Hub release in the retained-reference set and reject arbitrary, cross-Hub, and unretained targets |
 | Fresh Codex E2E | BLOCKED | Requires `EGA_CODEX_ACCEPTANCE=1` and a fresh client environment |
 | Fresh OpenCode E2E | BLOCKED | Requires `EGA_OPENCODE_ACCEPTANCE=1` and a fresh client environment |
 
 The local hosted HTTP/MCP integration is PASS. Cloud deployment, OAuth client
 registration, and fresh-client acceptance remain external operations.
-The exact-head Ubuntu/Windows foundation CI run `34131637759` passed.
+The exact-head Ubuntu/Windows foundation CI run `34138751456` passed.
