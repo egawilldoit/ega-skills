@@ -24,8 +24,9 @@ Updated: 2026-09-07
   hashing run `34138751458` both pass on both platforms.
 - Exact upstream lifecycle commits: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
-  C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest
-  `sha256:1c983c9a3c982fed82d81e87a3fce34b319bb37655fd25d433c0b451c5bc0645`.
+  C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest recorded
+  in the latest run
+  `sha256:6f77e29c7a8c28befcb168833d2bde9a920119e7471b5c91353ffef65bab50f`.
 - No release tags, production deployment, Supabase remote migration, Contract
   F, or release 2.0 work was started.
 
