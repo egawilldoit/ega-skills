@@ -173,6 +173,17 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   lock.release();
 });
 
+test("orphan staging from pre-journal crash is discarded under the mutation lock", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  mkdirSync(join(hub.hubDir, ".staging", "plan"), { recursive: true });
+  writeFileSync(join(hub.hubDir, ".staging", "plan", "orphan.txt"), "orphan\n");
+  await applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir });
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
+  assert.equal(readJournal(hub.hubDir), null);
+});
+
 function makeFixtureRepoShaA(repo) {
   return execFileSync("git", ["-C", repo, "rev-parse", "main~1"], { encoding: "utf8" }).trim();
 }
@@ -199,6 +210,21 @@ test("wrong extraction contract rejected (E_PLAN_SCHEMA)", async () => {
   const resigned = createEnvelope({ object_type: "ega.update-plan", payload: downgraded, schema_version: 1 });
   const downgradedPlan = { digest: resigned.digest, object_type: "ega.update-plan", payload: downgraded, schema_version: 1 };
   assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: downgradedPlan, stageDir })), "E_PLAN_SCHEMA");
+});
+
+test("path-unsafe plan source id rejected before Hub lookup", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const unsafe = createEnvelope({
+    object_type: "ega.update-plan",
+    payload: { ...plan.payload, source_id: "../escape" },
+    schema_version: 1,
+  });
+  assert.equal(
+    await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: unsafe, stageDir })),
+    "E_PLAN_SCHEMA",
+  );
 });
 
 test("stale plan rejected (E_PLAN_STALE)", async () => {
@@ -277,6 +303,27 @@ test("requireCleanJournal refuses while recovery is incomplete", () => {
   assert.throws(() => requireCleanJournal(hubDir), (e) => e instanceof HubError && e.code === "E_RECOVERY_REQUIRED");
   recoverIfNeeded(hubDir);
   requireCleanJournal(hubDir);
+});
+
+test("journal-controlled paths are confined before recovery", () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
+  const outside = mkdtempSync(join(tmpdir(), "ega-outside-"));
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "keep\n");
+  writeFileSync(
+    join(hubDir, ".hub-journal.json"),
+    JSON.stringify({
+      backup: "../ega-outside-escape",
+      expected_old_commit: "a".repeat(40),
+      journal_version: 1,
+      source_id: "plan",
+      staging: ".staging",
+      state: "PREPARED",
+      target_commit: "b".repeat(40),
+    }),
+  );
+  assert.throws(() => recoverIfNeeded(hubDir), (e) => e instanceof HubError && e.code === "E_JOURNAL_SCHEMA");
+  assert.equal(readFileSync(marker, "utf8"), "keep\n");
 });
 
 test("plan for unadopted source rejected (E_LOCK_MISMATCH)", async () => {

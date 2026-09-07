@@ -7,19 +7,23 @@
 // The server (and this function) NEVER mutates the caller's project files;
 // it mutates only the Hub directory it owns.
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import type { Dirent } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import { verifyEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
-import { COMMIT_RE, SHA256_RE, isPlainObject } from "./guards.js";
+import { COMMIT_RE, SHA256_RE, assertSourceId, isPlainObject } from "./guards.js";
 import {
   clearJournal,
+  durableRename,
   readJournal,
   recoverIfNeeded,
+  removePathDurable,
   requireCleanJournal,
+  syncDirectory,
   writeFileAtomic,
+  writeFileDurable,
   writeJournal,
 } from "./journal.js";
 import type { HubJournal } from "./journal.js";
@@ -88,6 +92,8 @@ function busyGuard<T>(fn: () => T): T {
 
 function copyDirTree(src: string, dest: string): void {
   mkdirSync(dest, { recursive: true });
+  syncDirectory(dirname(dest));
+  syncDirectory(dest);
   const entries: Dirent[] = readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const from = join(src, entry.name);
@@ -98,7 +104,7 @@ function copyDirTree(src: string, dest: string): void {
     if (entry.isDirectory()) {
       copyDirTree(from, to);
     } else if (entry.isFile()) {
-      writeFileSync(to, readFileSync(from));
+      writeFileDurable(to, readFileSync(from));
     } else {
       throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in staged tree: ${entry.name}`);
     }
@@ -146,6 +152,8 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
     return payload[field] as string;
   };
   const targetCommit = text("target_commit");
+  const sourceId = text("source_id");
+  assertSourceId(sourceId, "plan payload source_id", "E_PLAN_SCHEMA");
   if (!COMMIT_RE.test(targetCommit)) {
     throw new HubError("E_PLAN_COMMIT", "plan target_commit must be 40 lowercase hex");
   }
@@ -176,19 +184,19 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
     newSnapshotDigest: payload["new_vendored_snapshot_digest"] as string,
     newTreeDigest: payload["new_selected_tree_digest"] as string,
     sourceConfigDigest: payload["source_config_digest"] as string,
-    sourceId: text("source_id"),
+    sourceId,
     targetCommit,
   };
 }
 
 export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord } {
   const { hubDir, plan, stageDir } = input;
-  // A crashed predecessor is restored (or resumed cleanly) before anything
-  // else runs; a journal that still needs recovery blocks us.
-  recoverIfNeeded(hubDir);
-  requireCleanJournal(hubDir);
   const lock = acquireHubLock(hubDir);
   try {
+    // Recovery mutates Hub state, so it must happen under the same exclusive
+    // lock as the update itself. Contract B still requires stage -> PREPARED.
+    recoverIfNeeded(hubDir);
+    requireCleanJournal(hubDir);
     const verified = verifyPlanShape(plan);
     const lockFile = join(hubDir, "sources.lock.yaml");
     let lockText: string;
@@ -222,6 +230,12 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
     // Destination cleanliness + full-Hub validation before committing.
     const staging = join(hubDir, ".staging");
     const backup = join(hubDir, ".backup");
+    // A process can die after constructing the stage but before PREPARED is
+    // durable. With no journal, the orphan is safe to discard while holding
+    // the lock; this preserves Contract B's stage-before-PREPARED ordering.
+    if (!readJournal(hubDir) && existsSync(staging) && !existsSync(backup)) {
+      removePathDurable(staging);
+    }
     if (existsSync(staging) || existsSync(backup) || readJournal(hubDir)) {
       throw new HubError("E_LOCK_MISMATCH", "hub destination not clean (staging/backup/journal remnants)");
     }
@@ -255,9 +269,11 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
     // Preserve the old tree + lock, install the staged tree.
     busyGuard(() => {
       mkdirSync(backup, { recursive: true });
-      renameSync(liveTree, join(backup, verified.sourceId));
-      writeFileSync(join(backup, "sources.lock.yaml"), lockText);
-      renameSync(join(staging, verified.sourceId), liveTree);
+      syncDirectory(dirname(backup));
+      syncDirectory(backup);
+      durableRename(liveTree, join(backup, verified.sourceId));
+      writeFileDurable(join(backup, "sources.lock.yaml"), lockText);
+      durableRename(join(staging, verified.sourceId), liveTree);
     });
     writeJournal(hubDir, { ...journal, state: "TREE_SWAPPED" });
     // Atomically install the new lock.
@@ -275,8 +291,8 @@ export function applyUpdatePlan(input: ApplyInput): { record: SourceLockRecord }
     }
     writeJournal(hubDir, { ...journal, state: "COMMITTED" });
     busyGuard(() => {
-      rmSync(backup, { force: true, recursive: true });
-      rmSync(staging, { force: true, recursive: true });
+      removePathDurable(backup);
+      removePathDurable(staging);
     });
     clearJournal(hubDir);
     return { record };
