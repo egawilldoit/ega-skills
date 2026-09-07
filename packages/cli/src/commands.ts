@@ -204,7 +204,9 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
   try {
     fetchExactCommit(source.repository, plan.payload.target_commit, fetched);
     extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
-    return applyUpdatePlan({ hubDir, plan, stageDir: stage });
+    // Await before cleanup: applyUpdatePlan reads the extracted stage after
+    // its first asynchronous prospective-build validation.
+    return await applyUpdatePlan({ hubDir, plan, stageDir: stage });
   } finally {
     rmSync(workspace, { force: true, recursive: true });
   }

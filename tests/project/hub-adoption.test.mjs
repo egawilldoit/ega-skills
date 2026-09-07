@@ -25,6 +25,8 @@ import {
   sourceConfigDigest,
   writeJournal,
 } from "../../packages/project/dist/index.js";
+import { buildHubRelease } from "../../packages/project/dist/index.js";
+import { runHubUpdate } from "../../packages/cli/dist/index.js";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import { importSkills, listSkillVersions, openRegistry } from "../../packages/registry/dist/index.js";
 
@@ -205,6 +207,33 @@ test("prospective full-Hub validation rejects an independent global catalog conf
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
   assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
   assert.equal(readJournal(hub.hubDir), null);
+});
+
+test("canonical update lifecycle applies the immutable B plan after the tracked ref advances to C", async () => {
+  const { dir: repo, shaB } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const release1 = await buildHubRelease(hub.hubDir);
+  const { plan } = await freshPlanAndStage(repo, hub);
+
+  writeFileSync(join(repo, "skills", "alpha", "SKILL.md"), skill("alpha", "Alpha body C."));
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", repo, "rev-parse", "main"], { encoding: "utf8" }).trim();
+  assert.notEqual(shaC, shaB);
+  const planPath = join(mkdtempSync(join(tmpdir(), "ega-plan-file-")), "plan.json");
+  writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+
+  const applied = await runHubUpdate({ hub: hub.hubDir, plan: planPath });
+  assert.equal(applied.record.resolved_commit, shaB);
+  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
+  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"), "utf8"), skill("alpha", "Alpha body A."));
+
+  const release2 = await buildHubRelease(hub.hubDir);
+  assert.notEqual(release2.release.digest, release1.release.digest);
+  assert.equal(readFileSync(release1.artifactPaths.release, "utf8"), `${JSON.stringify(release1.release, null, 2)}\n`);
+  assert.equal(release1.adoptedSources[0].resolvedCommit, shaA);
+  assert.equal(release2.adoptedSources[0].resolvedCommit, shaB);
 });
 
 test("orphan staging from pre-journal crash is discarded under the mutation lock", async () => {
