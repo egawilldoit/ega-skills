@@ -116,7 +116,83 @@ function relevantInputDigest(inputs: readonly RelevantFingerprintInput[]): strin
   return hashBytes(canonicalizeJson(identities));
 }
 
+function assertPortableRelative(value: unknown, field: string, nullable: boolean): void {
+  if (nullable && value === null) return;
+  if (typeof value !== "string" || value.length === 0 || value.startsWith("/") || value.includes("\\") || /^[A-Za-z]:/.test(value)) {
+    fail(`${field} must be a repository-relative POSIX path or null`);
+  }
+  if (nullable && value === ".") return;
+  const segments = value.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    fail(`${field} must be a normalized repository-relative POSIX path`);
+  }
+}
+
+function assertSortedUnique(values: unknown, field: string): void {
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) fail(`${field} must be a string array`);
+  for (let index = 1; index < values.length; index += 1) {
+    if (values[index - 1]! >= values[index]!) fail(`${field} must be sorted and unique`);
+  }
+}
+
+function assertExactKeys(value: object, expected: readonly string[], field: string): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    fail(`${field} has unexpected or missing fields`);
+  }
+}
+
+/** Verify the portable shape before a fingerprint becomes a hosted identity. */
+export function verifyRemoteProjectFingerprint(value: unknown): asserts value is RemoteProjectFingerprint {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail("fingerprint must be an object");
+  const fingerprint = value as Record<string, unknown>;
+  assertExactKeys(fingerprint, [
+    "package_root",
+    "workspace_root",
+    "workspace_ambiguous",
+    "languages",
+    "platforms",
+    "frameworks",
+    "evidence",
+    "revision",
+    "relevant_input_digest",
+  ], "fingerprint");
+  assertPortableRelative(fingerprint.package_root, "package_root", true);
+  assertPortableRelative(fingerprint.workspace_root, "workspace_root", true);
+  if (typeof fingerprint.workspace_ambiguous !== "boolean") fail("workspace_ambiguous must be boolean");
+  assertSortedUnique(fingerprint.languages, "languages");
+  assertSortedUnique(fingerprint.platforms, "platforms");
+  assertSortedUnique(fingerprint.frameworks, "frameworks");
+  if (!Array.isArray(fingerprint.evidence)) fail("evidence must be an array");
+  let previousEvidence = "";
+  for (const record of fingerprint.evidence) {
+    if (typeof record !== "object" || record === null || Array.isArray(record)) fail("evidence contains an invalid record");
+    assertExactKeys(record, ["path", "kind"], "evidence record");
+    assertPortableRelative(record.path, "evidence.path", false);
+    if (record.kind !== "package-manifest" && record.kind !== "tooling-marker") fail("evidence.kind is invalid");
+    const identity = `${record.path}\u0000${record.kind}`;
+    if (identity <= previousEvidence) fail("evidence must be sorted and unique");
+    previousEvidence = identity;
+  }
+  if (typeof fingerprint.revision !== "object" || fingerprint.revision === null || Array.isArray(fingerprint.revision)) fail("revision must be an object");
+  const revision = fingerprint.revision as Record<string, unknown>;
+  if (revision.mode === "git-clean") {
+    assertExactKeys(revision, ["mode", "commit_sha"], "git-clean revision");
+    if (typeof revision.commit_sha !== "string" || !COMMIT_RE.test(revision.commit_sha)) fail("git-clean requires a 40-character commit SHA");
+  } else if (revision.mode === "git-dirty") {
+    assertExactKeys(revision, ["mode", "base_commit_sha"], "git-dirty revision");
+    if (typeof revision.base_commit_sha !== "string" || !COMMIT_RE.test(revision.base_commit_sha)) fail("git-dirty requires a 40-character base commit SHA");
+  } else if (revision.mode === "unversioned") {
+    assertExactKeys(revision, ["mode"], "unversioned revision");
+  } else {
+    fail("revision.mode is invalid");
+  }
+  if (typeof fingerprint.relevant_input_digest !== "string" || !DIGEST_RE.test(fingerprint.relevant_input_digest)) fail("relevant_input_digest is invalid");
+}
+
 export function hashRemoteFingerprint(fingerprint: RemoteProjectFingerprint): string {
+  verifyRemoteProjectFingerprint(fingerprint);
   return hashBytes(canonicalizeJson(fingerprint));
 }
 
@@ -155,6 +231,7 @@ export function createRemoteProjectFingerprint(input: CreateRemoteFingerprintInp
     relevant_input_digest: relevantInputDigest(inputs),
   });
   if (!DIGEST_RE.test(result.relevant_input_digest)) fail("relevant input digest is invalid");
+  verifyRemoteProjectFingerprint(result);
   return result;
 }
 

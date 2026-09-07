@@ -40,7 +40,10 @@ export class ProjectContextStore {
     if (this.#contexts.has(input.contextId)) {
       fail(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `context ${input.contextId} is already published`);
     }
-    this.#contexts.set(input.contextId, input.context);
+    // Context artifacts are immutable records. Retain a fresh frozen record so
+    // a caller cannot mutate a structurally valid object after publication.
+    const context = Object.freeze({ ...input.context });
+    this.#contexts.set(input.contextId, context);
     return this.get(input.contextId)!;
   }
 

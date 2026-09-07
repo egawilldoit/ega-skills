@@ -8,6 +8,7 @@ import {
   createRemoteProjectFingerprint,
   detectRemoteFingerprintRevision,
   hashRemoteFingerprint,
+  verifyRemoteProjectFingerprint,
 } from "../../packages/router/dist/index.js";
 
 const roots = new Set();
@@ -88,4 +89,22 @@ test("Contract E relevant-input digest changes only with bounded evidence bytes"
   });
   assert.notEqual(first.relevant_input_digest, second.relevant_input_digest);
   assert.equal(typeof (await readFile(join(root, "apps", "web", "package.json"))).byteLength, "number");
+});
+
+test("Contract E rejects non-portable or structurally forged fingerprints", () => {
+  const valid = {
+    package_root: "apps/web",
+    workspace_root: ".",
+    workspace_ambiguous: false,
+    languages: ["node"],
+    platforms: ["web"],
+    frameworks: ["nextjs"],
+    evidence: [{ path: "apps/web/package.json", kind: "package-manifest" }],
+    revision: { mode: "unversioned" },
+    relevant_input_digest: `sha256:${"a".repeat(64)}`,
+  };
+  verifyRemoteProjectFingerprint(valid);
+  assert.throws(() => hashRemoteFingerprint({ ...valid, package_root: "/home/runner/repo/apps/web" }), /repository-relative/);
+  assert.throws(() => verifyRemoteProjectFingerprint({ ...valid, evidence: [{ path: "apps\\web\\package.json", kind: "package-manifest" }] }), /repository-relative/);
+  assert.throws(() => verifyRemoteProjectFingerprint({ ...valid, frameworks: ["vite", "nextjs"] }), /sorted and unique/);
 });

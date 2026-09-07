@@ -8,7 +8,7 @@
 import { canonicalizeJson, hashBytes } from "@ega-skills/hashing";
 
 import { verifyHubRelease, type HubRelease } from "./hub/release.js";
-import { hashNormalizedConfig } from "./lock.js";
+import { hashNormalizedConfig, validateLockfile } from "./lock.js";
 import type { ProjectConfigV1 } from "./config.js";
 import type { ProjectLockV1 } from "./lock.js";
 
@@ -82,6 +82,17 @@ function assertExactKeys(value: object, expected: readonly string[], field: stri
 
 function digestCanonical(value: unknown): string {
   return hashBytes(canonicalizeJson(value));
+}
+
+function validatedLock(lock: ProjectLockV1, configDigest: string, field: string): ProjectLockV1 {
+  try {
+    return validateLockfile(lock, configDigest);
+  } catch (error) {
+    remoteError(
+      REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT,
+      `${field} is not a valid normalized lock: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export interface ProjectContextArtifact {
@@ -176,17 +187,15 @@ export function createProjectContextArtifact(input: CreateProjectContextInput): 
   assertId(input.project_id, "project_id");
   verifyHubRelease(input.release);
   const configDigest = hashNormalizedConfig(input.config);
-  if (input.lock.generated_from.config_hash !== configDigest) {
-    remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "lock does not bind the supplied normalized project config");
-  }
+  const lock = validatedLock(input.lock, configDigest, "lock");
   const fingerprintDigest = input.fingerprint_digest ?? null;
   assertDigest(fingerprintDigest, "fingerprint_digest");
-  assertLockInRelease(input.lock, input.release);
+  assertLockInRelease(lock, input.release);
   const artifact: ProjectContextArtifact = freezeRecord({
     workspace_id: input.workspace_id,
     project_id: input.project_id,
     config_digest: configDigest,
-    lock_digest: hashProjectLock(input.lock),
+    lock_digest: hashProjectLock(lock),
     release_digest: input.release.digest,
     fingerprint_digest: fingerprintDigest,
     context_contract_version: REMOTE_PROJECTS_CONTRACT_VERSION,
@@ -273,15 +282,13 @@ export function createRemoteLockPlan(input: CreateRemoteLockPlanInput): RemoteLo
   assertId(input.project_id, "project_id");
   verifyHubRelease(input.target_release);
   const configDigest = hashNormalizedConfig(input.config);
-  if (input.candidate_lock.generated_from.config_hash !== configDigest) {
-    remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "candidate lock does not bind the supplied project config");
-  }
-  if (input.existing_lock !== null && input.existing_lock.generated_from.config_hash !== configDigest) {
-    remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "existing lock does not bind the supplied project config");
-  }
-  assertLockInRelease(input.candidate_lock, input.target_release);
-  const oldSkills = input.existing_lock?.skills ?? {};
-  const newSkills = input.candidate_lock.skills;
+  const candidateLock = validatedLock(input.candidate_lock, configDigest, "candidate lock");
+  const existingLock = input.existing_lock === null
+    ? null
+    : validatedLock(input.existing_lock, configDigest, "existing lock");
+  assertLockInRelease(candidateLock, input.target_release);
+  const oldSkills = existingLock?.skills ?? {};
+  const newSkills = candidateLock.skills;
   const addedEntries = Object.keys(newSkills).filter((skillId) => oldSkills[skillId] === undefined).sort();
   const removedEntries = Object.keys(oldSkills).filter((skillId) => newSkills[skillId] === undefined).sort();
   const changedEntries = Object.keys(newSkills)
@@ -298,9 +305,9 @@ export function createRemoteLockPlan(input: CreateRemoteLockPlanInput): RemoteLo
     workspace_id: input.workspace_id,
     project_id: input.project_id,
     project_config_digest: configDigest,
-    existing_lock_digest: input.existing_lock === null ? null : hashProjectLock(input.existing_lock),
+    existing_lock_digest: existingLock === null ? null : hashProjectLock(existingLock),
     target_release_digest: input.target_release.digest,
-    candidate_lock: freezeLock(input.candidate_lock),
+    candidate_lock: freezeLock(candidateLock),
     added_entries: Object.freeze(addedEntries),
     removed_entries: Object.freeze(removedEntries),
     changed_entries: Object.freeze(changedEntries),
@@ -333,6 +340,34 @@ export function verifyRemoteLockPlan(plan: RemoteLockPlan): void {
   }
   assertDigest(plan.existing_lock_digest, "existing_lock_digest");
   assertDigest(plan.fingerprint_digest, "fingerprint_digest");
+  const candidateLock = validatedLock(plan.candidate_lock, plan.project_config_digest, "candidate lock");
+  const sortedUnique = (values: readonly string[], field: string): void => {
+    for (let index = 0; index < values.length; index += 1) {
+      if (typeof values[index] !== "string" || (index > 0 && values[index - 1]! >= values[index]!)) {
+        remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `${field} must be sorted and unique`);
+      }
+    }
+  };
+  if (!Array.isArray(plan.added_entries) || !Array.isArray(plan.removed_entries) || !Array.isArray(plan.changed_entries)) {
+    remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "remote lock plan changes must be arrays");
+  }
+  sortedUnique(plan.added_entries, "added_entries");
+  sortedUnique(plan.removed_entries, "removed_entries");
+  const candidateIds = new Set(Object.keys(candidateLock.skills));
+  for (const skillId of plan.added_entries) {
+    if (!candidateIds.has(skillId)) remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `added entry ${skillId} is absent from candidate lock`);
+  }
+  for (const change of plan.changed_entries) {
+    if (typeof change !== "object" || change === null || Object.keys(change).sort().join(",") !== "candidate_version_hash,previous_version_hash,skill_id") {
+      remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "changed_entries contains an invalid change");
+    }
+    if (typeof change.skill_id !== "string" || !DIGEST_RE.test(change.previous_version_hash) || !DIGEST_RE.test(change.candidate_version_hash)) {
+      remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "changed_entries contains an invalid digest");
+    }
+    if (!candidateIds.has(change.skill_id) || candidateLock.skills[change.skill_id]!.version_hash !== change.candidate_version_hash) {
+      remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, `changed entry ${change.skill_id} does not match candidate lock`);
+    }
+  }
   const { plan_digest: actual, ...artifact } = plan;
   if (digestCanonical(artifact) !== actual) remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "plan_digest does not match its canonical artifact");
 }

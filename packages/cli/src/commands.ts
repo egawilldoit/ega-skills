@@ -21,7 +21,13 @@ import {
   type ImportSummary,
   type RegistryHandle,
 } from "@ega-skills/registry";
-import { resolveSkills, type ResolutionResult } from "@ega-skills/router";
+import {
+  createRemoteProjectFingerprint,
+  detectRemoteFingerprintRevision,
+  hashRemoteFingerprint,
+  resolveSkills,
+  type ResolutionResult,
+} from "@ega-skills/router";
 import {
   discoverConfig,
   parseProjectConfig,
@@ -32,6 +38,9 @@ import {
   verifyRemoteLockPlan,
   hashProjectLock,
   hashNormalizedConfig,
+  createProjectContextArtifact,
+  createRemoteLockPlan,
+  verifyHubRelease,
   applyUpdatePlan,
   buildHub,
   checkForUpdates,
@@ -41,6 +50,7 @@ import {
   parseSourcesYaml,
   verifySourcesLock,
   type ProjectLockV1,
+  type HubRelease,
   type RefreshLockDiff,
   type UpdatePlanDocument,
 } from "@ega-skills/project";
@@ -71,6 +81,71 @@ function readHubContracts(hub: string) {
   const lock = parseSourcesLockYaml(readFileSync(hubFile(hubDir, "sources.lock.yaml"), "utf8"));
   verifySourcesLock(config, lock);
   return { config, hubDir, lock };
+}
+
+interface ProjectAuthority {
+  readonly projectPath: string;
+  readonly configPath: string;
+  readonly lockPath: string;
+  readonly config: ReturnType<typeof parseProjectConfig>;
+  readonly lock: ProjectLockV1 | null;
+}
+
+function readProjectAuthority(project: string): ProjectAuthority {
+  const projectPath = resolve(project);
+  const discovery = discoverConfig(projectPath);
+  if (discovery.configPath === null) throw new Error(`No .egaskills.yaml found under ${projectPath}.`);
+  const configPath = discovery.configPath;
+  const lockPath = join(dirname(configPath), ".egaskills.lock");
+  const config = parseProjectConfig(readFileSync(configPath, "utf8"));
+  const gated = readConfigAndLock(discovery);
+  return { projectPath, configPath, lockPath, config, lock: gated.lock };
+}
+
+function readReleaseFile(path: string): HubRelease {
+  const release = JSON.parse(readFileSync(resolve(path), "utf8")) as unknown;
+  verifyHubRelease(release);
+  return release;
+}
+
+function projectFingerprint(
+  projectPath: string,
+  repositoryRoot: string | undefined,
+  disabled: boolean,
+) {
+  if (disabled) return null;
+  const root = resolve(repositoryRoot ?? projectPath);
+  return createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: projectPath,
+    revision: detectRemoteFingerprintRevision(root),
+  });
+}
+
+function candidateLockForRelease(
+  config: ReturnType<typeof parseProjectConfig>,
+  release: HubRelease,
+): ProjectLockV1 {
+  const skills = Object.fromEntries(
+    Object.entries(release.payload.skill_versions)
+      .filter(([skillId]) => {
+        const namespace = skillId.slice(0, skillId.indexOf("/"));
+        return !config.namespaces.deny.includes(namespace) &&
+          (config.namespaces.allow.length === 0 || config.namespaces.allow.includes(namespace)) &&
+          !config.skills.deny.includes(skillId);
+      })
+      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([skillId, versionHash]) => [skillId, {
+        name: skillId.slice(skillId.lastIndexOf("/") + 1),
+        version_hash: versionHash,
+      }]),
+  );
+  return Object.freeze({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: Object.freeze({ config_hash: hashNormalizedConfig(config) }),
+    skills: Object.freeze(skills),
+  }) as ProjectLockV1;
 }
 
 /** Run the complete Contract C build through the public CLI API. */
@@ -347,6 +422,39 @@ export interface RemoteLockApplyResult {
   readonly skills: number;
 }
 
+export interface RemoteLockPlanOptions {
+  readonly project?: string;
+  readonly release: string;
+  readonly workspaceId: string;
+  readonly projectId: string;
+  readonly repositoryRoot?: string;
+  readonly withoutFingerprint?: boolean;
+  readonly output?: string;
+}
+
+export interface RemoteLockPlanResult {
+  readonly plan: ReturnType<typeof createRemoteLockPlan>;
+  readonly output?: string;
+}
+
+export interface ContextPublishOptions {
+  readonly project?: string;
+  readonly release: string;
+  readonly workspaceId: string;
+  readonly projectId: string;
+  readonly contextId?: string;
+  readonly repositoryRoot?: string;
+  readonly withoutFingerprint?: boolean;
+}
+
+export interface ContextPublishResult {
+  readonly context_id: string;
+  readonly context: ReturnType<typeof createProjectContextArtifact>;
+  readonly config: ReturnType<typeof parseProjectConfig>;
+  readonly lock: ProjectLockV1;
+  readonly fingerprint: ReturnType<typeof projectFingerprint>;
+}
+
 /**
  * Rejects symlink/junction lock paths (SPEC-005 §5.1.14 rule 4, same
  * convention as readControlFileText): a lock symlink is NEVER followed for
@@ -540,6 +648,47 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
     target_release_digest: plan.target_release_digest,
     skills: Object.keys(candidate.skills).length,
   };
+}
+
+/** Compute a release-pinned remote lock plan without touching local project files. */
+export function runRemoteLockPlan(options: RemoteLockPlanOptions): RemoteLockPlanResult {
+  const authority = readProjectAuthority(options.project ?? ".");
+  const release = readReleaseFile(options.release);
+  const fingerprint = projectFingerprint(authority.projectPath, options.repositoryRoot, options.withoutFingerprint === true);
+  const plan = createRemoteLockPlan({
+    workspace_id: options.workspaceId,
+    project_id: options.projectId,
+    config: authority.config,
+    existing_lock: authority.lock,
+    candidate_lock: candidateLockForRelease(authority.config, release),
+    target_release: release,
+    fingerprint_digest: fingerprint === null ? null : hashRemoteFingerprint(fingerprint),
+  });
+  if (options.output !== undefined) writeFileSync(resolve(options.output), `${JSON.stringify(plan, null, 2)}\n`);
+  return Object.freeze({ plan, ...(options.output !== undefined ? { output: resolve(options.output) } : {}) });
+}
+
+/** Build a non-writing immutable ProjectContext from local authority files. */
+export function runContextPublish(options: ContextPublishOptions): ContextPublishResult {
+  const authority = readProjectAuthority(options.project ?? ".");
+  if (authority.lock === null) throw new Error("Context publication requires an adjacent validated .egaskills.lock.");
+  const release = readReleaseFile(options.release);
+  const fingerprint = projectFingerprint(authority.projectPath, options.repositoryRoot, options.withoutFingerprint === true);
+  const context = createProjectContextArtifact({
+    workspace_id: options.workspaceId,
+    project_id: options.projectId,
+    config: authority.config,
+    lock: authority.lock,
+    release,
+    fingerprint_digest: fingerprint === null ? null : hashRemoteFingerprint(fingerprint),
+  });
+  return Object.freeze({
+    context_id: options.contextId ?? context.context_digest,
+    context,
+    config: authority.config,
+    lock: authority.lock,
+    fingerprint,
+  });
 }
 
 /** Convenience: metadata, versions, L1 status, token sizes, provenance. Read-only. */

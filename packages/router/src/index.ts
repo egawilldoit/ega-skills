@@ -17,6 +17,7 @@ export {
   createRemoteProjectFingerprint,
   detectRemoteFingerprintRevision,
   hashRemoteFingerprint,
+  verifyRemoteProjectFingerprint,
   RemoteFingerprintError,
 } from "./remote-fingerprint.js";
 export type {

@@ -135,8 +135,23 @@ test("Contract E cache identity and lifecycle preserve exact artifacts across re
   const store = createProjectContextStore();
   const published = store.publish({ contextId: "ctx-main", context });
   assert.equal(published.revoked, false);
+  const second = store.publish({
+    contextId: "ctx-feature",
+    context: createProjectContextArtifact({
+      workspace_id: context.workspace_id,
+      project_id: context.project_id,
+      config,
+      lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+      release,
+      fingerprint_digest: `sha256:${"6".repeat(64)}`,
+    }),
+  });
+  assert.equal(second.revoked, false);
+  assert.deepEqual(store.list().map((record) => record.contextId), ["ctx-feature", "ctx-main"]);
   const retained = store.revoke("ctx-main");
   assert.equal(retained.revoked, true);
   assert.equal(retained.context.context_digest, context.context_digest);
   assert.equal(store.get("ctx-main")?.context.context_digest, context.context_digest);
+  assert.equal(store.get("ctx-feature")?.revoked, false);
+  assert.throws(() => store.publish({ contextId: "ctx-main", context }), /already published/);
 });
