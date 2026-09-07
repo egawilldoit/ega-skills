@@ -73,6 +73,28 @@ function readFlag(rest, name) {
   return undefined;
 }
 
+function readHubPositionals(rest, valueFlags) {
+  const positional = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const token = rest[i];
+    if (token.startsWith("--")) {
+      const equals = token.indexOf("=");
+      const name = token.slice(2, equals === -1 ? undefined : equals);
+      if (!valueFlags.has(name)) fail(`Unknown command or option: ${token}`);
+      if (equals === -1) {
+        const value = rest[i + 1];
+        if (typeof value !== "string" || value.startsWith("--")) {
+          fail(`Missing value for --${name}.`);
+        }
+        i += 1;
+      }
+      continue;
+    }
+    positional.push(token);
+  }
+  return positional;
+}
+
 function readRepeatableFlag(rest, name) {
   const values = [];
   for (let i = 0; i < rest.length; i += 1) {
@@ -273,14 +295,14 @@ async function main() {
       return;
     }
     if (subcommand === "check") {
-      const sourceId = hubRest.find((token) => !token.startsWith("--"));
       const output = readFlag(hubRest, "output");
-      const positional = hubRest.filter((token) => !token.startsWith("--") && token !== sourceId);
+      const positional = readHubPositionals(hubRest, new Set(["output"]));
+      const [sourceId, hub] = positional;
       if (sourceId === undefined) fail("Missing hub check <source-id>.");
       if (output === undefined) fail("Missing required --output <plan.json>.");
-      if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+      if (positional.length > 2) fail(`Unknown command or option: ${positional[2]}`);
       try {
-        const result = await runHubCheck({ sourceId, output, hub: positional[0] ?? "." });
+        const result = await runHubCheck({ sourceId, output, hub: hub ?? "." });
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
@@ -289,7 +311,7 @@ async function main() {
     }
     if (subcommand === "update") {
       const plan = readFlag(hubRest, "plan");
-      const positional = hubRest.filter((token) => !token.startsWith("--"));
+      const positional = readHubPositionals(hubRest, new Set(["plan"]));
       if (plan === undefined) fail("Missing required --plan <plan.json>.");
       if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
       try {

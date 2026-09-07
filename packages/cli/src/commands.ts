@@ -2,8 +2,8 @@
 //
 // import: ega-skills import <path> --namespace <namespace> (REQUIRED surface).
 // list/inspect: local read-only conveniences reusing registry reads; they
-// define no new V1 behavior and never mutate state. No resolve/lock/update/
-// sync/approve surface exists in V1. init (EGA-583) writes the frozen
+// define no new V1 behavior and never mutate state. Hub build/check/update
+// expose the frozen Hub adoption surface. init (EGA-583) writes the frozen
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
