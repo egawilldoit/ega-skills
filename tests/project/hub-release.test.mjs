@@ -67,6 +67,36 @@ test("HubRelease rejects semantic tampering and bad artifact binding", () => {
   });
 });
 
+test("HubRelease rejects a semantically forged token artifact", () => {
+  return fixture().then((value) => {
+    const forgedTokens = {
+      ...value.artifacts.tokenArtifact,
+      counts: value.artifacts.tokenArtifact.counts.map((row, index) =>
+        index === 0 ? { ...row, tokens: row.tokens + 1000000 } : row,
+      ),
+    };
+    assert.throws(
+      () => createHubRelease(value, { ...value.artifacts, tokenArtifact: forgedTokens }),
+      (error) => error.code === "E_TOKEN_ARTIFACT",
+    );
+  });
+});
+
+test("HubRelease rejects a valid token catalog with the wrong token level", () => {
+  return fixture().then((value) => {
+    const forgedTokens = {
+      ...value.artifacts.tokenArtifact,
+      counts: value.artifacts.tokenArtifact.counts.map((row, index) =>
+        index === 0 ? { ...row, level: "L1" } : row,
+      ),
+    };
+    assert.throws(
+      () => createHubRelease(value, { ...value.artifacts, tokenArtifact: forgedTokens }),
+      (error) => error.code === "E_TOKEN_ARTIFACT",
+    );
+  });
+});
+
 test("stable publication is monotonic CAS and rollback remains a new version", () => {
   return Promise.all([fixture("one"), fixture("two")]).then(([value, retained]) => {
   const release = createHubRelease(value, value.artifacts);
