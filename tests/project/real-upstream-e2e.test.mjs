@@ -216,11 +216,13 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   const approvedPlanDigest = checked.plan.digest;
   const fetchedB = join(workspace, "fetched-b");
   const stageB = join(workspace, "stage-b");
-  fetchExactCommit(mirror, commitB, fetchedB);
-  extractSelectedRoots(fetchedB, source.roots, source.provenance, stageB);
-
   execFileSync("git", ["-C", mirror, "update-ref", "refs/heads/main", commitC], { stdio: "pipe" });
   assert.equal(resolveRefToCommit(mirror, "main"), commitC);
+  // The approved plan is materialized only after the tracked ref has moved.
+  // This exercises the public plan/apply lifecycle rather than only the lower-
+  // level exact-fetch primitive.
+  fetchExactCommit(mirror, commitB, fetchedB);
+  extractSelectedRoots(fetchedB, source.roots, source.provenance, stageB);
   await applyUpdatePlan({ hubDir, plan: checked.plan, stageDir: stageB });
   const release2 = await buildHubRelease(hubDir);
   assert.equal(release2.adoptedSources.find(({ sourceId }) => sourceId === source.id)?.resolvedCommit, commitB);

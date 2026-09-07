@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node 24
         uses: actions/setup-node@v6
@@ -83,5 +85,10 @@ jobs:
           pnpm contracts:check-e
           pnpm contracts:test-e
 
-      - name: Check patch formatting
+      - name: Check generated working tree formatting
         run: git diff --check
+
+      - name: Check committed pull request patch formatting
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"

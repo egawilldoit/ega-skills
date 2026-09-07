@@ -76,9 +76,9 @@ function portablePath(repositoryRoot: string, absolutePath: string, field: strin
   return value;
 }
 
-function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint8Array {
+function secureBoundedRead(repositoryRoot: string, absolutePath: string): Uint8Array | null {
   const root = realpathSync(repositoryRoot);
-  const candidate = resolve(root, relativePath);
+  const candidate = resolve(absolutePath);
   const relativeCandidate = relative(root, candidate);
   if (relativeCandidate === "" || relativeCandidate === ".." || relativeCandidate.startsWith(`..${sep}`)) {
     fail("fingerprint evidence path must remain inside the repository root");
@@ -87,8 +87,14 @@ function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint
   let current = root;
   for (const segment of segments) {
     current = resolve(current, segment);
-    const stat = lstatSync(current);
-    if (stat.isSymbolicLink()) fail(`fingerprint evidence path ${relativePath} contains a symlink`);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error !== null && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT") return null;
+      fail(`fingerprint evidence path ${absolutePath} could not be inspected`);
+    }
+    if (stat.isSymbolicLink()) fail(`fingerprint evidence path ${absolutePath} contains a symlink`);
   }
   const resolvedCandidate = realpathSync(candidate);
   const resolvedRelative = relative(root, resolvedCandidate);
@@ -100,15 +106,31 @@ function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint
     const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
     fd = openSync(candidate, flags);
     const opened = fstatSync(fd);
-    if (!opened.isFile()) fail(`fingerprint evidence path ${relativePath} is not a regular file`);
-    if (opened.size > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${relativePath} exceeds the bounded read limit`);
+    if (!opened.isFile()) fail(`fingerprint evidence path ${absolutePath} is not a regular file`);
+    if (opened.size > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${absolutePath} exceeds the bounded read limit`);
     const bytes = new Uint8Array(MAX_EVIDENCE_BYTES + 1);
     const read = readSync(fd, bytes, 0, bytes.byteLength, 0);
-    if (read > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${relativePath} exceeds the bounded read limit`);
+    if (read > MAX_EVIDENCE_BYTES) fail(`fingerprint evidence path ${absolutePath} exceeds the bounded read limit`);
     return bytes.slice(0, read);
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint8Array {
+  const bytes = secureBoundedRead(repositoryRoot, resolve(realpathSync(repositoryRoot), relativePath));
+  if (bytes === null) fail(`fingerprint evidence path ${relativePath} could not be read`);
+  return bytes;
+}
+
+/** Discovery uses exactly the same bounded/confined authority as hashing. */
+function secureDiscoveryText(repositoryRoot: string, absolutePath: string): string | null {
+  const root = realpathSync(repositoryRoot);
+  const candidate = resolve(absolutePath);
+  const relativeCandidate = relative(root, candidate);
+  if (relativeCandidate === ".." || relativeCandidate.startsWith(`..${sep}`)) return null;
+  const bytes = secureBoundedRead(root, candidate);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
 }
 
 function sourcePath(evidence: FingerprintEvidence, fingerprint: ProjectFingerprint): string {
@@ -234,7 +256,10 @@ export function hashRemoteFingerprint(fingerprint: RemoteProjectFingerprint): st
 
 export function createRemoteProjectFingerprint(input: CreateRemoteFingerprintInput): RemoteProjectFingerprint {
   assertRevision(input.revision);
-  const detected = resolveProjectFingerprint(input.project_path);
+  const detected = resolveProjectFingerprint(input.project_path, {
+    rootPath: input.repository_root,
+    readFileText: (path) => secureDiscoveryText(input.repository_root, path),
+  });
   const evidence = detected.evidence
     .map((record) => ({
       path: portablePath(input.repository_root, sourcePath(record, detected), "fingerprint evidence path"),

@@ -146,3 +146,27 @@ test("Contract E bounds evidence reads and rejects oversized manifest files", as
     revision: { mode: "unversioned" },
   }), /bounded read limit/);
 });
+
+test("Contract E bounds workspace-marker discovery before reading oversized evidence", async () => {
+  const root = await monorepo();
+  await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - apps/*\n# ${"x".repeat(1_048_600)}\n`);
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /bounded read limit/);
+});
+
+test("Contract E rejects a project path whose parent resolves outside the repository", async () => {
+  const root = await monorepo();
+  const outside = await mkdtemp(join(tmpdir(), "ega-fingerprint-project-outside-"));
+  roots.add(outside);
+  await writeFile(join(outside, "package.json"), '{"name":"outside"}\n');
+  await rm(join(root, "apps", "web"), { recursive: true, force: true });
+  await symlink(outside, join(root, "apps", "web"), "junction");
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /inside the fingerprint root/);
+});
