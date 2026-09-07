@@ -1,8 +1,9 @@
-# Contract D — Hosted Runtime (FROZEN v1)
+# Contract D: Hosted Runtime (FREEZE CANDIDATE v1)
 
-**Status:** FROZEN
+**Status:** FREEZE CANDIDATE
 **Contract version:** 1
-**Milestone gate:** this contract freezes before any 1.2 hosted implementation.
+**Milestone gate:** this candidate must pass a dedicated exact-head review, CI,
+merge, and freeze record before it becomes repository-authoritative.
 **Normative authority:** Final Post-V1 Release Specification §4.2–§4.23 and
 `scripts/contracts/examples/contract-d/hosted-runtime.json`.
 

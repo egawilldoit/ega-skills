@@ -57,3 +57,31 @@ jobs:
 
       - name: Check frozen specs
         run: pnpm specs:check
+
+      - name: Contract A gates
+        run: |
+          pnpm contracts:check-a
+          pnpm contracts:test-a
+
+      - name: Contract B gates
+        run: |
+          pnpm contracts:check-b
+          pnpm contracts:test-b
+
+      - name: Contract C gates
+        run: |
+          pnpm contracts:check-c
+          pnpm contracts:test-c
+
+      - name: Contract D gates
+        run: |
+          pnpm contracts:check-d
+          pnpm contracts:test-d
+
+      - name: Contract E gates
+        run: |
+          pnpm contracts:check-e
+          pnpm contracts:test-e
+
+      - name: Check patch formatting
+        run: git diff --check
