@@ -52,6 +52,15 @@ export async function buildHubRelease(hubDir: string): Promise<HubReleaseBuildRe
   try {
     createReleaseFtsTable(registry.db, ftsTable, artifacts.searchIndexInput.rows);
     verifyReleaseCorpus(registry.db, ftsTable, build.skills.length);
+    registry.db.exec(
+      "CREATE TABLE ega_release_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)",
+    );
+    const metadata = registry.db.prepare("INSERT INTO ega_release_metadata (key, value) VALUES (?, ?)");
+    metadata.run("hub_release_digest", release.digest);
+    metadata.run("search_index_input_digest", release.payload.search_index_input_digest);
+    metadata.run("token_artifact_digest", release.payload.token_artifact_digest);
+    metadata.run("alias_map_digest", release.payload.alias_map_digest);
+    metadata.run("fts_table", ftsTable);
   } finally {
     registry.close();
   }

@@ -146,11 +146,20 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
       const parts = token.split(".");
       if (parts.length !== 3 || parts.some((part) => part.length === 0)) throw oauthFailure("malformed bearer token");
       const header = decodeJson<JwtHeader>(parts[0]!, "header");
-      const claims = decodeJson<JwtClaims>(parts[1]!, "claims");
       if (header.alg !== "RS256" || typeof header.kid !== "string" || header.kid.length === 0) {
         throw oauthFailure("unsupported signing algorithm or missing key id");
       }
       if (header.typ !== undefined && header.typ !== "JWT") throw oauthFailure("invalid token type");
+      const jwks = await loadJwks();
+      const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
+      if (jwk === undefined) {
+        jwksPromise = undefined;
+        throw oauthFailure("signing key is not published");
+      }
+      const verifier = createVerify("RSA-SHA256");
+      verifier.update(`${parts[0]}.${parts[1]}`, "ascii");
+      if (!verifier.verify(asPublicKey(jwk), decodeBase64Url(parts[2]!))) throw oauthFailure("signature mismatch");
+      const claims = decodeJson<JwtClaims>(parts[1]!, "claims");
       if (claims.iss !== options.issuer) throw oauthFailure("issuer mismatch");
       if (!audienceIncludes(claims.aud, options.resource)) throw oauthFailure("audience/resource mismatch");
       const now = Math.floor(Date.now() / 1000);
@@ -163,16 +172,6 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
       const scopes = scopeSet(claims.scope);
       if (options.requiredScopes.some((scope) => !scopes.has(scope))) throw oauthFailure("required scope is missing");
       if (options.isRevoked !== undefined && await options.isRevoked(claims)) throw oauthFailure("token is revoked");
-
-      const jwks = await loadJwks();
-      const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
-      if (jwk === undefined) {
-        jwksPromise = undefined;
-        throw oauthFailure("signing key is not published");
-      }
-      const verifier = createVerify("RSA-SHA256");
-      verifier.update(`${parts[0]}.${parts[1]}`, "ascii");
-      if (!verifier.verify(asPublicKey(jwk), decodeBase64Url(parts[2]!))) throw oauthFailure("signature mismatch");
       const subject = typeof claims.sub === "string" ? claims.sub : undefined;
       const clientId = typeof claims.client_id === "string" ? claims.client_id : subject;
       if (clientId === undefined) throw oauthFailure("subject is missing");

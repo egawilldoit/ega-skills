@@ -5,7 +5,7 @@
 // absolute paths or uploading application source. Only bounded evidence-file
 // digests enter the relevant-input digest.
 
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 
@@ -73,6 +73,28 @@ function portablePath(repositoryRoot: string, absolutePath: string, field: strin
     fail(`${field} must remain inside the repository root`);
   }
   return value;
+}
+
+function secureEvidenceBytes(repositoryRoot: string, relativePath: string): Uint8Array {
+  const root = realpathSync(repositoryRoot);
+  const candidate = resolve(root, relativePath);
+  const relativeCandidate = relative(root, candidate);
+  if (relativeCandidate === "" || relativeCandidate === ".." || relativeCandidate.startsWith(`..${sep}`)) {
+    fail("fingerprint evidence path must remain inside the repository root");
+  }
+  const segments = relativeCandidate.split(sep);
+  let current = root;
+  for (const segment of segments) {
+    current = resolve(current, segment);
+    const stat = lstatSync(current);
+    if (stat.isSymbolicLink()) fail(`fingerprint evidence path ${relativePath} contains a symlink`);
+  }
+  const resolvedCandidate = realpathSync(candidate);
+  const resolvedRelative = relative(root, resolvedCandidate);
+  if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${sep}`)) {
+    fail("fingerprint evidence path must remain inside the repository root");
+  }
+  return readFileSync(candidate);
 }
 
 function sourcePath(evidence: FingerprintEvidence, fingerprint: ProjectFingerprint): string {
@@ -207,17 +229,25 @@ export function createRemoteProjectFingerprint(input: CreateRemoteFingerprintInp
     .filter((record, index, all) => all.findIndex((candidate) => candidate.path === record.path && candidate.kind === record.kind) === index)
     .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0);
   let inputs: readonly RelevantFingerprintInput[];
-  if (input.relevant_inputs !== undefined) {
-    inputs = input.relevant_inputs;
-  } else {
-    try {
-      inputs = evidence.map((record) => ({
-        path: record.path,
-        bytes: readFileSync(resolve(input.repository_root, record.path)),
-      }));
-    } catch (error) {
-      fail(`fingerprint evidence could not be read: ${error instanceof Error ? error.message : String(error)}`);
+  try {
+    // Evidence discovered by the resolver is authoritative. A caller may
+    // provide it as a consistency assertion, but cannot add unrelated files
+    // or substitute bytes without changing the detected project identity.
+    const detectedInputs = evidence.map((record) => ({
+      path: record.path,
+      bytes: secureEvidenceBytes(input.repository_root, record.path),
+    }));
+    if (input.relevant_inputs !== undefined) {
+      const supplied = new Map(input.relevant_inputs.map((record) => [record.path, hashBytes(typeof record.bytes === "string" ? new TextEncoder().encode(record.bytes) : record.bytes)]));
+      const detected = new Map(detectedInputs.map((record) => [record.path, hashBytes(record.bytes)]));
+      if (supplied.size !== detected.size || [...detected].some(([path, digest]) => supplied.get(path) !== digest)) {
+        fail("relevant_inputs must exactly match bounded detected evidence");
+      }
     }
+    inputs = detectedInputs;
+  } catch (error) {
+    if (error instanceof RemoteFingerprintError) throw error;
+    fail(`fingerprint evidence could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
   const result: RemoteProjectFingerprint = Object.freeze({
     package_root: detected.packageRoot === null ? null : portablePath(input.repository_root, detected.packageRoot, "package_root"),

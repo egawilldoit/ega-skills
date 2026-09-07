@@ -21,11 +21,16 @@ import {
 import { sha256Hex } from "@ega-skills/hashing";
 import {
   assertLockInRelease,
+  checkAliasMap,
+  checkSearchIndexInput,
+  checkTokenArtifact,
   hashNormalizedConfig,
   hashProjectLock,
   verifyHubRelease,
   verifyProjectContext,
   type HubRelease,
+  type ReleaseArtifacts,
+  type ReleasePackage,
   type ProjectConfigV1,
   type ProjectContext,
   type ProjectLockV1,
@@ -34,6 +39,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   getCacheBlob,
   getSkillVersion,
+  getTokenCount,
   openRegistry,
   type RegistryHandle,
 } from "@ega-skills/registry";
@@ -76,6 +82,11 @@ export interface HostedReleaseSnapshot {
   readonly registryHome: string;
   /** SHA-256 digest of the exact immutable registry.sqlite artifact. */
   readonly sqliteArtifactDigest: string;
+  readonly releasePackage: ReleasePackage;
+  readonly artifacts: ReleaseArtifacts;
+  readonly ftsTable: string;
+  /** Mapping emitted by the isolated builder for source-scoped emergency deny. */
+  readonly skillSourceIds?: Readonly<Record<string, string>>;
 }
 
 export interface HostedContextSnapshot {
@@ -140,6 +151,8 @@ export interface HostedHttpOptions {
   readonly maxConcurrentRequests?: number;
   readonly maxConnections?: number;
   readonly maxContentBytes?: number;
+  /** Deployment adapter's physical active-connection count, when available. */
+  readonly getActiveConnections?: () => number;
 }
 
 export interface HostedHttpHandler {
@@ -312,9 +325,85 @@ function readCatalog(db: RegistryHandle["db"]): Map<string, string> {
   return new Map(rows.map((row) => [row.skill_id, row.version_hash]));
 }
 
+function snapshotTableName(table: string): string {
+  if (!/^release_fts_[0-9a-f]{64}$/.test(table)) {
+    fail("E_STARTUP_INTEGRITY", "release FTS table identity is invalid");
+  }
+  return `"${table}"`;
+}
+
+function deriveSnapshotArtifacts(
+  db: RegistryHandle["db"],
+  expected: ReadonlyMap<string, string>,
+): ReleaseArtifacts {
+  const aliases: Record<string, string> = {};
+  const rows: Array<{
+    skill_id: string;
+    version_hash: string;
+    name: string;
+    description: string;
+    domains: string[];
+    platforms: string[];
+    frameworks: string[];
+    triggers: string[];
+    aliases: string[];
+  }> = [];
+  const counts: Array<{ skill_id: string; version_hash: string; level: "L2"; tokens: number }> = [];
+  for (const [skillId, versionHash] of [...expected].sort(([a], [b]) => a.localeCompare(b))) {
+    const version = getSkillVersion(db, skillId, versionHash);
+    const manifest = JSON.parse(version.manifestJson) as Record<string, any>;
+    const portable = manifest.portable;
+    const routing = manifest.routing;
+    if (portable === null || typeof portable !== "object" || routing === null || typeof routing !== "object") {
+      fail("E_STARTUP_INTEGRITY", `selected manifest for ${skillId} is incomplete`);
+    }
+    const stringList = (value: unknown, field: string): string[] => {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+        fail("E_STARTUP_INTEGRITY", `${skillId}.${field} is not a string list`);
+      }
+      return [...value] as string[];
+    };
+    const skillAliases = stringList(routing.aliases, "aliases");
+    for (const alias of skillAliases) {
+      if (aliases[alias] !== undefined && aliases[alias] !== skillId) {
+        fail("E_STARTUP_INTEGRITY", `alias ${JSON.stringify(alias)} has multiple selected owners`);
+      }
+      aliases[alias] = skillId;
+    }
+    const files = manifest.files;
+    if (!Array.isArray(files)) fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no files`);
+    const skillFile = files.find((file: any) => file?.path === "SKILL.md");
+    if (typeof skillFile?.blob_hash !== "string") fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no SKILL.md`);
+    const l2Tokens = getTokenCount(db, skillFile.blob_hash, "ega-o200k-v1");
+    if (l2Tokens === null) fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no L2 token count`);
+    rows.push({
+      skill_id: skillId,
+      version_hash: versionHash,
+      name: portable.name,
+      description: portable.description,
+      domains: stringList(routing.domains, "domains"),
+      platforms: stringList(routing.platforms, "platforms"),
+      frameworks: stringList(routing.frameworks, "frameworks"),
+      triggers: stringList(routing.triggers, "triggers"),
+      aliases: skillAliases,
+    });
+    counts.push({ skill_id: skillId, version_hash: versionHash, level: "L2", tokens: l2Tokens });
+  }
+  return {
+    aliasMap: { aliases: Object.fromEntries(Object.entries(aliases).sort(([a], [b]) => a.localeCompare(b))) },
+    searchIndexInput: { rows },
+    tokenArtifact: { estimator: "ega-o200k-v1", counts },
+  };
+}
+
 function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
   try {
-    verifyHubRelease(snapshot.release);
+    verifyHubRelease(snapshot.release, snapshot.artifacts);
+    if (snapshot.releasePackage.hub_release_digest !== snapshot.release.digest ||
+        snapshot.releasePackage.sqlite_artifact_digest !== snapshot.sqliteArtifactDigest ||
+        snapshot.releasePackage.snapshot_rows !== Object.keys(snapshot.release.payload.skill_versions).length) {
+      fail("E_STARTUP_INTEGRITY", "release package does not bind the retained release");
+    }
   } catch (error) {
     fail("E_STARTUP_INTEGRITY", `HubRelease verification failed: ${String(error instanceof Error ? error.message : error)}`);
   }
@@ -348,6 +437,13 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
 
     const actual = readCatalog(registry.db);
     const expected = new Map(Object.entries(snapshot.release.payload.skill_versions));
+    const derived = deriveSnapshotArtifacts(registry.db, expected);
+    checkAliasMap(snapshot.artifacts.aliasMap, [...expected.keys()]);
+    checkTokenArtifact(snapshot.artifacts.tokenArtifact, Object.fromEntries(expected));
+    checkSearchIndexInput(snapshot.artifacts.searchIndexInput);
+    if (JSON.stringify(snapshot.artifacts) !== JSON.stringify(derived)) {
+      fail("E_STARTUP_INTEGRITY", "release artifacts do not match selected SkillVersion manifests");
+    }
     if (actual.size !== expected.size) fail("E_STARTUP_INTEGRITY", "SQLite catalog size does not match HubRelease");
     for (const [skillId, versionHash] of expected) {
       if (actual.get(skillId) !== versionHash) {
@@ -362,17 +458,47 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
       }
     }
 
+    const table = snapshotTableName(snapshot.ftsTable);
     const indexRows = registry.db
-      .prepare("SELECT skill_id, version_hash FROM skill_fts ORDER BY skill_id, version_hash")
-      .all<{ skill_id: string; version_hash: string }>() as Array<{
+      .prepare(`SELECT skill_id, version_hash, name, description, domains, platforms, frameworks, triggers, aliases FROM ${table} ORDER BY skill_id, version_hash`)
+      .all<{ skill_id: string; version_hash: string; name: string; description: string; domains: string; platforms: string; frameworks: string; triggers: string; aliases: string }>() as Array<{
       skill_id: string;
       version_hash: string;
+      name: string;
+      description: string;
+      domains: string;
+      platforms: string;
+      frameworks: string;
+      triggers: string;
+      aliases: string;
     }>;
-    const expectedIndex = [...expected]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([skill_id, version_hash]) => ({ skill_id, version_hash }));
+    const expectedIndex = snapshot.artifacts.searchIndexInput.rows.map((row) => ({
+      skill_id: row.skill_id,
+      version_hash: row.version_hash,
+      name: row.name,
+      description: row.description,
+      domains: row.domains.join("\n"),
+      platforms: row.platforms.join("\n"),
+      frameworks: row.frameworks.join("\n"),
+      triggers: row.triggers.join("\n"),
+      aliases: row.aliases.join("\n"),
+    }));
     if (JSON.stringify(indexRows) !== JSON.stringify(expectedIndex)) {
-      fail("E_STARTUP_INTEGRITY", "release FTS row identity does not match HubRelease");
+      fail("E_STARTUP_INTEGRITY", "release FTS corpus does not match search_index_input");
+    }
+    const metadata = registry.db
+      .prepare("SELECT key, value FROM ega_release_metadata ORDER BY key")
+      .all<{ key: string; value: string }>();
+    const metadataMap = Object.fromEntries(metadata.map((entry) => [entry.key, entry.value]));
+    const expectedMetadata = {
+      alias_map_digest: snapshot.release.payload.alias_map_digest,
+      fts_table: snapshot.ftsTable,
+      hub_release_digest: snapshot.release.digest,
+      search_index_input_digest: snapshot.release.payload.search_index_input_digest,
+      token_artifact_digest: snapshot.release.payload.token_artifact_digest,
+    };
+    if (JSON.stringify(metadataMap) !== JSON.stringify(expectedMetadata)) {
+      fail("E_STARTUP_INTEGRITY", "SQLite embedded release metadata does not match HubRelease");
     }
   } catch (error) {
     if (error instanceof HostedRuntimeError) throw error;
@@ -391,8 +517,86 @@ function denied(
   if (policy === undefined) return false;
   if (policy.releaseDigests?.includes(snapshot.release.digest)) return true;
   if (skillId !== undefined && versionHash !== undefined && policy.skillVersions?.includes(`${skillId}@${versionHash}`)) return true;
-  const sourceIds = new Set(policy.sourceIds ?? []);
-  return snapshot.release.payload.adopted_sources.some((source) => sourceIds.has(source.source_id));
+  if (skillId !== undefined) {
+    const sourceId = snapshot.skillSourceIds?.[skillId];
+    return sourceId !== undefined && (policy.sourceIds ?? []).includes(sourceId);
+  }
+  return false;
+}
+
+async function authorizeResourceResult(
+  result: CallToolResult,
+  tool: HostedToolName,
+  snapshot: HostedReleaseSnapshot,
+  binding: HostedContextSnapshot | undefined,
+  authInfo: AuthInfo | undefined,
+  authorize: HostedRuntimeOptions["authorize"],
+  denyPolicy: HostedDenyPolicy | undefined,
+): Promise<CallToolResult> {
+  if (result.isError || result.structuredContent === undefined) return result;
+  const structured = result.structuredContent as Record<string, unknown>;
+  const isAllowed = async (skillId: unknown, versionHash: unknown): Promise<boolean> => {
+    if (typeof skillId !== "string") return false;
+    const version = typeof versionHash === "string" ? versionHash : undefined;
+    if (denied(denyPolicy, snapshot, skillId, version)) return false;
+    return authorize({
+      tool,
+      releaseDigest: snapshot.release.digest,
+      skillId,
+      ...(version !== undefined ? { versionHash: version } : {}),
+      ...(binding !== undefined ? { contextId: binding.contextId } : {}),
+      ...(authInfo !== undefined ? { authInfo } : {}),
+    });
+  };
+  if (tool === "search") {
+    const rows = Array.isArray(structured.results) ? structured.results : [];
+    const visible = [];
+    for (const row of rows) {
+      if (row !== null && typeof row === "object" && await isAllowed((row as Record<string, unknown>).skill_id, (row as Record<string, unknown>).version_hash)) {
+        visible.push(row);
+      }
+    }
+    const lines = visible.map((row) => {
+      const item = row as Record<string, unknown>;
+      return `${String(item.skill_id)} ${String(item.version_hash)}`;
+    });
+    return {
+      ...result,
+      content: [{
+        type: "text",
+        text: `Search matched ${visible.length} project-visible skill version(s).${lines.length > 0 ? `\n${lines.join("\n")}` : ""}`,
+      }],
+      structuredContent: { ...structured, results: visible },
+    } as CallToolResult;
+  }
+  if (tool === "resolve") {
+    const filtered: Record<string, unknown> = { ...structured };
+    for (const field of ["explicit", "selected", "candidates", "rejected"]) {
+      const values = structured[field];
+      if (!Array.isArray(values)) continue;
+      const visible = [];
+      for (const value of values) {
+        if (value !== null && typeof value === "object") {
+          const item = value as Record<string, unknown>;
+          if (await isAllowed(item.id, item.version_hash)) visible.push(value);
+        }
+      }
+      filtered[field] = visible;
+    }
+    const selected = Array.isArray(filtered.selected) ? filtered.selected as Array<Record<string, unknown>> : [];
+    const names = selected.map((item) => String(item.id)).join(", ") || "(none)";
+    return {
+      ...result,
+      content: [{ type: "text", text: `Resolve selected ${selected.length} skill(s) [${names}] at ${String(structured.confidence)} confidence (${String(structured.lock_status)}, ${String(structured.budget_status)}).` }],
+      structuredContent: filtered,
+    } as CallToolResult;
+  }
+  const skillId = structured.skill_id;
+  const versionHash = structured.version_hash;
+  if (!(await isAllowed(skillId, versionHash))) {
+    throw new HostedRuntimeError("E_CONTENT_DENIED", "Requested immutable content is not authorized");
+  }
+  return result;
 }
 
 function hostedError(error: unknown): { code: string; message: string } {
@@ -491,7 +695,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
       const context = makeHostedContext(snapshot, binding);
       if (tool === "search") {
         const result = runSearchTool({ query: args["query"], limit: args["limit"] }, context);
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
       }
       if (tool === "resolve") {
         const result = await runResolveTool({
@@ -510,14 +714,14 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
             lockedVersions: new Map(Object.entries(binding.lock.skills).map(([skillId, entry]) => [skillId, entry.version_hash])),
           },
         });
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
       }
       if (tool === "inspect") {
         const result = toInspectSuccessResult(runInspectTool({
           skill_id: args["skill_id"] as string,
           ...(typeof args["version_hash"] === "string" ? { version_hash: args["version_hash"] } : {}),
         }, context));
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
       }
       const result = runGetContentTool({
         skill_id: args["skill_id"],
@@ -526,7 +730,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         max_tokens: args["max_tokens"],
         file_path: args["file_path"],
       }, context);
-      return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+      return structuredWithHostedMetadata(await authorizeResourceResult(result, tool, snapshot, binding, authInfo, options.authorize, denyPolicy), snapshot.release.digest, binding);
     } catch (error) {
       if (error instanceof HostedRuntimeError) {
         return errorResult(tool, error.code, error.message);
@@ -694,6 +898,16 @@ async function withHostedTimeout<T>(operation: Promise<T>, timeoutMs: number): P
   }
 }
 
+async function responseExceedsContentLimit(response: Response, maxContentBytes: number): Promise<boolean> {
+  try {
+    const body = await response.clone().json() as { result?: { structuredContent?: { content?: unknown } } };
+    const content = body.result?.structuredContent?.content;
+    return typeof content === "string" && new TextEncoder().encode(content).byteLength > maxContentBytes;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fetch-native `/mcp` surface. OAuth verification is deliberately supplied by
  * the deployment; this function only accepts verified AuthInfo from the SDK
@@ -735,9 +949,6 @@ export function createHostedMcpHandler(
     .every((value) => Number.isInteger(value) && value > 0)) {
     throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Hosted transport limits must be positive integers");
   }
-  if (maxConcurrentRequests > maxConnections) {
-    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Concurrent request limit cannot exceed connection limit");
-  }
   const allowedOriginHostnames = options.allowedOrigins.map((origin) => {
     let parsed: URL;
     try {
@@ -759,6 +970,11 @@ export function createHostedMcpHandler(
     { legacy: "reject", responseMode: "json", keepAliveMs: 0 },
   );
   let concurrent = 0;
+  const activeConnections = options.getActiveConnections ?? (() => concurrent);
+  const connectionLimitReached = (): boolean => {
+    const count = activeConnections();
+    return !Number.isInteger(count) || count < 0 || count >= maxConnections;
+  };
   return {
     fetch: async (request: Request): Promise<Response> => {
       const serve = async (): Promise<Response> => {
@@ -799,16 +1015,18 @@ export function createHostedMcpHandler(
           return jsonError(413, "E_REQUEST_LIMIT", "Request exceeds the hosted MCP byte limit");
         }
         const contentBytes = await request.clone().arrayBuffer();
-        if (contentBytes.byteLength > maxRequestBytes || contentBytes.byteLength > maxContentBytes) {
+        if (contentBytes.byteLength > maxRequestBytes) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request content exceeds the hosted MCP byte limit");
         }
-        if (concurrent >= maxConcurrentRequests) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP concurrency limit reached");
         const auth = await gate(request);
         if (auth instanceof Response) return auth;
         // Keep the local MCP package's read-only static audit satisfied: the
         // transport adapter invokes the SDK handler without importing a
         // network client or using a global request primitive.
         const response = await handler["fetch"](request, { authInfo: auth });
+        if (await responseExceedsContentLimit(response, maxContentBytes)) {
+          return jsonError(413, "E_CONTENT_LIMIT", "Returned skill content exceeds the hosted content byte limit");
+        }
         const responseBytes = await response.clone().arrayBuffer();
         const responseLength = response.headers.get("content-length");
         if ((responseLength !== null && Number(responseLength) > maxResponseBytes) || responseBytes.byteLength > maxResponseBytes) {
@@ -817,6 +1035,7 @@ export function createHostedMcpHandler(
         return response;
       };
       if (concurrent >= maxConcurrentRequests) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP concurrency limit reached");
+      if (connectionLimitReached()) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP connection limit reached");
       concurrent += 1;
       try {
         return await withHostedTimeout(serve(), requestTimeoutMs);

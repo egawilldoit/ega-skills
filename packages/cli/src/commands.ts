@@ -40,6 +40,8 @@ import {
   hashNormalizedConfig,
   createProjectContextArtifact,
   createRemoteLockPlan,
+  assertLockInRelease,
+  publishProjectContext,
   verifyHubRelease,
   applyUpdatePlan,
   buildHub,
@@ -475,6 +477,8 @@ export interface RemoteLockApplyOptions {
   readonly project?: string;
   /** JSON RemoteLockPlan produced by the reviewed remote planning step. */
   readonly plan: string;
+  /** Exact HubRelease JSON that authorizes the plan's target digest. */
+  readonly release: string;
   /** Explicit human/review approval; false never writes the local lock. */
   readonly approve?: boolean;
 }
@@ -510,6 +514,12 @@ export interface ContextPublishOptions {
   readonly contextId?: string;
   readonly repositoryRoot?: string;
   readonly withoutFingerprint?: boolean;
+  /** Authenticated control-plane base URL. Omit for local artifact preview. */
+  readonly controlPlane?: string;
+  /** Environment variable containing the bearer token. */
+  readonly tokenEnv?: string;
+  /** Process environment supplied by the executable boundary. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ContextPublishResult {
@@ -518,6 +528,7 @@ export interface ContextPublishResult {
   readonly config: ReturnType<typeof parseProjectConfig>;
   readonly lock: ProjectLockV1;
   readonly fingerprint: ReturnType<typeof projectFingerprint>;
+  readonly publication?: Awaited<ReturnType<typeof publishProjectContext>>;
 }
 
 /**
@@ -690,6 +701,11 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
   const raw = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as unknown;
   verifyRemoteLockPlan(raw as Parameters<typeof verifyRemoteLockPlan>[0]);
   const plan = raw as Parameters<typeof verifyRemoteLockPlan>[0];
+  const release = readReleaseFile(options.release);
+  if (release.digest !== plan.target_release_digest) {
+    throw new Error(`Remote lock plan targets ${plan.target_release_digest}, but the supplied release is ${release.digest}.`);
+  }
+  assertLockInRelease(plan.candidate_lock, release);
   const discovery = discoverConfig(options.project ?? ".");
   if (discovery.configPath === null) throw new Error("No .egaskills.yaml found — remote lock apply requires a selected config.");
   const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
@@ -734,7 +750,7 @@ export function runRemoteLockPlan(options: RemoteLockPlanOptions): RemoteLockPla
 }
 
 /** Build a non-writing immutable ProjectContext from local authority files. */
-export function runContextPublish(options: ContextPublishOptions): ContextPublishResult {
+export async function runContextPublish(options: ContextPublishOptions): Promise<ContextPublishResult> {
   const authority = readProjectAuthority(options.project ?? ".");
   if (authority.lock === null) throw new Error("Context publication requires an adjacent validated .egaskills.lock.");
   const release = readReleaseFile(options.release);
@@ -747,13 +763,23 @@ export function runContextPublish(options: ContextPublishOptions): ContextPublis
     release,
     fingerprint_digest: fingerprint === null ? null : hashRemoteFingerprint(fingerprint),
   });
-  return Object.freeze({
+  const result = {
     context_id: options.contextId ?? context.context_digest,
     context,
     config: authority.config,
     lock: authority.lock,
     fingerprint,
-  });
+  };
+  if (options.controlPlane !== undefined) {
+    const tokenEnv = options.tokenEnv ?? "EGA_CONTEXT_TOKEN";
+    const token = options.env?.[tokenEnv];
+    if (token === undefined || token.length === 0) throw new Error(`Context publication requires bearer token in ${tokenEnv}.`);
+    return Object.freeze({
+      ...result,
+      publication: await publishProjectContext(options.controlPlane, token, result.context_id, context),
+    });
+  }
+  return Object.freeze(result);
 }
 
 /** Convenience: metadata, versions, L1 status, token sizes, provenance. Read-only. */

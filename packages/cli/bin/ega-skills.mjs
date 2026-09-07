@@ -24,8 +24,8 @@ function printHelp() {
       "  ega-skills init-skill <name>",
       "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills remote-lock plan --release <release.json> --workspace-id <id> --project-id <id> [--output <plan.json>]",
-      "  ega-skills remote-lock apply --plan <plan.json> --yes [--project <project-dir>]",
-      "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>]",
+      "  ega-skills remote-lock apply --plan <plan.json> --release <release.json> --yes [--project <project-dir>]",
+      "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>] [--control-plane <url> --token-env <name>]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
@@ -351,6 +351,7 @@ async function main() {
       return;
     }
     let plan;
+    let release;
     let project = ".";
     let approve = false;
     for (let i = 0; i < remoteRest.length; i += 1) {
@@ -363,13 +364,16 @@ async function main() {
       } else if (token === "--project") {
         project = remoteRest[++i];
         if (typeof project !== "string" || project.startsWith("--")) fail("Missing value for --project <project-dir>.");
+      } else if (token === "--release") {
+        release = remoteRest[++i];
+        if (typeof release !== "string" || release.startsWith("--")) fail("Missing value for --release <release.json>.");
       } else {
         fail(`Unknown command or option: ${token}`);
       }
     }
-    if (plan === undefined) fail("Missing required --plan <plan.json>.");
+    if (plan === undefined || release === undefined) fail("remote-lock apply requires --plan and --release.");
     try {
-      const result = runRemoteLockApply({ project, plan, approve });
+      const result = runRemoteLockApply({ project, plan, release, approve });
       process.stdout.write(`${JSON.stringify(result)}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
@@ -387,11 +391,13 @@ async function main() {
     let project = ".";
     let repositoryRoot;
     let withoutFingerprint = false;
+    let controlPlane;
+    let tokenEnv;
     for (let i = 0; i < contextRest.length; i += 1) {
       const token = contextRest[i];
       if (token === "--without-fingerprint") {
         withoutFingerprint = true;
-      } else if (token === "--release" || token === "--workspace-id" || token === "--project-id" || token === "--context-id" || token === "--project" || token === "--repository-root") {
+      } else if (token === "--release" || token === "--workspace-id" || token === "--project-id" || token === "--context-id" || token === "--project" || token === "--repository-root" || token === "--control-plane" || token === "--token-env") {
         const value = contextRest[++i];
         if (typeof value !== "string" || value.startsWith("--")) fail(`Missing value for ${token}.`);
         if (token === "--release") release = value;
@@ -399,14 +405,16 @@ async function main() {
         else if (token === "--project-id") projectId = value;
         else if (token === "--context-id") contextId = value;
         else if (token === "--project") project = value;
-        else repositoryRoot = value;
+        else if (token === "--repository-root") repositoryRoot = value;
+        else if (token === "--control-plane") controlPlane = value;
+        else tokenEnv = value;
       } else {
         fail(`Unknown command or option: ${token}`);
       }
     }
     if (release === undefined || workspaceId === undefined || projectId === undefined) fail("context publish requires --release, --workspace-id, and --project-id.");
     try {
-      const result = runContextPublish({ release, workspaceId, projectId, contextId, project, repositoryRoot, withoutFingerprint });
+      const result = await runContextPublish({ release, workspaceId, projectId, contextId, project, repositoryRoot, withoutFingerprint, controlPlane, tokenEnv, env: process.env });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
