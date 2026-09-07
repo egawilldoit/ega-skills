@@ -43,6 +43,74 @@ const ADOPTED = {
   },
 };
 
+// The example directory is a frozen Contract C vector, so its semantic
+// fields have an independent expected value.  Recomputing a digest from a
+// mutated fixture is not evidence that the mutation is contract-valid.
+const EXPECTED_ALIAS_MAP = {
+  aliases: {
+    architect: "cursor/architect",
+    "pr-review": "ega/pr-review",
+    tdd: "mattpocock/tdd",
+  },
+};
+const EXPECTED_TOKEN_ARTIFACT = {
+  estimator: "ega-o200k-v1",
+  counts: [
+    { skill_id: "cursor/architect", version_hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333", level: "L2", tokens: 1808 },
+    { skill_id: "ega/pr-review", version_hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444", level: "L2", tokens: 1668 },
+    { skill_id: "mattpocock/code-review", version_hash: "sha256:5555555555555555555555555555555555555555555555555555555555555555", level: "L2", tokens: 734 },
+    { skill_id: "mattpocock/tdd", version_hash: "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb", level: "L2", tokens: 1228 },
+  ],
+};
+const EXPECTED_SEARCH_INDEX_INPUT = {
+  rows: [
+    {
+      skill_id: "cursor/architect",
+      version_hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      name: "architect",
+      description: "Architecture review for TypeScript projects",
+      domains: ["engineering"],
+      platforms: ["web"],
+      frameworks: ["typescript"],
+      triggers: ["architecture", "review", "design"],
+      aliases: ["architect"],
+    },
+    {
+      skill_id: "ega/pr-review",
+      version_hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      name: "pr-review",
+      description: "Review pull requests with testing discipline",
+      domains: ["engineering"],
+      platforms: ["web"],
+      frameworks: [],
+      triggers: ["review", "pull request", "testing"],
+      aliases: ["pr-review"],
+    },
+    {
+      skill_id: "mattpocock/code-review",
+      version_hash: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      name: "code-review",
+      description: "Code review checklist for TypeScript",
+      domains: ["engineering"],
+      platforms: ["web"],
+      frameworks: ["typescript"],
+      triggers: ["review", "code quality"],
+      aliases: [],
+    },
+    {
+      skill_id: "mattpocock/tdd",
+      version_hash: "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb",
+      name: "tdd",
+      description: "Test-driven development workflow",
+      domains: ["engineering"],
+      platforms: ["web"],
+      frameworks: ["typescript"],
+      triggers: ["tdd", "testing", "test-first"],
+      aliases: ["tdd"],
+    },
+  ],
+};
+
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 
 function fail(code, msg) {
@@ -128,6 +196,8 @@ function checkSearchInput(name) {
   const order = doc.rows.map((r) => r.skill_id);
   if (JSON.stringify(order) !== JSON.stringify([...order].sort()))
     fail("E_SEARCH_INPUT", `${name} rows must be sorted by skill_id`);
+  if (name === "search-index-input.json" && digestOf(doc) !== digestOf(EXPECTED_SEARCH_INDEX_INPUT))
+    fail("E_SEARCH_INPUT", `${name} rows must equal the frozen normalized selected SkillVersions`);
   rejectNulls(doc, name);
   return doc;
 }
@@ -156,6 +226,8 @@ if (aliasMap && r1) {
       if (typeof target !== "string" || !r1ids.has(target))
         fail("E_ALIAS_SCOPE", `alias-map.json alias ${alias} targets unselected skill ${target} (no historical inheritance)`);
     }
+    if (digestOf(aliasMap) !== digestOf(EXPECTED_ALIAS_MAP))
+      fail("E_ALIAS_SCOPE", "alias-map.json must equal aliases claimed by the frozen selected SkillVersions");
     rejectNulls(aliasMap, "alias-map.json");
   }
   if (process.exitCode !== 1) ok("alias-map.json release-scoped (no historical inheritance)");
@@ -197,6 +269,8 @@ if (tokenArtifact && r1) {
       const catalog = [...versions.keys()].sort();
       if (JSON.stringify([...seen].sort()) !== JSON.stringify(catalog))
         fail("E_TOKEN_ARTIFACT", "token-artifact.json must cover exactly the R1 catalog (no duplicates, no omissions)");
+      if (digestOf(tokenArtifact) !== digestOf(EXPECTED_TOKEN_ARTIFACT))
+        fail("E_TOKEN_ARTIFACT", "token-artifact.json values and levels must equal the frozen selected SkillVersions");
     }
     rejectNulls(tokenArtifact, "token-artifact.json");
   }
@@ -243,6 +317,7 @@ if (release && r1 && aliasMap && tokenArtifact) {
       if (p.alias_map_digest !== digestOf(aliasMap)) fail("E_RELEASE_DIGEST", "hub-release.json alias_map_digest mismatch");
       if (p.search_index_input_digest !== digestOf(r1)) fail("E_RELEASE_DIGEST", "hub-release.json search_index_input_digest mismatch");
       if (p.token_artifact_digest !== digestOf(tokenArtifact)) fail("E_RELEASE_DIGEST", "hub-release.json token_artifact_digest mismatch");
+      if (p.search_index_input_digest !== digestOf(EXPECTED_SEARCH_INDEX_INPUT)) fail("E_RELEASE_DIGEST", "hub-release.json search_index_input_digest mismatch");
       // Adopted sources pinned to Contract A vectors. Length equality alone
       // admits duplicate-for-omission swaps: require the exact adopted set.
       const adoptedIds = Object.keys(ADOPTED).sort();
