@@ -80,6 +80,11 @@ a cached result.
 HTTPS and Origin allowlisting are mandatory. Contract D freezes the exact
 request, response, content, timeout, concurrency, and connection limits in the
 executable vector. Malformed requests and limit violations fail closed.
+The runtime's optional `getActiveConnections` seam is not a physical socket
+counter: a production deployment adapter must provide that metric before
+hosted acceptance. The local fallback counts active in-process requests only
+and is test coverage for request accounting, not proof of network connection
+enforcement.
 
 ## §5 Startup and recovery
 

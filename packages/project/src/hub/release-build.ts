@@ -11,7 +11,9 @@ import {
   createReleaseFtsTable,
   deriveAliasMap,
   deriveSearchIndexInput,
+  deriveSkillSourceProvenance,
   deriveTokenArtifact,
+  skillSourceProvenanceDigest,
   verifyReleaseCorpus,
 } from "./release-state.js";
 import {
@@ -47,11 +49,19 @@ export async function buildHubRelease(hubDir: string): Promise<HubReleaseBuildRe
     tokenArtifact: deriveTokenArtifact(build),
   };
   const release = createHubRelease(build, artifacts);
+  const sourceProvenance = deriveSkillSourceProvenance(build);
   const ftsTable = `release_fts_${release.digest.slice("sha256:".length)}`;
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: build.registryHome } });
   try {
     createReleaseFtsTable(registry.db, ftsTable, artifacts.searchIndexInput.rows);
     verifyReleaseCorpus(registry.db, ftsTable, build.skills.length);
+    registry.db.exec(
+      "CREATE TABLE ega_release_skill_sources (skill_id TEXT PRIMARY KEY NOT NULL, source_id TEXT)",
+    );
+    const sourceInsert = registry.db.prepare(
+      "INSERT INTO ega_release_skill_sources (skill_id, source_id) VALUES (?, ?)",
+    );
+    for (const row of sourceProvenance) sourceInsert.run(row.skill_id, row.source_id);
     registry.db.exec(
       "CREATE TABLE ega_release_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)",
     );
@@ -60,6 +70,7 @@ export async function buildHubRelease(hubDir: string): Promise<HubReleaseBuildRe
     metadata.run("search_index_input_digest", release.payload.search_index_input_digest);
     metadata.run("token_artifact_digest", release.payload.token_artifact_digest);
     metadata.run("alias_map_digest", release.payload.alias_map_digest);
+    metadata.run("skill_source_map_digest", skillSourceProvenanceDigest(sourceProvenance));
     metadata.run("fts_table", ftsTable);
   } finally {
     registry.close();

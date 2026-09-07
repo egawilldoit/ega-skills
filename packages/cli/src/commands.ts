@@ -778,7 +778,11 @@ export async function runContextPublish(options: ContextPublishOptions): Promise
     if (token === undefined || token.length === 0) throw new Error(`Context publication requires bearer token in ${tokenEnv}.`);
     return Object.freeze({
       ...result,
-      publication: await publishProjectContext(options.controlPlane, token, result.context_id, context),
+      publication: await publishProjectContext(options.controlPlane, token, result.context_id, context, {
+        config: result.config,
+        lock: result.lock,
+        fingerprint: result.fingerprint as Readonly<object> | null,
+      }),
     });
   }
   return Object.freeze(result);

@@ -46,7 +46,9 @@ export {
   createReleaseFtsTable,
   deriveAliasMap,
   deriveSearchIndexInput,
+  deriveSkillSourceProvenance,
   deriveTokenArtifact,
+  skillSourceProvenanceDigest,
   queryReleaseFts,
   verifyReleaseCorpus,
 } from "./hub/release-state.js";
@@ -55,6 +57,7 @@ export type {
   ReleaseFtsDb,
   SearchIndexInputDoc,
   SearchIndexRow,
+  SkillSourceProvenanceRow,
   TokenArtifactDoc,
   TokenCountRow,
 } from "./hub/release-state.js";
@@ -90,7 +93,13 @@ export {
   verifyRemoteLockPlanAgainstLock,
 } from "./remote.js";
 export { createProjectContextStore, FileProjectContextPersistence, ProjectContextStore } from "./context-store.js";
-export { createContextControlPlaneHandler, getProjectContext, publishProjectContext } from "./context-store.js";
+export {
+  createContextControlPlaneHandler,
+  getProjectContext,
+  listProjectContexts,
+  publishProjectContext,
+  revokeProjectContext,
+} from "./context-store.js";
 export type {
   CreateProjectContextInput,
   CreateRemoteLockPlanInput,
@@ -107,8 +116,10 @@ export type { ProjectContextPersistence } from "./context-store.js";
 export type {
   ContextControlPlaneAuthorization,
   ContextControlPlaneOptions,
+  ListContextClientResult,
   PublishContextClientResult,
   PublishedContextResponse,
+  ProjectContextAuthority,
   PublishedProjectContext,
   ProjectContextStoreRecord,
 } from "./context-store.js";

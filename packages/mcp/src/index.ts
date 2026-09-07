@@ -81,6 +81,7 @@ export {
   createHostedMcpHandler,
   createHostedMcpServer,
   createHostedRuntime,
+  hostedContextFromPersistedRecord,
   HOSTED_TOOL_NAMES,
   HOSTED_LIMITS,
   HostedRuntimeError,

@@ -1,18 +1,27 @@
 import assert from "node:assert/strict";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
-import { createHostedMcpHandler, createHostedRuntime } from "../../packages/mcp/dist/hosted.js";
+import { createHostedMcpHandler, createHostedRuntime, hostedContextFromPersistedRecord } from "../../packages/mcp/dist/hosted.js";
 import { createHostedOAuthVerifier } from "../../packages/mcp/dist/hosted-auth.js";
 import {
   createHubRelease,
+  createContextControlPlaneHandler,
   createProjectContextArtifact,
+  createProjectContextStore,
+  FileProjectContextPersistence,
   createReleasePackage,
   createReleaseFtsTable,
   deriveAliasMap,
   deriveSearchIndexInput,
   deriveTokenArtifact,
+  deriveSkillSourceProvenance,
+  getProjectContext,
   hashNormalizedConfig,
+  listProjectContexts,
   parseProjectConfig,
+  publishProjectContext,
+  revokeProjectContext,
+  skillSourceProvenanceDigest,
 } from "../../packages/project/dist/index.js";
 import {
   getCurrentVersionHash,
@@ -86,12 +95,17 @@ async function fixture(mixed = false) {
     const release = createHubRelease(build, artifacts);
     const ftsTable = `release_fts_${release.digest.slice("sha256:".length)}`;
     createReleaseFtsTable(registry.db, ftsTable, artifacts.searchIndexInput.rows);
+    registry.db.exec("CREATE TABLE ega_release_skill_sources (skill_id TEXT PRIMARY KEY NOT NULL, source_id TEXT)");
+    const sourceInsert = registry.db.prepare("INSERT INTO ega_release_skill_sources (skill_id, source_id) VALUES (?, ?)");
+    const sourceRows = deriveSkillSourceProvenance(build);
+    for (const row of sourceRows) sourceInsert.run(row.skill_id, row.source_id);
     registry.db.exec("CREATE TABLE ega_release_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)");
     const metadata = registry.db.prepare("INSERT INTO ega_release_metadata (key, value) VALUES (?, ?)");
     metadata.run("alias_map_digest", release.payload.alias_map_digest);
     metadata.run("fts_table", ftsTable);
     metadata.run("hub_release_digest", release.digest);
     metadata.run("search_index_input_digest", release.payload.search_index_input_digest);
+    metadata.run("skill_source_map_digest", skillSourceProvenanceDigest(sourceRows));
     metadata.run("token_artifact_digest", release.payload.token_artifact_digest);
     const sqliteArtifactDigest = `sha256:${sha256Hex(await readFile(join(home, "registry.sqlite")))}`;
     return {
@@ -230,6 +244,19 @@ test("hosted runtime verifies a release and exposes the exact four personal tool
   assert.match(content.structuredContent.content, /Hosted guidance/);
 });
 
+test("hosted startup rejects a deployment source remap when the immutable snapshot disagrees", async () => {
+  const value = await fixture(true);
+  const remapped = snapshot({ ...value, skillSourceIds: { ...value.skillSourceIds, "ega/beta": "source-a" } });
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [remapped],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /immutable release provenance/.test(error.message),
+  );
+});
+
 test("hosted scope fails closed and never accepts a local project path", async () => {
   const value = await fixture();
   const runtime = createHostedRuntime({
@@ -285,6 +312,82 @@ test("hosted context selection binds exact lock/release and revocation has no fa
   revoked = true;
   const denied = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
   assert.equal(denied.structuredContent.error.code, "E_CONTEXT_REVOKED");
+});
+
+test("hosted context revocation is rechecked before result delivery", async () => {
+  const value = await fixture();
+  const binding = contextFor(value, "ctx-race");
+  let revoked = false;
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    contexts: [binding],
+    isContextRevoked: () => revoked,
+    authorize: async (request) => {
+      if (request.skillId !== undefined) revoked = true;
+      return true;
+    },
+  });
+  const result = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, "E_CONTEXT_REVOKED");
+});
+
+test("remote context publication persists authority through restart and revocation", async () => {
+  const value = await fixture();
+  const binding = contextFor(value, "ctx-persisted");
+  const persistenceRoot = await mkdtemp(join(tmpdir(), "ega-context-authority-"));
+  roots.add(persistenceRoot);
+  const persistence = new FileProjectContextPersistence(join(persistenceRoot, "contexts.json"));
+  const firstStore = createProjectContextStore(persistence);
+  const firstHandler = createContextControlPlaneHandler({
+    store: firstStore,
+    authenticate: (token) => token === "context-token",
+    authorize: () => true,
+  });
+  const firstFetch = async (input, init) => firstHandler(new Request(input, init));
+  const endpoint = "http://127.0.0.1:8787";
+  const authority = { config: binding.config, lock: binding.lock, fingerprint: null };
+  const published = await publishProjectContext(
+    endpoint,
+    "context-token",
+    binding.contextId,
+    binding.context,
+    authority,
+    firstFetch,
+  );
+  assert.equal(published.context_id, binding.contextId);
+  assert.equal((await listProjectContexts(endpoint, "context-token", firstFetch)).contexts.length, 1);
+  assert.equal((await getProjectContext(endpoint, "context-token", binding.contextId, firstFetch)).context_id, binding.contextId);
+
+  // Simulate a new hosted process: it receives only the persisted control-plane
+  // record and reconstructs the runtime binding from its persisted authority.
+  const restartedStore = createProjectContextStore(persistence);
+  const restartedHandler = createContextControlPlaneHandler({
+    store: restartedStore,
+    authenticate: (token) => token === "context-token",
+    authorize: () => true,
+  });
+  const restartedFetch = async (input, init) => restartedHandler(new Request(input, init));
+  const resolvePersisted = (contextId) => {
+    const record = restartedStore.get(contextId);
+    return record === undefined ? undefined : hostedContextFromPersistedRecord(record);
+  };
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    resolveContext: resolvePersisted,
+    isContextRevoked: (contextId) => restartedStore.isRevoked(contextId),
+    authorize: auth(),
+  });
+  const restored = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(restored.isError, false);
+  assert.equal(restored.structuredContent.project_context, binding.contextId);
+
+  const revokedRecord = await revokeProjectContext(endpoint, "context-token", binding.contextId, restartedFetch);
+  assert.equal(revokedRecord.revoked, true);
+  const revokedResult = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(revokedResult.structuredContent.error.code, "E_CONTEXT_REVOKED");
 });
 
 test("authorization and emergency deny are checked before content delivery", async () => {
@@ -380,6 +483,35 @@ test("hosted authorization and deny policy are enforced for every concrete resul
     release_digest: value.release.digest,
   });
   assert.equal(inspected.structuredContent.error.code, "E_CONTENT_DENIED");
+});
+
+test("hosted selection excludes unauthorized resources before search limits and resolve budgets", async () => {
+  const value = await fixture(true);
+  const authorize = async ({ skillId }) => skillId !== "ega/alpha";
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize,
+  });
+
+  const search = await runtime.call("search", { query: "hosted", limit: 1 });
+  assert.equal(search.isError, false);
+  assert.deepEqual(search.structuredContent.results.map((row) => row.skill_id), ["ega/beta"]);
+
+  const resolved = await runtime.call("resolve", {
+    task: "hosted",
+    explicit_skills: ["ega/alpha", "ega/beta"],
+    max_skills: 1,
+  });
+  assert.equal(resolved.isError, false);
+  assert.deepEqual(resolved.structuredContent.explicit.map((row) => row.id), ["ega/beta"]);
+  assert.equal(
+    resolved.structuredContent.explicit_selected_tokens,
+    resolved.structuredContent.explicit[0].recommended_content_tokens,
+  );
+  for (const field of ["explicit", "selected", "candidates", "rejected"]) {
+    assert.ok(!(resolved.structuredContent[field] ?? []).some((row) => row.id === "ega/alpha"));
+  }
 });
 
 test("startup integrity fails closed when a release catalog does not match SQLite", async () => {
@@ -489,6 +621,8 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
     assert.equal(listed.status, 200);
     const listedBody = await listed.json();
     assert.deepEqual(listedBody.result.tools.map((tool) => tool.name), ["resolve", "search", "inspect", "get_content"]);
+    const contentTool = listedBody.result.tools.find((tool) => tool.name === "get_content");
+    assert.equal(contentTool.inputSchema.properties.blob_hash, undefined, "blob hashes must not be raw hosted selectors");
 
     const called = await handler.fetch(request(
       {
@@ -633,6 +767,45 @@ test("hosted HTTP applies request, response, timeout, concurrency, and connectio
   }
 });
 
+test("hosted request capacity remains occupied while timed-out work is still pending", async () => {
+  const value = await fixture();
+  let liveWork = 0;
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: async () => {
+      liveWork += 1;
+      await new Promise(() => {});
+      return true;
+    },
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    requestTimeoutMs: 5,
+    toolTimeoutMs: 50,
+    maxConcurrentRequests: 1,
+  });
+  try {
+    const first = await handler.fetch(request({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(first.status, 408);
+    assert.equal(liveWork, 1);
+
+    const second = await handler.fetch(request({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(second.status, 429);
+    assert.equal((await second.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await handler.close();
+  }
+});
+
 test("hosted HTTP bounds unknown-length request streams before consuming them", async () => {
   const value = await fixture();
   let pulls = 0;
@@ -666,6 +839,16 @@ test("hosted HTTP bounds unknown-length request streams before consuming them", 
 
 function encodeBase64Url(value) {
   return Buffer.from(value).toString("base64url");
+}
+
+function unsignedJwt() {
+  return `${encodeBase64Url(JSON.stringify({ alg: "RS256", kid: "test-key", typ: "JWT" }))}.${encodeBase64Url(JSON.stringify({
+    iss: "https://auth.example.test",
+    aud: "https://mcp.example.test",
+    sub: "user-1",
+    scope: "mcp",
+    exp: Math.floor(Date.now() / 1000) + 60,
+  }))}.invalid-signature`;
 }
 
 test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA signature", async () => {
@@ -714,4 +897,49 @@ test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA s
     /signature mismatch/,
   );
   assert.equal(revocationChecks, 1, "invalid signatures must not reach revocation lookup");
+});
+
+test("hosted OAuth JWKS loading is bounded and cancels oversized streams", async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(4));
+      if (pulls >= 10) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    maxJwksBytes: 8,
+    fetch: async () => new Response(body),
+  });
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS document is too large/);
+  assert.ok(pulls < 10, `JWKS reader consumed ${pulls} chunks`);
+  assert.equal(cancelled, true);
+});
+
+test("hosted OAuth JWKS fetch timeout aborts the underlying fetch and permits retry", async () => {
+  let calls = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksTimeoutMs: 5,
+    fetch: async (_input, init) => {
+      calls += 1;
+      await new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      throw new Error("fetch did not abort");
+    },
+  });
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
+  assert.equal(calls, 2, "failed JWKS loads must not poison retry state");
 });

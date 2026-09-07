@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
+import { renameSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import {
   REMOTE_PROJECT_ERROR_CODES,
   createProjectContextCacheIdentity,
   createProjectContextStore,
+  FileProjectContextPersistence,
+  createContextControlPlaneHandler,
   createProjectContextArtifact,
   createRemoteLockPlan,
   hashNormalizedConfig,
+  listProjectContexts,
   verifyProjectContext,
   verifyRemoteLockPlan,
+  publishProjectContext,
+  revokeProjectContext,
 } from "../../packages/project/dist/index.js";
 import { parseProjectConfig } from "../../packages/project/dist/index.js";
 import test from "node:test";
@@ -178,4 +186,148 @@ test("Contract E cache identity and lifecycle preserve exact artifacts across re
   assert.equal(store.get("ctx-main")?.context.context_digest, context.context_digest);
   assert.equal(store.get("ctx-feature")?.revoked, false);
   assert.throws(() => store.publish({ contextId: "ctx-main", context }), /already published/);
+});
+
+test("context control plane bounds unknown-length request bodies before reading them", async () => {
+  const store = createProjectContextStore();
+  const handler = createContextControlPlaneHandler({
+    store,
+    maxBodyBytes: 16,
+    authenticate: () => true,
+    authorize: () => true,
+  });
+  let pulls = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(8));
+      if (pulls >= 10) controller.close();
+    },
+  });
+  const response = await handler(new Request("https://control.example.test/v1/contexts", {
+    method: "POST",
+    headers: { authorization: "Bearer token", "content-type": "application/json" },
+    body,
+    duplex: "half",
+  }));
+  assert.equal(response.status, 413);
+  assert.ok(pulls < 10, `control plane consumed ${pulls} chunks`);
+});
+
+test("context clients reject remote cleartext endpoints before sending bearer credentials", async () => {
+  let fetches = 0;
+  await assert.rejects(
+    publishProjectContext(
+      "http://remote.example.test",
+      "secret-token",
+      "ctx-main",
+      {} ,
+      {},
+      async () => {
+        fetches += 1;
+        return new Response();
+      },
+    ),
+    /HTTPS is required/,
+  );
+  assert.equal(fetches, 0);
+});
+
+test("context visibility changes only after durable persistence succeeds", () => {
+  let records = [];
+  let failSave = false;
+  const persistence = {
+    load: () => records,
+    save(record) {
+      if (failSave) throw new Error("disk full");
+      records = [...records.filter((current) => current.contextId !== record.contextId), record];
+    },
+  };
+  const context = createProjectContextArtifact({
+    workspace_id: "workspace-a",
+    project_id: "project-a",
+    config,
+    lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+    release,
+  });
+  const store = createProjectContextStore(persistence);
+  assert.throws(() => {
+    failSave = true;
+    store.publish({ contextId: "ctx-failed", context });
+  }, /disk full/);
+  assert.equal(store.get("ctx-failed"), undefined);
+
+  failSave = false;
+  store.publish({ contextId: "ctx-main", context });
+  failSave = true;
+  assert.throws(() => store.revoke("ctx-main"), /disk full/);
+  assert.equal(store.get("ctx-main")?.revoked, false);
+  assert.equal(records[0].revoked, false);
+  assert.equal(createProjectContextStore(persistence).get("ctx-main")?.revoked, false);
+});
+
+test("file context replacement failure restores the previous durable store", async () => {
+  const root = await mkdtemp(`${tmpdir()}/ega-context-file-`);
+  try {
+    const path = `${root}/contexts.json`;
+    const persistence = new FileProjectContextPersistence(path);
+    const context = createProjectContextArtifact({
+      workspace_id: "workspace-a",
+      project_id: "project-a",
+      config,
+      lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+      release,
+    });
+    const store = createProjectContextStore(persistence);
+    store.publish({ contextId: "ctx-main", context });
+    const previous = store.get("ctx-main");
+    assert.ok(previous);
+    let targetAttempts = 0;
+    const failingReplacement = new FileProjectContextPersistence(path, (from, to) => {
+      if (to === path) {
+        targetAttempts += 1;
+        if (targetAttempts <= 2) throw new Error("replacement failed");
+      }
+      renameSync(from, to);
+    });
+    assert.throws(() => failingReplacement.save({ ...previous, revoked: true }), /replacement failed/);
+    assert.equal(targetAttempts, 3);
+    assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("context control plane lists only authorized contexts and supports client lifecycle operations", async () => {
+  const contextA = createProjectContextArtifact({
+    workspace_id: "workspace-a",
+    project_id: "project-a",
+    config,
+    lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+    release,
+  });
+  const contextB = createProjectContextArtifact({
+    workspace_id: "workspace-b",
+    project_id: "project-b",
+    config,
+    lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+    release,
+  });
+  const store = createProjectContextStore();
+  store.publish({ contextId: "ctx-a", context: contextA });
+  store.publish({ contextId: "ctx-b", context: contextB });
+  const handler = createContextControlPlaneHandler({
+    store,
+    authenticate: (token) => token === "token-a",
+    authorize: ({ workspaceId }) => workspaceId === "workspace-a",
+  });
+  const fetcher = async (input, init) => handler(new Request(input, init));
+  const listed = await listProjectContexts("http://127.0.0.1:8787", "token-a", fetcher);
+  assert.deepEqual(listed.contexts.map((item) => item.context_id), ["ctx-a"]);
+  const revoked = await revokeProjectContext("http://127.0.0.1:8787", "token-a", "ctx-a", fetcher);
+  assert.equal(revoked.revoked, true);
+  const forbidden = await fetcher("http://127.0.0.1:8787/v1/contexts/ctx-b", {
+    headers: { authorization: "Bearer token-a" },
+  });
+  assert.equal(forbidden.status, 403);
 });

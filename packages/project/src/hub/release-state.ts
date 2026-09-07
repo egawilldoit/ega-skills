@@ -16,6 +16,7 @@
 // rules so 1.1[G] can verify artifacts before emitting a HubRelease.
 
 import { tmpdir } from "node:os";
+import { canonicalizeJson, sha256Hex } from "@ega-skills/hashing";
 import { getSkillVersion, getTokenCount, openRegistry } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import type { HubBuildResult } from "./builder.js";
@@ -65,6 +66,26 @@ export interface SearchIndexRow {
 
 export interface SearchIndexInputDoc {
   readonly rows: readonly SearchIndexRow[];
+}
+
+export interface SkillSourceProvenanceRow {
+  readonly skill_id: string;
+  readonly source_id: string | null;
+}
+
+/** Deterministic source authority for the exact selected SkillVersions. */
+export function deriveSkillSourceProvenance(build: HubBuildResult): readonly SkillSourceProvenanceRow[] {
+  return Object.freeze(sortedIds(build).map((skill_id) => {
+    const source_id = build.skillSourceIds[skill_id];
+    if (source_id === undefined || (source_id !== null && typeof source_id !== "string")) {
+      throw new HubError("E_BUILD_ATTESTATION", `missing source provenance for ${skill_id}`);
+    }
+    return Object.freeze({ skill_id, source_id });
+  }));
+}
+
+export function skillSourceProvenanceDigest(rows: readonly SkillSourceProvenanceRow[]): string {
+  return `sha256:${sha256Hex(canonicalizeJson(rows))}`;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

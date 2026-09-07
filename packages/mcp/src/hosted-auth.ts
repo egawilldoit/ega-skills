@@ -24,6 +24,8 @@ export interface HostedOAuthVerifierOptions {
   readonly jwksUri: string;
   readonly requiredScopes: readonly string[];
   readonly clockSkewSeconds?: number;
+  readonly jwksTimeoutMs?: number;
+  readonly maxJwksBytes?: number;
   readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
   readonly isRevoked?: (claims: Readonly<Record<string, unknown>>) => boolean | Promise<boolean>;
 }
@@ -115,22 +117,78 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
 } {
   const fetcher = options.fetch ?? ((input, init) => globalThis["fetch"](input, init));
   const clockSkewSeconds = options.clockSkewSeconds ?? 30;
+  const jwksTimeoutMs = options.jwksTimeoutMs ?? 5_000;
+  const maxJwksBytes = options.maxJwksBytes ?? 1_048_576;
   if (!Number.isInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
     throw new Error("OAuth clock skew must be a non-negative integer");
   }
   if (options.issuer.length === 0 || options.resource.length === 0 || options.jwksUri.length === 0) {
     throw new Error("OAuth issuer, resource, and JWKS URI are required");
   }
+  if (!Number.isInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 || !Number.isInteger(maxJwksBytes) || maxJwksBytes <= 0) {
+    throw new Error("OAuth JWKS limits must be positive integers");
+  }
 
   let jwksPromise: Promise<JwksDocument> | undefined;
   const loadJwks = async (): Promise<JwksDocument> => {
     if (jwksPromise !== undefined) return jwksPromise;
     jwksPromise = (async () => {
-      const response = await fetcher(options.jwksUri, { headers: { accept: "application/json" } });
-      if (!response.ok) throw oauthFailure("JWKS endpoint unavailable");
-      const document = (await response.json()) as JwksDocument;
-      if (!Array.isArray(document.keys)) throw oauthFailure("JWKS document is invalid");
-      return document;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), jwksTimeoutMs);
+      let response: Response;
+      try {
+        response = await fetcher(options.jwksUri, {
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw oauthFailure("JWKS endpoint unavailable");
+        const declaredLength = response.headers.get("content-length");
+        if (declaredLength !== null && (!/^\d+$/u.test(declaredLength) || Number(declaredLength) > maxJwksBytes)) {
+          await response.body?.cancel("JWKS document exceeds limit").catch(() => undefined);
+          throw oauthFailure("JWKS document is too large");
+        }
+        if (response.body === null) throw oauthFailure("JWKS document is empty");
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        const abortRead = (): void => { void reader.cancel("JWKS request timed out").catch(() => undefined); };
+        if (controller.signal.aborted) abortRead();
+        else controller.signal.addEventListener("abort", abortRead, { once: true });
+        try {
+          while (true) {
+            const next = await reader.read();
+            if (next.done) break;
+            total += next.value.byteLength;
+            if (total > maxJwksBytes) {
+              await reader.cancel("JWKS document exceeds limit").catch(() => undefined);
+              throw oauthFailure("JWKS document is too large");
+            }
+            chunks.push(next.value);
+          }
+        } finally {
+          controller.signal.removeEventListener("abort", abortRead);
+          reader.releaseLock();
+        }
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        let document: JwksDocument;
+        try {
+          document = JSON.parse(new TextDecoder().decode(bytes)) as JwksDocument;
+        } catch {
+          throw oauthFailure("JWKS document is invalid");
+        }
+        if (!Array.isArray(document.keys)) throw oauthFailure("JWKS document is invalid");
+        return document;
+      } catch (error) {
+        if (controller.signal.aborted) throw oauthFailure("JWKS endpoint timed out");
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
     })();
     try {
       return await jwksPromise;
