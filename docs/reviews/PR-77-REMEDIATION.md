@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected audit checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
-Implementation candidate tested locally: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
-commits after the reviewed code candidate).
+Historical implementation candidate: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
+The current pre-staging repair is recorded separately in
+`docs/reviews/PR-78-PRESTAGING-REPAIR.md`.
 Branch: `repair/pr77-release-readiness`.
 
 This report records the validated disposition of every finding. Contract D
@@ -23,10 +23,10 @@ process described by the canonical specification.
 | F7 retained rollback authority | VALID | Spec §3.30 | Arbitrary hash, cross-Hub, and unretained rollback | Rollback accepts only a verified same-Hub `HubRelease` whose digest is present in the authoritative retained-reference set | `hub-release.test.mjs` negative tests | `5ea545a`, remediation follow-up | Contract C and release tests pass | FIXED |
 | F8 canonical authoring commands | VALID | Spec §3.10 | Missing validate/init-skill commands | Added validator-backed `validate` and exact two-file scaffold | `cli.test.mjs` subprocess tests | `5ea545a` | CLI tests and full suite pass | FIXED |
 | F9 canonical real 1.1 lifecycle | VALID | Spec §3.35 | Corpus smoke lacked B to C lifecycle | Added immutable plan lifecycle and release preservation assertions | `hub-adoption.test.mjs`; real upstream E2E | `2aaff25`, `cf4d85b` | Exact A/B/C upstream lifecycle and 18/18 local ledger rows pass | FIXED |
-| F10 result-level authorization | VALID | Spec §4.10 | Search/resolve could authorize only release | Authorize every concrete SkillVersion result before return | `hosted-runtime.test.mjs` result authorization | `d5f1331` | Hosted focused suite passes | FIXED |
-| F11 resource-level emergency deny | VALID | Spec §4.12 | Mixed-source deny could disable or leak incorrectly | Map skills to sources and filter denied concrete results | hosted mixed-source result tests | `d5f1331` | Hosted focused suite passes | FIXED |
+| F10 result-level authorization | VALID | Spec §4.13 | Search/resolve could authorize only release | Authorize every concrete SkillVersion result before return | `hosted-runtime.test.mjs` result authorization | `d5f1331` | Hosted focused suite passes | FIXED |
+| F11 resource-level emergency deny | VALID | Spec §4.14 | Mixed-source deny could disable or leak incorrectly | Map skills to sources and filter denied concrete results | hosted mixed-source result tests | `d5f1331` | Hosted focused suite passes | FIXED |
 | F12 startup semantic binding | VALID | Spec §4.4 | FTS/catalog binding checked by shape only | Verify release package, SQLite, metadata, artifacts, exact FTS rows, blobs, and deny state | hosted startup tamper tests | `d5f1331` | Hosted focused suite passes | FIXED |
-| F13 JWT trust order | VALID | Spec §4.10 | Revocation callback saw invalid claims | Verify header, key, signature, claims before revocation lookup | hosted OAuth callback-count test | `d5f1331` | Hosted focused suite passes | FIXED |
+| F13 JWT trust order | VALID | Spec §4.12 | Revocation callback saw invalid claims | Verify header, key, signature, claims before revocation lookup | hosted OAuth callback-count test | `d5f1331` | Hosted focused suite passes | FIXED |
 | F14 transport limits | VALID | Spec §4.16, Contract D vector | Content limit duplicated request limit; connections unrepresented | Independent gates plus explicit deployment connection adapter seam | hosted transport adversarial tests | `d5f1331` | All seven local gates pass; physical socket metric is deployment-supplied | FIXED |
 | F15 RemoteLockPlan release binding | VALID | Spec §5.10, §5.11 | Self-consistent lock outside target release | Apply requires exact release artifact and containment check | remote-project forged-candidate test | `d5f1331` | Remote focused suite passes | FIXED |
 | F16 actual publication path | VALID | Spec §5.6 | Local artifact generation was not a client/server path | Added authenticated HTTP control-plane handler, client, immutable persistence, new-identity republication, revoke | remote-project local HTTP E2E | `d5f1331` | Authenticated publication and revoke pass | FIXED |
@@ -51,10 +51,10 @@ the original F1–F20 table remains the historical disposition record.
 | F16 local control-plane durability | Authenticated context publication now has file persistence, GET/reconstruction, revoke persistence, and new-identity republication. | `remote-projects.test.mjs` process reconstruction test | `05f70f2` |
 | F17 evidence read boundary | Evidence reads reject symlinks, escapes, non-regular files, and oversized files with bounded reads. | `remote-fingerprint.test.mjs` oversized/symlink tests | `05f70f2` |
 
-Review disposition: PASS. The implementation was reviewed and tested at code
-candidate `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`; the final repair HEAD
-`44a4dd441550ec0bb6da692cb062ccedccb247ce` contains evidence-only commits.
-The consolidated local suite is 806 total, 801 passed, 0 failed, 5 skipped.
+Review disposition: historical F1–F20 remediation complete. The current
+pre-staging repair and its exact-head review are recorded in
+`docs/reviews/PR-78-PRESTAGING-REPAIR.md`; no old review SHA is reused as
+current evidence.
 
 ## Skipped tests
 
@@ -75,8 +75,9 @@ the command and exact commits in `docs/ACCEPTANCE-1.1.md`.
 ## Migration review
 
 `supabase/migrations/20260907120000_restrict_public_rls_auto_enable.sql` was
-reviewed locally only. Its conditional `to_regprocedure` check makes reruns
-safe when the helper is absent; the dynamic `REVOKE EXECUTE` removes grants for
+reviewed locally only. It is pre-existing at the protected checkpoint and is
+unchanged by PR #78. Its conditional `to_regprocedure` check makes reruns safe
+when the helper is absent; the dynamic `REVOKE EXECUTE` removes grants for
 `PUBLIC`, `anon`, and `authenticated` without adding a grant. It does not
 change owner behavior or SECURITY DEFINER semantics, and no rollback migration
 is present. It was not applied to any remote project.

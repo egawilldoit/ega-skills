@@ -2,11 +2,10 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
-commits after the reviewed code candidate).
-The hosted focused suite passes 15 tests at this candidate; the full regression
-passes 806 total, 801 passed, 0 failed, 5 skipped.
+Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+The hosted focused suite and persisted context lifecycle suite pass locally;
+the full regression passes 832 total, 827 passed, 0 failed, 5 classified
+skips. Fresh exact-head CI identities are recorded after this evidence update.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -21,13 +20,16 @@ passes 806 total, 801 passed, 0 failed, 5 skipped.
 | Runtime is read-only | PASS | read-only SQLite and repeated-call tests |
 | Emergency deny works | PASS | release, source, and SkillVersion deny tests |
 | Tokens are not logged | PASS | OAuth and hosted boundary tests; no token logging path |
-| Request, response, content, timeout, concurrency, and connection limits | PASS | hosted adversarial transport test, each limit independently |
+| Request, response, content, timeout, and concurrency limits | PASS | hosted adversarial transport tests, each local limit independently |
+| Physical connection limit | BLOCKED / NOT YET PROVEN | Requires the production deployment connection adapter; local in-process accounting is not evidence of physical socket enforcement |
 | Startup verifies release integrity | PASS | snapshot tamper tests for package, SQLite, catalog, FTS, and artifacts |
-| Backup and recovery are tested | PASS | Hub journal PREPARED/TREE_SWAPPED recovery tests |
+| Hosted backup and recovery | BLOCKED / NOT YET PROVEN | The local Hub journal tests prove 1.1 transaction recovery, not hosted stable-pointer/auth/authorization metadata backup, immutable release storage restore, or hosted rollback |
 | Retained-release rollback is tested | PASS | stable pointer tests require a verified same-Hub release in the retained-reference set and reject arbitrary, cross-Hub, and unretained targets |
 | Fresh Codex E2E | BLOCKED | Requires `EGA_CODEX_ACCEPTANCE=1` and a fresh client environment |
 | Fresh OpenCode E2E | BLOCKED | Requires `EGA_OPENCODE_ACCEPTANCE=1` and a fresh client environment |
 
 The local hosted HTTP/MCP integration is PASS. Cloud deployment, OAuth client
 registration, and fresh-client acceptance remain external operations.
-The final-head Ubuntu/Windows foundation CI run `34140809559` passed.
+No hosted backup/restore, physical connection, or fresh-client acceptance is
+claimed by this local ledger. Fresh exact-head CI identities are recorded
+after the evidence update.

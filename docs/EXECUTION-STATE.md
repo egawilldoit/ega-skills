@@ -5,31 +5,29 @@ Updated: 2026-09-07
 - Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 - Protected recovery checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92` on `review/full-1.3-checkpoint-b0b413e`.
 - Remediation branch: `repair/pr77-release-readiness`.
-- Local implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-- Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
-  commits after the reviewed code candidate).
+- Local implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+- This evidence update follows the implementation tree; the final branch SHA is
+  reported by the exact-head verification record and PR metadata.
 - Linear parent: EGA-635, `PR #77 release-readiness remediation`.
 - Linear workstreams: EGA-637 through EGA-643 cover R1 through R8.
 - Contract A, B, and C remain authoritative frozen contracts. Contract D and
   Contract E are explicitly freeze candidates pending dedicated exact-head
   review, CI, merge, and freeze records.
-- Full regression at final repair HEAD `44a4dd441550ec0bb6da692cb062ccedccb247ce`
-  (same implementation as `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`): 806 total,
-  801 passed, 0 failed, 5 skipped. Build, typecheck, specs, and Contracts A
-  through E passed. The focused final provenance regression at
-  `a8ec090f79894f56d2ddb85627fe49448386e774` passed 17/17.
+- Full regression on implementation tree `47508e87dbe873acb65a86ed7bbb44f585ba6d59`:
+  832 total, 827 passed, 0 failed, 5 classified skips. Build, typecheck,
+  specs, and Contracts A through E passed. The focused exact-head suite
+  passed 48/48, including the deterministic ordering and fingerprint checks.
 - Real upstream E2E passed with Cursor commit
-  `93b00b89ef425a9c1bac0d0b317dfc49c930ac99` and Matt commit
+  `e8d856f0273b42ebafe0ec3546bd645709e7c1b0` and Matt commit
   `3cca18b368ae95cdbdebbff572ccafa662551015`.
 - CI workflow runs frozen candidate commands for Contracts A through E on both
-  Ubuntu and Windows. Final-head foundation run `34140809559` and focused
-  hashing run `34140809741` both pass on both platforms. The code-candidate
-  runs `34138751456` and `34138751458` also passed on both platforms.
+  Ubuntu and Windows. Fresh exact-head CI is required after this evidence
+  update; the prior runs are historical and are not reused as final evidence.
 - Exact upstream lifecycle commits: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
   C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest recorded
   in the latest run
-  `sha256:6f77e29c7a8c28befcb168833d2bde9a920119e7471b5c91353ffef65bab50f`.
+  `sha256:06f1ccedc63ce2a9a6721b6daf65e975fb35dfb7cb9a708c73111f89c1850410`.
 - No release tags, production deployment, Supabase remote migration, Contract
   F, or release 2.0 work was started.
 

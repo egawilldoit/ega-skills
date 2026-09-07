@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`.
-Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
-commits after the reviewed code candidate).
+Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+The evidence update is a separate documentation commit; fresh exact-head CI
+identities are recorded after that commit.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -28,4 +28,7 @@ commits after the reviewed code candidate).
 Gate summary: local authenticated publication and revocation PASS. The
 remaining row requires a real staging control plane and fresh client. No
 production deployment or remote mutation was performed.
-The final-head Ubuntu/Windows foundation CI run `34140809559` passed.
+Local persisted publication/list/restart/revocation E2E passes. Real hosted
+control-plane and fresh-machine acceptance remain blocked until an isolated
+staging environment exists. Fresh exact-head CI identities are recorded after
+this evidence update.

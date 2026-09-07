@@ -2,10 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Implementation candidate tested: `cf4d85b2d83e8c9fa0cfbf1fa7d1aa89fc7c5df3`
-Final repair HEAD: `44a4dd441550ec0bb6da692cb062ccedccb247ce` (evidence-only
-commits after the reviewed code candidate).
-Focused provenance regression: `a8ec090f79894f56d2ddb85627fe49448386e774`.
+Implementation tree tested: `47508e87dbe873acb65a86ed7bbb44f585ba6d59`.
+The evidence update is a separate documentation commit; final branch SHA and
+fresh CI identities are recorded after that commit.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -46,8 +45,8 @@ recorded in the latest run was
 `sha256:6f77e29c7a8c28befcb168833d2bde9a920119e7471b5c91353ffef65bab50f`;
 the tracked ref advanced to C and apply still landed B while preserving R1.
 
-Final-head gate summary: full regression PASS, 806 total, 801 passed, 0
-failed, 5 skipped. Build, typecheck, specs, and Contracts A through E passed.
-Exact-head CI run `34140809559` passed on Ubuntu and Windows; the focused
-hashing run `34140809741` passed on both platforms.
+Final implementation-tree gate summary: full regression PASS, 832 total, 827
+passed, 0 failed, 5 classified skips. Build, typecheck, specs, and Contracts A
+through E passed. Fresh exact-head CI identities are intentionally recorded
+after this evidence update rather than reusing historical runs.
 No 1.1 release tag or publication was performed.
