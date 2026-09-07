@@ -1,0 +1,11 @@
+decision	reason	evidence	result
+Use dedicated repair branch	Protect main and immutable PR #77 checkpoint	git branch and remote reconciliation	all remediation commits isolated
+Fetch approved update commits exactly	A to B to C can move the tracked ref after planning	fetchExactCommit and lifecycle regression	B is landed, C is ignored
+Validate prospective Hub before journal	Global catalog conflicts must not partially publish	prospective builder regression	adopted tree, lock, and journal remain unchanged on failure
+Bind both final digests	Selected content and provenance must agree	final digest code and provenance-only tamper test	adoption commits only matching tree and snapshot
+Derive release artifacts from selected versions	Historical aliases and caller data are not authority	release-state exact derivation tests	alias, token, and search artifacts are release exact
+Make hub build complete	Public build must emit all Contract C release artifacts	CLI artifact E2E and buildHubRelease	publication-ready local outputs are emitted
+Require retained release rollback authority	Arbitrary hashes are not release authority	stable pointer negative tests	rollback rejects unknown and cross-Hub targets
+Use local authenticated control-plane seam	Context publish needs a client/server boundary without production credentials	local HTTP publication E2E	immutable publish and revoke path is proven
+Keep physical connection count at deployment seam	fetch cannot observe physical sockets portably	getActiveConnections adapter and transport test	no false claim; deployment supplies physical metric
+Label D and E as freeze candidates	Checkpoint-local contracts are not authoritative freezes	contract candidate docs	governance state is explicit
