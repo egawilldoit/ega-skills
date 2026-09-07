@@ -41,7 +41,7 @@ The same gated test also proves the real Matt lifecycle with a controlled
 bare mirror: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
 B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
 C=`3cca18b368ae95cdbdebbff572ccafa662551015`. The approved B plan digest
-was `sha256:0acbb0f1f01626973185e98670518a96dc057951b63b20c892ac8db4e1057257`;
+was `sha256:1c983c9a3c982fed82d81e87a3fce34b319bb37655fd25d433c0b451c5bc0645`;
 the tracked ref advanced to C and apply still landed B while preserving R1.
 
 Candidate gate summary: full regression PASS, 806 total, 801 passed, 0
