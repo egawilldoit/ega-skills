@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createSign, generateKeyPairSync } from "node:crypto";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { createHostedMcpHandler, createHostedRuntime } from "../../packages/mcp/dist/hosted.js";
+import { createHostedOAuthVerifier } from "../../packages/mcp/dist/hosted-auth.js";
 import {
   getCurrentVersionHash,
   importSkills,
@@ -73,6 +75,17 @@ async function fixture() {
 
 function auth() {
   return async () => true;
+}
+
+function oauth() {
+  return {
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    authorizationEndpoint: "https://auth.example.test/oauth/authorize",
+    tokenEndpoint: "https://auth.example.test/oauth/token",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    scopesSupported: ["mcp"],
+  };
 }
 
 function modernEnvelope() {
@@ -189,6 +202,19 @@ test("authorization and emergency deny are checked before content delivery", asy
     release_digest: value.release.digest,
   });
   assert.equal(deniedContent.structuredContent.error.code, "E_CONTENT_DENIED");
+
+  let deny = undefined;
+  const mutableEmergency = createHostedRuntime({
+    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+    denyPolicy: () => deny,
+  });
+  const initiallyAllowed = await mutableEmergency.call("search", { query: "hosted" });
+  assert.equal(initiallyAllowed.isError, false);
+  deny = { releaseDigests: [value.release.digest] };
+  const deniedAfterReload = await mutableEmergency.call("search", { query: "hosted" });
+  assert.equal(deniedAfterReload.structuredContent.error.code, "E_CONTENT_DENIED");
 });
 
 test("startup integrity fails closed when a release catalog does not match SQLite", async () => {
@@ -244,11 +270,24 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
         expiresAt: Math.floor(Date.now() / 1000) + 60,
       }),
     },
+    oauth: oauth(),
     allowedHosts: ["mcp.example.test"],
     allowedOrigins: ["https://client.example.test"],
     requiredScopes: ["mcp"],
   });
   try {
+    const discovery = await handler.fetch(new Request("https://mcp.example.test/.well-known/oauth-protected-resource", {
+      headers: { host: "mcp.example.test" },
+    }));
+    assert.equal(discovery.status, 200);
+    assert.deepEqual((await discovery.json()).authorization_servers, ["https://auth.example.test"]);
+
+    const readiness = await handler.fetch(new Request("https://mcp.example.test/readyz", {
+      headers: { host: "mcp.example.test" },
+    }));
+    assert.equal(readiness.status, 200);
+    assert.equal((await readiness.json()).status, "ready");
+
     const noAuth = await handler.fetch(request({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }));
     assert.equal(noAuth.status, 401);
 
@@ -270,6 +309,17 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }),
     }));
     assert.equal(insecure.status, 403);
+
+    const noOrigin = await handler.fetch(new Request("https://mcp.example.test/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer valid",
+        "content-type": "application/json",
+        host: "mcp.example.test",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }),
+    }));
+    assert.equal(noOrigin.status, 403);
 
     const listed = await handler.fetch(request(
       { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } },
@@ -295,4 +345,48 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
   } finally {
     await handler.close();
   }
+});
+
+function encodeBase64Url(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA signature", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: "jwk" });
+  const header = encodeBase64Url(JSON.stringify({ alg: "RS256", kid: "test-key", typ: "JWT" }));
+  const claims = encodeBase64Url(JSON.stringify({
+    iss: "https://auth.example.test",
+    aud: "https://mcp.example.test",
+    sub: "user-1",
+    client_id: "client-1",
+    scope: "mcp",
+    exp: Math.floor(Date.now() / 1000) + 60,
+  }));
+  const signingInput = `${header}.${claims}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signingInput, "ascii");
+  const signature = signer.sign(privateKey).toString("base64url");
+  const token = `${signingInput}.${signature}`;
+  let jwksReads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    fetch: async () => {
+      jwksReads += 1;
+      return new Response(JSON.stringify({ keys: [{ ...jwk, kid: "test-key", use: "sig" }] }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  const authInfo = await verifier.verifyAccessToken(token);
+  assert.equal(authInfo.clientId, "client-1");
+  assert.deepEqual(authInfo.scopes, ["mcp"]);
+  assert.equal(jwksReads, 1);
+  await assert.rejects(
+    verifier.verifyAccessToken(`${signingInput}.${signature.slice(0, -1)}x`),
+    /signature mismatch/,
+  );
 });

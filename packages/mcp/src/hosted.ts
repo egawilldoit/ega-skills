@@ -38,6 +38,7 @@ import { runGetContentTool } from "./get-content.js";
 import { runInspectTool, toInspectErrorResult, toInspectSuccessResult } from "./inspect.js";
 import { runResolveTool } from "./resolve.js";
 import { runSearchTool } from "./search.js";
+import { oauthDiscoveryDocuments, type HostedOAuthMetadata } from "./hosted-auth.js";
 
 export const HOSTED_TOOL_NAMES = Object.freeze([
   "resolve",
@@ -88,7 +89,7 @@ export interface HostedRuntimeOptions {
   readonly authorize: (
     request: HostedAuthorizationRequest,
   ) => boolean | Promise<boolean>;
-  readonly denyPolicy?: HostedDenyPolicy;
+  readonly denyPolicy?: HostedDenyPolicy | (() => HostedDenyPolicy | undefined);
 }
 
 export interface HostedRuntime {
@@ -105,6 +106,7 @@ export interface HostedHttpOptions {
   readonly verifier: {
     verifyAccessToken(token: string): Promise<AuthInfo>;
   };
+  readonly oauth: HostedOAuthMetadata;
   readonly allowedHosts: readonly string[];
   readonly allowedOrigins: readonly string[];
   readonly requiredScopes?: readonly string[];
@@ -361,7 +363,8 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
       const snapshot = select(tool, args);
       const skillId = typeof args["skill_id"] === "string" ? args["skill_id"] : undefined;
       const versionHash = typeof args["version_hash"] === "string" ? args["version_hash"] : undefined;
-      if (denied(options.denyPolicy, snapshot, skillId, versionHash)) {
+      const denyPolicy = typeof options.denyPolicy === "function" ? options.denyPolicy() : options.denyPolicy;
+      if (denied(denyPolicy, snapshot, skillId, versionHash)) {
         throw new HostedRuntimeError("E_CONTENT_DENIED", "Requested immutable content is emergency-denied");
       }
       const authorized = await options.authorize({
@@ -581,6 +584,24 @@ export function createHostedMcpHandler(
   if (options.allowedHosts.length === 0 || options.allowedOrigins.length === 0) {
     throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "HTTPS host and Origin allowlists are required");
   }
+  const oauthDocuments = oauthDiscoveryDocuments(options.oauth);
+  for (const [name, value] of Object.entries({
+    issuer: options.oauth.issuer,
+    resource: options.oauth.resource,
+    authorizationEndpoint: options.oauth.authorizationEndpoint,
+    tokenEndpoint: options.oauth.tokenEndpoint,
+    jwksUri: options.oauth.jwksUri,
+  })) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new HostedRuntimeError("E_STARTUP_INTEGRITY", `Invalid OAuth ${name} URL`);
+    }
+    if (parsed.protocol !== "https:") {
+      throw new HostedRuntimeError("E_STARTUP_INTEGRITY", `OAuth ${name} URL must use HTTPS`);
+    }
+  }
   const maxRequestBytes = options.maxRequestBytes ?? HOSTED_LIMITS.maxRequestBytes;
   const maxResponseBytes = options.maxResponseBytes ?? HOSTED_LIMITS.maxResponseBytes;
   const requestTimeoutMs = options.requestTimeoutMs ?? HOSTED_LIMITS.requestTimeoutMs;
@@ -620,12 +641,33 @@ export function createHostedMcpHandler(
     fetch: async (request: Request): Promise<Response> => {
       const serve = async (): Promise<Response> => {
         const url = new URL(request.url);
-        if (url.pathname !== "/mcp") return jsonError(404, "E_NOT_FOUND", "Hosted MCP endpoint is /mcp");
         if (url.protocol !== "https:") return jsonError(403, "E_ORIGIN_REJECTED", "HTTPS is required");
         const hostFailure = hostHeaderValidationResponse(request, [...options.allowedHosts]);
         if (hostFailure) return hostFailure;
+        if (url.pathname === "/.well-known/oauth-protected-resource") {
+          return new Response(JSON.stringify(oauthDocuments.protectedResource), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.pathname === "/.well-known/oauth-authorization-server") {
+          return new Response(JSON.stringify(oauthDocuments.authorizationServer), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.pathname === "/healthz") {
+          return new Response(JSON.stringify({ status: "ok" }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.pathname === "/readyz") {
+          return new Response(JSON.stringify({ status: runtime.ready ? "ready" : "not_ready" }), {
+            status: runtime.ready ? 200 : 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.pathname !== "/mcp") return jsonError(404, "E_NOT_FOUND", "Hosted MCP endpoint is /mcp");
         const origin = request.headers.get("origin");
-        if (origin !== null && !options.allowedOrigins.includes(origin)) {
+        if (origin === null || !options.allowedOrigins.includes(origin)) {
           return jsonError(403, "E_ORIGIN_REJECTED", "Origin is not allowed");
         }
         const originFailure = originValidationResponse(request, allowedOriginHostnames);

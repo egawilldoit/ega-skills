@@ -95,3 +95,5 @@ export type {
   HostedHttpHandler,
   HostedHttpOptions,
 } from "./hosted.js";
+export { createHostedOAuthVerifier, oauthDiscoveryDocuments } from "./hosted-auth.js";
+export type { HostedOAuthMetadata, HostedOAuthVerifierOptions } from "./hosted-auth.js";

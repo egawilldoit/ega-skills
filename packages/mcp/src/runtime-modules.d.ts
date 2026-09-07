@@ -20,6 +20,19 @@ declare module "node:fs" {
   export function realpathSync(path: string): string;
 }
 
+declare module "node:crypto" {
+  export interface KeyObject {}
+  export interface Verify {
+    update(data: string, inputEncoding?: string): Verify;
+    verify(key: KeyObject, signature: Uint8Array): boolean;
+  }
+  export function createPublicKey(options: {
+    key: Record<string, unknown>;
+    format: "jwk";
+  }): KeyObject;
+  export function createVerify(algorithm: string): Verify;
+}
+
 declare module "node:path" {
   export function dirname(path: string): string;
   export function join(...paths: string[]): string;
