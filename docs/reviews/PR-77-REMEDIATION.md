@@ -31,7 +31,7 @@ process described by the canonical specification.
 | F17 fingerprint confinement | VALID | Spec §5.14–§5.19 | Caller inputs and symlink escape could affect identity | Derive bounded evidence and enforce lstat/realpath/root containment | remote-fingerprint adversarial tests | `d5f1331` | Fingerprint focused suite passes | FIXED |
 | F18 contract CI coverage | VALID | Spec §7–§10 | CI omitted candidate Contract D/E gates | Added A to E check/test commands and package E scripts on matrix CI | workflow plus local command run | `d9bf5a6` | Local gates pass; exact-head GitHub run pending PR | FIXED |
 | F19 D/E status accuracy | VALID | Spec §7–§10 | Local candidate docs claimed FROZEN | Reclassified D/E docs as FREEZE CANDIDATE with required process | contract docs and validators | `d9bf5a6` | Governance text is explicit; authoritative freeze remains external | FIXED |
-| F20 exact evidence | VALID | User remediation gate | Stale counts and missing 1.1/1.2 ledgers | Added ledgers, report, decision trail, skip classifications, exact commits | this report and acceptance ledgers | evidence-doc commit | Final clean-head verification records exact final SHA | FIXED |
+| F20 exact evidence | VALID | User remediation gate | Stale counts and missing 1.1/1.2 ledgers | Added ledgers, report, decision trail, skip classifications, exact commits | this report and acceptance ledgers | `13a23037030630eb0fb32d6d289e826af2e8e5ce` | Final clean-head verification records exact final SHA | FIXED |
 
 ## Skipped tests
 
@@ -66,4 +66,3 @@ is present. It was not applied to any remote project.
 - Fresh Codex/OpenCode acceptance and a real authenticated staging control
   plane remain external.
 - No production deployment, release tag, Contract F, or 2.0 work is in scope.
-
