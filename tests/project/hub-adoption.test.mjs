@@ -62,10 +62,18 @@ function spawnLockContender(hubDir, resultPath, releasePath) {
       process.exitCode = 0;
     }
   `;
-  return spawn(process.execPath, ["--input-type=module", "-e", script], {
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
     env: { ...process.env, EGA_TEST_HUB: hubDir, EGA_TEST_RESULT: resultPath, EGA_TEST_RELEASE: releasePath },
     stdio: "ignore",
   });
+  child.done = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0 && signal === null) resolve();
+      else reject(new Error(`contender exited with code=${String(code)} signal=${String(signal)}`));
+    });
+  });
+  return child;
 }
 
 async function exitedProcessPid() {
@@ -486,10 +494,7 @@ test("a released process cannot remove a replacement lock", async () => {
   const replacement = acquireHubLock(hubDir);
   try {
     writeFileSync(firstRelease, "release");
-    await new Promise((resolve, reject) => {
-      first.once("error", reject);
-      first.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`contender exited ${code}`)));
-    });
+    await first.done;
     assert.equal(existsSync(join(hubDir, ".hub.lock")), true);
     const ownerFile = readdirSync(join(hubDir, ".hub.lock")).find((name) => name.startsWith("owner."));
     assert.ok(ownerFile);
@@ -511,10 +516,7 @@ test("two real contenders never both acquire Hub mutation authority", async () =
   assert.equal(results.filter((result) => result === "acquired").length, 1);
   assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
   writeFileSync(releasePath, "release");
-  await Promise.all([
-    new Promise((resolve, reject) => { first.once("error", reject); first.once("exit", resolve); }),
-    new Promise((resolve, reject) => { second.once("error", reject); second.once("exit", resolve); }),
-  ]);
+  await Promise.all([first.done, second.done]);
 });
 
 test("two real stale-lock reclaimers cannot both acquire mutation authority", async () => {
@@ -540,10 +542,7 @@ test("two real stale-lock reclaimers cannot both acquire mutation authority", as
   assert.equal(results.filter((result) => result === "acquired").length, 1);
   assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
   for (const releasePath of releasePaths) writeFileSync(releasePath, "release");
-  await Promise.all(children.map((child) => new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", resolve);
-  })));
+  await Promise.all(children.map((child) => child.done));
   assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
 });
 
