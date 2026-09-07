@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -71,9 +71,15 @@ function loadConfig(repoDir) {
 /** Extracts the adopted tree at an exact commit via an isolated clone. */
 function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
   const clone = mkdtempSync(join(tmpdir(), "ega-plan-adopt-"));
-  execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
-  execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
-  return extractSelectedRoots(clone, roots, provenanceFiles, mkdtempSync(join(tmpdir(), "ega-adopt-")));
+  const dest = mkdtempSync(join(tmpdir(), "ega-adopt-"));
+  try {
+    execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
+    execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
+    return extractSelectedRoots(clone, roots, provenanceFiles, dest);
+  } finally {
+    rmSync(clone, { force: true, recursive: true });
+    rmSync(dest, { force: true, recursive: true });
+  }
 }
 
 function codeOf(fn) {
@@ -201,6 +207,16 @@ test("annotated tags resolve to the peeled commit", () => {
   const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
   fetchRefTip(dir, "v1", shaA, dest);
   assert.equal(readFileSync(join(dest, "skills", "alpha", "SKILL.md"), "utf8").includes("Alpha body A."), true);
+});
+
+test("branch wins over same-named annotated tag (fetch precedence)", () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  git(dir, "tag", "-a", "-m", "release A", "release", shaA);
+  git(dir, "branch", "-f", "release", shaB);
+  assert.equal(resolveRefToCommit(dir, "release"), shaB);
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
+  fetchRefTip(dir, "release", shaB, dest);
+  assert.equal(readFileSync(join(dest, "skills", "beta", "SKILL.md"), "utf8").includes("Beta body B, changed."), true);
 });
 
 test("successful checks leave no temp directories behind", async () => {

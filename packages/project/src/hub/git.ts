@@ -13,9 +13,10 @@ function gitError(code: "E_PLAN_RESOLVE" | "E_PLAN_FETCH", message: string): Hub
 }
 
 /** Resolve a tracked ref to its exact commit via `git ls-remote`. Read-only.
- *  Annotated tags resolve to the PEELED commit (`refs/tags/<tag>^{}`), which
- *  is what `git clone --branch <tag>` checks out; otherwise check would
- *  resolve the tag object while fetch materializes the commit. */
+ *  Precedence matches `git clone --branch` (which fetch uses): branch first,
+ *  then the peeled annotated-tag commit, then exact/lightweight forms. A
+ *  branch/tag name collision therefore resolves exactly what fetch checks
+ *  out, and annotated tags resolve to the peeled commit clone materializes. */
 export function resolveRefToCommit(repository: string, ref: string): string {
   let stdout: string;
   try {
@@ -39,10 +40,10 @@ export function resolveRefToCommit(repository: string, ref: string): string {
     }
     if (!seen.has(name)) seen.set(name, sha);
   }
-  const peeled = seen.get(`refs/tags/${ref}^{}`);
-  if (peeled !== undefined) return peeled;
   const head = seen.get(`refs/heads/${ref}`);
   if (head !== undefined) return head;
+  const peeled = seen.get(`refs/tags/${ref}^{}`);
+  if (peeled !== undefined) return peeled;
   const exact = seen.get(ref);
   if (exact !== undefined) return exact;
   const tag = seen.get(`refs/tags/${ref}`);
