@@ -21,6 +21,7 @@ import {
   readJournal,
   recoverIfNeeded,
   requireCleanJournal,
+  sourceConfigDigest,
   writeJournal,
 } from "../../packages/project/dist/index.js";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
@@ -109,7 +110,7 @@ async function setupHubAtA(repo, shaA) {
   mkdirSync(treeDir, { recursive: true });
   const tree = extractSelectedRoots(coA, cfg.selection.roots, cfg.provenanceFiles, treeDir);
   const record = {
-    source_config_digest: "sha256:00",
+    source_config_digest: sourceConfigDigest(cfg),
     repository: repo,
     requested_ref: "main",
     namespace: "plan",
@@ -175,6 +176,30 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
 function makeFixtureRepoShaA(repo) {
   return execFileSync("git", ["-C", repo, "rev-parse", "main~1"], { encoding: "utf8" }).trim();
 }
+
+test("foreign-config plan rejected (E_LOCK_MISMATCH)", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  // Same commits and tree, but bound to a different configuration intent.
+  const foreign = {
+    ...plan.payload,
+    source_config_digest: `sha256:${"f".repeat(64)}`,
+  };
+  const resigned = createEnvelope({ object_type: "ega.update-plan", payload: foreign, schema_version: 1 });
+  const foreignPlan = { digest: resigned.digest, object_type: "ega.update-plan", payload: foreign, schema_version: 1 };
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: foreignPlan, stageDir })), "E_LOCK_MISMATCH");
+});
+
+test("wrong extraction contract rejected (E_PLAN_SCHEMA)", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const downgraded = { ...plan.payload, extraction_contract: 2 };
+  const resigned = createEnvelope({ object_type: "ega.update-plan", payload: downgraded, schema_version: 1 });
+  const downgradedPlan = { digest: resigned.digest, object_type: "ega.update-plan", payload: downgraded, schema_version: 1 };
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: downgradedPlan, stageDir })), "E_PLAN_SCHEMA");
+});
 
 test("stale plan rejected (E_PLAN_STALE)", async () => {
   const { dir: repo } = makeFixtureRepo();
