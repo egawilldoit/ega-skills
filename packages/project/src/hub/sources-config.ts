@@ -5,6 +5,7 @@ import { HubError } from "./errors.js";
 import {
   NAMESPACE_RE,
   assertRelativePosix,
+  assertSourceId,
   assertSortedUnique,
   isPlainObject,
   parseYamlMapping,
@@ -73,6 +74,7 @@ export function parseSourcesYaml(text: string): SourcesConfig {
   }
   const sources: Record<string, SourceConfig> = {};
   for (const [name, entry] of Object.entries(raw)) {
+    assertSourceId(name, `sources.yaml source ${name}`, "E_SOURCE_SCHEMA");
     if (!isPlainObject(entry)) {
       throw sourceFieldError(name, "must be a mapping");
     }

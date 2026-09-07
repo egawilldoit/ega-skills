@@ -1,9 +1,10 @@
 // 1.1[B] shared Hub YAML guards (EGA-624). Contract A sections 3-4.
 
 import { parse as parseYaml } from "yaml";
-import { HubError } from "./errors.js";
+import { HubError, type HubErrorCode } from "./errors.js";
 
 export const NAMESPACE_RE = /^[a-z0-9][a-z0-9-]*$/;
+export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 export const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 export const COMMIT_RE = /^[0-9a-f]{40}$/;
 
@@ -35,6 +36,13 @@ export function assertSortedUnique(items: readonly string[], what: string): void
   }
   if (new Set(items).size !== items.length) {
     throw new HubError("E_SOURCE_SELECTION", `${what} must be unique`);
+  }
+}
+
+/** A source id is also used as a single directory name in Hub state. */
+export function assertSourceId(value: unknown, what: string, code: HubErrorCode): asserts value is string {
+  if (typeof value !== "string" || !SOURCE_ID_RE.test(value)) {
+    throw new HubError(code, `${what} must be a path-safe source id`);
   }
 }
 
