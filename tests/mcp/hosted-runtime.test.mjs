@@ -840,6 +840,55 @@ test("hosted request capacity remains occupied while timed-out work is still pen
   }
 });
 
+test("hosted request cancellation stops an incomplete body before authentication", async () => {
+  const value = await fixture();
+  let pulls = 0;
+  let authCalls = 0;
+  const body = new ReadableStream({
+    pull() {
+      pulls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      return new Promise(() => {});
+    },
+  });
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  }), {
+    verifier: { verifyAccessToken: async () => {
+      authCalls += 1;
+      return { token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 };
+    } },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    requestTimeoutMs: 5,
+    maxConcurrentRequests: 1,
+  });
+  try {
+    const first = await handler.fetch(new Request("https://mcp.example.test/mcp", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", host: "mcp.example.test", origin: "https://client.example.test", authorization: "Bearer valid" },
+      body,
+      duplex: "half",
+    }));
+    assert.equal(first.status, 408);
+    assert.equal(pulls, 1);
+    assert.equal(authCalls, 0, "an incomplete request body must not reach authentication");
+
+    const second = await handler.fetch(request({
+      jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: modernEnvelope() },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(second.status, 200, "a canceled body must not leak request capacity");
+    assert.equal(authCalls, 1);
+  } finally {
+    await handler.close();
+  }
+});
+
 test("hosted HTTP bounds unknown-length request streams before consuming them", async () => {
   const value = await fixture();
   let pulls = 0;

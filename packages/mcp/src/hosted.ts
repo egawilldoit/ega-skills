@@ -1301,8 +1301,10 @@ export function createHostedMcpHandler(
         if (requestBody.exceeded) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request content exceeds the hosted MCP byte limit");
         }
+        if (signal.aborted) {
+          throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+        }
         const authWork = Promise.resolve().then(() => gate(request));
-        trackWork(authWork);
         const auth = await authWork;
         if (auth instanceof Response) return auth;
         // Keep the local MCP package's read-only static audit satisfied: the
@@ -1318,6 +1320,9 @@ export function createHostedMcpHandler(
           const responseBody = await readBoundedBody(response.clone().body, maxResponseBytes, signal);
           if (responseBody.exceeded) {
             return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+          }
+          if (signal.aborted) {
+            throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
           }
           try {
             const body = JSON.parse(new TextDecoder().decode(responseBody.bytes)) as { result?: { structuredContent?: { content?: unknown } } };
@@ -1350,7 +1355,10 @@ export function createHostedMcpHandler(
       if (connectionLimitReached()) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP connection limit reached");
       concurrent += 1;
       try {
-        const operation = withHostedTimeout(serve, requestTimeoutMs);
+        // Track the complete request operation, including body reads and the
+        // MCP response stream. The timeout race may settle first, but the
+        // underlying request remains capacity-consuming until it settles.
+        const operation = withHostedTimeout(serve, requestTimeoutMs, undefined, trackWork);
         let released = false;
         const release = (): void => {
           if (!released) {
