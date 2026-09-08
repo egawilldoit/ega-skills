@@ -205,7 +205,7 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
   const stage = join(workspace, "stage");
   mkdirSync(stage, { recursive: true });
   try {
-    fetchExactCommit(source.repository, plan.payload.target_commit, fetched);
+    fetchExactCommit(source.repository, plan.payload.target_commit, fetched, { fallbackRef: source.ref });
     extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
     // Await before cleanup: applyUpdatePlan reads the extracted stage after
     // its first asynchronous prospective-build validation.

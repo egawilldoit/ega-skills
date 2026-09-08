@@ -142,6 +142,6 @@ test("validate is non-mutating, uses the package validator, and reports JSON fai
   const report = JSON.parse(invalid.stdout);
   assert.equal(report.valid, false);
   assert.equal(report.failures.length, 1);
-  assert.match(report.failures[0].error, /directory|name/i);
+  assert.match(report.failures[0].error, /must exactly match directory/);
   assert.equal(existsSync(join(cwd, ".ega-skills", "registry.sqlite")), false);
 });

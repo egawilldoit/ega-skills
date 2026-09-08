@@ -12,6 +12,7 @@ export type { SourceConfig, SourceSelection, SourcesConfig } from "./hub/sources
 export { parseSourcesLockYaml, verifySourcesLock } from "./hub/sources-lock.js";
 export type { LockedSelection, SourceLockRecord, SourcesLock } from "./hub/sources-lock.js";
 export { fetchExactCommit, fetchRefTip, resolveRefToCommit } from "./hub/git.js";
+export type { ExactCommitFetchOptions } from "./hub/git.js";
 export {
   QUARANTINE_MAX_FILE_BYTES,
   QUARANTINE_MAX_FILES,
