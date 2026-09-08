@@ -163,6 +163,13 @@ function checkReleasePayload(payload: unknown): asserts payload is HubReleasePay
   }
   if (value["build"] === null || typeof value["build"] !== "object" || Array.isArray(value["build"])) fail("E_RELEASE_SCHEMA", "build must be an object");
   const build = value["build"] as Record<string, unknown>;
+  const buildFields = ["expected_catalog_match", "fresh_registry", "import_failures"];
+  if (JSON.stringify(Object.keys(build).sort()) !== JSON.stringify([...buildFields].sort())) {
+    fail("E_BUILD_ATTESTATION", "HubRelease build attestation has unknown or missing fields");
+  }
+  if (typeof build["fresh_registry"] !== "boolean" || typeof build["expected_catalog_match"] !== "boolean" || typeof build["import_failures"] !== "number") {
+    fail("E_BUILD_ATTESTATION", "HubRelease build attestation has invalid field types");
+  }
   if (build["fresh_registry"] !== true || build["import_failures"] !== 0 || build["expected_catalog_match"] !== true) fail("E_BUILD_ATTESTATION", "HubRelease build attestation is not complete");
 }
 
@@ -207,6 +214,10 @@ export function createHubRelease(build: HubBuildResult, artifacts: ReleaseArtifa
 export function verifyHubRelease(release: unknown, artifacts?: ReleaseArtifacts): asserts release is HubRelease {
   if (release === null || typeof release !== "object" || Array.isArray(release)) fail("E_RELEASE_SCHEMA", "HubRelease must be an object");
   const value = release as Record<string, unknown>;
+  const envelopeFields = ["object_type", "schema_version", "payload", "digest"];
+  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...envelopeFields].sort())) {
+    fail("E_RELEASE_SCHEMA", "HubRelease envelope has unknown or missing fields");
+  }
   if (value["object_type"] !== "ega.hub-release" || value["schema_version"] !== 1) fail("E_RELEASE_SCHEMA", "HubRelease envelope type/version mismatch");
   const expected = createEnvelope({ object_type: "ega.hub-release", payload: value["payload"], schema_version: 1 });
   if (value["digest"] !== expected.digest) fail("E_RELEASE_DIGEST", `HubRelease digest mismatch (want ${expected.digest})`);

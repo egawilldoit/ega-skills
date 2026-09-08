@@ -107,6 +107,25 @@ test("HubRelease rejects recomputed-digest contract identity forgeries", () => {
   });
 });
 
+test("HubRelease rejects forged envelope and build shapes after digest recomputation", () => {
+  return fixture().then((value) => {
+    const release = createHubRelease(value, value.artifacts);
+    const resign = (payload) => createEnvelope({
+      object_type: release.object_type,
+      schema_version: release.schema_version,
+      payload,
+    });
+    assert.throws(() => verifyHubRelease({ ...release, evidence: "not-semantic" }), (error) => error.code === "E_RELEASE_SCHEMA");
+    assert.throws(() => verifyHubRelease({ ...resign(release.payload), extra: true }), (error) => error.code === "E_RELEASE_SCHEMA");
+    const withBuild = (build) => resign({ ...release.payload, build });
+    assert.throws(() => verifyHubRelease(withBuild({ ...release.payload.build, unknown: 1 })), (error) => error.code === "E_BUILD_ATTESTATION");
+    const missing = { ...release.payload.build };
+    delete missing.fresh_registry;
+    assert.throws(() => verifyHubRelease(withBuild(missing)), (error) => error.code === "E_BUILD_ATTESTATION");
+    assert.throws(() => verifyHubRelease(withBuild({ ...release.payload.build, import_failures: null })), (error) => error.code === "E_BUILD_ATTESTATION");
+  });
+});
+
 test("HubRelease rejects a semantically forged token artifact", () => {
   return fixture().then((value) => {
     const forgedTokens = {
