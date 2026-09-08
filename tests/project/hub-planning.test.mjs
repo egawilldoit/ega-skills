@@ -181,6 +181,29 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   assert.ok(cfg);
 });
 
+test("selected parent roots discover nested skills without adopting outside roots", async () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  const cfg = parseSourcesYaml(SOURCES_YAML.replace("PLACEHOLDER", dir).replace(/        - skills\/alpha\n        - skills\/beta\n        - skills\/gamma/, "        - skills"));
+  const src = cfg.sources.plan;
+  const adoptedTree = adoptedTreeAt(dir, shaA, ["skills"], src.provenanceFiles);
+  const work = mkdtempSync(join(tmpdir(), "ega-plan-parent-root-"));
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: work,
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.equal(res.plan.payload.target_commit, shaB);
+  assert.deepEqual(res.plan.payload.added_skills.map((entry) => entry.skill_ref), ["plan/delta", "plan/gamma"]);
+  assert.ok(!res.plan.payload.unselected_new_skills.includes("skills/delta"));
+});
+
 test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {
   const { dir, shaA } = makeFixtureRepo();
   const { src } = loadConfig(dir);

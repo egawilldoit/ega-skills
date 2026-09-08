@@ -31,6 +31,7 @@ import {
 import type { HubJournal } from "./journal.js";
 import { digestStagedTree } from "./quarantine.js";
 import { parseSourcesLockYaml, type SourceLockRecord } from "./sources-lock.js";
+import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 import type { UpdatePlanDocument } from "./planning.js";
 import { buildHub } from "./builder.js";
 import { parseHubYaml } from "./hub-config.js";
@@ -233,6 +234,8 @@ export interface ApplyInput {
   /** Existing staged tree for internal callers, or a locked preparation hook. */
   stageDir?: string;
   prepareStage?: (stageDir: string) => void | Promise<void>;
+  /** Current sources.yaml intent, supplied by the public orchestration path. */
+  sourceConfig?: SourceConfig;
 }
 
 function busyGuard<T>(fn: () => T): T {
@@ -513,7 +516,7 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
 }
 
 export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: SourceLockRecord }> {
-  const { hubDir, plan, stageDir: suppliedStageDir, prepareStage } = input;
+  const { hubDir, plan, stageDir: suppliedStageDir, prepareStage, sourceConfig } = input;
   if (suppliedStageDir === undefined && prepareStage === undefined) {
     throw new HubError("E_PLAN_SCHEMA", "apply requires a staged tree or locked stage preparation");
   }
@@ -549,8 +552,18 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     // A plan built for different sources.yaml intent (roots, provenance,
     // ref) is not stale — it is a foreign plan and must be refused.
     if (current.source_config_digest !== verified.sourceConfigDigest) {
-      throw new HubError("E_LOCK_MISMATCH", "plan source_config_digest does not match adopted configuration");
+      if (sourceConfig === undefined || sourceConfigDigest(sourceConfig) !== verified.sourceConfigDigest) {
+        throw new HubError("E_LOCK_MISMATCH", "plan source_config_digest does not match adopted configuration or current source intent");
+      }
     }
+    const effectiveConfig = sourceConfig ?? {
+      type: "git",
+      repository: current.repository,
+      ref: current.requested_ref,
+      namespace: current.namespace,
+      selection: current.selection,
+      provenanceFiles: current.provenance_files,
+    };
     let stageDir = suppliedStageDir;
     if (stageDir === undefined && prepareStage !== undefined) {
       ownedStageDir = mkdtempSync(join(tmpdir(), "ega-hub-apply-stage-"));
@@ -559,7 +572,7 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     }
     if (stageDir === undefined) throw new HubError("E_PLAN_SCHEMA", "apply stage was not prepared");
     // The staged tree must be exactly what the plan describes.
-    const staged = digestStagedTree(stageDir, current.selection.roots);
+    const staged = digestStagedTree(stageDir, effectiveConfig.selection.roots);
     if (staged.treeDigest !== verified.newTreeDigest || staged.snapshotDigest !== verified.newSnapshotDigest) {
       throw new HubError("E_PLAN_DIGEST", "staged tree does not match the approved plan");
     }
@@ -580,7 +593,13 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
       throw new HubError("E_LOCK_MISMATCH", `adopted tree missing for ${verified.sourceId}`);
     }
     const record: SourceLockRecord = {
-      ...current,
+      source_config_digest: verified.sourceConfigDigest,
+      repository: effectiveConfig.repository,
+      requested_ref: effectiveConfig.ref,
+      namespace: effectiveConfig.namespace,
+      selection: { roots: [...effectiveConfig.selection.roots] },
+      provenance_files: [...effectiveConfig.provenanceFiles],
+      extraction_contract: 1,
       resolved_commit: verified.targetCommit,
       selected_skill_tree_digest: staged.treeDigest,
       vendored_snapshot_digest: staged.snapshotDigest,

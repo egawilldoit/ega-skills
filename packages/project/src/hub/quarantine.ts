@@ -277,6 +277,19 @@ function admittedGitPath(path: string, roots: readonly string[], provenanceFiles
   return undefined;
 }
 
+/** Return every skill-package directory at or below the selected roots. */
+export function discoverSelectedSkillsFromGit(repoDir: string, commit: string, roots: readonly string[]): string[] {
+  for (const root of roots) assertRelativePosix(root, "selected root");
+  const entries = gitTreeEntries(repoDir, commit);
+  const found = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "blob" || !entry.path.endsWith("/SKILL.md") && entry.path !== "SKILL.md") continue;
+    const dir = entry.path === "SKILL.md" ? "" : entry.path.slice(0, -"/SKILL.md".length);
+    if (roots.some((root) => dir === root || dir.startsWith(`${root}/`))) found.add(dir);
+  }
+  return [...found].sort();
+}
+
 /** Extract directly from the exact commit's Git tree and blob objects.
  * No checkout, attributes, smudge, clean filter, textconv, or LFS operation
  * is involved. The destination receives the exact committed blob bytes. */

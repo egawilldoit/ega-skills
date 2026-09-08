@@ -18,7 +18,7 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
+import { discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
@@ -118,8 +118,9 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       throw new HubError("E_PLAN_FETCH", `candidate tree failed V1 import: ${first ? first.error : "unknown"}`);
     }
     const candidate: Record<string, string> = {};
-    for (const root of config.selection.roots) {
-      const name = readSkillName(join(quarantineDir, ...root.split("/"), "SKILL.md"));
+    const selectedSkillDirs = discoverSelectedSkillsFromGit(fetchDir, target, config.selection.roots);
+    for (const skillDir of selectedSkillDirs) {
+      const name = readSkillName(join(quarantineDir, ...skillDir.split("/"), "SKILL.md"));
       const ref = `${config.namespace}/${name}`;
       const rows = listSkillVersions(registry.db, ref);
       const latest = rows[rows.length - 1];
@@ -137,20 +138,21 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       .filter(([ref]) => !(ref in candidate))
       .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }))
       .sort(byRef);
+    const selectedTreeChanged = tree.treeDigest !== adopted.treeDigest;
     const changed: PlanSkillChange[] = Object.entries(candidate)
-      .filter(([ref, hash]) => ref in adopted.versions && adopted.versions[ref] !== hash)
+      .filter(([ref, hash]) => ref in adopted.versions && (selectedTreeChanged || adopted.versions[ref] !== hash))
       .map(([skill_ref, new_version]) => ({
-        canonical_changed: true,
+        canonical_changed: adopted.versions[skill_ref] !== new_version,
         new_version,
         old_version: adopted.versions[skill_ref] as string,
-        raw_changed: true,
+        raw_changed: selectedTreeChanged,
         skill_ref,
       }))
       .sort(byRef);
-    // Provenance-only change: the selected tree is identical but the snapshot
-    // (roots + provenance) moved, so the difference must be in provenance files.
+    // The plan reports provenance whenever the vendored snapshot moves. The
+    // selected skill change and provenance change are independent dimensions.
     const provenanceChanges =
-      tree.treeDigest === adopted.treeDigest && tree.snapshotDigest !== adopted.snapshotDigest
+      tree.snapshotDigest !== adopted.snapshotDigest
         ? [...config.provenanceFiles].sort()
         : [];
     const payload: UpdatePlanPayload = {

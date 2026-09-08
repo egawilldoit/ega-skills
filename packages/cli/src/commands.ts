@@ -37,6 +37,7 @@ import {
   fetchRefTip,
   parseSourcesLockYaml,
   parseSourcesYaml,
+  adoptedSourcePath,
   verifySourcesLock,
   type ProjectLockV1,
   type RefreshLockDiff,
@@ -68,13 +69,40 @@ function readHubContracts(hub: string) {
   const hubDir = resolve(hub);
   const config = parseSourcesYaml(readFileSync(hubFile(hubDir, "sources.yaml"), "utf8"));
   const lock = parseSourcesLockYaml(readFileSync(hubFile(hubDir, "sources.lock.yaml"), "utf8"));
-  verifySourcesLock(config, lock);
   return { config, hubDir, lock };
+}
+
+async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string): Promise<Record<string, string>> {
+  const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
+  try {
+    const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
+    if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
+    const versions: Record<string, string> = {};
+    const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
+    for (const row of rows) versions[row.skill_id] = row.current_version_hash;
+    return versions;
+  } finally {
+    registry.close();
+    rmSync(registryHome, { force: true, recursive: true });
+  }
 }
 
 /** Run the complete Contract C build through the public CLI API. */
 export async function runHubBuild(options: HubCommandOptions = {}) {
   return buildHubRelease(resolve(options.hub ?? "."));
+}
+
+/** Validate the currently adopted Hub without fetching or mutating it. */
+export async function runHubValidate(options: HubCommandOptions = {}) {
+  const hubDir = resolve(options.hub ?? ".");
+  const build = await buildHub(hubDir);
+  return {
+    hub: hubDir,
+    valid: true,
+    skills: build.skills.length,
+    sources: build.adoptedSources.length,
+  };
 }
 
 /** Read-only Contract B check. The existing Hub build supplies the adopted
@@ -84,11 +112,19 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   const source = config.sources[options.sourceId];
   const adopted = lock.sources[options.sourceId];
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
-  const build = await buildHub(hubDir);
   const prefix = `${source.namespace}/`;
   const versions: Record<string, string> = {};
-  for (const skill of build.skills) {
-    if (skill.skillId.startsWith(prefix)) versions[skill.skillId] = skill.versionHash;
+  try {
+    verifySourcesLock(config, lock);
+    const build = await buildHub(hubDir);
+    for (const skill of build.skills) {
+      if (skill.skillId.startsWith(prefix)) versions[skill.skillId] = skill.versionHash;
+    }
+  } catch (error) {
+    // A deliberate sources.yaml selection change is a proposal input. The
+    // adopted lock remains the old authority until its plan is applied.
+    if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
+    Object.assign(versions, await readAdoptedVersions(hubDir, options.sourceId, source.namespace));
   }
   const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
   try {
@@ -105,6 +141,10 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
     });
     if (options.output && result.status === "UPDATE_AVAILABLE") {
       writeFileSync(resolve(options.output), `${JSON.stringify(result.plan, null, 2)}\n`);
+    } else if (options.output && result.status === "NO_CHANGE") {
+      // A successful no-change check must not leave an older actionable plan
+      // claiming to describe the current source state.
+      rmSync(resolve(options.output), { force: true });
     }
     return result;
   } finally {
@@ -123,6 +163,7 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
   return await applyUpdatePlan({
     hubDir,
     plan,
+    sourceConfig: source,
     prepareStage: (stage) => {
       const fetched = mkdtempSync(join(tmpdir(), "ega-cli-hub-fetch-"));
       try {
