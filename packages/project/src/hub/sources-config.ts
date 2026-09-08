@@ -99,6 +99,9 @@ export function parseSourcesYaml(text: string): SourcesConfig {
     if (!isPlainObject(selection) || !Array.isArray(selection["roots"]) || selection["roots"].length === 0) {
       throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} selection.roots must be a non-empty list`);
     }
+    for (const key of Object.keys(selection)) {
+      if (key !== "roots") throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} selection unknown field "${key}"`);
+    }
     const roots = selection["roots"].map((root) => {
       if (typeof root !== "string" || root.length === 0) {
         throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} roots must be non-empty strings`);
