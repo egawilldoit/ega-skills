@@ -260,6 +260,43 @@ test("fetchExactCommit ignores a later movement of the tracked branch", () => {
   assert.equal(readFileSync(join(dest, "skills", "beta", "SKILL.md"), "utf8"), skill("beta", "Beta body B, changed."));
 });
 
+test("verified ref fallback materializes the approved commit, never the moving ref tip", () => {
+  const { dir, shaB } = makeFixtureRepo();
+  writeFileSync(join(dir, "skills", "beta", "SKILL.md"), skill("beta", "Beta body C, moved tip."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-fallback-"));
+
+  fetchExactCommit(dir, shaB, dest, { fallbackRef: "main", forceRefFallback: true });
+
+  assert.equal(execFileSync("git", ["-C", dest, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), shaB);
+  assert.notEqual(shaC, shaB);
+  assert.equal(readFileSync(join(dest, "skills", "beta", "SKILL.md"), "utf8"), skill("beta", "Beta body B, changed."));
+});
+
+test("exact-commit fallback fails closed for unavailable or malformed approvals", () => {
+  const { dir } = makeFixtureRepo();
+  const unavailable = mkdtempSync(join(tmpdir(), "ega-fetch-unavailable-"));
+  assert.throws(
+    () => fetchExactCommit(dir, "f".repeat(40), unavailable, { fallbackRef: "main", forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /could not materialize approved commit/.test(error.message),
+  );
+
+  const malformed = mkdtempSync(join(tmpdir(), "ega-fetch-malformed-"));
+  assert.throws(
+    () => fetchExactCommit(dir, "not-a-commit", malformed, { fallbackRef: "main", forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /40 lowercase hex/.test(error.message),
+  );
+
+  const missingFallback = mkdtempSync(join(tmpdir(), "ega-fetch-no-fallback-"));
+  const { shaB } = makeFixtureRepo();
+  assert.throws(
+    () => fetchExactCommit(dir, shaB, missingFallback, { forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /no verified fallback ref/.test(error.message),
+  );
+});
+
 test("discoverUnselectedSkills reports outside roots only", () => {
   const { dir } = makeFixtureRepo();
   assert.deepEqual(discoverUnselectedSkills(dir, ["skills/alpha", "skills/beta", "skills/gamma"]), ["skills/delta"]);
