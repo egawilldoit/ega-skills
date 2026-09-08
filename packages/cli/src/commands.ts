@@ -120,19 +120,21 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
   const source = config.sources[plan.payload?.source_id];
   const adopted = lock.sources[plan.payload?.source_id];
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source in plan: ${plan.payload?.source_id ?? ""}`);
-  const workspace = mkdtempSync(join(tmpdir(), "ega-cli-hub-update-"));
-  const fetched = join(workspace, "fetched");
-  const stage = join(workspace, "stage");
-  mkdirSync(stage, { recursive: true });
-  try {
-    fetchExactCommit(source.repository, plan.payload.target_commit, fetched, { fallbackRef: source.ref });
-    extractSelectedRootsFromGit(fetched, plan.payload.target_commit, source.selection.roots, source.provenanceFiles, stage);
-    // Await before cleanup: applyUpdatePlan reads the extracted stage after
-    // its first asynchronous prospective-build validation.
-    return await applyUpdatePlan({ hubDir, plan, stageDir: stage });
-  } finally {
-    rmSync(workspace, { force: true, recursive: true });
-  }
+  return await applyUpdatePlan({
+    hubDir,
+    plan,
+    prepareStage: (stage) => {
+      const fetched = mkdtempSync(join(tmpdir(), "ega-cli-hub-fetch-"));
+      try {
+        // Apply transports only the immutable approved object. A moving ref
+        // is check-time input, never an apply-time fallback authority.
+        fetchExactCommit(source.repository, plan.payload.target_commit, fetched);
+        extractSelectedRootsFromGit(fetched, plan.payload.target_commit, source.selection.roots, source.provenanceFiles, stage);
+      } finally {
+        rmSync(fetched, { force: true, recursive: true });
+      }
+    },
+  });
 }
 
 export interface ResolveCommandOptions {
