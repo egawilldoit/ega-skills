@@ -255,6 +255,49 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   lock.release();
 });
 
+test("locked apply prepares its stage only after acquiring the Hub lock", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const events = [];
+  await applyUpdatePlan({
+    hubDir: hub.hubDir,
+    plan,
+    prepareStage: (stage) => {
+      events.push("stage-preparation");
+      assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), true);
+      cpSync(stageDir, stage, { recursive: true });
+    },
+  });
+  assert.deepEqual(events, ["stage-preparation"]);
+});
+
+test("exact-target materialization failure fails closed without mutable-ref fallback", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan } = await freshPlanAndStage(repo, hub);
+  const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const beforeTree = readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"));
+  const events = [];
+  const code = await codeOf(() => applyUpdatePlan({
+    hubDir: hub.hubDir,
+    plan,
+    prepareStage: () => {
+      events.push("exact-fetch-failed");
+      throw new HubError("E_PLAN_FETCH", "exact approved object unavailable");
+    },
+  }));
+  assert.equal(code, "E_PLAN_FETCH");
+  assert.deepEqual(events, ["exact-fetch-failed"]);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md")), beforeTree);
+  assert.equal(existsSync(join(hub.hubDir, ".hub-journal.json")), false);
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
+  assert.equal(existsSync(join(hub.hubDir, ".backup")), false);
+  const lock = acquireHubLock(hub.hubDir);
+  lock.release();
+});
+
 test("provenance-only stage tampering fails before adoption and preserves both digests", async () => {
   const { dir: repo } = makeFixtureRepo();
   const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
@@ -344,6 +387,66 @@ test("orphan staging from pre-journal crash is discarded under the mutation lock
   assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
   assert.equal(readJournal(hub.hubDir), null);
 });
+
+test("runtime accepts the frozen COMMITTED journal shape", () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
+  writeFileSync(join(hubDir, ".hub-journal.json"), JSON.stringify({
+    journal_version: 1,
+    source_id: "plan",
+    expected_old_commit: "a".repeat(40),
+    target_commit: "b".repeat(40),
+    state: "COMMITTED",
+  }));
+  assert.deepEqual(recoverIfNeeded(hubDir), { recovered: true });
+  assert.equal(readJournal(hubDir), null);
+});
+
+test("COMMITTED journal rejects forbidden cleanup paths", () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
+  writeFileSync(join(hubDir, ".hub-journal.json"), JSON.stringify({
+    journal_version: 1,
+    source_id: "plan",
+    expected_old_commit: "a".repeat(40),
+    target_commit: "b".repeat(40),
+    staging: ".staging",
+    backup: ".backup",
+    state: "COMMITTED",
+  }));
+  assert.throws(() => recoverIfNeeded(hubDir), (e) => e instanceof HubError && e.code === "E_JOURNAL_SCHEMA");
+});
+
+test("COMMITTED recovery cleans canonical remnants without rolling back", () => {
+  const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
+  mkdirSync(join(hubDir, ".staging"), { recursive: true });
+  mkdirSync(join(hubDir, ".backup"), { recursive: true });
+  writeFileSync(join(hubDir, "external-state.txt"), "new state\n");
+  writeFileSync(join(hubDir, ".hub-journal.json"), JSON.stringify({
+    journal_version: 1,
+    source_id: "plan",
+    expected_old_commit: "a".repeat(40),
+    target_commit: "b".repeat(40),
+    state: "COMMITTED",
+  }));
+  assert.deepEqual(recoverIfNeeded(hubDir), { recovered: true });
+  assert.equal(readFileSync(join(hubDir, "external-state.txt"), "utf8"), "new state\n");
+  assert.equal(existsSync(join(hubDir, ".staging")), false);
+  assert.equal(existsSync(join(hubDir, ".backup")), false);
+  assert.equal(readJournal(hubDir), null);
+});
+
+for (const state of ["PREPARED", "TREE_SWAPPED", "LOCK_SWAPPED"]) {
+  test(`${state} journal requires staging and backup`, () => {
+    const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
+    writeFileSync(join(hubDir, ".hub-journal.json"), JSON.stringify({
+      journal_version: 1,
+      source_id: "plan",
+      expected_old_commit: "a".repeat(40),
+      target_commit: "b".repeat(40),
+      state,
+    }));
+    assert.throws(() => recoverIfNeeded(hubDir), (e) => e instanceof HubError && e.code === "E_JOURNAL_SCHEMA");
+  });
+}
 
 test("PREPARED recovery discards staged data and preserves the adopted state", async () => {
   const { dir: repo } = makeFixtureRepo();

@@ -20,15 +20,24 @@ import { adoptedSourcePath } from "./paths.js";
 
 export type JournalState = "PREPARED" | "TREE_SWAPPED" | "LOCK_SWAPPED" | "COMMITTED";
 
-export interface HubJournal {
+interface JournalIdentity {
   journal_version: 1;
   source_id: string;
   expected_old_commit: string;
   target_commit: string;
+}
+
+export interface IncompleteJournal extends JournalIdentity {
   staging: string;
   backup: string;
-  state: JournalState;
+  state: Exclude<JournalState, "COMMITTED">;
 }
+
+export interface CommittedJournal extends JournalIdentity {
+  state: "COMMITTED";
+}
+
+export type HubJournal = IncompleteJournal | CommittedJournal;
 
 const STATES: readonly string[] = ["PREPARED", "TREE_SWAPPED", "LOCK_SWAPPED", "COMMITTED"];
 
@@ -92,8 +101,12 @@ function checkJournalShape(value: unknown): asserts value is HubJournal {
   if (!isPlainObject(value)) {
     throw new HubError("E_JOURNAL_SCHEMA", "journal must be an object");
   }
+  const state = value["state"];
+  const allowed = state === "COMMITTED"
+    ? ["journal_version", "source_id", "expected_old_commit", "target_commit", "state"]
+    : ["journal_version", "source_id", "expected_old_commit", "target_commit", "staging", "backup", "state"];
   for (const key of Object.keys(value)) {
-    if (!["journal_version", "source_id", "expected_old_commit", "target_commit", "staging", "backup", "state"].includes(key)) {
+    if (!allowed.includes(key)) {
       throw new HubError("E_JOURNAL_SCHEMA", `journal unknown field "${key}"`);
     }
   }
@@ -106,12 +119,14 @@ function checkJournalShape(value: unknown): asserts value is HubJournal {
       throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must be 40 lowercase hex`);
     }
   }
-  for (const field of ["staging", "backup"] as const) {
-    if (typeof value[field] !== "string" || (value[field] as string).length === 0) {
-      throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must be a non-empty Hub-relative path`);
+  if (state !== "COMMITTED") {
+    for (const field of ["staging", "backup"] as const) {
+      if (typeof value[field] !== "string" || (value[field] as string).length === 0) {
+        throw new HubError("E_JOURNAL_SCHEMA", `journal ${field} must be a non-empty Hub-relative path`);
+      }
     }
   }
-  if (typeof value["state"] !== "string" || !STATES.includes(value["state"] as string)) {
+  if (typeof state !== "string" || !STATES.includes(state)) {
     throw new HubError("E_JOURNAL_STATE", `journal state must be one of ${STATES.join("/")}`);
   }
   for (const [, entry] of Object.entries(value)) {
@@ -144,8 +159,12 @@ function confinedJournalPath(hubDir: string, value: string, field: string): stri
 
 function journalPaths(hubDir: string, journal: HubJournal): JournalPaths {
   const root = resolve(hubDir);
-  const staging = confinedJournalPath(root, journal.staging, "staging");
-  const backup = confinedJournalPath(root, journal.backup, "backup");
+  const staging = journal.state === "COMMITTED"
+    ? join(root, ".staging")
+    : confinedJournalPath(root, journal.staging, "staging");
+  const backup = journal.state === "COMMITTED"
+    ? join(root, ".backup")
+    : confinedJournalPath(root, journal.backup, "backup");
   return {
     backup,
     backupLock: join(backup, "sources.lock.yaml"),

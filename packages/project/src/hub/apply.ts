@@ -230,7 +230,9 @@ export function acquireHubLock(hubDir: string): HubLock {
 export interface ApplyInput {
   hubDir: string;
   plan: UpdatePlanDocument;
-  stageDir: string;
+  /** Existing staged tree for internal callers, or a locked preparation hook. */
+  stageDir?: string;
+  prepareStage?: (stageDir: string) => void | Promise<void>;
 }
 
 function busyGuard<T>(fn: () => T): T {
@@ -511,11 +513,15 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
 }
 
 export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: SourceLockRecord }> {
-  const { hubDir, plan, stageDir } = input;
+  const { hubDir, plan, stageDir: suppliedStageDir, prepareStage } = input;
+  if (suppliedStageDir === undefined && prepareStage === undefined) {
+    throw new HubError("E_PLAN_SCHEMA", "apply requires a staged tree or locked stage preparation");
+  }
   // The caller-supplied plan is untrusted. Parse and verify its complete
   // immutable schema before acquiring the mutation lock or entering recovery.
   const verified = verifyPlanShape(plan);
   const lock = acquireHubLock(hubDir);
+  let ownedStageDir: string | undefined;
   try {
     // Recovery mutates Hub state, so it must happen under the same exclusive
     // lock as the update itself. Contract B still requires stage -> PREPARED.
@@ -545,6 +551,13 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     if (current.source_config_digest !== verified.sourceConfigDigest) {
       throw new HubError("E_LOCK_MISMATCH", "plan source_config_digest does not match adopted configuration");
     }
+    let stageDir = suppliedStageDir;
+    if (stageDir === undefined && prepareStage !== undefined) {
+      ownedStageDir = mkdtempSync(join(tmpdir(), "ega-hub-apply-stage-"));
+      await prepareStage(ownedStageDir);
+      stageDir = ownedStageDir;
+    }
+    if (stageDir === undefined) throw new HubError("E_PLAN_SCHEMA", "apply stage was not prepared");
     // The staged tree must be exactly what the plan describes.
     const staged = digestStagedTree(stageDir, current.selection.roots);
     if (staged.treeDigest !== verified.newTreeDigest || staged.snapshotDigest !== verified.newSnapshotDigest) {
@@ -616,7 +629,13 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     if (reverified.treeDigest !== verified.newTreeDigest || reverified.snapshotDigest !== verified.newSnapshotDigest) {
       throw new HubError("E_LOCK_MISMATCH", "adopted tree verification failed after install");
     }
-    writeJournal(hubDir, { ...journal, state: "COMMITTED" });
+    writeJournal(hubDir, {
+      expected_old_commit: journal.expected_old_commit,
+      journal_version: journal.journal_version,
+      source_id: journal.source_id,
+      state: "COMMITTED",
+      target_commit: journal.target_commit,
+    });
     busyGuard(() => {
       removePathDurable(backup);
       removePathDurable(staging);
@@ -624,6 +643,7 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     clearJournal(hubDir);
     return { record };
   } finally {
+    if (ownedStageDir !== undefined) rmSync(ownedStageDir, { force: true, recursive: true });
     lock.release();
   }
 }
