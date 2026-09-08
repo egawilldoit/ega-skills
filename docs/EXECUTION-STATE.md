@@ -28,9 +28,12 @@ Updated: 2026-09-08
   hashing traversal CI `34215575864` passed on both platforms.
 - Exact upstream lifecycle commits: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
-  C=`3cca18b368ae95cdbdebbff572ccafa662551015`; approved plan digest recorded
-  in the latest run
-  `sha256:819dab697c5169c9b6130f4654eb73d3583fb57ec3ca16949ea8b469e38bcc04`.
+  C=`3cca18b368ae95cdbdebbff572ccafa662551015`; the latest run recorded the
+  run-scoped approved plan digest
+  `sha256:b84b3cbca1c48a58d5a75429a738660ccb7265ebe32674b976ccc97336818c10`.
+  The digest is expected to vary for this local-mirror harness because its
+  temporary absolute repository path is part of the Contract A source
+  configuration digest; it is not a semantic release identity.
 - No release tags, production deployment, Supabase remote migration, Contract
   F, or release 2.0 work was started.
 

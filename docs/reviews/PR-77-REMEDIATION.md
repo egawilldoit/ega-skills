@@ -100,8 +100,12 @@ is `610650d44f68023c85a803dc250f1d81696e6279`; the full regression is 845 total,
 `34215575847` and hashing traversal CI `34215575864` pass on Ubuntu and
 Windows. The latest real-upstream run observed Cursor
 `71ed0d1076fec562c1b74ee353121a8d00f75382`, Matt
-`3cca18b368ae95cdbdebbff572ccafa662551015`, and approved plan digest
-`sha256:819dab697c5169c9b6130f4654eb73d3583fb57ec3ca16949ea8b469e38bcc04`.
+`3cca18b368ae95cdbdebbff572ccafa662551015`, and run-scoped approved plan
+digest
+`sha256:b84b3cbca1c48a58d5a75429a738660ccb7265ebe32674b976ccc97336818c10`.
+This digest varies with the temporary local-mirror path because that path is
+part of the Contract A source configuration digest; it is not a semantic
+release identity.
 These are current follow-up facts; the F1–F20 table above remains the
 historical audit disposition and its commit references are intentionally
 unchanged.
