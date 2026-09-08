@@ -1,103 +1,109 @@
-# PR #78 pre-staging repair report
+# PR #78 final pre-staging hardening report
+
+Updated: 2026-09-08
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
-Implementation tree verified by the latest repair tests:
-`610650d44f68023c85a803dc250f1d81696e6279`.
-The current documentation snapshot is evidence-only after that code-tested
-commit; exact branch-head identity is supplied by the PR/CI record.
 Branch: `repair/pr77-release-readiness`.
 
-This report records the pre-staging repair wave. It does not claim a hosted
-deployment, a release, or repository-authoritative Contract D/E freezes.
+Code-under-test SHA: `2874ee34bd6c5c8116757296ec89c7f776afac4b`.
+Documentation/evidence HEAD: the final evidence commit on this branch; the exact
+SHA is recorded separately in PR #78 after the documentation commit.
 
-## Disposition
+This is a focused final hardening pass. It does not reopen the completed B1–B11
+repair areas, and it does not claim a hosted deployment, a release, or an
+authoritative Contract D/E freeze.
 
-| Finding | Status | Evidence | Commit |
-| --- | --- | --- | --- |
-| B1 exact token artifact authority | FIXED | Forged counts, wrong level, and self-consistent forged release artifacts are rejected; the supplied artifact must equal the freshly derived semantic artifact. | `ec67e4e` |
-| B2 Contract C executable gate | FIXED | Independent mutation fixtures recompute dependent digests and reject invented aliases, wrong token values/levels, and invented normalized search metadata. Contract C is 18/18. | `ec67e4e`, `47508e8` |
-| B3 mutation lock reclamation | FIXED | Ownership-token lock protocol, fail-closed malformed/live owners, stale recovery, real multiprocess contender tests, and cross-platform child-process completion handling pass. | `037783c`, `651454c`, `04f6c10` |
-| B4 declared owned roots | FIXED | Prospective validation parses and copies the configured owned roots using normal Hub confinement; custom-root and traversal tests pass. | `037783c` |
-| B5 source provenance authority | FIXED | Per-SkillVersion provenance is persisted in the release SQLite snapshot, digest-bound, checked at startup, and used instead of deployment-supplied authority. | `a647025` |
-| B6 eligible selection | FIXED | Authorization and deny filtering produce the eligible view before search/resolve limits, budgets, ranking, and aggregates. | `a647025` |
-| B7 timeout capacity accounting | FIXED | Abort signals propagate and live work remains counted until settlement; timeout/concurrency regressions pass. | `a647025` |
-| B8 bounded context HTTP | FIXED | Content-Length and unknown-length request bodies are bounded while streaming; remote cleartext bearer transmission is rejected. | `a647025` |
-| B9 durable-before-visible context state | FIXED | Failed publish/revoke persistence leaves visible state unchanged; replacement failure restores the prior durable file. | `a647025` |
-| B10 revocation before delivery | FIXED | Context authority is rechecked immediately before successful delivery; revoked requests return `E_CONTEXT_REVOKED` without fallback. | `a647025` |
-| B11 persisted remote lifecycle | FIXED locally | Authenticated POST/list/GET/restart/runtime/revoke lifecycle uses persisted authority, bounded response handling, base-path support, and malformed-store rejection. Real hosted staging acceptance remains external. | `a647025`, `47508e8`, `036647d` |
-| Fingerprint confinement follow-up | FIXED at the portable Node boundary | Discovery uses one bounded, confined reader with symlink, realpath, file-identity, and post-read mutation checks; adversarial static cases pass. A native directory-handle adapter would be required for a stronger OS-specific guarantee. | `90a15c0`, `47508e8` |
+## Findings fixed
 
-## Exact traceability
-
-| Finding | Normative section | Implementation boundary | Regression evidence |
-| --- | --- | --- | --- |
-| B1 | Spec §3.22, §3.26 | `packages/project/src/hub/release-state.ts` | `hub-release.test.mjs`: forged token count and wrong level |
-| B2 | Contract C candidate, §§3.24–3.26 | `scripts/contracts/validate-contract-c.mjs` | `tests/contracts/contract-c.test.mjs`: self-consistent alias/token/search mutations |
-| B3 | Spec §3.16 | `packages/project/src/hub/apply.ts` | `hub-adoption.test.mjs`: replacement-owner and two-contender process races |
-| B4 | Spec §3.16, §3.22 | `packages/project/src/hub/apply.ts` | `hub-adoption.test.mjs`: custom declared owned root |
-| B5 | Spec §4.4, §4.14 | `packages/project/src/hub/release-build.ts`, `packages/mcp/src/hosted.ts` | `hosted-runtime.test.mjs`: source remap and provenance startup failures |
-| B6 | Spec §4.13, §4.14 | `packages/mcp/src/hosted.ts` | `hosted-runtime.test.mjs`: eligible-before-selection search and resolve |
-| B7 | Spec §4.16 | `packages/mcp/src/hosted.ts` | `hosted-runtime.test.mjs`: pending work, incomplete body, and timeout accounting |
-| B8 | Spec §5.6 | `packages/project/src/context-store.ts` | `remote.test.mjs`: bounded body and cleartext bearer rejection |
-| B9 | Spec §5.6, §5.26 | `packages/project/src/context-store.ts` | `remote.test.mjs`: failed publish/revoke persistence and replacement recovery |
-| B10 | Spec §5.26 | `packages/mcp/src/hosted.ts` | `hosted-runtime.test.mjs`: revocation immediately before delivery |
-| B11 | Spec §5.28, §5.29 | `packages/project/src/context-store.ts`, `packages/mcp/src/hosted.ts` | `hosted-runtime.test.mjs`: POST/list/GET/restart/runtime/revoke lifecycle |
-
-## Adjacent review items
-
-| Item | Status | Evidence |
+| Finding | Result | Evidence |
 | --- | --- | --- |
-| N1 bounded JWKS operations | FIXED | Bounded streaming, timeout/abort, retry-after-error, oversized-body, timeout tests, and safe-integer limit validation. |
-| N2 physical connections | BLOCKED EXTERNALLY | The local adapter measures in-process work. Physical socket enforcement remains a required deployment-adapter responsibility before hosted acceptance. |
-| N3 committed diff formatting | FIXED | CI checks generated-tree formatting and the pull-request merge-base-to-HEAD range. |
-| N4 public A/B/C lifecycle | FIXED | The public real-upstream path advances the tracked mirror ref to C before materializing the approved B plan. |
-| N5 canonical comparisons | FIXED | Domain byte/canonical comparisons and explicit UTF-16 ordering are used at hosted/release boundaries; punctuation-order regression passes. |
-| N6 blob authorization | FIXED | Content access is SkillVersion-authorized and manifest-bound; a blob hash alone is not an accepted request authority. |
+| JWKS freshness, rotation, and removed-key trust | FIXED | Successful JWKS documents expire after the bounded `jwksMaxAgeMs` (default 300000 ms); safe-integer validation, retry-after-failure, shared refresh, timeout/body bounds, unknown-kid handling, and no token logging are preserved. Deterministic tests cover removed K1, new K2, reused-kid material replacement, concurrent refresh coalescing, and invalid ages. |
+| Post-commit context cleanup | FIXED | The durable replacement point is recorded before temporary/backup cleanup. Cleanup is best effort only after commit; pre-commit replacement/restoration failures still fail closed. Fault-injection tests cover temporary cleanup, backup cleanup, replacement failure, retained backup, in-memory state, and restart durability. |
+| Production builder to hosted runtime | FIXED | A realistic temporary Hub fixture runs the real `buildHubRelease()`; its release and SQLite artifacts load into `HostedReleaseSnapshot`, reach READY, and pass search, resolve, inspect, and get_content. A tampered production-built artifact fails startup integrity. |
+| Hosted authorization work | FIXED | Eligibility authorization uses request-scoped memoization and a worker bound of 8; deny-before-ranking/limits/budgets remains intact. The first delivery check is fresh, the final revocation/authorization boundary remains fail-closed, and abort stops new work. |
+| Exact Git SHA compatibility | FIXED | Direct SHA fetch remains preferred. If a server rejects it, the configured source ref transports history only; the approved object must exist, is checked out detached, and `HEAD` is verified equal to the approved SHA. Unavailable, malformed, missing-fallback, ref-tip-substitution, and A→B→C fixtures fail closed. |
+
+## PR #78 review-thread triage
+
+Every unresolved thread observed before this pass is classified exactly once:
+
+| Review subject | Classification | Reason |
+| --- | --- | --- |
+| Remote-lock local deny policy | FIXED BY CURRENT CODE | Candidate lock is validated against current local policy before atomic write. |
+| Direct exact-SHA Git fetch portability | VALID — FIXED IN THIS PASS | Verified source-ref history fallback now preserves the approved commit identity. |
+| Builder/runtime skill-source binding | VALID — FIXED IN THIS PASS | The real builder-to-hosted integration now exercises the production schema and artifact binding. |
+| Canonical remote-lock comparisons | FIXED BY CURRENT CODE | Current code uses canonical domain comparison and digest-based change sets. |
+| CLI directory/name mismatch assertion | VALID — FIXED IN THIS PASS | The test now asserts the canonical validator diagnostic. |
+| Hosted hand-built production metadata fixture | VALID — FIXED IN THIS PASS | Retained targeted fixture is supplemented by the real production-builder path. |
+| Hub adoption stale-PID wait | VALID — FIXED IN THIS PASS | Wait horizon is bounded to 10 seconds and child exit is detected before timeout. |
+| Real-upstream plan digest assertion | FALSE POSITIVE / NOT APPLICABLE | The current lifecycle verifies the immutable plan envelope, approved B, and post-C apply; the prior comment targeted an older evidence snapshot. |
+| Execution-state stale SHA/comments | VALID — FIXED IN THIS PASS | Evidence and code-under-test identities are refreshed here and in the PR body. |
+| Hosted authorization scaling | VALID — FIXED IN THIS PASS | Bounded request-scoped eligibility work and safe memoization are now covered by tests. |
+| Duplicate hosted fixture concern | VALID — FIXED IN THIS PASS | The production-built artifact path is now the primary schema-drift regression. |
+| Child-process test quality | VALID — FIXED IN THIS PASS | Contender waits now fail early on child exit and allow the required bounded startup window. |
+| Stale pre-staging repair report | VALID — FIXED IN THIS PASS | This report is refreshed for the final hardening pass. |
+| Persistence cleanup after replacement | VALID — FIXED IN THIS PASS | Cleanup failures after durable commit no longer produce a logical save failure. |
 
 ## Verification
 
-On the implementation tree above:
+The enabled real-upstream full suite passed:
 
-- Full suite: 845 total, 840 passed, 0 failed, 5 classified skips.
-- Focused repair-boundary suite: 109/109 passed. Command:
-  `node --test tests/project/hub-adoption.test.mjs tests/project/hub-release-state.test.mjs tests/project/hub-release.test.mjs tests/project/remote.test.mjs tests/mcp/hosted-runtime.test.mjs tests/router/remote-fingerprint.test.mjs tests/contracts/contract-c.test.mjs`.
-- Contract A: 17/17; B: 11/11; C: 18/18; D: 9/9; E: 6/6.
-- Real upstream lifecycle: PASS. Cursor commit
-  `71ed0d1076fec562c1b74ee353121a8d00f75382`; Matt commit
-  `3cca18b368ae95cdbdebbff572ccafa662551015`.
+- Full tests: 855 total, 851 passed, 0 failed, 4 skipped.
+- Focused repair suite: 142 total, 142 passed, 0 failed.
+- Contract A: 17/17.
+- Contract B: 11/11.
+- Contract C: 18/18.
+- Contract D: 9/9.
+- Contract E: 6/6.
+- Build, typecheck, frozen-spec checks, contract validators, and `git diff --check`: PASS.
+
+Skip classifications for the default full-suite inventory are explicit:
+
+1. Two Windows-only containment tests run on Windows CI.
+2. Codex acceptance smoke requires a fresh hosted-client environment.
+3. OpenCode acceptance smoke requires a fresh hosted-client environment.
+4. The real-network Matt/Cursor gate is skipped without `EGA_REAL_UPSTREAM=1`; it was separately executed and passed here.
+
+Real upstream result:
+
+- Cursor: `71ed0d1076fec562c1b74ee353121a8d00f75382`.
+- Matt: `3cca18b368ae95cdbdebbff572ccafa662551015`.
 - Controlled lifecycle: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
   C=`3cca18b368ae95cdbdebbff572ccafa662551015`.
-- Approved plan digest from the latest run: `sha256:6e47b09b38763f702de35f3ed122723faa4db9ffcbe8180c47436f9ed7e06484`.
-  This is run-scoped in the local-mirror harness because the temporary
-  absolute repository path is part of the Contract A source configuration
-  digest; it is not a semantic release identity.
+- Approved B plan digest from the latest real run:
+  `sha256:41b214548f8d47d424e4bc29ceb04170eec6e1ffefd2fa06e55dc7cc44ab8081`.
 
-The five skips are two Windows-only containment tests, two fresh hosted-client
-gates, and one real-network upstream gate. The upstream gate was separately
-executed and passed. Exact code-under-test foundation CI `34215575847` and
-hashing traversal CI `34215575864` passed on Ubuntu and Windows.
+CI run IDs and Ubuntu/Windows foundation and hashing results are recorded in
+the PR description after the final push.
 
-The final context-boundary follow-up also passed the targeted persisted-context
-suite, the mutation-lock suite, the hosted suite (23/23), and the full
-regression above. The current repair-boundary command is the authoritative
-109/109 count above.
+## Remaining external blockers
 
-The final review-wave regressions also include strict Contract C diagnostics,
-bracketed IPv6 loopback, retained-backup-on-double-failure, malformed success
-responses, and denied-versus-absent context indistinguishability.
+Isolated staging deployment, real OAuth/client registration, fresh Codex and
+OpenCode hosted acceptance, physical connection-limit evidence, hosted
+backup/restore/rollback, and hosted ProjectContext publication/revocation
+remain external acceptance items. The Supabase migration remains locally
+reviewed and unapplied.
 
-## Readiness boundary
+## Decision boundary
 
-The local 1.1–1.3 implementation gates are complete for this repair wave.
-This is not hosted staging readiness: physical connection enforcement, hosted
-backup/restore/rollback, fresh Codex/OpenCode clients, and authenticated remote
-ProjectContext acceptance still require an isolated staging environment. No
-fresh independent review of the current `610650d` exact head is available;
-the latest CodeRabbit result was against an earlier documentation head, so no
-independent final-head approval is claimed here.
-Contract D and Contract E remain freeze candidates, not authoritative freezes.
+1.1 implementation readiness: READY
 
-The pre-existing Supabase migration is reviewed locally only, unchanged by
-PR #78, and has not been applied remotely.
+Contract D freeze-candidate readiness: NOT READY
+
+1.2 isolated staging readiness: NOT READY
+
+Contract E freeze-candidate readiness: NOT READY
+
+1.3 isolated staging readiness: NOT READY
+
+Keep the following explicit until later exact-head review:
+
+- NO MERGE
+- NO RELEASE
+- NO STAGING DEPLOYMENT
+- NO PRODUCTION MUTATION
+- CONTRACT D/E REMAIN FREEZE CANDIDATES
+
+Contract F and release 2.0 were not started.
