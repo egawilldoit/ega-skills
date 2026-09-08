@@ -1223,8 +1223,8 @@ export function createHostedMcpHandler(
   const maxConnections = options.maxConnections ?? HOSTED_LIMITS.maxConnections;
   const maxContentBytes = options.maxContentBytes ?? HOSTED_LIMITS.maxContentBytes;
   if (![maxRequestBytes, maxResponseBytes, requestTimeoutMs, toolTimeoutMs, maxConcurrentRequests, maxConnections, maxContentBytes]
-    .every((value) => Number.isInteger(value) && value > 0)) {
-    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Hosted transport limits must be positive integers");
+    .every((value) => Number.isSafeInteger(value) && value > 0)) {
+    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Hosted transport limits must be positive safe integers");
   }
   const allowedOriginHostnames = options.allowedOrigins.map((origin) => {
     let parsed: URL;

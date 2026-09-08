@@ -119,14 +119,14 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
   const clockSkewSeconds = options.clockSkewSeconds ?? 30;
   const jwksTimeoutMs = options.jwksTimeoutMs ?? 5_000;
   const maxJwksBytes = options.maxJwksBytes ?? 1_048_576;
-  if (!Number.isInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
-    throw new Error("OAuth clock skew must be a non-negative integer");
+  if (!Number.isSafeInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
+    throw new Error("OAuth clock skew must be a non-negative safe integer");
   }
   if (options.issuer.length === 0 || options.resource.length === 0 || options.jwksUri.length === 0) {
     throw new Error("OAuth issuer, resource, and JWKS URI are required");
   }
-  if (!Number.isInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 || !Number.isInteger(maxJwksBytes) || maxJwksBytes <= 0) {
-    throw new Error("OAuth JWKS limits must be positive integers");
+  if (!Number.isSafeInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 || !Number.isSafeInteger(maxJwksBytes) || maxJwksBytes <= 0) {
+    throw new Error("OAuth JWKS limits must be positive safe integers");
   }
 
   let jwksPromise: Promise<JwksDocument> | undefined;

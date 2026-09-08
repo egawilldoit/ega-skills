@@ -801,6 +801,44 @@ test("hosted HTTP applies request, response, timeout, concurrency, and connectio
   }
 });
 
+test("hosted transport and OAuth JWKS limits reject unsafe integer configuration", () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  const value = {
+    release: { digest: `sha256:${"1".repeat(64)}` },
+  };
+  const makeRuntime = () => createHostedRuntime({
+    releases: [],
+    stableReleaseDigest: value.release.digest,
+    authorize: async () => true,
+  });
+  const handlerOptions = {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+  };
+  for (const field of ["maxRequestBytes", "maxResponseBytes", "requestTimeoutMs", "toolTimeoutMs", "maxConcurrentRequests", "maxConnections", "maxContentBytes"]) {
+    assert.throws(
+      () => createHostedMcpHandler(makeRuntime(), { ...handlerOptions, [field]: unsafe }),
+      (error) => error?.code === "E_STARTUP_INTEGRITY",
+      field,
+    );
+  }
+  for (const field of ["jwksTimeoutMs", "maxJwksBytes"]) {
+    assert.throws(
+      () => createHostedOAuthVerifier({
+        issuer: "https://auth.example.test",
+        resource: "https://mcp.example.test",
+        jwksUri: "https://auth.example.test/.well-known/jwks.json",
+        requiredScopes: ["mcp"],
+        [field]: unsafe,
+      }),
+      /positive safe integers/,
+      field,
+    );
+  }
+});
+
 test("hosted request capacity remains occupied while timed-out work is still pending", async () => {
   const value = await fixture();
   let liveWork = 0;
