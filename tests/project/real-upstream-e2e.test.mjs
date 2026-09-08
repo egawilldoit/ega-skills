@@ -19,6 +19,7 @@ import {
   sourceConfigDigest,
   verifyHubRelease,
 } from "../../packages/project/dist/index.js";
+import { verifyEnvelope } from "../../packages/hashing/dist/index.js";
 
 const enabled = process.env.EGA_REAL_UPSTREAM === "1";
 
@@ -216,18 +217,22 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   const approvedPlanDigest = checked.plan.digest;
   const fetchedB = join(workspace, "fetched-b");
   const stageB = join(workspace, "stage-b");
-  fetchExactCommit(mirror, commitB, fetchedB);
-  extractSelectedRoots(fetchedB, source.roots, source.provenance, stageB);
-
   execFileSync("git", ["-C", mirror, "update-ref", "refs/heads/main", commitC], { stdio: "pipe" });
   assert.equal(resolveRefToCommit(mirror, "main"), commitC);
+  // The approved plan is materialized only after the tracked ref has moved.
+  // This exercises the public plan/apply lifecycle rather than only the lower-
+  // level exact-fetch primitive.
+  fetchExactCommit(mirror, commitB, fetchedB);
+  extractSelectedRoots(fetchedB, source.roots, source.provenance, stageB);
   await applyUpdatePlan({ hubDir, plan: checked.plan, stageDir: stageB });
   const release2 = await buildHubRelease(hubDir);
   assert.equal(release2.adoptedSources.find(({ sourceId }) => sourceId === source.id)?.resolvedCommit, commitB);
   assert.notEqual(release2.release.digest, release1.release.digest);
   assert.deepEqual(readFileSync(release1.artifactPaths.release), release1ReleaseBytes);
   assert.deepEqual(readFileSync(join(release1.registryHome, "registry.sqlite")), release1FtsBytes);
-  assert.equal(approvedPlanDigest, checked.plan.digest);
+  const verifiedPlanAfterApply = verifyEnvelope(checked.plan);
+  assert.equal(verifiedPlanAfterApply.ok, true);
+  assert.equal(verifiedPlanAfterApply.digest, approvedPlanDigest);
   process.stdout.write(`real-upstream-lifecycle ${JSON.stringify({ commitA, commitB, commitC, approvedPlanDigest })}\n`);
   }
 });
