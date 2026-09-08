@@ -95,9 +95,13 @@ is present. It was not applied to any remote project.
 
 The B1–B11 and fingerprint follow-up repair is recorded in
 `docs/reviews/PR-78-PRESTAGING-REPAIR.md`. Its latest implementation code tree
-is `036647d68e30feb87a17fb5f8335b507262f200b`; the full regression is 835 total,
-830 passed, 0 failed, and 5 classified skips. Foundation CI
-`34170586093` and hashing traversal CI `34170586088` pass on Ubuntu and
-Windows. These are current follow-up facts; the F1–F20 table above remains the
+is `86e819ad7164d9ec96a7ba7aace4829e9462591f`; the full regression is 837 total,
+832 passed, 0 failed, and 5 classified skips. Foundation CI
+`34208168893` and hashing traversal CI `34208168880` pass on Ubuntu and
+Windows. The latest real-upstream run observed Cursor
+`71ed0d1076fec562c1b74ee353121a8d00f75382`, Matt
+`3cca18b368ae95cdbdebbff572ccafa662551015`, and approved plan digest
+`sha256:9c182066cc06a19c43c36ad078a1e18521d47ddb913ee1795386773c4aa3a490`.
+These are current follow-up facts; the F1–F20 table above remains the
 historical audit disposition and its commit references are intentionally
 unchanged.

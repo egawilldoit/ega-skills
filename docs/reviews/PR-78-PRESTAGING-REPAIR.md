@@ -3,9 +3,9 @@
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`.
 Protected checkpoint: `b0b413e75295e55c2d29c646ae50e5af7240dd92`.
 Implementation tree verified by the latest repair tests:
-`036647d68e30feb87a17fb5f8335b507262f200b`.
-Final repair/evidence HEAD: `6065cf417fa31d1de8377e0fe8934b56f6f30041`
-(documentation-only after the implementation verification).
+`86e819ad7164d9ec96a7ba7aace4829e9462591f`.
+The current documentation snapshot is evidence-only after that code-tested
+commit; exact branch-head identity is supplied by the PR/CI record.
 Branch: `repair/pr77-release-readiness`.
 
 This report records the pre-staging repair wave. It does not claim a hosted
@@ -43,26 +43,28 @@ deployment, a release, or repository-authoritative Contract D/E freezes.
 
 On the implementation tree above:
 
-- Full suite: 835 total, 830 passed, 0 failed, 5 classified skips.
-- Focused exact-head repair suite: 48/48 passed.
+- Full suite: 837 total, 832 passed, 0 failed, 5 classified skips.
+- Focused exact-head repair suite: 80/80 passed.
 - Contract A: 17/17; B: 11/11; C: 18/18; D: 9/9; E: 6/6.
 - Real upstream lifecycle: PASS. Cursor commit
-  `93b00b89ef425a9c1bac0d0b317dfc49c930ac99`; Matt commit
+  `71ed0d1076fec562c1b74ee353121a8d00f75382`; Matt commit
   `3cca18b368ae95cdbdebbff572ccafa662551015`.
 - Controlled lifecycle: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
   B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
   C=`3cca18b368ae95cdbdebbff572ccafa662551015`.
-- Approved plan digest: `sha256:06f1ccedc63ce2a9a6721b6daf65e975fb35dfb7cb9a708c73111f89c1850410`.
+- Approved plan digest: `sha256:9c182066cc06a19c43c36ad078a1e18521d47ddb913ee1795386773c4aa3a490`.
 
 The five skips are two Windows-only containment tests, two fresh hosted-client
 gates, and one real-network upstream gate. The upstream gate was separately
-executed and passed. Exact implementation-tree foundation CI
-`34170586093` and hashing traversal CI `34170586088` passed on Ubuntu and
-Windows. Final evidence-head foundation CI `34171163650` and hashing
-traversal CI `34171163658` also passed on Ubuntu and Windows.
+executed and passed. Exact code-under-test foundation CI `34208168893` and
+hashing traversal CI `34208168880` passed on Ubuntu and Windows.
 
 The final context-boundary follow-up also passed the targeted persisted-context
-suite (20/20), the mutation-lock suite (23/23), and the full regression above.
+suite (15/15), the mutation-lock suite (23/23), and the full regression above.
+
+The final review-wave regressions also include strict Contract C diagnostics,
+bracketed IPv6 loopback, retained-backup-on-double-failure, malformed success
+responses, and denied-versus-absent context indistinguishability.
 
 ## Readiness boundary
 

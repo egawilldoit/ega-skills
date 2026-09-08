@@ -2,14 +2,11 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Final repair/evidence HEAD: `6065cf417fa31d1de8377e0fe8934b56f6f30041`.
-Implementation tree tested: `036647d68e30feb87a17fb5f8335b507262f200b`.
+Code-under-test SHA: `86e819ad7164d9ec96a7ba7aace4829e9462591f`.
 The hosted focused suite and persisted context lifecycle suite pass locally;
-the full regression passes 835 total, 830 passed, 0 failed, 5 classified
-skips. Exact implementation-tree CI is foundation `34170586093` and hashing
-traversal `34170586088`, both passing on Ubuntu and Windows.
-Final-head CI: foundation `34171163650`; hashing traversal `34171163658`
-(Ubuntu and Windows; documentation-only delta after the implementation run).
+the full regression passes 837 total, 832 passed, 0 failed, 5 classified
+skips. Exact code-under-test CI is foundation `34208168893` and hashing
+traversal `34208168880`, both passing on Ubuntu and Windows.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
