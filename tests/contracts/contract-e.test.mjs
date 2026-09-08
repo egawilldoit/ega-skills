@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -11,24 +12,29 @@ const VALIDATOR = join(REPO, "scripts", "contracts", "validate-contract-e.mjs");
 const VECTOR = join(REPO, "scripts", "contracts", "examples", "contract-e", "remote-projects.json");
 
 function withVector(mutator, fn) {
-  const original = readFileSync(VECTOR, "utf8");
-  const value = JSON.parse(original);
+  const value = JSON.parse(readFileSync(VECTOR, "utf8"));
   mutator(value);
-  writeFileSync(VECTOR, `${JSON.stringify(value, null, 2)}\n`);
+  const directory = mkdtempSync(join(tmpdir(), "ega-contract-e-"));
+  const vectorPath = join(directory, "remote-projects.json");
+  writeFileSync(vectorPath, `${JSON.stringify(value, null, 2)}\n`);
   try {
-    return fn();
+    return fn(vectorPath);
   } finally {
-    writeFileSync(VECTOR, original);
+    rmSync(directory, { force: true, recursive: true });
   }
 }
 
-function runOk() {
-  return execFileSync("node", [VALIDATOR], { encoding: "utf8" });
+function runOk(vectorPath = VECTOR) {
+  return execFileSync("node", [VALIDATOR], { encoding: "utf8", env: { ...process.env, EGA_CONTRACT_E_VECTOR: vectorPath } });
 }
 
-function runBad() {
+function runBad(vectorPath = VECTOR) {
   try {
-    execFileSync("node", [VALIDATOR], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("node", [VALIDATOR], {
+      encoding: "utf8",
+      env: { ...process.env, EGA_CONTRACT_E_VECTOR: vectorPath },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   } catch (error) {
     return `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
   }

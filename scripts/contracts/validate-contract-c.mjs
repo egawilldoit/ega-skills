@@ -19,7 +19,7 @@ import { createRequire } from "node:module";
 import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/identities.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES = join(HERE, "examples", "contract-c");
+const EXAMPLES = process.env.EGA_CONTRACT_C_EXAMPLES ?? join(HERE, "examples", "contract-c");
 const registryRequire = createRequire(join(HERE, "..", "..", "packages", "registry", "package.json"));
 const Database = registryRequire("better-sqlite3");
 
