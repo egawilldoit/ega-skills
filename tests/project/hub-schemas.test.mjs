@@ -137,6 +137,19 @@ test("explicit null rejected (missing and null differ)", () => {
   assert.equal(codeOf(() => parseHubYaml("schema_version: 1\nhub: null\nowned: []\nexternal: []\n")), "E_HUB_SCHEMA");
 });
 
+test("nested Hub and source schemas reject unknown fields and unsafe source ids", () => {
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("hub:\n  id: personal", "hub:\n  id: personal\n  extra: true"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("  - path: owned/ega\n    namespace: ega", "  - path: owned/ega\n    namespace: ega\n    extra: true"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("  - source: mattpocock", "  - source: ../escape"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseSourcesYaml(read("sources.yaml").replace("    selection:\n", "    selection:\n      extra: true\n"))), "E_SOURCE_SELECTION");
+});
+
+test("nested lock selection and provenance are strict canonical sets", () => {
+  const lockText = read("sources.lock.yaml");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    selection:\n", "    selection:\n      extra: true\n"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    provenance_files:\n", "    provenance_files:\n      - ../escape\n"))), "E_LOCK_MISMATCH");
+});
+
 // Final Contract A reconciliation: runtime accepts exactly what the
 // executable validator accepts — no divergence in either direction.
 test("credential-bearing repository rejected (E_SOURCE_SCHEMA)", () => {
