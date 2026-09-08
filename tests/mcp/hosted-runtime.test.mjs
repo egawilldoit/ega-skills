@@ -824,7 +824,7 @@ test("hosted transport and OAuth JWKS limits reject unsafe integer configuration
       field,
     );
   }
-  for (const field of ["jwksTimeoutMs", "maxJwksBytes"]) {
+  for (const field of ["jwksTimeoutMs", "jwksMaxAgeMs", "maxJwksBytes"]) {
     assert.throws(
       () => createHostedOAuthVerifier({
         issuer: "https://auth.example.test",
@@ -835,6 +835,19 @@ test("hosted transport and OAuth JWKS limits reject unsafe integer configuration
       }),
       /positive safe integers/,
       field,
+    );
+  }
+  for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => createHostedOAuthVerifier({
+        issuer: "https://auth.example.test",
+        resource: "https://mcp.example.test",
+        jwksUri: "https://auth.example.test/.well-known/jwks.json",
+        requiredScopes: ["mcp"],
+        jwksMaxAgeMs: value,
+      }),
+      /positive safe integers/,
+      `jwksMaxAgeMs=${value}`,
     );
   }
 });
@@ -972,6 +985,29 @@ function unsignedJwt() {
   }))}.invalid-signature`;
 }
 
+function signedJwt(privateKey, kid) {
+  const header = encodeBase64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+  const claims = encodeBase64Url(JSON.stringify({
+    iss: "https://auth.example.test",
+    aud: "https://mcp.example.test",
+    sub: "user-1",
+    scope: "mcp",
+    exp: Math.floor(Date.now() / 1000) + 60,
+  }));
+  const signingInput = `${header}.${claims}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signingInput, "ascii");
+  return `${signingInput}.${signer.sign(privateKey).toString("base64url")}`;
+}
+
+function jwksResponse(keys) {
+  return new Response(JSON.stringify({ keys }), { headers: { "content-type": "application/json" } });
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA signature", async () => {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const jwk = publicKey.export({ format: "jwk" });
@@ -1063,4 +1099,104 @@ test("hosted OAuth JWKS fetch timeout aborts the underlying fetch and permits re
   await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
   await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
   assert.equal(calls, 2, "failed JWKS loads must not poison retry state");
+});
+
+test("hosted OAuth rejects a signing key removed after JWKS freshness expiry", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  const token = signedJwt(privateKey, "k1");
+  await verifier.verifyAccessToken(token);
+  keys = [];
+  await sleep(15);
+  await assert.rejects(verifier.verifyAccessToken(token), /signing key is not published/);
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth accepts a new signing key after JWKS rotation refresh", async () => {
+  const first = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const second = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...first.publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  await verifier.verifyAccessToken(signedJwt(first.privateKey, "k1"));
+  keys = [{ ...second.publicKey.export({ format: "jwk" }), kid: "k2", use: "sig" }];
+  await sleep(15);
+  await verifier.verifyAccessToken(signedJwt(second.privateKey, "k2"));
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth refreshes changed key material even when kid is reused", async () => {
+  const oldKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const newKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...oldKey.publicKey.export({ format: "jwk" }), kid: "shared", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  const oldToken = signedJwt(oldKey.privateKey, "shared");
+  await verifier.verifyAccessToken(oldToken);
+  keys = [{ ...newKey.publicKey.export({ format: "jwk" }), kid: "shared", use: "sig" }];
+  await sleep(15);
+  await assert.rejects(verifier.verifyAccessToken(oldToken), /signature mismatch/);
+  await verifier.verifyAccessToken(signedJwt(newKey.privateKey, "shared"));
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth coalesces concurrent JWKS refreshes at expiry", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const keys = [{ ...publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  let active = 0;
+  let maxActive = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await sleep(10);
+      active -= 1;
+      return jwksResponse(keys);
+    },
+  });
+  const token = signedJwt(privateKey, "k1");
+  await verifier.verifyAccessToken(token);
+  await sleep(15);
+  await Promise.all(Array.from({ length: 20 }, () => verifier.verifyAccessToken(token)));
+  assert.equal(reads, 2);
+  assert.equal(maxActive, 1);
 });

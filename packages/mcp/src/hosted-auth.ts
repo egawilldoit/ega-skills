@@ -25,6 +25,7 @@ export interface HostedOAuthVerifierOptions {
   readonly requiredScopes: readonly string[];
   readonly clockSkewSeconds?: number;
   readonly jwksTimeoutMs?: number;
+  readonly jwksMaxAgeMs?: number;
   readonly maxJwksBytes?: number;
   readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
   readonly isRevoked?: (claims: Readonly<Record<string, unknown>>) => boolean | Promise<boolean>;
@@ -118,6 +119,7 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
   const fetcher = options.fetch ?? ((input, init) => globalThis["fetch"](input, init));
   const clockSkewSeconds = options.clockSkewSeconds ?? 30;
   const jwksTimeoutMs = options.jwksTimeoutMs ?? 5_000;
+  const jwksMaxAgeMs = options.jwksMaxAgeMs ?? 300_000;
   const maxJwksBytes = options.maxJwksBytes ?? 1_048_576;
   if (!Number.isSafeInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
     throw new Error("OAuth clock skew must be a non-negative safe integer");
@@ -125,14 +127,17 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
   if (options.issuer.length === 0 || options.resource.length === 0 || options.jwksUri.length === 0) {
     throw new Error("OAuth issuer, resource, and JWKS URI are required");
   }
-  if (!Number.isSafeInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 || !Number.isSafeInteger(maxJwksBytes) || maxJwksBytes <= 0) {
+  if (!Number.isSafeInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 ||
+      !Number.isSafeInteger(jwksMaxAgeMs) || jwksMaxAgeMs <= 0 ||
+      !Number.isSafeInteger(maxJwksBytes) || maxJwksBytes <= 0) {
     throw new Error("OAuth JWKS limits must be positive safe integers");
   }
 
+  let jwksCache: { readonly document: JwksDocument; readonly loadedAtMs: number } | undefined;
   let jwksPromise: Promise<JwksDocument> | undefined;
-  const loadJwks = async (): Promise<JwksDocument> => {
+  const refreshJwks = async (): Promise<JwksDocument> => {
     if (jwksPromise !== undefined) return jwksPromise;
-    jwksPromise = (async () => {
+    const request = (async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), jwksTimeoutMs);
       let response: Response;
@@ -190,12 +195,22 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
         clearTimeout(timer);
       }
     })();
+    jwksPromise = request;
     try {
-      return await jwksPromise;
+      const document = await request;
+      jwksCache = { document, loadedAtMs: Date.now() };
+      return document;
     } catch (error) {
-      jwksPromise = undefined;
       throw error;
+    } finally {
+      if (jwksPromise === request) jwksPromise = undefined;
     }
+  };
+  const loadJwks = async (): Promise<{ readonly document: JwksDocument; readonly fromFreshCache: boolean }> => {
+    if (jwksCache !== undefined && Date.now() - jwksCache.loadedAtMs < jwksMaxAgeMs) {
+      return { document: jwksCache.document, fromFreshCache: true };
+    }
+    return { document: await refreshJwks(), fromFreshCache: false };
   };
 
   return {
@@ -208,12 +223,18 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
         throw oauthFailure("unsupported signing algorithm or missing key id");
       }
       if (header.typ !== undefined && header.typ !== "JWT") throw oauthFailure("invalid token type");
-      const jwks = await loadJwks();
-      const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
-      if (jwk === undefined) {
-        jwksPromise = undefined;
-        throw oauthFailure("signing key is not published");
+      const loaded = await loadJwks();
+      let jwks = loaded.document;
+      let jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
+      if (jwk === undefined && loaded.fromFreshCache) {
+        // A previously fresh document can miss a key just rotated in by the
+        // issuer. Refresh once, but only discard the exact document observed
+        // by this request so concurrent callers retain one shared refresh.
+        if (jwksCache?.document === jwks) jwksCache = undefined;
+        jwks = await refreshJwks();
+        jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
       }
+      if (jwk === undefined) throw oauthFailure("signing key is not published");
       const verifier = createVerify("RSA-SHA256");
       verifier.update(`${parts[0]}.${parts[1]}`, "ascii");
       if (!verifier.verify(asPublicKey(jwk), decodeBase64Url(parts[2]!))) throw oauthFailure("signature mismatch");
