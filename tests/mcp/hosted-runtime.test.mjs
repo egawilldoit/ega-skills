@@ -165,15 +165,18 @@ function snapshot(value, release = value.release) {
   };
 }
 
-async function productionReleaseFixture() {
+async function productionReleaseFixture(count = 1) {
   const root = await mkdtemp(join(tmpdir(), "ega-hosted-builder-runtime-"));
   roots.add(root);
-  await mkdir(join(root, "owned", "ega", "alpha"), { recursive: true });
-  await writeFile(
-    join(root, "owned", "ega", "alpha", "SKILL.md"),
-    "---\nname: alpha\ndescription: Production-built hosted skill\n---\n\n# Alpha\n\nBuilt through the release pipeline.\n",
-  );
-  await writeFile(join(root, "owned", "ega", "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [production]\n");
+  for (let index = 0; index < count; index += 1) {
+    const name = index === 0 ? "alpha" : `skill-${index}`;
+    await mkdir(join(root, "owned", "ega", name), { recursive: true });
+    await writeFile(
+      join(root, "owned", "ega", name, "SKILL.md"),
+      `---\nname: ${name}\ndescription: Production-built hosted skill ${index}\n---\n\n# ${name}\n\nBuilt through the release pipeline.\n`,
+    );
+    await writeFile(join(root, "owned", "ega", name, "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [production]\n");
+  }
   await writeFile(join(root, "hub.yaml"), "schema_version: 1\nhub:\n  id: production-runtime\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
   await writeFile(join(root, "sources.yaml"), "schema_version: 1\nsources: {}\n");
   await writeFile(join(root, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
@@ -329,6 +332,77 @@ test("production HubRelease artifacts load directly into the hosted runtime", as
     () => createHostedRuntime({ releases: [tampered], stableReleaseDigest: built.release.digest, authorize: auth() }),
     (error) => error?.code === "E_STARTUP_INTEGRITY",
   );
+});
+
+test("hosted authorization uses bounded eligibility concurrency and preserves final recheck", async () => {
+  const built = await productionReleaseFixture(20);
+  let active = 0;
+  let maxActive = 0;
+  let resourceCalls = 0;
+  const runtime = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      resourceCalls += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await sleep(5);
+      active -= 1;
+      return true;
+    },
+  });
+  const search = await runtime.call("search", { query: "production", limit: 1 });
+  assert.equal(search.isError, false);
+  assert.ok(maxActive <= 8, `authorization concurrency was ${maxActive}`);
+  assert.equal(resourceCalls, 21, "eligibility checks plus one final delivery check");
+
+  let finalCheck = false;
+  const failAtDelivery = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      if (finalCheck) return false;
+      finalCheck = true;
+      return true;
+    },
+  });
+  const denied = await failAtDelivery.call("search", { query: "production", limit: 1 });
+  assert.equal(denied.structuredContent.error.code, "E_CONTENT_DENIED");
+});
+
+test("hosted authorization memoizes repeated delivery resources but aborts new work", async () => {
+  const built = await productionReleaseFixture();
+  const calls = [];
+  const runtime = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async (request) => {
+      if (request.skillId !== undefined) calls.push(`${request.skillId}@${request.versionHash}`);
+      return true;
+    },
+  });
+  const resolved = await runtime.call("resolve", { task: "production" });
+  assert.equal(resolved.isError, false);
+  assert.deepEqual(calls, [calls[0], calls[0]], "one eligibility check and one fresh delivery check");
+
+  const many = await productionReleaseFixture(20);
+  const controller = new AbortController();
+  let launched = 0;
+  const aborting = createHostedRuntime({
+    releases: [snapshot(many)],
+    stableReleaseDigest: many.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      launched += 1;
+      controller.abort();
+      return true;
+    },
+  });
+  const aborted = await aborting.call("search", { query: "production" }, undefined, controller.signal);
+  assert.equal(aborted.structuredContent.error.code, "E_REQUEST_LIMIT");
+  assert.equal(launched, 1, "abort must stop workers from launching more authorization checks");
 });
 
 test("hosted startup preserves release UTF-16 ordering for punctuation-bearing skill IDs", async () => {
@@ -1222,7 +1296,7 @@ test("hosted OAuth refreshes changed key material even when kid is reused", asyn
     resource: "https://mcp.example.test",
     jwksUri: "https://auth.example.test/.well-known/jwks.json",
     requiredScopes: ["mcp"],
-    jwksMaxAgeMs: 5,
+    jwksMaxAgeMs: 50,
     fetch: async () => {
       reads += 1;
       return jwksResponse(keys);
@@ -1231,7 +1305,7 @@ test("hosted OAuth refreshes changed key material even when kid is reused", asyn
   const oldToken = signedJwt(oldKey.privateKey, "shared");
   await verifier.verifyAccessToken(oldToken);
   keys = [{ ...newKey.publicKey.export({ format: "jwk" }), kid: "shared", use: "sig" }];
-  await sleep(15);
+  await sleep(70);
   await assert.rejects(verifier.verifyAccessToken(oldToken), /signature mismatch/);
   await verifier.verifyAccessToken(signedJwt(newKey.privateKey, "shared"));
   assert.equal(reads, 2);

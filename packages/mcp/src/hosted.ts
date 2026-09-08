@@ -76,6 +76,8 @@ export const HOSTED_LIMITS = Object.freeze({
   maxContentBytes: 1_048_576,
 });
 
+const HOSTED_AUTHORIZATION_CONCURRENCY = 8;
+
 export type HostedToolName = (typeof HOSTED_TOOL_NAMES)[number];
 
 export interface HostedReleaseSnapshot {
@@ -659,31 +661,29 @@ async function authorizeResourceResult(
   result: CallToolResult,
   tool: HostedToolName,
   snapshot: HostedReleaseSnapshot,
-  binding: HostedContextSnapshot | undefined,
-  authInfo: AuthInfo | undefined,
-  authorize: HostedRuntimeOptions["authorize"],
+  authorizeResource: (skillId: string, versionHash: string | undefined, forceFresh: boolean) => Promise<boolean>,
   denyPolicy: HostedDenyPolicy | undefined,
   ineligibleSkillIds: ReadonlySet<string>,
   signal?: AbortSignal,
 ): Promise<CallToolResult> {
   if (result.isError || result.structuredContent === undefined) return result;
   const structured = result.structuredContent as Record<string, unknown>;
+  const deliveryAuthorization = new Map<string, Promise<boolean>>();
   const isAllowed = async (skillId: unknown, versionHash: unknown): Promise<boolean> => {
     if (typeof skillId !== "string") return false;
     if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
     const version = typeof versionHash === "string" ? versionHash : undefined;
     if (denied(denyPolicy, snapshot, skillId, version)) return false;
-    const authorized = await authorize({
-      tool,
-      releaseDigest: snapshot.release.digest,
-      skillId,
-      ...(version !== undefined ? { versionHash: version } : {}),
-      ...(binding !== undefined ? { contextId: binding.contextId } : {}),
-      ...(authInfo !== undefined ? { authInfo } : {}),
-      ...(signal !== undefined ? { signal } : {}),
-    });
-    if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
-    return authorized;
+    const key = JSON.stringify([skillId, version]);
+    let authorization = deliveryAuthorization.get(key);
+    if (authorization === undefined) {
+      // Delivery always starts with a fresh authorization lookup. Repeated
+      // references to the same resource within this one immutable result can
+      // safely share that delivery decision.
+      authorization = authorizeResource(skillId, version, true);
+      deliveryAuthorization.set(key, authorization);
+    }
+    return authorization;
   };
   if (tool === "search") {
     const rows = Array.isArray(structured.results) ? structured.results : [];
@@ -856,24 +856,53 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
       if (!authorized) throw new HostedRuntimeError("E_AUTH_UNAUTHORIZED", "OAuth subject is not authorized for this release");
 
       const ineligibleSkillIds = new Set<string>(binding?.config.skills.deny ?? []);
-      if (tool === "search" || tool === "resolve") {
-        for (const [eligibleSkillId, eligibleVersionHash] of Object.entries(snapshot.release.payload.skill_versions)) {
-          if (ineligibleSkillIds.has(eligibleSkillId) || denied(denyPolicy, snapshot, eligibleSkillId, eligibleVersionHash)) {
-            ineligibleSkillIds.add(eligibleSkillId);
-            continue;
-          }
-          const eligible = await options.authorize({
+      const authorizationMemo = new Map<string, Promise<boolean>>();
+      const authorizeResource = async (
+        resourceSkillId: string,
+        resourceVersionHash: string | undefined,
+        forceFresh = false,
+      ): Promise<boolean> => {
+        if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+        const key = JSON.stringify([resourceSkillId, resourceVersionHash]);
+        if (!forceFresh) {
+          const cached = authorizationMemo.get(key);
+          if (cached !== undefined) return cached;
+        }
+        const authorization = (async () => {
+          const allowed = await options.authorize({
             tool,
             releaseDigest: snapshot.release.digest,
-            skillId: eligibleSkillId,
-            versionHash: eligibleVersionHash,
+            skillId: resourceSkillId,
+            ...(resourceVersionHash !== undefined ? { versionHash: resourceVersionHash } : {}),
             ...(binding !== undefined ? { contextId: binding.contextId } : {}),
             ...(authInfo !== undefined ? { authInfo } : {}),
             ...(signal !== undefined ? { signal } : {}),
           });
           if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
-          if (!eligible) ineligibleSkillIds.add(eligibleSkillId);
-        }
+          return allowed;
+        })();
+        if (!forceFresh) authorizationMemo.set(key, authorization);
+        return authorization;
+      };
+      if (tool === "search" || tool === "resolve") {
+        const entries = Object.entries(snapshot.release.payload.skill_versions);
+        let nextEntry = 0;
+        const authorizeWorker = async (): Promise<void> => {
+          while (true) {
+            if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+            const entryIndex = nextEntry++;
+            if (entryIndex >= entries.length) return;
+            const [eligibleSkillId, eligibleVersionHash] = entries[entryIndex]!;
+            if (ineligibleSkillIds.has(eligibleSkillId) || denied(denyPolicy, snapshot, eligibleSkillId, eligibleVersionHash)) {
+              ineligibleSkillIds.add(eligibleSkillId);
+              continue;
+            }
+            const eligible = await authorizeResource(eligibleSkillId, eligibleVersionHash);
+            if (!eligible) ineligibleSkillIds.add(eligibleSkillId);
+          }
+        };
+        const workerCount = Math.min(HOSTED_AUTHORIZATION_CONCURRENCY, entries.length);
+        await Promise.all(Array.from({ length: workerCount }, () => authorizeWorker()));
       }
       const selectionDeniedSkillIds = [...ineligibleSkillIds].sort();
       const context = makeHostedContext(snapshot, binding, selectionDeniedSkillIds);
@@ -882,9 +911,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
           result,
           tool,
           snapshot,
-          binding,
-          authInfo,
-          options.authorize,
+          authorizeResource,
           denyPolicy,
           ineligibleSkillIds,
           signal,
