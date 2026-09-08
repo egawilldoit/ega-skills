@@ -18,22 +18,30 @@ import {
   type StandardSchemaWithJSON,
 } from "@modelcontextprotocol/server";
 
-import { sha256Hex } from "@ega-skills/hashing";
+import { canonicalizeJson, sha256Hex } from "@ega-skills/hashing";
 import {
   assertLockInRelease,
+  checkAliasMap,
+  checkSearchIndexInput,
+  checkTokenArtifact,
   hashNormalizedConfig,
   hashProjectLock,
+  skillSourceProvenanceDigest,
   verifyHubRelease,
   verifyProjectContext,
   type HubRelease,
+  type ReleaseArtifacts,
+  type ReleasePackage,
   type ProjectConfigV1,
   type ProjectContext,
+  type ProjectContextStoreRecord,
   type ProjectLockV1,
 } from "@ega-skills/project";
 import {
   CURRENT_SCHEMA_VERSION,
   getCacheBlob,
   getSkillVersion,
+  getTokenCount,
   openRegistry,
   type RegistryHandle,
 } from "@ega-skills/registry";
@@ -68,6 +76,8 @@ export const HOSTED_LIMITS = Object.freeze({
   maxContentBytes: 1_048_576,
 });
 
+const HOSTED_AUTHORIZATION_CONCURRENCY = 8;
+
 export type HostedToolName = (typeof HOSTED_TOOL_NAMES)[number];
 
 export interface HostedReleaseSnapshot {
@@ -76,6 +86,11 @@ export interface HostedReleaseSnapshot {
   readonly registryHome: string;
   /** SHA-256 digest of the exact immutable registry.sqlite artifact. */
   readonly sqliteArtifactDigest: string;
+  readonly releasePackage: ReleasePackage;
+  readonly artifacts: ReleaseArtifacts;
+  readonly ftsTable: string;
+  /** Exact mapping emitted by the isolated builder; `null` means owned. */
+  readonly skillSourceIds: Readonly<Record<string, string | null>>;
 }
 
 export interface HostedContextSnapshot {
@@ -85,6 +100,26 @@ export interface HostedContextSnapshot {
   readonly config: ProjectConfigV1;
   readonly lock: ProjectLockV1;
   readonly fingerprint?: RemoteProjectFingerprint | null;
+}
+
+/**
+ * Adapt only the immutable authority retained by the control plane into the
+ * hosted runtime's read-only context view. The caller still supplies the
+ * store's revocation check separately; a revoked record remains resolvable so
+ * the runtime can return E_CONTEXT_REVOKED rather than falling back or
+ * disguising the context as missing.
+ */
+export function hostedContextFromPersistedRecord(
+  record: ProjectContextStoreRecord,
+): HostedContextSnapshot | undefined {
+  if (record.authority === undefined) return undefined;
+  return Object.freeze({
+    contextId: record.contextId,
+    context: record.context,
+    config: record.authority.config,
+    lock: record.authority.lock,
+    fingerprint: record.authority.fingerprint as RemoteProjectFingerprint | null,
+  });
 }
 
 export interface HostedDenyPolicy {
@@ -100,11 +135,15 @@ export interface HostedAuthorizationRequest {
   readonly versionHash?: string;
   readonly contextId?: string;
   readonly authInfo?: AuthInfo;
+  readonly signal?: AbortSignal;
 }
 
 export interface HostedRuntimeOptions {
   readonly releases: readonly HostedReleaseSnapshot[];
   readonly stableReleaseDigest: string;
+  /** Resolve immutable context authority from the control plane at request time.
+   * This is the preferred hosted path; `contexts` remains a local fixture seam. */
+  readonly resolveContext?: (contextId: string) => HostedContextSnapshot | undefined | Promise<HostedContextSnapshot | undefined>;
   readonly contexts?: readonly HostedContextSnapshot[];
   /** Read-only control-plane seam; revocation is checked for every request. */
   readonly isContextRevoked?: (contextId: string) => boolean | Promise<boolean>;
@@ -122,6 +161,7 @@ export interface HostedRuntime {
     tool: HostedToolName,
     args: Record<string, unknown>,
     authInfo?: AuthInfo,
+    signal?: AbortSignal,
   ): Promise<CallToolResult>;
 }
 
@@ -140,6 +180,12 @@ export interface HostedHttpOptions {
   readonly maxConcurrentRequests?: number;
   readonly maxConnections?: number;
   readonly maxContentBytes?: number;
+  /**
+   * Deployment adapter's physical active-connection count. Production must
+   * provide this adapter: the fallback counts in-process requests only and
+   * cannot prove a socket/connection limit.
+   */
+  readonly getActiveConnections?: () => number;
 }
 
 export interface HostedHttpHandler {
@@ -159,6 +205,13 @@ export class HostedRuntimeError extends Error {
 
 function fail(code: string, message: string): never {
   throw new HostedRuntimeError(code, message);
+}
+
+function canonicalJsonEqual(left: unknown, right: unknown): boolean {
+  const leftBytes = canonicalizeJson(left);
+  const rightBytes = canonicalizeJson(right);
+  if (leftBytes.length !== rightBytes.length) return false;
+  return leftBytes.every((value, index) => value === rightBytes[index]);
 }
 
 function errorResult(tool: HostedToolName, code: string, message: string): CallToolResult {
@@ -195,12 +248,22 @@ function rejectHostedProjectPath(args: Record<string, unknown>): void {
 function makeHostedContext(
   snapshot: HostedReleaseSnapshot,
   binding?: HostedContextSnapshot,
+  deniedSkillIds: readonly string[] = [],
 ): McpProjectContext {
+  const baseConfig = binding?.config ?? PROJECT_CONFIG_V1_DEFAULTS;
+  const mergedDeniedSkills = [...new Set([...baseConfig.skills.deny, ...deniedSkillIds])].sort();
+  const config = mergedDeniedSkills.length === baseConfig.skills.deny.length &&
+    mergedDeniedSkills.every((skillId, index) => skillId === baseConfig.skills.deny[index])
+    ? baseConfig
+    : Object.freeze({
+      ...baseConfig,
+      skills: Object.freeze({ ...baseConfig.skills, deny: Object.freeze(mergedDeniedSkills) }),
+    });
   return Object.freeze({
     projectPath: snapshot.registryHome,
     configPath: null,
     lockPath: null,
-    config: binding?.config ?? PROJECT_CONFIG_V1_DEFAULTS,
+    config,
     hasSelectedConfig: binding !== undefined,
     lock: binding?.lock ?? null,
     lockMode: binding === undefined ? "UNLOCKED" as ProjectLockMode : "LOCKED" as ProjectLockMode,
@@ -312,11 +375,107 @@ function readCatalog(db: RegistryHandle["db"]): Map<string, string> {
   return new Map(rows.map((row) => [row.skill_id, row.version_hash]));
 }
 
-function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
+function snapshotTableName(table: string): string {
+  if (!/^release_fts_[0-9a-f]{64}$/.test(table)) {
+    fail("E_STARTUP_INTEGRITY", "release FTS table identity is invalid");
+  }
+  return `"${table}"`;
+}
+
+function compareUtf16(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function deriveSnapshotArtifacts(
+  db: RegistryHandle["db"],
+  expected: ReadonlyMap<string, string>,
+): ReleaseArtifacts {
+  const aliases: Record<string, string> = {};
+  const rows: Array<{
+    skill_id: string;
+    version_hash: string;
+    name: string;
+    description: string;
+    domains: string[];
+    platforms: string[];
+    frameworks: string[];
+    triggers: string[];
+    aliases: string[];
+  }> = [];
+  const counts: Array<{ skill_id: string; version_hash: string; level: "L2"; tokens: number }> = [];
+  for (const [skillId, versionHash] of [...expected].sort(([a], [b]) => compareUtf16(a, b))) {
+    const version = getSkillVersion(db, skillId, versionHash);
+    const manifest = JSON.parse(version.manifestJson) as Record<string, any>;
+    const portable = manifest.portable;
+    const routing = manifest.routing;
+    if (portable === null || typeof portable !== "object" || routing === null || typeof routing !== "object") {
+      fail("E_STARTUP_INTEGRITY", `selected manifest for ${skillId} is incomplete`);
+    }
+    const stringList = (value: unknown, field: string): string[] => {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+        fail("E_STARTUP_INTEGRITY", `${skillId}.${field} is not a string list`);
+      }
+      return [...value] as string[];
+    };
+    const skillAliases = stringList(routing.aliases, "aliases");
+    for (const alias of skillAliases) {
+      if (aliases[alias] !== undefined && aliases[alias] !== skillId) {
+        fail("E_STARTUP_INTEGRITY", `alias ${JSON.stringify(alias)} has multiple selected owners`);
+      }
+      aliases[alias] = skillId;
+    }
+    const files = manifest.files;
+    if (!Array.isArray(files)) fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no files`);
+    const skillFile = files.find((file: any) => file?.path === "SKILL.md");
+    if (typeof skillFile?.blob_hash !== "string") fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no SKILL.md`);
+    const l2Tokens = getTokenCount(db, skillFile.blob_hash, "ega-o200k-v1");
+    if (l2Tokens === null) fail("E_STARTUP_INTEGRITY", `manifest for ${skillId} has no L2 token count`);
+    rows.push({
+      skill_id: skillId,
+      version_hash: versionHash,
+      name: portable.name,
+      description: portable.description,
+      domains: stringList(routing.domains, "domains"),
+      platforms: stringList(routing.platforms, "platforms"),
+      frameworks: stringList(routing.frameworks, "frameworks"),
+      triggers: stringList(routing.triggers, "triggers"),
+      aliases: skillAliases,
+    });
+    counts.push({ skill_id: skillId, version_hash: versionHash, level: "L2", tokens: l2Tokens });
+  }
+  return {
+    aliasMap: { aliases: Object.fromEntries(Object.entries(aliases).sort(([a], [b]) => compareUtf16(a, b))) },
+    searchIndexInput: { rows },
+    tokenArtifact: { estimator: "ega-o200k-v1", counts },
+  };
+}
+
+function verifySnapshot(snapshot: HostedReleaseSnapshot): Readonly<Record<string, string | null>> {
   try {
-    verifyHubRelease(snapshot.release);
+    verifyHubRelease(snapshot.release, snapshot.artifacts);
+    if (snapshot.releasePackage.hub_release_digest !== snapshot.release.digest ||
+        snapshot.releasePackage.sqlite_artifact_digest !== snapshot.sqliteArtifactDigest ||
+        snapshot.releasePackage.snapshot_rows !== Object.keys(snapshot.release.payload.skill_versions).length) {
+      fail("E_STARTUP_INTEGRITY", "release package does not bind the retained release");
+    }
   } catch (error) {
     fail("E_STARTUP_INTEGRITY", `HubRelease verification failed: ${String(error instanceof Error ? error.message : error)}`);
+  }
+  if (snapshot.skillSourceIds === undefined) {
+    fail("E_STARTUP_INTEGRITY", "release snapshot is missing SkillVersion source provenance");
+  }
+  const expectedSkillIds = Object.keys(snapshot.release.payload.skill_versions).sort(compareUtf16);
+  const actualSkillIds = Object.keys(snapshot.skillSourceIds).sort(compareUtf16);
+  if (JSON.stringify(actualSkillIds) !== JSON.stringify(expectedSkillIds)) {
+    fail("E_STARTUP_INTEGRITY", "release snapshot source provenance does not cover the exact catalog");
+  }
+  const adoptedSourceIds = new Set(snapshot.release.payload.adopted_sources.map((source) => source.source_id));
+  for (const [skillId, sourceId] of Object.entries(snapshot.skillSourceIds)) {
+    if (sourceId !== null && !adoptedSourceIds.has(sourceId)) {
+      fail("E_STARTUP_INTEGRITY", `source provenance for ${skillId} names a source outside the release`);
+    }
   }
   try {
     const artifactDigest = `sha256:${sha256Hex(readFileSync(join(snapshot.registryHome, "registry.sqlite")))}`;
@@ -348,6 +507,13 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
 
     const actual = readCatalog(registry.db);
     const expected = new Map(Object.entries(snapshot.release.payload.skill_versions));
+    const derived = deriveSnapshotArtifacts(registry.db, expected);
+    checkAliasMap(snapshot.artifacts.aliasMap, [...expected.keys()]);
+    checkTokenArtifact(snapshot.artifacts.tokenArtifact, Object.fromEntries(expected));
+    checkSearchIndexInput(snapshot.artifacts.searchIndexInput);
+    if (!canonicalJsonEqual(snapshot.artifacts, derived)) {
+      fail("E_STARTUP_INTEGRITY", "release artifacts do not match selected SkillVersion manifests");
+    }
     if (actual.size !== expected.size) fail("E_STARTUP_INTEGRITY", "SQLite catalog size does not match HubRelease");
     for (const [skillId, versionHash] of expected) {
       if (actual.get(skillId) !== versionHash) {
@@ -362,18 +528,75 @@ function verifySnapshot(snapshot: HostedReleaseSnapshot): void {
       }
     }
 
+    const table = snapshotTableName(snapshot.ftsTable);
     const indexRows = registry.db
-      .prepare("SELECT skill_id, version_hash FROM skill_fts ORDER BY skill_id, version_hash")
-      .all<{ skill_id: string; version_hash: string }>() as Array<{
+      .prepare(`SELECT skill_id, version_hash, name, description, domains, platforms, frameworks, triggers, aliases FROM ${table} ORDER BY skill_id, version_hash`)
+      .all<{ skill_id: string; version_hash: string; name: string; description: string; domains: string; platforms: string; frameworks: string; triggers: string; aliases: string }>() as Array<{
       skill_id: string;
       version_hash: string;
+      name: string;
+      description: string;
+      domains: string;
+      platforms: string;
+      frameworks: string;
+      triggers: string;
+      aliases: string;
     }>;
-    const expectedIndex = [...expected]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([skill_id, version_hash]) => ({ skill_id, version_hash }));
-    if (JSON.stringify(indexRows) !== JSON.stringify(expectedIndex)) {
-      fail("E_STARTUP_INTEGRITY", "release FTS row identity does not match HubRelease");
+    const expectedIndex = snapshot.artifacts.searchIndexInput.rows.map((row) => ({
+      skill_id: row.skill_id,
+      version_hash: row.version_hash,
+      name: row.name,
+      description: row.description,
+      domains: row.domains.join("\n"),
+      platforms: row.platforms.join("\n"),
+      frameworks: row.frameworks.join("\n"),
+      triggers: row.triggers.join("\n"),
+      aliases: row.aliases.join("\n"),
+    }));
+    if (!canonicalJsonEqual(indexRows, expectedIndex)) {
+      fail("E_STARTUP_INTEGRITY", "release FTS corpus does not match search_index_input");
     }
+    const metadata = registry.db
+      .prepare("SELECT key, value FROM ega_release_metadata ORDER BY key")
+      .all<{ key: string; value: string }>();
+    const metadataMap = Object.fromEntries(metadata.map((entry) => [entry.key, entry.value]));
+    const sourceRows = registry.db
+      .prepare("SELECT skill_id, source_id FROM ega_release_skill_sources ORDER BY skill_id")
+      .all<{ skill_id: string; source_id: string | null }>();
+    if (sourceRows.length !== expected.size) {
+      fail("E_STARTUP_INTEGRITY", "SQLite source provenance does not cover the exact catalog");
+    }
+    const verifiedSkillSourceIds: Record<string, string | null> = {};
+    for (const row of sourceRows) {
+      if (!expected.has(row.skill_id) || Object.hasOwn(verifiedSkillSourceIds, row.skill_id)) {
+        fail("E_STARTUP_INTEGRITY", "SQLite source provenance has an unexpected or duplicate SkillVersion");
+      }
+      if (row.source_id !== null && !adoptedSourceIds.has(row.source_id)) {
+        fail("E_STARTUP_INTEGRITY", `SQLite source provenance for ${row.skill_id} names a source outside the release`);
+      }
+      verifiedSkillSourceIds[row.skill_id] = row.source_id;
+    }
+    const suppliedRows = Object.entries(snapshot.skillSourceIds)
+      .sort(([a], [b]) => compareUtf16(a, b))
+      .map(([skill_id, source_id]) => ({ skill_id, source_id }));
+    const verifiedRows = Object.entries(verifiedSkillSourceIds)
+      .sort(([a], [b]) => compareUtf16(a, b))
+      .map(([skill_id, source_id]) => ({ skill_id, source_id }));
+    if (!canonicalJsonEqual(suppliedRows, verifiedRows)) {
+      fail("E_STARTUP_INTEGRITY", "deployment-supplied source provenance does not match immutable release provenance");
+    }
+    const expectedMetadata = {
+      alias_map_digest: snapshot.release.payload.alias_map_digest,
+      fts_table: snapshot.ftsTable,
+      hub_release_digest: snapshot.release.digest,
+      search_index_input_digest: snapshot.release.payload.search_index_input_digest,
+      skill_source_map_digest: skillSourceProvenanceDigest(verifiedRows),
+      token_artifact_digest: snapshot.release.payload.token_artifact_digest,
+    };
+    if (!canonicalJsonEqual(metadataMap, expectedMetadata)) {
+      fail("E_STARTUP_INTEGRITY", "SQLite embedded release metadata does not match HubRelease");
+    }
+    return Object.freeze(verifiedSkillSourceIds);
   } catch (error) {
     if (error instanceof HostedRuntimeError) throw error;
     fail("E_STARTUP_INTEGRITY", `release snapshot verification failed: ${String(error instanceof Error ? error.message : error)}`);
@@ -391,8 +614,140 @@ function denied(
   if (policy === undefined) return false;
   if (policy.releaseDigests?.includes(snapshot.release.digest)) return true;
   if (skillId !== undefined && versionHash !== undefined && policy.skillVersions?.includes(`${skillId}@${versionHash}`)) return true;
-  const sourceIds = new Set(policy.sourceIds ?? []);
-  return snapshot.release.payload.adopted_sources.some((source) => sourceIds.has(source.source_id));
+  if (skillId !== undefined) {
+    const sourceId = snapshot.skillSourceIds[skillId];
+    return sourceId !== undefined && sourceId !== null && (policy.sourceIds ?? []).includes(sourceId);
+  }
+  return false;
+}
+
+function loadDenyPolicy(
+  input: HostedRuntimeOptions["denyPolicy"],
+  startup: boolean,
+): HostedDenyPolicy | undefined {
+  const failUnavailable = (message: string): never => fail(
+    startup ? "E_STARTUP_INTEGRITY" : "E_DENY_UNAVAILABLE",
+    message,
+  );
+  let policy: HostedDenyPolicy | undefined;
+  try {
+    policy = typeof input === "function" ? input() : input;
+  } catch (error) {
+    return failUnavailable(`emergency deny policy is unavailable: ${String(error instanceof Error ? error.message : error)}`);
+  }
+  if (policy === undefined) return undefined;
+  if (policy === null || typeof policy !== "object" || Array.isArray(policy)) {
+    return failUnavailable("emergency deny policy must be an object");
+  }
+  const readList = (field: keyof HostedDenyPolicy): readonly string[] | undefined => {
+    const value = policy[field];
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+      return failUnavailable(`emergency deny policy ${field} must be a string list`);
+    }
+    return Object.freeze([...value]);
+  };
+  const releaseDigests = readList("releaseDigests");
+  const skillVersions = readList("skillVersions");
+  const sourceIds = readList("sourceIds");
+  return Object.freeze({
+    ...(releaseDigests === undefined ? {} : { releaseDigests }),
+    ...(skillVersions === undefined ? {} : { skillVersions }),
+    ...(sourceIds === undefined ? {} : { sourceIds }),
+  });
+}
+
+async function authorizeResourceResult(
+  result: CallToolResult,
+  tool: HostedToolName,
+  snapshot: HostedReleaseSnapshot,
+  authorizeResource: (skillId: string, versionHash: string | undefined, forceFresh: boolean) => Promise<boolean>,
+  denyPolicy: HostedDenyPolicy | undefined,
+  ineligibleSkillIds: ReadonlySet<string>,
+  signal?: AbortSignal,
+): Promise<CallToolResult> {
+  if (result.isError || result.structuredContent === undefined) return result;
+  const structured = result.structuredContent as Record<string, unknown>;
+  const deliveryAuthorization = new Map<string, Promise<boolean>>();
+  const isAllowed = async (skillId: unknown, versionHash: unknown): Promise<boolean> => {
+    if (typeof skillId !== "string") return false;
+    if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+    const version = typeof versionHash === "string" ? versionHash : undefined;
+    if (denied(denyPolicy, snapshot, skillId, version)) return false;
+    const key = JSON.stringify([skillId, version]);
+    let authorization = deliveryAuthorization.get(key);
+    if (authorization === undefined) {
+      // Delivery always starts with a fresh authorization lookup. Repeated
+      // references to the same resource within this one immutable result can
+      // safely share that delivery decision.
+      authorization = authorizeResource(skillId, version, true);
+      deliveryAuthorization.set(key, authorization);
+    }
+    return authorization;
+  };
+  if (tool === "search") {
+    const rows = Array.isArray(structured.results) ? structured.results : [];
+    const visible = [];
+    for (const row of rows) {
+      if (row === null || typeof row !== "object") continue;
+      if (!await isAllowed((row as Record<string, unknown>).skill_id, (row as Record<string, unknown>).version_hash)) {
+        throw new HostedRuntimeError("E_CONTENT_DENIED", "A selected search result is no longer authorized");
+      }
+      visible.push(row);
+    }
+    const lines = visible.map((row) => {
+      const item = row as Record<string, unknown>;
+      return `${String(item.skill_id)} ${String(item.version_hash)}`;
+    });
+    return {
+      ...result,
+      content: [{
+        type: "text",
+        text: `Search matched ${visible.length} project-visible skill version(s).${lines.length > 0 ? `\n${lines.join("\n")}` : ""}`,
+      }],
+      structuredContent: { ...structured, results: visible },
+    } as CallToolResult;
+  }
+  if (tool === "resolve") {
+    const filtered: Record<string, unknown> = { ...structured };
+    for (const field of ["explicit", "selected", "candidates", "rejected"]) {
+      const values = structured[field];
+      if (!Array.isArray(values)) continue;
+      const visible = [];
+      for (const value of values) {
+        if (value === null || typeof value !== "object") continue;
+        const item = value as Record<string, unknown>;
+        const skillId = typeof item.id === "string" ? item.id : undefined;
+        // Ineligible resources are removed before the resolver runs. This
+        // branch protects the result boundary if a lower layer ever returns
+        // one despite the effective policy.
+        if (skillId !== undefined && ineligibleSkillIds.has(skillId)) continue;
+        if (["explicit", "selected", "candidates"].includes(field) &&
+            !await isAllowed(item.id, item.version_hash)) {
+          throw new HostedRuntimeError("E_CONTENT_DENIED", "A selected resolve result is no longer authorized");
+        }
+        if (field === "rejected") {
+          if (await isAllowed(item.id, item.version_hash)) visible.push(value);
+        } else {
+          visible.push(value);
+        }
+      }
+      filtered[field] = visible;
+    }
+    const selected = Array.isArray(filtered.selected) ? filtered.selected as Array<Record<string, unknown>> : [];
+    const names = selected.map((item) => String(item.id)).join(", ") || "(none)";
+    return {
+      ...result,
+      content: [{ type: "text", text: `Resolve selected ${selected.length} skill(s) [${names}] at ${String(structured.confidence)} confidence (${String(structured.lock_status)}, ${String(structured.budget_status)}).` }],
+      structuredContent: filtered,
+    } as CallToolResult;
+  }
+  const skillId = structured.skill_id;
+  const versionHash = structured.version_hash;
+  if (!(await isAllowed(skillId, versionHash))) {
+    throw new HostedRuntimeError("E_CONTENT_DENIED", "Requested immutable content is not authorized");
+  }
+  return result;
 }
 
 function hostedError(error: unknown): { code: string; message: string } {
@@ -409,11 +764,12 @@ function hostedError(error: unknown): { code: string; message: string } {
 export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntime {
   if (options.releases.length === 0) fail("E_STARTUP_INTEGRITY", "hosted runtime needs at least one release");
   if (typeof options.authorize !== "function") fail("E_STARTUP_INTEGRITY", "hosted runtime requires authorization");
+  loadDenyPolicy(options.denyPolicy, true);
   const snapshots = new Map<string, HostedReleaseSnapshot>();
   for (const snapshot of options.releases) {
-    verifySnapshot(snapshot);
+    const verifiedSkillSourceIds = verifySnapshot(snapshot);
     if (snapshots.has(snapshot.release.digest)) fail("E_STARTUP_INTEGRITY", "duplicate release digest");
-    snapshots.set(snapshot.release.digest, snapshot);
+    snapshots.set(snapshot.release.digest, { ...snapshot, skillSourceIds: verifiedSkillSourceIds });
   }
   if (!snapshots.has(options.stableReleaseDigest)) fail("E_STARTUP_INTEGRITY", "stable release is not retained");
 
@@ -435,8 +791,15 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
       // Contract E owns context publication and lookup. Until that contract is
       // installed, fail as a missing context rather than falling back to the
       // personal stable release or exposing an authorization distinction.
-      const binding = contexts.get(contextId);
+      const binding = options.resolveContext !== undefined
+        ? await options.resolveContext(contextId)
+        : contexts.get(contextId);
       if (binding === undefined) throw new HostedRuntimeError("E_CONTEXT_NOT_FOUND", `Project context ${contextId} is not available`);
+      try {
+        verifyContextSnapshot(binding, snapshots);
+      } catch (error) {
+        throw new HostedRuntimeError("E_CONTEXT_INVALID", error instanceof Error ? error.message : String(error));
+      }
       if (options.isContextRevoked !== undefined) {
         let revoked: boolean;
         try {
@@ -466,15 +829,17 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
     tool: HostedToolName,
     args: Record<string, unknown>,
     authInfo?: AuthInfo,
+    signal?: AbortSignal,
   ): Promise<CallToolResult> => {
     try {
+      if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
       if (!HOSTED_TOOL_NAMES.includes(tool)) throw new McpContextError("E_MCP_INPUT_INVALID", `Unknown hosted tool ${tool}`);
       const selected = await select(tool, args);
       const snapshot = selected.snapshot;
       const binding = selected.binding;
       const skillId = typeof args["skill_id"] === "string" ? args["skill_id"] : undefined;
       const versionHash = typeof args["version_hash"] === "string" ? args["version_hash"] : undefined;
-      const denyPolicy = typeof options.denyPolicy === "function" ? options.denyPolicy() : options.denyPolicy;
+      const denyPolicy = loadDenyPolicy(options.denyPolicy, false);
       if (denied(denyPolicy, snapshot, skillId, versionHash)) {
         throw new HostedRuntimeError("E_CONTENT_DENIED", "Requested immutable content is emergency-denied");
       }
@@ -485,39 +850,120 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         ...(versionHash !== undefined ? { versionHash } : {}),
         ...(binding !== undefined ? { contextId: binding.contextId } : {}),
         ...(authInfo !== undefined ? { authInfo } : {}),
+        ...(signal !== undefined ? { signal } : {}),
       });
+      if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
       if (!authorized) throw new HostedRuntimeError("E_AUTH_UNAUTHORIZED", "OAuth subject is not authorized for this release");
 
-      const context = makeHostedContext(snapshot, binding);
+      const ineligibleSkillIds = new Set<string>(binding?.config.skills.deny ?? []);
+      const authorizationMemo = new Map<string, Promise<boolean>>();
+      const authorizeResource = async (
+        resourceSkillId: string,
+        resourceVersionHash: string | undefined,
+        forceFresh = false,
+      ): Promise<boolean> => {
+        if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+        const key = JSON.stringify([resourceSkillId, resourceVersionHash]);
+        if (!forceFresh) {
+          const cached = authorizationMemo.get(key);
+          if (cached !== undefined) return cached;
+        }
+        const authorization = (async () => {
+          const allowed = await options.authorize({
+            tool,
+            releaseDigest: snapshot.release.digest,
+            skillId: resourceSkillId,
+            ...(resourceVersionHash !== undefined ? { versionHash: resourceVersionHash } : {}),
+            ...(binding !== undefined ? { contextId: binding.contextId } : {}),
+            ...(authInfo !== undefined ? { authInfo } : {}),
+            ...(signal !== undefined ? { signal } : {}),
+          });
+          if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+          return allowed;
+        })();
+        if (!forceFresh) authorizationMemo.set(key, authorization);
+        return authorization;
+      };
+      if (tool === "search" || tool === "resolve") {
+        const entries = Object.entries(snapshot.release.payload.skill_versions);
+        let nextEntry = 0;
+        const authorizeWorker = async (): Promise<void> => {
+          while (true) {
+            if (signal?.aborted) throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+            const entryIndex = nextEntry++;
+            if (entryIndex >= entries.length) return;
+            const [eligibleSkillId, eligibleVersionHash] = entries[entryIndex]!;
+            if (ineligibleSkillIds.has(eligibleSkillId) || denied(denyPolicy, snapshot, eligibleSkillId, eligibleVersionHash)) {
+              ineligibleSkillIds.add(eligibleSkillId);
+              continue;
+            }
+            const eligible = await authorizeResource(eligibleSkillId, eligibleVersionHash);
+            if (!eligible) ineligibleSkillIds.add(eligibleSkillId);
+          }
+        };
+        const workerCount = Math.min(HOSTED_AUTHORIZATION_CONCURRENCY, entries.length);
+        await Promise.all(Array.from({ length: workerCount }, () => authorizeWorker()));
+      }
+      const selectionDeniedSkillIds = [...ineligibleSkillIds].sort();
+      const context = makeHostedContext(snapshot, binding, selectionDeniedSkillIds);
+      const deliver = async (result: CallToolResult): Promise<CallToolResult> => {
+        const authorizedResult = await authorizeResourceResult(
+          result,
+          tool,
+          snapshot,
+          authorizeResource,
+          denyPolicy,
+          ineligibleSkillIds,
+          signal,
+        );
+        if (binding !== undefined && options.isContextRevoked !== undefined) {
+          let revoked: boolean;
+          try {
+            revoked = await options.isContextRevoked(binding.contextId);
+          } catch (error) {
+            throw new HostedRuntimeError("E_CONTEXT_INVALID", `Project context revocation state is unavailable: ${String(error instanceof Error ? error.message : error)}`);
+          }
+          if (revoked) throw new HostedRuntimeError("E_CONTEXT_REVOKED", `Project context ${binding.contextId} was revoked before delivery`);
+        }
+        return structuredWithHostedMetadata(authorizedResult, snapshot.release.digest, binding);
+      };
       if (tool === "search") {
-        const result = runSearchTool({ query: args["query"], limit: args["limit"] }, context);
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        const eligibleSkillIds = new Set(
+          Object.keys(snapshot.release.payload.skill_versions).filter((skillId) => !ineligibleSkillIds.has(skillId)),
+        );
+        const result = runSearchTool(
+          { query: args["query"], limit: args["limit"] },
+          context,
+          { eligibleSkillIds },
+        );
+        return await deliver(result);
       }
       if (tool === "resolve") {
+        const selectionPolicy = {
+          deniedNamespaces: context.config.namespaces.deny,
+          allowedNamespaces: context.config.namespaces.allow,
+          deniedSkills: context.config.skills.deny,
+          prefer: context.config.skills.prefer,
+          defaultMaxSkills: context.config.routing.max_skills,
+          defaultMaxTokens: context.config.routing.max_tokens,
+          lockedVersions: binding === undefined
+            ? null
+            : new Map(Object.entries(binding.lock.skills).map(([skillId, entry]) => [skillId, entry.version_hash])),
+        };
         const result = await runResolveTool({
           task: args["task"],
           explicit_skills: args["explicit_skills"],
           max_skills: args["max_skills"],
           max_tokens: args["max_tokens"],
-        }, context, binding === undefined ? undefined : {
-          policy: {
-            deniedNamespaces: binding.config.namespaces.deny,
-            allowedNamespaces: binding.config.namespaces.allow,
-            deniedSkills: binding.config.skills.deny,
-            prefer: binding.config.skills.prefer,
-            defaultMaxSkills: binding.config.routing.max_skills,
-            defaultMaxTokens: binding.config.routing.max_tokens,
-            lockedVersions: new Map(Object.entries(binding.lock.skills).map(([skillId, entry]) => [skillId, entry.version_hash])),
-          },
-        });
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        }, context, { policy: selectionPolicy });
+        return await deliver(result);
       }
       if (tool === "inspect") {
         const result = toInspectSuccessResult(runInspectTool({
           skill_id: args["skill_id"] as string,
           ...(typeof args["version_hash"] === "string" ? { version_hash: args["version_hash"] } : {}),
         }, context));
-        return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+        return await deliver(result);
       }
       const result = runGetContentTool({
         skill_id: args["skill_id"],
@@ -526,7 +972,7 @@ export function createHostedRuntime(options: HostedRuntimeOptions): HostedRuntim
         max_tokens: args["max_tokens"],
         file_path: args["file_path"],
       }, context);
-      return structuredWithHostedMetadata(result, snapshot.release.digest, binding);
+      return await deliver(result);
     } catch (error) {
       if (error instanceof HostedRuntimeError) {
         return errorResult(tool, error.code, error.message);
@@ -617,6 +1063,8 @@ export function createHostedMcpServer(
   runtime: HostedRuntime,
   authInfo?: AuthInfo,
   toolTimeoutMs: number = HOSTED_LIMITS.toolTimeoutMs,
+  parentSignal?: AbortSignal,
+  trackWork?: (work: Promise<unknown>) => void,
 ): McpServer {
   const server = new McpServer(
     { name: "ega-skills-hosted", version: "1.2.0" },
@@ -635,7 +1083,12 @@ export function createHostedMcpServer(
       },
       async (args: Record<string, unknown>) => {
         try {
-          return await withHostedTimeout(runtime.call(name, args, authInfo), toolTimeoutMs);
+          return await withHostedTimeout(
+            (signal) => runtime.call(name, args, authInfo, signal),
+            toolTimeoutMs,
+            parentSignal,
+            trackWork,
+          );
         } catch (error) {
           const mapped = hostedError(error);
           return errorResult(name, mapped.code, mapped.message);
@@ -666,6 +1119,9 @@ export function createHostedMcpServer(
     level: { type: "enum", values: ["L1", "L2"] },
     max_tokens: { type: "integer" },
   }, {
+    // Blob hashes are manifest-bound outputs, never caller selectors. Access
+    // is authorized at the exact SkillVersion boundary before its bound blob
+    // is resolved.
     file_path: { type: "string" },
     release_digest: { type: "string" },
     context_id: { type: "string" },
@@ -680,18 +1136,80 @@ function jsonError(status: number, code: string, message: string): Response {
   });
 }
 
-async function withHostedTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+async function withHostedTimeout<T>(
+  operationFactory: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  parentSignal?: AbortSignal,
+  trackWork?: (work: Promise<unknown>) => void,
+): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const abortFromParent = (): void => controller.abort();
+  if (parentSignal !== undefined) {
+    if (parentSignal.aborted) controller.abort();
+    else parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  }
+  const operation = Promise.resolve().then(() => operationFactory(controller.signal));
+  trackWork?.(operation);
+  // A timed-out operation may still reject after the caller has received its
+  // bounded error. Attach a handler so that late work cannot become an
+  // unhandled rejection while its signal is being drained.
+  operation.catch(() => undefined);
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out")), timeoutMs);
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out"));
+        }, timeoutMs);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", abortFromParent);
   }
+}
+
+async function readBoundedBody(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<{ readonly bytes: Uint8Array; readonly exceeded: boolean }> {
+  if (body === null) return { bytes: new Uint8Array(), exceeded: false };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const abortRead = (): void => { void reader.cancel("request aborted").catch(() => undefined); };
+  if (signal?.aborted) abortRead();
+  else signal?.addEventListener("abort", abortRead, { once: true });
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = next.value;
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        // Do not await cancellation on a Fetch clone: some runtimes wait for
+        // the original request stream to finish before resolving cancel().
+        // The boundary has already stopped consuming after maxBytes+one
+        // chunk; the rejected/settled cancellation is only cleanup.
+        void reader.cancel("body exceeds configured byte limit").catch(() => undefined);
+        return { bytes: new Uint8Array(), exceeded: true };
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    signal?.removeEventListener("abort", abortRead);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, exceeded: false };
 }
 
 /**
@@ -732,11 +1250,8 @@ export function createHostedMcpHandler(
   const maxConnections = options.maxConnections ?? HOSTED_LIMITS.maxConnections;
   const maxContentBytes = options.maxContentBytes ?? HOSTED_LIMITS.maxContentBytes;
   if (![maxRequestBytes, maxResponseBytes, requestTimeoutMs, toolTimeoutMs, maxConcurrentRequests, maxConnections, maxContentBytes]
-    .every((value) => Number.isInteger(value) && value > 0)) {
-    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Hosted transport limits must be positive integers");
-  }
-  if (maxConcurrentRequests > maxConnections) {
-    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Concurrent request limit cannot exceed connection limit");
+    .every((value) => Number.isSafeInteger(value) && value > 0)) {
+    throw new HostedRuntimeError("E_STARTUP_INTEGRITY", "Hosted transport limits must be positive safe integers");
   }
   const allowedOriginHostnames = options.allowedOrigins.map((origin) => {
     let parsed: URL;
@@ -754,14 +1269,25 @@ export function createHostedMcpHandler(
     verifier: options.verifier,
     ...(options.requiredScopes !== undefined ? { requiredScopes: [...options.requiredScopes] } : {}),
   });
-  const handler = createMcpHandler(
-    (context) => createHostedMcpServer(runtime, context.authInfo, toolTimeoutMs),
-    { legacy: "reject", responseMode: "json", keepAliveMs: 0 },
-  );
   let concurrent = 0;
+  let liveWork = 0;
+  const handlers = new Set<{ readonly close: () => Promise<void> }>();
+  const trackWork = (work: Promise<unknown>): void => {
+    liveWork += 1;
+    void work.then(() => {
+      liveWork -= 1;
+    }, () => {
+      liveWork -= 1;
+    });
+  };
+  const activeConnections = options.getActiveConnections ?? (() => concurrent);
+  const connectionLimitReached = (): boolean => {
+    const count = activeConnections();
+    return !Number.isInteger(count) || count < 0 || count >= maxConnections;
+  };
   return {
     fetch: async (request: Request): Promise<Response> => {
-      const serve = async (): Promise<Response> => {
+      const serve = async (signal: AbortSignal): Promise<Response> => {
         const url = new URL(request.url);
         if (url.protocol !== "https:") return jsonError(403, "E_ORIGIN_REJECTED", "HTTPS is required");
         const hostFailure = hostHeaderValidationResponse(request, [...options.allowedHosts]);
@@ -798,37 +1324,86 @@ export function createHostedMcpHandler(
         if (contentLength !== null && Number(contentLength) > maxRequestBytes) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request exceeds the hosted MCP byte limit");
         }
-        const contentBytes = await request.clone().arrayBuffer();
-        if (contentBytes.byteLength > maxRequestBytes || contentBytes.byteLength > maxContentBytes) {
+        const requestBody = await readBoundedBody(request.clone().body, maxRequestBytes, signal);
+        if (requestBody.exceeded) {
           return jsonError(413, "E_REQUEST_LIMIT", "Request content exceeds the hosted MCP byte limit");
         }
-        if (concurrent >= maxConcurrentRequests) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP concurrency limit reached");
-        const auth = await gate(request);
+        if (signal.aborted) {
+          throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+        }
+        const authWork = Promise.resolve().then(() => gate(request));
+        const auth = await authWork;
         if (auth instanceof Response) return auth;
         // Keep the local MCP package's read-only static audit satisfied: the
         // transport adapter invokes the SDK handler without importing a
         // network client or using a global request primitive.
-        const response = await handler["fetch"](request, { authInfo: auth });
-        const responseBytes = await response.clone().arrayBuffer();
-        const responseLength = response.headers.get("content-length");
-        if ((responseLength !== null && Number(responseLength) > maxResponseBytes) || responseBytes.byteLength > maxResponseBytes) {
-          return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+        const handler = createMcpHandler(
+          (context) => createHostedMcpServer(runtime, context.authInfo, toolTimeoutMs, signal, trackWork),
+          { legacy: "reject", responseMode: "json", keepAliveMs: 0 },
+        );
+        handlers.add(handler);
+        try {
+          const response = await handler["fetch"](request, { authInfo: auth });
+          const responseBody = await readBoundedBody(response.clone().body, maxResponseBytes, signal);
+          if (responseBody.exceeded) {
+            return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+          }
+          if (signal.aborted) {
+            throw new HostedRuntimeError("E_REQUEST_LIMIT", "Hosted MCP request timed out");
+          }
+          try {
+            const body = JSON.parse(new TextDecoder().decode(responseBody.bytes)) as { result?: { structuredContent?: { content?: unknown } } };
+            const content = body.result?.structuredContent?.content;
+            if (typeof content === "string" && new TextEncoder().encode(content).byteLength > maxContentBytes) {
+              return jsonError(413, "E_CONTENT_LIMIT", "Returned skill content exceeds the hosted content byte limit");
+            }
+          } catch {
+            // The MCP SDK owns response-shape validation; this adapter only
+            // applies content limits when the JSON response exposes content.
+          }
+          const responseLength = response.headers.get("content-length");
+          if (responseLength !== null && Number(responseLength) > maxResponseBytes) {
+            return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+          }
+          /*
+           * The body was bounded above, so no second full response buffering is
+           * needed here. Keep the byte-length check explicit for clarity.
+           */
+          if (responseBody.bytes.byteLength > maxResponseBytes) {
+            return jsonError(413, "E_REQUEST_LIMIT", "Response exceeds the hosted MCP byte limit");
+          }
+          return response;
+        } finally {
+          handlers.delete(handler);
+          await handler.close();
         }
-        return response;
       };
-      if (concurrent >= maxConcurrentRequests) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP concurrency limit reached");
+      if (Math.max(concurrent, liveWork) >= maxConcurrentRequests) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP concurrency limit reached");
+      if (connectionLimitReached()) return jsonError(429, "E_REQUEST_LIMIT", "Hosted MCP connection limit reached");
       concurrent += 1;
       try {
-        return await withHostedTimeout(serve(), requestTimeoutMs);
+        // Track the complete request operation, including body reads and the
+        // MCP response stream. The timeout race may settle first, but the
+        // underlying request remains capacity-consuming until it settles.
+        const operation = withHostedTimeout(serve, requestTimeoutMs, undefined, trackWork);
+        let released = false;
+        const release = (): void => {
+          if (!released) {
+            released = true;
+            concurrent -= 1;
+          }
+        };
+        void operation.then(release, release);
+        return await operation;
       } catch (error) {
         if (error instanceof HostedRuntimeError && error.code === "E_REQUEST_LIMIT") {
           return jsonError(408, error.code, error.message);
         }
         throw error;
-      } finally {
-        concurrent -= 1;
       }
     },
-    close: handler.close,
+    close: async () => {
+      await Promise.all([...handlers].map((handler) => handler.close()));
+    },
   };
 }

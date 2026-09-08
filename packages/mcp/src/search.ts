@@ -88,6 +88,8 @@ export interface McpSearchOutput {
 export interface SearchToolOptions {
   /** Accepted for parity with the shared boundary options; registry paths come from the context. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Hosted callers can constrain the immutable catalog before FTS ranking. */
+  readonly eligibleSkillIds?: ReadonlySet<string>;
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -159,6 +161,7 @@ function searchVisibleHits(
   db: DatabaseConnection,
   ctx: McpProjectContext,
   query: string,
+  eligibleSkillIds?: ReadonlySet<string>,
 ): SearchHit[] {
   const config: ProjectConfigV1 = ctx.config;
   if (ctx.lockMode === "LOCKED" && ctx.lock !== null) {
@@ -168,9 +171,19 @@ function searchVisibleHits(
         lockedPairs.set(skillId, entry.version_hash);
       }
     }
-    return searchSkills(db, query, { locked: lockedPairs });
+    return searchSkills(
+      db,
+      query,
+      eligibleSkillIds === undefined
+        ? { locked: lockedPairs }
+        : { locked: lockedPairs, eligibleSkillIds },
+    );
   }
-  return searchSkills(db, query).filter((hit) => !isDeniedByPolicy(config, hit.skillId));
+  return searchSkills(
+    db,
+    query,
+    eligibleSkillIds === undefined ? {} : { eligibleSkillIds },
+  ).filter((hit) => !isDeniedByPolicy(config, hit.skillId));
 }
 
 /**
@@ -337,7 +350,7 @@ export function runSearchTool(
   // never creates, migrates, or writes the database (SPEC-006 §5.3).
   const handle: ReadOnlyRegistryHandle = openReadOnlyRegistry(ctx);
   try {
-    const hits = searchVisibleHits(handle.db, ctx, query);
+    const hits = searchVisibleHits(handle.db, ctx, query, opts.eligibleSkillIds);
     const visible = hits.slice(0, limit);
     const results = visible.map((hit) => toResultRow(handle.db, hit));
     const output: McpSearchOutput = Object.freeze({

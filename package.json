@@ -20,6 +20,8 @@
     "contracts:test-c": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-c.test.mjs",
     "contracts:check-d": "node scripts/contracts/validate-contract-d.mjs",
     "contracts:test-d": "node --test tests/contracts/contract-d.test.mjs",
+    "contracts:check-e": "node scripts/contracts/validate-contract-e.mjs",
+    "contracts:test-e": "node --test tests/contracts/contract-e.test.mjs",
     "specs:check": "node scripts/specs/check-specs.mjs"
   },
   "devDependencies": {

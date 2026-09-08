@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/identities.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES = join(HERE, "examples", "contract-a");
+const EXAMPLES = process.env.EGA_CONTRACT_A_EXAMPLES ?? join(HERE, "examples", "contract-a");
 const cliRequire = createRequire(join(HERE, "..", "..", "packages", "cli", "package.json"));
 const { parse: parseYaml } = cliRequire("yaml");
 

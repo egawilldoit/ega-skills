@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/identities.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES = join(HERE, "examples", "contract-b");
+const EXAMPLES = process.env.EGA_CONTRACT_B_EXAMPLES ?? join(HERE, "examples", "contract-b");
 
 // Contract A §4.1 frozen vector (mattpocock) — the plan must bind this exact
 // adopted configuration; Contract B never reinterprets Contract A state.

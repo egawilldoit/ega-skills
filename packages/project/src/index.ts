@@ -11,7 +11,8 @@ export { isValidRepository, normalizeSourceConfig, parseSourcesYaml, sourceConfi
 export type { SourceConfig, SourceSelection, SourcesConfig } from "./hub/sources-config.js";
 export { parseSourcesLockYaml, verifySourcesLock } from "./hub/sources-lock.js";
 export type { LockedSelection, SourceLockRecord, SourcesLock } from "./hub/sources-lock.js";
-export { fetchRefTip, resolveRefToCommit } from "./hub/git.js";
+export { fetchExactCommit, fetchRefTip, resolveRefToCommit } from "./hub/git.js";
+export type { ExactCommitFetchOptions } from "./hub/git.js";
 export {
   QUARANTINE_MAX_FILE_BYTES,
   QUARANTINE_MAX_FILES,
@@ -36,6 +37,8 @@ export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
+export { buildHubRelease } from "./hub/release-build.js";
+export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {
   RELEASE_TOKEN_ESTIMATOR,
   checkAliasMap,
@@ -44,7 +47,9 @@ export {
   createReleaseFtsTable,
   deriveAliasMap,
   deriveSearchIndexInput,
+  deriveSkillSourceProvenance,
   deriveTokenArtifact,
+  skillSourceProvenanceDigest,
   queryReleaseFts,
   verifyReleaseCorpus,
 } from "./hub/release-state.js";
@@ -53,6 +58,7 @@ export type {
   ReleaseFtsDb,
   SearchIndexInputDoc,
   SearchIndexRow,
+  SkillSourceProvenanceRow,
   TokenArtifactDoc,
   TokenCountRow,
 } from "./hub/release-state.js";
@@ -85,8 +91,16 @@ export {
   hashProjectLock,
   verifyProjectContext,
   verifyRemoteLockPlan,
+  verifyRemoteLockPlanAgainstLock,
 } from "./remote.js";
-export { createProjectContextStore, ProjectContextStore } from "./context-store.js";
+export { createProjectContextStore, FileProjectContextPersistence, ProjectContextStore } from "./context-store.js";
+export {
+  createContextControlPlaneHandler,
+  getProjectContext,
+  listProjectContexts,
+  publishProjectContext,
+  revokeProjectContext,
+} from "./context-store.js";
 export type {
   CreateProjectContextInput,
   CreateRemoteLockPlanInput,
@@ -99,7 +113,18 @@ export type {
   ProjectContextCacheIdentity,
   ProjectContextCacheIdentityInput,
 } from "./remote.js";
-export type { PublishedProjectContext, ProjectContextStoreRecord } from "./context-store.js";
+export type { ProjectContextPersistence } from "./context-store.js";
+export type {
+  ContextControlPlaneAuthorization,
+  ContextControlPlaneOptions,
+  ContextClientOptions,
+  ListContextClientResult,
+  PublishContextClientResult,
+  PublishedContextResponse,
+  ProjectContextAuthority,
+  PublishedProjectContext,
+  ProjectContextStoreRecord,
+} from "./context-store.js";
 export type {
   HubRelease,
   HubReleaseContracts,

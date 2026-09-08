@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -107,4 +107,66 @@ test("Contract E rejects non-portable or structurally forged fingerprints", () =
   assert.throws(() => hashRemoteFingerprint({ ...valid, package_root: "/home/runner/repo/apps/web" }), /repository-relative/);
   assert.throws(() => verifyRemoteProjectFingerprint({ ...valid, evidence: [{ path: "apps\\web\\package.json", kind: "package-manifest" }] }), /repository-relative/);
   assert.throws(() => verifyRemoteProjectFingerprint({ ...valid, frameworks: ["vite", "nextjs"] }), /sorted and unique/);
+});
+
+test("Contract E derives relevant inputs only from bounded detected evidence", async () => {
+  const root = await monorepo();
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+    relevant_inputs: [{ path: "unrelated.txt", bytes: "attacker-controlled" }],
+  }), /exactly match bounded detected evidence/);
+});
+
+test("Contract E rejects symlinked evidence before hashing it", async () => {
+  const root = await monorepo();
+  const outside = await mkdtemp(join(tmpdir(), "ega-fingerprint-outside-"));
+  roots.add(outside);
+  await writeFile(join(outside, "package.json"), "{\"name\":\"outside\"}\n");
+  await rm(join(root, "apps", "web", "package.json"));
+  await symlink(join(outside, "package.json"), join(root, "apps", "web", "package.json"));
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /contains a symlink/);
+});
+
+test("Contract E bounds evidence reads and rejects oversized manifest files", async () => {
+  const root = await monorepo();
+  await writeFile(join(root, "apps", "web", "package.json"), JSON.stringify({
+    name: "web",
+    description: "x".repeat(1_048_600),
+    dependencies: { next: "1.0.0" },
+  }));
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /bounded read limit/);
+});
+
+test("Contract E bounds workspace-marker discovery before reading oversized evidence", async () => {
+  const root = await monorepo();
+  await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - apps/*\n# ${"x".repeat(1_048_600)}\n`);
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /bounded read limit/);
+});
+
+test("Contract E rejects a project path whose parent resolves outside the repository", async () => {
+  const root = await monorepo();
+  const outside = await mkdtemp(join(tmpdir(), "ega-fingerprint-project-outside-"));
+  roots.add(outside);
+  await writeFile(join(outside, "package.json"), '{"name":"outside"}\n');
+  await rm(join(root, "apps", "web"), { recursive: true, force: true });
+  await symlink(outside, join(root, "apps", "web"), "junction");
+  assert.throws(() => createRemoteProjectFingerprint({
+    repository_root: root,
+    project_path: join(root, "apps", "web"),
+    revision: { mode: "unversioned" },
+  }), /inside the fingerprint root/);
 });

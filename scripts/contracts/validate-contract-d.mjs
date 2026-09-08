@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const VECTOR_PATH = join(HERE, "examples", "contract-d", "hosted-runtime.json");
+const VECTOR_PATH = process.env.EGA_CONTRACT_D_VECTOR ?? join(HERE, "examples", "contract-d", "hosted-runtime.json");
 const VECTOR = JSON.parse(readFileSync(VECTOR_PATH, "utf8"));
 const errors = [];
 const EXPECTED_VECTOR_DIGEST = "sha256:6a0f5a9332cd66f2edf5f9fee22d908c69640da8a09d2a30bfb2893bca476f03";

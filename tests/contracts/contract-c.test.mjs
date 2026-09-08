@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/identities.js";
 
@@ -18,16 +19,15 @@ function read(p) {
 }
 
 function withSwappedFiles(files, fn) {
-  const saved = new Map();
+  const directory = mkdtempSync(join(tmpdir(), "ega-contract-c-"));
+  cpSync(EXAMPLES, directory, { recursive: true });
   try {
     for (const [name, content] of Object.entries(files)) {
-      const p = join(EXAMPLES, name);
-      saved.set(name, readFileSync(p, "utf8"));
-      writeFileSync(p, content);
+      writeFileSync(join(directory, name), content);
     }
-    return fn();
+    return fn(directory);
   } finally {
-    for (const [name, content] of saved) writeFileSync(join(EXAMPLES, name), content);
+    rmSync(directory, { force: true, recursive: true });
   }
 }
 
@@ -38,13 +38,42 @@ function resignRelease(doc) {
   return JSON.stringify(doc, null, 2);
 }
 
-function runOk() {
-  return execFileSync("node", [VALIDATOR], { encoding: "utf8" });
+function digestOf(value) {
+  return `sha256:${sha256Hex(canonicalizeJson(value))}`;
 }
 
-function runBad() {
+function rebindSemanticFiles({ aliasMap, tokenArtifact, searchIndexInput }) {
+  const release = JSON.parse(read("hub-release.json"));
+  if (aliasMap !== undefined) release.payload.alias_map_digest = digestOf(aliasMap);
+  if (tokenArtifact !== undefined) release.payload.token_artifact_digest = digestOf(tokenArtifact);
+  if (searchIndexInput !== undefined) release.payload.search_index_input_digest = digestOf(searchIndexInput);
+  const releaseText = resignRelease(release);
+  const rebound = JSON.parse(releaseText);
+  const pkg = JSON.parse(read("release-package.json"));
+  pkg.hub_release_digest = rebound.digest;
+  const stable = JSON.parse(read("stable.json"));
+  stable.stable_release_digest = rebound.digest;
+  return {
+    ...(aliasMap === undefined ? {} : { "alias-map.json": JSON.stringify(aliasMap, null, 2) }),
+    ...(tokenArtifact === undefined ? {} : { "token-artifact.json": JSON.stringify(tokenArtifact, null, 2) }),
+    ...(searchIndexInput === undefined ? {} : { "search-index-input.json": JSON.stringify(searchIndexInput, null, 2) }),
+    "hub-release.json": releaseText,
+    "release-package.json": JSON.stringify(pkg, null, 2),
+    "stable.json": JSON.stringify(stable, null, 2),
+  };
+}
+
+function runOk(examples = EXAMPLES) {
+  return execFileSync("node", [VALIDATOR], { encoding: "utf8", env: { ...process.env, EGA_CONTRACT_C_EXAMPLES: examples } });
+}
+
+function runBad(examples = EXAMPLES) {
   try {
-    execFileSync("node", [VALIDATOR], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("node", [VALIDATOR], {
+      encoding: "utf8",
+      env: { ...process.env, EGA_CONTRACT_C_EXAMPLES: examples },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   } catch (e) {
     return `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
   }
@@ -77,6 +106,36 @@ test("wrong token estimator fails E_TOKEN_ARTIFACT", () => {
   doc.estimator = "ega-o200k-v9";
   const out = withSwappedFiles({ "token-artifact.json": JSON.stringify(doc, null, 2) }, runBad);
   assert.match(out, /E_TOKEN_ARTIFACT|E_RELEASE_DIGEST/);
+});
+
+test("self-consistent invented alias fails semantic ownership validation", () => {
+  const aliasMap = JSON.parse(read("alias-map.json"));
+  aliasMap.aliases.invented = "cursor/architect";
+  aliasMap.aliases = Object.fromEntries(Object.entries(aliasMap.aliases).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
+  const out = withSwappedFiles(rebindSemanticFiles({ aliasMap }), runBad);
+  assert.match(out, /E_ALIAS_SCOPE/);
+});
+
+test("self-consistent wrong token value fails semantic token validation", () => {
+  const tokenArtifact = JSON.parse(read("token-artifact.json"));
+  tokenArtifact.counts[0].tokens += 1;
+  const out = withSwappedFiles(rebindSemanticFiles({ tokenArtifact }), runBad);
+  assert.match(out, /E_TOKEN_ARTIFACT/);
+});
+
+test("self-consistent wrong token level fails semantic token validation", () => {
+  const tokenArtifact = JSON.parse(read("token-artifact.json"));
+  tokenArtifact.counts[0].level = "L1";
+  const out = withSwappedFiles(rebindSemanticFiles({ tokenArtifact }), runBad);
+  assert.match(out, /E_TOKEN_ARTIFACT/);
+});
+
+test("self-consistent invented normalized search metadata fails semantic validation", () => {
+  const searchIndexInput = JSON.parse(read("search-index-input.json"));
+  searchIndexInput.rows[0].description = "invented metadata";
+  const out = withSwappedFiles(rebindSemanticFiles({ searchIndexInput }), runBad);
+  assert.match(out, /E_SEARCH_INPUT/);
+  assert.match(out, /E_RELEASE_DIGEST/);
 });
 
 test("stable pointer mismatch fails E_STABLE", () => {

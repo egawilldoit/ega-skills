@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Setup Node 24
         uses: actions/setup-node@v6
         with:
@@ -43,9 +45,11 @@ jobs:
         run: pnpm typecheck
       - name: Hashing traversal tests
         run: node --test tests/hashing-traversal.test.mjs tests/hashing-traversal-toctou.test.mjs
-      - name: Full test suite
-        run: pnpm test
       - name: Check frozen specs
         run: pnpm specs:check
-      - name: Check whitespace errors
+      - name: Check generated working tree formatting
         run: git diff --check
+      - name: Check committed pull request patch formatting
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"

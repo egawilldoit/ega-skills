@@ -24,6 +24,9 @@ export interface HostedOAuthVerifierOptions {
   readonly jwksUri: string;
   readonly requiredScopes: readonly string[];
   readonly clockSkewSeconds?: number;
+  readonly jwksTimeoutMs?: number;
+  readonly jwksMaxAgeMs?: number;
+  readonly maxJwksBytes?: number;
   readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
   readonly isRevoked?: (claims: Readonly<Record<string, unknown>>) => boolean | Promise<boolean>;
 }
@@ -115,29 +118,99 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
 } {
   const fetcher = options.fetch ?? ((input, init) => globalThis["fetch"](input, init));
   const clockSkewSeconds = options.clockSkewSeconds ?? 30;
-  if (!Number.isInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
-    throw new Error("OAuth clock skew must be a non-negative integer");
+  const jwksTimeoutMs = options.jwksTimeoutMs ?? 5_000;
+  const jwksMaxAgeMs = options.jwksMaxAgeMs ?? 300_000;
+  const maxJwksBytes = options.maxJwksBytes ?? 1_048_576;
+  if (!Number.isSafeInteger(clockSkewSeconds) || clockSkewSeconds < 0) {
+    throw new Error("OAuth clock skew must be a non-negative safe integer");
   }
   if (options.issuer.length === 0 || options.resource.length === 0 || options.jwksUri.length === 0) {
     throw new Error("OAuth issuer, resource, and JWKS URI are required");
   }
+  if (!Number.isSafeInteger(jwksTimeoutMs) || jwksTimeoutMs <= 0 ||
+      !Number.isSafeInteger(jwksMaxAgeMs) || jwksMaxAgeMs <= 0 ||
+      !Number.isSafeInteger(maxJwksBytes) || maxJwksBytes <= 0) {
+    throw new Error("OAuth JWKS limits must be positive safe integers");
+  }
 
+  let jwksCache: { readonly document: JwksDocument; readonly loadedAtMs: number } | undefined;
   let jwksPromise: Promise<JwksDocument> | undefined;
-  const loadJwks = async (): Promise<JwksDocument> => {
+  const refreshJwks = async (): Promise<JwksDocument> => {
     if (jwksPromise !== undefined) return jwksPromise;
-    jwksPromise = (async () => {
-      const response = await fetcher(options.jwksUri, { headers: { accept: "application/json" } });
-      if (!response.ok) throw oauthFailure("JWKS endpoint unavailable");
-      const document = (await response.json()) as JwksDocument;
-      if (!Array.isArray(document.keys)) throw oauthFailure("JWKS document is invalid");
-      return document;
+    const request = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), jwksTimeoutMs);
+      let response: Response;
+      try {
+        response = await fetcher(options.jwksUri, {
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw oauthFailure("JWKS endpoint unavailable");
+        const declaredLength = response.headers.get("content-length");
+        if (declaredLength !== null && (!/^\d+$/u.test(declaredLength) || Number(declaredLength) > maxJwksBytes)) {
+          await response.body?.cancel("JWKS document exceeds limit").catch(() => undefined);
+          throw oauthFailure("JWKS document is too large");
+        }
+        if (response.body === null) throw oauthFailure("JWKS document is empty");
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        const abortRead = (): void => { void reader.cancel("JWKS request timed out").catch(() => undefined); };
+        if (controller.signal.aborted) abortRead();
+        else controller.signal.addEventListener("abort", abortRead, { once: true });
+        try {
+          while (true) {
+            const next = await reader.read();
+            if (next.done) break;
+            total += next.value.byteLength;
+            if (total > maxJwksBytes) {
+              await reader.cancel("JWKS document exceeds limit").catch(() => undefined);
+              throw oauthFailure("JWKS document is too large");
+            }
+            chunks.push(next.value);
+          }
+        } finally {
+          controller.signal.removeEventListener("abort", abortRead);
+          reader.releaseLock();
+        }
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        let document: JwksDocument;
+        try {
+          document = JSON.parse(new TextDecoder().decode(bytes)) as JwksDocument;
+        } catch {
+          throw oauthFailure("JWKS document is invalid");
+        }
+        if (!Array.isArray(document.keys)) throw oauthFailure("JWKS document is invalid");
+        return document;
+      } catch (error) {
+        if (controller.signal.aborted) throw oauthFailure("JWKS endpoint timed out");
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
     })();
+    jwksPromise = request;
     try {
-      return await jwksPromise;
+      const document = await request;
+      jwksCache = { document, loadedAtMs: Date.now() };
+      return document;
     } catch (error) {
-      jwksPromise = undefined;
       throw error;
+    } finally {
+      if (jwksPromise === request) jwksPromise = undefined;
     }
+  };
+  const loadJwks = async (): Promise<{ readonly document: JwksDocument; readonly fromFreshCache: boolean }> => {
+    if (jwksCache !== undefined && Date.now() - jwksCache.loadedAtMs < jwksMaxAgeMs) {
+      return { document: jwksCache.document, fromFreshCache: true };
+    }
+    return { document: await refreshJwks(), fromFreshCache: false };
   };
 
   return {
@@ -146,11 +219,26 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
       const parts = token.split(".");
       if (parts.length !== 3 || parts.some((part) => part.length === 0)) throw oauthFailure("malformed bearer token");
       const header = decodeJson<JwtHeader>(parts[0]!, "header");
-      const claims = decodeJson<JwtClaims>(parts[1]!, "claims");
       if (header.alg !== "RS256" || typeof header.kid !== "string" || header.kid.length === 0) {
         throw oauthFailure("unsupported signing algorithm or missing key id");
       }
       if (header.typ !== undefined && header.typ !== "JWT") throw oauthFailure("invalid token type");
+      const loaded = await loadJwks();
+      let jwks = loaded.document;
+      let jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
+      if (jwk === undefined && loaded.fromFreshCache) {
+        // A previously fresh document can miss a key just rotated in by the
+        // issuer. Refresh once, but only discard the exact document observed
+        // by this request so concurrent callers retain one shared refresh.
+        if (jwksCache?.document === jwks) jwksCache = undefined;
+        jwks = await refreshJwks();
+        jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
+      }
+      if (jwk === undefined) throw oauthFailure("signing key is not published");
+      const verifier = createVerify("RSA-SHA256");
+      verifier.update(`${parts[0]}.${parts[1]}`, "ascii");
+      if (!verifier.verify(asPublicKey(jwk), decodeBase64Url(parts[2]!))) throw oauthFailure("signature mismatch");
+      const claims = decodeJson<JwtClaims>(parts[1]!, "claims");
       if (claims.iss !== options.issuer) throw oauthFailure("issuer mismatch");
       if (!audienceIncludes(claims.aud, options.resource)) throw oauthFailure("audience/resource mismatch");
       const now = Math.floor(Date.now() / 1000);
@@ -163,16 +251,6 @@ export function createHostedOAuthVerifier(options: HostedOAuthVerifierOptions): 
       const scopes = scopeSet(claims.scope);
       if (options.requiredScopes.some((scope) => !scopes.has(scope))) throw oauthFailure("required scope is missing");
       if (options.isRevoked !== undefined && await options.isRevoked(claims)) throw oauthFailure("token is revoked");
-
-      const jwks = await loadJwks();
-      const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.use !== "enc");
-      if (jwk === undefined) {
-        jwksPromise = undefined;
-        throw oauthFailure("signing key is not published");
-      }
-      const verifier = createVerify("RSA-SHA256");
-      verifier.update(`${parts[0]}.${parts[1]}`, "ascii");
-      if (!verifier.verify(asPublicKey(jwk), decodeBase64Url(parts[2]!))) throw oauthFailure("signature mismatch");
       const subject = typeof claims.sub === "string" ? claims.sub : undefined;
       const clientId = typeof claims.client_id === "string" ? claims.client_id : subject;
       if (clientId === undefined) throw oauthFailure("subject is missing");

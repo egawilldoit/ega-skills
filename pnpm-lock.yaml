@@ -26,6 +26,9 @@ importers:
       '@ega-skills/router':
         specifier: workspace:*
         version: link:../router
+      '@ega-skills/schema':
+        specifier: workspace:*
+        version: link:../schema
       yaml:
         specifier: 2.9.0
         version: 2.9.0

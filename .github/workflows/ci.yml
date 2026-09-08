@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node 24
         uses: actions/setup-node@v6
@@ -57,3 +59,36 @@ jobs:
 
       - name: Check frozen specs
         run: pnpm specs:check
+
+      - name: Contract A gates
+        run: |
+          pnpm contracts:check-a
+          pnpm contracts:test-a
+
+      - name: Contract B gates
+        run: |
+          pnpm contracts:check-b
+          pnpm contracts:test-b
+
+      - name: Contract C gates
+        run: |
+          pnpm contracts:check-c
+          pnpm contracts:test-c
+
+      - name: Contract D gates
+        run: |
+          pnpm contracts:check-d
+          pnpm contracts:test-d
+
+      - name: Contract E gates
+        run: |
+          pnpm contracts:check-e
+          pnpm contracts:test-e
+
+      - name: Check generated working tree formatting
+        run: git diff --check
+
+      - name: Check committed pull request patch formatting
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"

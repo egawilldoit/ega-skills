@@ -1,8 +1,9 @@
-# Contract E — Remote Projects (FROZEN v1)
+# Contract E: Remote Projects (FREEZE CANDIDATE v1)
 
-**Status:** FROZEN
+**Status:** FREEZE CANDIDATE
 **Contract version:** 1
-**Milestone gate:** this contract freezes before 1.3 remote-project implementation.
+**Milestone gate:** this candidate must pass a dedicated exact-head review, CI,
+merge, and freeze record before it becomes repository-authoritative.
 **Normative authority:** Final Post-V1 Release Specification §5.1–§5.29 and
 `scripts/contracts/examples/contract-e/remote-projects.json`.
 

@@ -38,6 +38,8 @@ export interface SearchHit {
 export interface SearchOptions {
   /** Locked project versions: exact (skill_id, version_hash) pairs only. */
   readonly locked?: ReadonlyMap<string, string>;
+  /** Optional eligible catalog applied inside the FTS query before ranking. */
+  readonly eligibleSkillIds?: ReadonlySet<string>;
 }
 
 const TERM_RE = /[\p{L}\p{N}]+/gu;
@@ -146,9 +148,13 @@ export function searchSkills(
     const placeholders = pairs.map(() => "(?, ?)").join(", ");
     const params: string[] = [matchInput];
     for (const [skillId, versionHash] of pairs) params.push(skillId, versionHash);
+    const eligible = options.eligibleSkillIds === undefined ? undefined : [...options.eligibleSkillIds].sort();
+    if (eligible !== undefined && eligible.length === 0) return [];
+    const eligibleClause = eligible === undefined ? "" : ` AND f.skill_id IN (${eligible.map(() => "?").join(", ")})`;
+    if (eligible !== undefined) params.push(...eligible);
     const rows = db
       .prepare(
-        `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f WHERE skill_fts MATCH ? AND (f.skill_id, f.version_hash) IN (${placeholders}) ORDER BY bm25(skill_fts), f.skill_id, f.version_hash`,
+        `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f WHERE skill_fts MATCH ? AND (f.skill_id, f.version_hash) IN (${placeholders})${eligibleClause} ORDER BY bm25(skill_fts), f.skill_id, f.version_hash`,
       )
       .all<{ skillId: string; versionHash: string }>(...params) as Array<{
       skillId: string;
@@ -157,11 +163,16 @@ export function searchSkills(
     return rows.map((row) => ({ skillId: row.skillId, versionHash: row.versionHash }));
   }
 
+  const eligible = options.eligibleSkillIds === undefined ? undefined : [...options.eligibleSkillIds].sort();
+  if (eligible !== undefined && eligible.length === 0) return [];
+  const eligibleClause = eligible === undefined ? "" : ` AND f.skill_id IN (${eligible.map(() => "?").join(", ")})`;
+  const params: string[] = [matchInput];
+  if (eligible !== undefined) params.push(...eligible);
   const rows = db
     .prepare(
-      "SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f JOIN skills AS s ON s.skill_id = f.skill_id AND s.current_version_hash = f.version_hash WHERE skill_fts MATCH ? ORDER BY bm25(skill_fts), f.skill_id, f.version_hash",
+      `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f JOIN skills AS s ON s.skill_id = f.skill_id AND s.current_version_hash = f.version_hash WHERE skill_fts MATCH ?${eligibleClause} ORDER BY bm25(skill_fts), f.skill_id, f.version_hash`,
     )
-    .all<{ skillId: string; versionHash: string }>(matchInput) as Array<{
+    .all<{ skillId: string; versionHash: string }>(...params) as Array<{
     skillId: string;
     versionHash: string;
   }>;

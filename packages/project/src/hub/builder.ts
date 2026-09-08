@@ -41,6 +41,8 @@ export interface HubBuildResult {
   skills: HubBuildSkill[];
   hubId: string;
   adoptedSources: HubBuildSource[];
+  /** Exact provenance for every selected SkillVersion; `null` means owned. */
+  skillSourceIds: Readonly<Record<string, string | null>>;
 }
 
 interface ReadStatement {
@@ -119,12 +121,14 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   }
   // Expected catalog: owned skills + vendored skills under selected roots.
   const expected = new Map<string, ExpectedRoot>();
-  const claim = (skillId: string, namespace: string, absPath: string): void => {
+  const skillSourceIds: Record<string, string | null> = {};
+  const claim = (skillId: string, namespace: string, absPath: string, sourceId?: string): void => {
     const prior = expected.get(skillId);
     if (prior !== undefined && prior.absPath !== absPath) {
       throw new HubError("E_BUILD_ATTESTATION", `duplicate canonical Skill ID ${skillId} from ${prior.absPath} and ${absPath}`);
     }
     expected.set(skillId, { absPath, namespace });
+    skillSourceIds[skillId] = sourceId ?? null;
   };
   for (const owned of hub.owned) {
     for (const rel of discoverSkillDirs(hubDir, [owned.path])) {
@@ -138,7 +142,7 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
     const treeDir = join(hubDir, "trees", name);
     for (const rel of discoverSkillDirs(treeDir, record.selection.roots)) {
       const leaf = rel.split("/").pop() as string;
-      claim(`${source.namespace}/${leaf}`, source.namespace, join(treeDir, ...rel.split("/")));
+      claim(`${source.namespace}/${leaf}`, source.namespace, join(treeDir, ...rel.split("/")), name);
     }
   }
   // Fresh empty isolated registry: developer history cannot leak in. The env
@@ -154,7 +158,7 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
         throw new HubError("E_BUILD_ATTESTATION", `import failed with zero tolerance: ${first ? first.error : "unknown"}`);
       }
     }
-    return verifyCatalog(registryHome, registry, expected, hub.hubId, adopted.sources);
+    return verifyCatalog(registryHome, registry, expected, hub.hubId, adopted.sources, skillSourceIds);
   } finally {
     registry.close();
   }
@@ -166,6 +170,7 @@ function verifyCatalog(
   expected: Map<string, ExpectedRoot>,
   hubId: string,
   adoptedSources: SourcesLock["sources"],
+  skillSourceIds: Readonly<Record<string, string | null>>,
 ): HubBuildResult {
   const db = registry.db as unknown as ReadableDb;
   const actual = new Set(
@@ -204,5 +209,6 @@ function verifyCatalog(
     hubId,
     registryHome,
     skills,
+    skillSourceIds,
   };
 }

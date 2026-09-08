@@ -62,7 +62,11 @@ function hasRecognizedManifest(entries: readonly string[]): boolean {
   return entries.some(isRequirementsFile);
 }
 
-function hasWorkspaceMarker(dir: string, entries: readonly string[]): boolean {
+function hasWorkspaceMarker(
+  dir: string,
+  entries: readonly string[],
+  readFile: (path: string) => string | null = readFileText,
+): boolean {
   if (
     entries.includes("pnpm-workspace.yaml") ||
     entries.includes("lerna.json") ||
@@ -72,7 +76,7 @@ function hasWorkspaceMarker(dir: string, entries: readonly string[]): boolean {
   }
   if (entries.includes("package.json")) {
     try {
-      const parsed: unknown = JSON.parse(readFileText(`${dir}/package.json`) ?? "");
+      const parsed: unknown = JSON.parse(readFile(`${dir}/package.json`) ?? "");
       if (
         typeof parsed === "object" &&
         parsed !== null &&
@@ -85,7 +89,7 @@ function hasWorkspaceMarker(dir: string, entries: readonly string[]): boolean {
       // Malformed manifests are neutral absence, never markers.
     }
   }
-  const cargo = readFileText(`${dir}/Cargo.toml`);
+  const cargo = readFile(`${dir}/Cargo.toml`);
   if (cargo !== null && /^\s*\[workspace\]/m.test(cargo)) return true;
   return false;
 }
@@ -110,12 +114,19 @@ function rebaseSource(source: string, evidenceDir: string, baseDir: string): str
   return `${prefix}/${source}`;
 }
 
-function scanDirectory(dir: string) {
+function scanDirectory(dir: string, readFile: (path: string) => string | null = readFileText) {
   return {
     entries: [...listDirectory(dir)].sort(),
-    readFile: readFileText,
+    readFile,
     isRealDirectory,
   };
+}
+
+export interface ProjectFingerprintResolutionOptions {
+  /** Optional bounded reader used by remote publication. */
+  readonly readFileText?: (path: string) => string | null;
+  /** Stop ancestor discovery at this real repository boundary. */
+  readonly rootPath?: string;
 }
 
 /**
@@ -123,35 +134,55 @@ function scanDirectory(dir: string) {
  * Error for caller errors (missing path); empty/unknown directories yield a
  * neutral fingerprint with null roots (absence is never mismatch).
  */
-export function resolveProjectFingerprint(projectPath: string): ProjectFingerprint {
+export function resolveProjectFingerprint(
+  projectPath: string,
+  options: ProjectFingerprintResolutionOptions = {},
+): ProjectFingerprint {
   let realStart: string;
   try {
     realStart = realpathSync(resolve(projectPath));
   } catch {
     throw new Error(`Project path does not exist: ${projectPath}`);
   }
+  let boundary: string | null = null;
+  if (options.rootPath !== undefined) {
+    try {
+      boundary = realpathSync(resolve(options.rootPath));
+    } catch {
+      throw new Error(`Fingerprint root path does not exist: ${options.rootPath}`);
+    }
+    const relativeStart = relative(boundary, realStart);
+    if (relativeStart === ".." || relativeStart.startsWith(`..${sep}`) || resolve(boundary, relativeStart) !== realStart) {
+      throw new Error("Project path must remain inside the fingerprint root");
+    }
+  }
+  const readFile = options.readFileText ?? readFileText;
 
   let packageRoot: string | null = null;
   let workspaceRoot: string | null = null;
   for (const dir of ancestorChain(realStart)) {
+    if (boundary !== null) {
+      const relativeDir = relative(boundary, dir);
+      if (relativeDir === ".." || relativeDir.startsWith(`..${sep}`)) break;
+    }
     const entries = listDirectory(dir);
     if (packageRoot === null && hasRecognizedManifest(entries)) {
       packageRoot = dir;
     }
-    if (workspaceRoot === null && hasWorkspaceMarker(dir, entries)) {
+    if (workspaceRoot === null && hasWorkspaceMarker(dir, entries, readFile)) {
       workspaceRoot = dir;
     }
     if (packageRoot !== null && workspaceRoot !== null) break;
   }
 
   const packageEvidence: FingerprintEvidence[] =
-    packageRoot === null ? [] : detectDirectoryEvidence(packageRoot, scanDirectory(packageRoot));
+    packageRoot === null ? [] : detectDirectoryEvidence(packageRoot, scanDirectory(packageRoot, readFile));
   // Same dir contributes both app and workspace records once; a distinct
   // workspace root contributes WORKSPACE records only — never app identity.
   const workspaceEvidence: FingerprintEvidence[] =
     workspaceRoot === null || workspaceRoot === packageRoot
       ? []
-      : detectDirectoryEvidence(workspaceRoot, scanDirectory(workspaceRoot)).filter(
+      : detectDirectoryEvidence(workspaceRoot, scanDirectory(workspaceRoot, readFile)).filter(
           (record) => record.kind === "WORKSPACE",
         );
 

@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
-import { createEnvelope } from "../../packages/hashing/dist/index.js";
+import { canonicalizeJson, createEnvelope, hashBytes } from "../../packages/hashing/dist/index.js";
 import {
   hashNormalizedConfig,
   parseProjectConfig,
   serializeLockfile,
   createProjectContextStore,
+  FileProjectContextPersistence,
+  createContextControlPlaneHandler,
   verifyProjectContext,
 } from "../../packages/project/dist/index.js";
+import { runContextPublish } from "../../packages/cli/dist/index.js";
 
 const root = join(import.meta.dirname, "..", "..");
 const cli = join(root, "packages", "cli", "bin", "ega-skills.mjs");
@@ -102,12 +106,12 @@ test("remote lock plan/apply and context publish preserve local authority bounda
   assert.deepEqual(readFileSync(configPath), configBefore);
   assert.deepEqual(readFileSync(lockPath), lockBefore);
 
-  const refused = runCli(project, "remote-lock", "apply", "--plan", planPath);
+  const refused = runCli(project, "remote-lock", "apply", "--plan", planPath, "--release", releasePath);
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /explicit approval/);
   assert.deepEqual(readFileSync(lockPath), lockBefore);
 
-  const applied = runCli(project, "remote-lock", "apply", "--plan", planPath, "--yes");
+  const applied = runCli(project, "remote-lock", "apply", "--plan", planPath, "--release", releasePath, "--yes");
   assert.equal(applied.status, 0, applied.stderr);
   assert.equal(JSON.parse(applied.stdout).applied, true);
   const appliedLock = readFileSync(lockPath);
@@ -135,6 +139,165 @@ test("remote lock plan/apply and context publish preserve local authority bounda
   verifyProjectContext(result.context);
   assert.deepEqual(readFileSync(configPath), configBefore);
   assert.deepEqual(readFileSync(lockPath), appliedLock);
+});
+
+test("remote lock apply rejects a self-consistent candidate outside its target release", () => {
+  const { project, releasePath } = setupProject();
+  const planPath = join(project, "reviewed-plan.json");
+  const planned = runCli(project, "remote-lock", "plan", "--release", releasePath, "--workspace-id", "workspace-a", "--project-id", "project-a", "--without-fingerprint", "--output", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  const forged = {
+    ...plan,
+    candidate_lock: {
+      ...plan.candidate_lock,
+      skills: { "ega/alpha": { name: "alpha", version_hash: `sha256:${"b".repeat(64)}` } },
+    },
+  };
+  const { plan_digest: _ignored, ...forgedArtifact } = forged;
+  forged.plan_digest = hashBytes(canonicalizeJson(forgedArtifact));
+  const forgedPath = join(project, "forged-plan.json");
+  writeFileSync(forgedPath, `${JSON.stringify(forged)}\n`);
+  const before = readFileSync(join(project, ".egaskills.lock"));
+  const result = runCli(project, "remote-lock", "apply", "--plan", forgedPath, "--release", releasePath, "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /not contained in HubRelease/);
+  assert.deepEqual(readFileSync(join(project, ".egaskills.lock")), before);
+});
+
+test("remote lock apply rejects a self-consistent but false change summary", () => {
+  const { project, releasePath } = setupProject();
+  const planPath = join(project, "reviewed-plan.json");
+  const planned = runCli(project, "remote-lock", "plan", "--release", releasePath, "--workspace-id", "workspace-a", "--project-id", "project-a", "--without-fingerprint", "--output", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  const { plan_digest: _ignored, ...forgedArtifact } = { ...plan, added_entries: [] };
+  const forged = { ...forgedArtifact, plan_digest: hashBytes(canonicalizeJson(forgedArtifact)) };
+  const forgedPath = join(project, "false-summary-plan.json");
+  writeFileSync(forgedPath, `${JSON.stringify(forged)}\n`);
+  const before = readFileSync(join(project, ".egaskills.lock"));
+  const result = runCli(project, "remote-lock", "apply", "--plan", forgedPath, "--release", releasePath, "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /changes do not match/);
+  assert.deepEqual(readFileSync(join(project, ".egaskills.lock")), before);
+});
+
+test("remote lock apply enforces the current local skill deny policy", () => {
+  const { project, releasePath } = setupProject();
+  const configPath = join(project, ".egaskills.yaml");
+  const lockPath = join(project, ".egaskills.lock");
+  const deniedConfigText = "schema_version: 1\nskills:\n  deny: [ega/alpha]\nrouting:\n  max_skills: 2\n";
+  writeFileSync(configPath, deniedConfigText);
+  const deniedConfig = parseProjectConfig(deniedConfigText);
+  writeFileSync(lockPath, serializeLockfile({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: hashNormalizedConfig(deniedConfig) },
+    skills: {},
+  }));
+
+  const planPath = join(project, "reviewed-plan.json");
+  const planned = runCli(project, "remote-lock", "plan", "--release", releasePath, "--workspace-id", "workspace-a", "--project-id", "project-a", "--without-fingerprint", "--output", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  assert.deepEqual(plan.candidate_lock.skills, {});
+
+  const forgedArtifact = {
+    ...plan,
+    candidate_lock: {
+      ...plan.candidate_lock,
+      skills: { "ega/alpha": { name: "alpha", version_hash: versionHash } },
+    },
+    added_entries: ["ega/alpha"],
+  };
+  delete forgedArtifact.plan_digest;
+  const forged = { ...forgedArtifact, plan_digest: hashBytes(canonicalizeJson(forgedArtifact)) };
+  const forgedPath = join(project, "denied-skill-plan.json");
+  writeFileSync(forgedPath, `${JSON.stringify(forged)}\n`);
+  const before = readFileSync(lockPath);
+  const result = runCli(project, "remote-lock", "apply", "--plan", forgedPath, "--release", releasePath, "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /does not match local project policy/);
+  assert.deepEqual(readFileSync(lockPath), before);
+});
+
+test("context publish uses an authenticated local HTTP control plane and revocation", async () => {
+  const { project, releasePath } = setupProject();
+  const store = createProjectContextStore();
+  const handler = createContextControlPlaneHandler({
+    store,
+    authenticate: (token) => token === "staging-token",
+    authorize: ({ workspaceId, projectId }) => workspaceId === "workspace-a" && projectId === "project-a",
+  });
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const webRequest = new Request(`http://${request.headers.host}${request.url}`, {
+      method: request.method,
+      headers: request.headers,
+      body: body.length === 0 ? undefined : body,
+    });
+    const webResponse = await handler(webRequest);
+    response.writeHead(webResponse.status, Object.fromEntries(webResponse.headers));
+    response.end(Buffer.from(await webResponse.arrayBuffer()));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const previousToken = process.env.EGA_TEST_CONTEXT_TOKEN;
+  process.env.EGA_TEST_CONTEXT_TOKEN = "staging-token";
+  try {
+    const published = await runContextPublish({
+      project,
+      release: releasePath,
+      workspaceId: "workspace-a",
+      projectId: "project-a",
+      contextId: "ctx-http",
+      withoutFingerprint: true,
+      controlPlane: endpoint,
+      tokenEnv: "EGA_TEST_CONTEXT_TOKEN",
+      env: process.env,
+    });
+    assert.equal(published.publication?.context_id, "ctx-http");
+    assert.equal(store.get("ctx-http")?.revoked, false);
+    const fetched = await fetch(`${endpoint}/v1/contexts/ctx-http`, { headers: { authorization: "Bearer staging-token" } });
+    assert.equal(fetched.status, 200);
+    assert.equal((await fetched.json()).context.context_digest, published.context.context_digest);
+    const revoked = await fetch(`${endpoint}/v1/contexts/ctx-http`, { method: "DELETE", headers: { authorization: "Bearer staging-token" } });
+    assert.equal(revoked.status, 200);
+    assert.equal(store.get("ctx-http")?.revoked, true);
+  } finally {
+    if (previousToken === undefined) delete process.env.EGA_TEST_CONTEXT_TOKEN;
+    else process.env.EGA_TEST_CONTEXT_TOKEN = previousToken;
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("context persistence survives control-plane process reconstruction", async () => {
+  const { project, releasePath } = setupProject();
+  const published = await runContextPublish({
+    project,
+    release: releasePath,
+    workspaceId: "workspace-a",
+    projectId: "project-a",
+    contextId: "ctx-durable",
+    withoutFingerprint: true,
+  });
+  const persistence = new FileProjectContextPersistence(join(project, "control-plane", "contexts.json"));
+  const first = createProjectContextStore(persistence);
+  first.publish({ contextId: published.context_id, context: published.context });
+  const restored = createProjectContextStore(persistence);
+  assert.equal(restored.get("ctx-durable")?.context.context_digest, published.context.context_digest);
+  assert.equal(restored.get("ctx-durable")?.revoked, false);
+  assert.throws(
+    () => restored.publish({ contextId: published.context_id, context: published.context }),
+    /already published/,
+  );
+  restored.revoke("ctx-durable");
+  const restarted = createProjectContextStore(persistence);
+  assert.equal(restarted.isRevoked("ctx-durable"), true);
 });
 
 test("context publication fingerprints package-scoped monorepo inputs without absolute paths", () => {

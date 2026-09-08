@@ -277,6 +277,29 @@ export interface CreateRemoteLockPlanInput {
   readonly fingerprint_digest?: string | null;
 }
 
+function lockChanges(
+  existingLock: ProjectLockV1 | null,
+  candidateLock: ProjectLockV1,
+): {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly RemoteLockChange[];
+} {
+  const oldSkills = existingLock?.skills ?? {};
+  const newSkills = candidateLock.skills;
+  const added = Object.keys(newSkills).filter((skillId) => oldSkills[skillId] === undefined).sort();
+  const removed = Object.keys(oldSkills).filter((skillId) => newSkills[skillId] === undefined).sort();
+  const changed = Object.keys(newSkills)
+    .filter((skillId) => oldSkills[skillId] !== undefined && oldSkills[skillId]?.version_hash !== newSkills[skillId]?.version_hash)
+    .sort()
+    .map((skillId) => freezeRecord({
+      skill_id: skillId,
+      previous_version_hash: oldSkills[skillId]!.version_hash,
+      candidate_version_hash: newSkills[skillId]!.version_hash,
+    }));
+  return { added, removed, changed };
+}
+
 export function createRemoteLockPlan(input: CreateRemoteLockPlanInput): RemoteLockPlan {
   assertId(input.workspace_id, "workspace_id");
   assertId(input.project_id, "project_id");
@@ -287,18 +310,7 @@ export function createRemoteLockPlan(input: CreateRemoteLockPlanInput): RemoteLo
     ? null
     : validatedLock(input.existing_lock, configDigest, "existing lock");
   assertLockInRelease(candidateLock, input.target_release);
-  const oldSkills = existingLock?.skills ?? {};
-  const newSkills = candidateLock.skills;
-  const addedEntries = Object.keys(newSkills).filter((skillId) => oldSkills[skillId] === undefined).sort();
-  const removedEntries = Object.keys(oldSkills).filter((skillId) => newSkills[skillId] === undefined).sort();
-  const changedEntries = Object.keys(newSkills)
-    .filter((skillId) => oldSkills[skillId] !== undefined && oldSkills[skillId]?.version_hash !== newSkills[skillId]?.version_hash)
-    .sort()
-    .map((skillId) => freezeRecord({
-      skill_id: skillId,
-      previous_version_hash: oldSkills[skillId]!.version_hash,
-      candidate_version_hash: newSkills[skillId]!.version_hash,
-    }));
+  const changes = lockChanges(existingLock, candidateLock);
   const fingerprintDigest = input.fingerprint_digest ?? null;
   assertDigest(fingerprintDigest, "fingerprint_digest");
   const artifact: RemoteLockPlanArtifact = freezeRecord({
@@ -308,9 +320,9 @@ export function createRemoteLockPlan(input: CreateRemoteLockPlanInput): RemoteLo
     existing_lock_digest: existingLock === null ? null : hashProjectLock(existingLock),
     target_release_digest: input.target_release.digest,
     candidate_lock: freezeLock(candidateLock),
-    added_entries: Object.freeze(addedEntries),
-    removed_entries: Object.freeze(removedEntries),
-    changed_entries: Object.freeze(changedEntries),
+    added_entries: Object.freeze([...changes.added]),
+    removed_entries: Object.freeze([...changes.removed]),
+    changed_entries: Object.freeze([...changes.changed]),
     fingerprint_digest: fingerprintDigest,
   });
   return freezeRecord({ ...artifact, plan_digest: digestCanonical(artifact) });
@@ -383,4 +395,35 @@ export function verifyRemoteLockPlan(plan: RemoteLockPlan): void {
   }
   const { plan_digest: actual, ...artifact } = plan;
   if (digestCanonical(artifact) !== actual) remoteError(REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT, "plan_digest does not match its canonical artifact");
+}
+
+/**
+ * Verify the plan's diff against the lock that is actually present at apply
+ * time. The signed/self-consistent plan digest is not authority for the
+ * previous state: the adjacent local lock is.
+ */
+export function verifyRemoteLockPlanAgainstLock(
+  plan: RemoteLockPlan,
+  currentLock: ProjectLockV1 | null,
+): void {
+  verifyRemoteLockPlan(plan);
+  const existing = currentLock === null
+    ? null
+    : validatedLock(currentLock, plan.project_config_digest, "current lock");
+  const actualDigest = existing === null ? null : hashProjectLock(existing);
+  if (actualDigest !== plan.existing_lock_digest) {
+    remoteError(
+      REMOTE_PROJECT_ERROR_CODES.LOCK_RELEASE_MISMATCH,
+      "remote lock plan existing-lock identity does not match the local lock",
+    );
+  }
+  const expected = lockChanges(existing, plan.candidate_lock);
+  if (digestCanonical(plan.added_entries) !== digestCanonical(expected.added) ||
+      digestCanonical(plan.removed_entries) !== digestCanonical(expected.removed) ||
+      digestCanonical(plan.changed_entries) !== digestCanonical(expected.changed)) {
+    remoteError(
+      REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT,
+      "remote lock plan changes do not match the local and candidate locks",
+    );
+  }
 }

@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
-import { createHostedMcpHandler, createHostedRuntime } from "../../packages/mcp/dist/hosted.js";
+import { createHostedMcpHandler, createHostedRuntime, hostedContextFromPersistedRecord } from "../../packages/mcp/dist/hosted.js";
 import { createHostedOAuthVerifier } from "../../packages/mcp/dist/hosted-auth.js";
 import {
+  createHubRelease,
+  buildHubRelease,
+  createContextControlPlaneHandler,
   createProjectContextArtifact,
+  createProjectContextStore,
+  FileProjectContextPersistence,
+  createReleasePackage,
+  createReleaseFtsTable,
+  deriveAliasMap,
+  deriveSearchIndexInput,
+  deriveTokenArtifact,
+  deriveSkillSourceProvenance,
+  getProjectContext,
   hashNormalizedConfig,
+  listProjectContexts,
   parseProjectConfig,
+  publishProjectContext,
+  revokeProjectContext,
+  skillSourceProvenanceDigest,
 } from "../../packages/project/dist/index.js";
 import {
   getCurrentVersionHash,
@@ -35,43 +51,98 @@ test.after(async () => {
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
 
-async function fixture() {
+async function fixture(mixed = false, punctuated = false) {
   const root = await mkdtemp(join(tmpdir(), "ega-hosted-runtime-"));
   roots.add(root);
   const home = join(root, "release");
   const source = join(root, "source");
-  await mkdir(join(source, "alpha"), { recursive: true });
-  await writeFile(
-    join(source, "alpha", "SKILL.md"),
-    "---\nname: alpha\ndescription: Alpha hosted skill\n---\n\n# Alpha\n\nHosted guidance.\n",
-  );
-  await writeFile(join(source, "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [alpha hosted]\n");
+  if (punctuated) {
+    for (const [namespace, description] of [["ega-a", "Hyphen hosted skill"], ["ega_a", "Underscore hosted skill"]]) {
+      const namespaceSource = join(root, namespace);
+      await mkdir(join(namespaceSource, "foo"), { recursive: true });
+      await writeFile(
+        join(namespaceSource, "foo", "SKILL.md"),
+        `---\nname: foo\ndescription: ${description}\n---\n\n# Foo\n\nHosted guidance.\n`,
+      );
+      await writeFile(join(namespaceSource, "foo", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [hosted]\n");
+    }
+  } else {
+    await mkdir(join(source, "alpha"), { recursive: true });
+    await writeFile(
+      join(source, "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: Alpha hosted skill\n---\n\n# Alpha\n\nHosted guidance.\n",
+    );
+    if (mixed) {
+      await mkdir(join(source, "beta"), { recursive: true });
+      await writeFile(
+        join(source, "beta", "SKILL.md"),
+        "---\nname: beta\ndescription: Beta hosted skill\n---\n\n# Beta\n\nBeta guidance.\n",
+      );
+      await writeFile(join(source, "beta", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [beta hosted]\n");
+    }
+    await writeFile(join(source, "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [alpha hosted]\n");
+  }
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
   try {
-    const summary = await importSkills(registry, { path: source, namespace: "ega" });
-    assert.equal(summary.failed, 0);
-    const skillId = "ega/alpha";
-    const versionHash = getCurrentVersionHash(registry.db, skillId);
-    const release = createEnvelope({
-      object_type: "ega.hub-release",
-      schema_version: 1,
-      payload: {
-        hub_id: "personal",
-        skill_versions: { [skillId]: versionHash },
-        alias_map_digest: `sha256:${"1".repeat(64)}`,
-        search_index_input_digest: `sha256:${"2".repeat(64)}`,
-        token_artifact_digest: `sha256:${"3".repeat(64)}`,
-        adopted_sources: [],
-        contracts: RELEASE_CONTRACTS,
-        build: { fresh_registry: true, import_failures: 0, expected_catalog_match: true },
-      },
-    });
+    if (punctuated) {
+      for (const namespace of ["ega-a", "ega_a"]) {
+        const summary = await importSkills(registry, { path: join(root, namespace), namespace });
+        assert.equal(summary.failed, 0);
+      }
+    } else {
+      const summary = await importSkills(registry, { path: source, namespace: "ega" });
+      assert.equal(summary.failed, 0);
+    }
+    const skillIds = punctuated ? ["ega-a/foo", "ega_a/foo"] : mixed ? ["ega/alpha", "ega/beta"] : ["ega/alpha"];
+    const versions = Object.fromEntries(skillIds.map((skillId) => [skillId, getCurrentVersionHash(registry.db, skillId)]));
+    const skillId = skillIds[0];
+    const versionHash = versions[skillId];
+    const skillSourceIds = mixed
+      ? { "ega/alpha": "source-a", "ega/beta": "source-b" }
+      : Object.fromEntries(skillIds.map((id) => [id, null]));
+    const build = {
+      registryHome: home,
+      skills: skillIds.map((id) => ({ skillId: id, versionHash: versions[id] })),
+      hubId: "personal",
+      adoptedSources: mixed ? [
+        { sourceId: "source-a", sourceConfigDigest: `sha256:${"a".repeat(64)}`, resolvedCommit: "a".repeat(40), selectedSkillTreeDigest: `sha256:${"b".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"c".repeat(64)}` },
+        { sourceId: "source-b", sourceConfigDigest: `sha256:${"d".repeat(64)}`, resolvedCommit: "e".repeat(40), selectedSkillTreeDigest: `sha256:${"f".repeat(64)}`, vendoredSnapshotDigest: `sha256:${"0".repeat(64)}` },
+      ] : [],
+      skillSourceIds,
+    };
+    const artifacts = {
+      aliasMap: deriveAliasMap(build),
+      searchIndexInput: deriveSearchIndexInput(build),
+      tokenArtifact: deriveTokenArtifact(build),
+    };
+    const release = createHubRelease(build, artifacts);
+    const ftsTable = `release_fts_${release.digest.slice("sha256:".length)}`;
+    createReleaseFtsTable(registry.db, ftsTable, artifacts.searchIndexInput.rows);
+    registry.db.exec("CREATE TABLE ega_release_skill_sources (skill_id TEXT PRIMARY KEY NOT NULL, source_id TEXT)");
+    const sourceInsert = registry.db.prepare("INSERT INTO ega_release_skill_sources (skill_id, source_id) VALUES (?, ?)");
+    const sourceRows = deriveSkillSourceProvenance(build);
+    for (const row of sourceRows) sourceInsert.run(row.skill_id, row.source_id);
+    registry.db.exec("CREATE TABLE ega_release_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)");
+    const metadata = registry.db.prepare("INSERT INTO ega_release_metadata (key, value) VALUES (?, ?)");
+    metadata.run("alias_map_digest", release.payload.alias_map_digest);
+    metadata.run("fts_table", ftsTable);
+    metadata.run("hub_release_digest", release.digest);
+    metadata.run("search_index_input_digest", release.payload.search_index_input_digest);
+    metadata.run("skill_source_map_digest", skillSourceProvenanceDigest(sourceRows));
+    metadata.run("token_artifact_digest", release.payload.token_artifact_digest);
+    const sqliteArtifactDigest = `sha256:${sha256Hex(await readFile(join(home, "registry.sqlite")))}`;
     return {
       home,
       release,
+      artifacts,
+      releasePackage: createReleasePackage(release, sqliteArtifactDigest, skillIds.length),
+      ftsTable,
+      skillSourceIds: build.skillSourceIds,
+      skillIds,
+      versions,
       skillId,
       versionHash,
-      sqliteArtifactDigest: `sha256:${sha256Hex(await readFile(join(home, "registry.sqlite")))}`,
+      sqliteArtifactDigest,
     };
   } finally {
     registry.close();
@@ -80,6 +151,38 @@ async function fixture() {
 
 function auth() {
   return async () => true;
+}
+
+function snapshot(value, release = value.release) {
+  return {
+    release,
+    registryHome: value.registryHome ?? value.home,
+    sqliteArtifactDigest: value.sqliteArtifactDigest ?? value.releasePackage.sqlite_artifact_digest,
+    releasePackage: value.releasePackage,
+    artifacts: value.artifacts,
+    ftsTable: value.ftsTable,
+    skillSourceIds: value.skillSourceIds,
+  };
+}
+
+async function productionReleaseFixture(count = 1) {
+  const root = await mkdtemp(join(tmpdir(), "ega-hosted-builder-runtime-"));
+  roots.add(root);
+  for (let index = 0; index < count; index += 1) {
+    const name = index === 0 ? "alpha" : `skill-${index}`;
+    await mkdir(join(root, "owned", "ega", name), { recursive: true });
+    await writeFile(
+      join(root, "owned", "ega", name, "SKILL.md"),
+      `---\nname: ${name}\ndescription: Production-built hosted skill ${index}\n---\n\n# ${name}\n\nBuilt through the release pipeline.\n`,
+    );
+    await writeFile(join(root, "owned", "ega", name, "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [production]\n");
+  }
+  await writeFile(join(root, "hub.yaml"), "schema_version: 1\nhub:\n  id: production-runtime\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  await writeFile(join(root, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  await writeFile(join(root, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = await buildHubRelease(root);
+  roots.add(built.registryHome);
+  return built;
 }
 
 function contextFor(value, contextId) {
@@ -144,7 +247,7 @@ function request(body, headers = {}) {
 test("hosted runtime verifies a release and exposes the exact four personal tools", async () => {
   const value = await fixture();
   const runtime = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: auth(),
   });
@@ -184,10 +287,153 @@ test("hosted runtime verifies a release and exposes the exact four personal tool
   assert.match(content.structuredContent.content, /Hosted guidance/);
 });
 
+test("production HubRelease artifacts load directly into the hosted runtime", async () => {
+  const built = await productionReleaseFixture();
+  const value = {
+    ...built,
+    home: built.registryHome,
+    sqliteArtifactDigest: built.releasePackage.sqlite_artifact_digest,
+    skillId: "ega/alpha",
+    versionHash: built.skills.find((skill) => skill.skillId === "ega/alpha").versionHash,
+  };
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: built.release.digest,
+    authorize: auth(),
+  });
+  const search = await runtime.call("search", { query: "production" });
+  assert.equal(search.isError, false);
+  assert.equal(search.structuredContent.results[0].skill_id, "ega/alpha");
+  const resolved = await runtime.call("resolve", { task: "production" });
+  assert.equal(resolved.isError, false);
+  const inspected = await runtime.call("inspect", { skill_id: "ega/alpha", release_digest: built.release.digest });
+  assert.equal(inspected.isError, false);
+  const content = await runtime.call("get_content", {
+    skill_id: "ega/alpha",
+    version_hash: value.versionHash,
+    level: "L2",
+    max_tokens: 10000,
+    release_digest: built.release.digest,
+  });
+  assert.equal(content.isError, false);
+  assert.match(content.structuredContent.content, /Built through the release pipeline/);
+
+  const tampered = snapshot({
+    ...value,
+    artifacts: {
+      ...built.artifacts,
+      searchIndexInput: {
+        ...built.artifacts.searchIndexInput,
+        rows: built.artifacts.searchIndexInput.rows.map((row, index) => index === 0 ? { ...row, description: "tampered" } : row),
+      },
+    },
+  });
+  assert.throws(
+    () => createHostedRuntime({ releases: [tampered], stableReleaseDigest: built.release.digest, authorize: auth() }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY",
+  );
+});
+
+test("hosted authorization uses bounded eligibility concurrency and preserves final recheck", async () => {
+  const built = await productionReleaseFixture(20);
+  let active = 0;
+  let maxActive = 0;
+  let resourceCalls = 0;
+  const runtime = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      resourceCalls += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await sleep(5);
+      active -= 1;
+      return true;
+    },
+  });
+  const search = await runtime.call("search", { query: "production", limit: 1 });
+  assert.equal(search.isError, false);
+  assert.ok(maxActive <= 8, `authorization concurrency was ${maxActive}`);
+  assert.equal(resourceCalls, 21, "eligibility checks plus one final delivery check");
+
+  let finalCheck = false;
+  const failAtDelivery = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      if (finalCheck) return false;
+      finalCheck = true;
+      return true;
+    },
+  });
+  const denied = await failAtDelivery.call("search", { query: "production", limit: 1 });
+  assert.equal(denied.structuredContent.error.code, "E_CONTENT_DENIED");
+});
+
+test("hosted authorization memoizes repeated delivery resources but aborts new work", async () => {
+  const built = await productionReleaseFixture();
+  const calls = [];
+  const runtime = createHostedRuntime({
+    releases: [snapshot(built)],
+    stableReleaseDigest: built.release.digest,
+    authorize: async (request) => {
+      if (request.skillId !== undefined) calls.push(`${request.skillId}@${request.versionHash}`);
+      return true;
+    },
+  });
+  const resolved = await runtime.call("resolve", { task: "production" });
+  assert.equal(resolved.isError, false);
+  assert.deepEqual(calls, [calls[0], calls[0]], "one eligibility check and one fresh delivery check");
+
+  const many = await productionReleaseFixture(20);
+  const controller = new AbortController();
+  let launched = 0;
+  const aborting = createHostedRuntime({
+    releases: [snapshot(many)],
+    stableReleaseDigest: many.release.digest,
+    authorize: async ({ skillId }) => {
+      if (skillId === undefined) return true;
+      launched += 1;
+      controller.abort();
+      return true;
+    },
+  });
+  const aborted = await aborting.call("search", { query: "production" }, undefined, controller.signal);
+  assert.equal(aborted.structuredContent.error.code, "E_REQUEST_LIMIT");
+  assert.equal(launched, 1, "abort must stop workers from launching more authorization checks");
+});
+
+test("hosted startup preserves release UTF-16 ordering for punctuation-bearing skill IDs", async () => {
+  const value = await fixture(false, true);
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  });
+  const result = await runtime.call("search", { query: "hosted", limit: 10 });
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.structuredContent.results.map((row) => row.skill_id), ["ega-a/foo", "ega_a/foo"]);
+});
+
+test("hosted startup rejects a deployment source remap when the immutable snapshot disagrees", async () => {
+  const value = await fixture(true);
+  const remapped = snapshot({ ...value, skillSourceIds: { ...value.skillSourceIds, "ega/beta": "source-a" } });
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [remapped],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /immutable release provenance/.test(error.message),
+  );
+});
+
 test("hosted scope fails closed and never accepts a local project path", async () => {
   const value = await fixture();
   const runtime = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: auth(),
   });
@@ -212,7 +458,7 @@ test("hosted context selection binds exact lock/release and revocation has no fa
   const binding = contextFor(value, "ctx-main");
   let revoked = false;
   const runtime = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     contexts: [binding],
     isContextRevoked: () => revoked,
@@ -241,10 +487,86 @@ test("hosted context selection binds exact lock/release and revocation has no fa
   assert.equal(denied.structuredContent.error.code, "E_CONTEXT_REVOKED");
 });
 
+test("hosted context revocation is rechecked before result delivery", async () => {
+  const value = await fixture();
+  const binding = contextFor(value, "ctx-race");
+  let revoked = false;
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    contexts: [binding],
+    isContextRevoked: () => revoked,
+    authorize: async (request) => {
+      if (request.skillId !== undefined) revoked = true;
+      return true;
+    },
+  });
+  const result = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, "E_CONTEXT_REVOKED");
+});
+
+test("remote context publication persists authority through restart and revocation", async () => {
+  const value = await fixture();
+  const binding = contextFor(value, "ctx-persisted");
+  const persistenceRoot = await mkdtemp(join(tmpdir(), "ega-context-authority-"));
+  roots.add(persistenceRoot);
+  const persistence = new FileProjectContextPersistence(join(persistenceRoot, "contexts.json"));
+  const firstStore = createProjectContextStore(persistence);
+  const firstHandler = createContextControlPlaneHandler({
+    store: firstStore,
+    authenticate: (token) => token === "context-token",
+    authorize: () => true,
+  });
+  const firstFetch = async (input, init) => firstHandler(new Request(input, init));
+  const endpoint = "http://127.0.0.1:8787";
+  const authority = { config: binding.config, lock: binding.lock, fingerprint: null };
+  const published = await publishProjectContext(
+    endpoint,
+    "context-token",
+    binding.contextId,
+    binding.context,
+    authority,
+    firstFetch,
+  );
+  assert.equal(published.context_id, binding.contextId);
+  assert.equal((await listProjectContexts(endpoint, "context-token", firstFetch)).contexts.length, 1);
+  assert.equal((await getProjectContext(endpoint, "context-token", binding.contextId, firstFetch)).context_id, binding.contextId);
+
+  // Simulate a new hosted process: it receives only the persisted control-plane
+  // record and reconstructs the runtime binding from its persisted authority.
+  const restartedStore = createProjectContextStore(persistence);
+  const restartedHandler = createContextControlPlaneHandler({
+    store: restartedStore,
+    authenticate: (token) => token === "context-token",
+    authorize: () => true,
+  });
+  const restartedFetch = async (input, init) => restartedHandler(new Request(input, init));
+  const resolvePersisted = (contextId) => {
+    const record = restartedStore.get(contextId);
+    return record === undefined ? undefined : hostedContextFromPersistedRecord(record);
+  };
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    resolveContext: resolvePersisted,
+    isContextRevoked: (contextId) => restartedStore.isRevoked(contextId),
+    authorize: auth(),
+  });
+  const restored = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(restored.isError, false);
+  assert.equal(restored.structuredContent.project_context, binding.contextId);
+
+  const revokedRecord = await revokeProjectContext(endpoint, "context-token", binding.contextId, restartedFetch);
+  assert.equal(revokedRecord.revoked, true);
+  const revokedResult = await runtime.call("search", { query: "hosted", context_id: binding.contextId });
+  assert.equal(revokedResult.structuredContent.error.code, "E_CONTEXT_REVOKED");
+});
+
 test("authorization and emergency deny are checked before content delivery", async () => {
   const value = await fixture();
   const runtime = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: async () => false,
   });
@@ -252,7 +574,7 @@ test("authorization and emergency deny are checked before content delivery", asy
   assert.equal(deniedAuth.structuredContent.error.code, "E_AUTH_UNAUTHORIZED");
 
   const emergency = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: auth(),
     denyPolicy: { releaseDigests: [value.release.digest] },
@@ -268,7 +590,7 @@ test("authorization and emergency deny are checked before content delivery", asy
 
   let deny = undefined;
   const mutableEmergency = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: auth(),
     denyPolicy: () => deny,
@@ -280,6 +602,91 @@ test("authorization and emergency deny are checked before content delivery", asy
   assert.equal(deniedAfterReload.structuredContent.error.code, "E_CONTENT_DENIED");
 });
 
+test("startup integrity requires SkillVersion source provenance when hosted", async () => {
+  const value = await fixture(true);
+  const incomplete = snapshot(value);
+  delete incomplete.skillSourceIds;
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [incomplete],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+      denyPolicy: { sourceIds: ["source-b"] },
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /source provenance/.test(error.message),
+  );
+});
+
+test("startup integrity loads the emergency deny policy before readiness", async () => {
+  const value = await fixture();
+  assert.throws(
+    () => createHostedRuntime({
+      releases: [snapshot(value)],
+      stableReleaseDigest: value.release.digest,
+      authorize: auth(),
+      denyPolicy: () => {
+        throw new Error("deny store unavailable");
+      },
+    }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY" && /deny policy/.test(error.message),
+  );
+});
+
+test("hosted authorization and deny policy are enforced for every concrete result", async () => {
+  const value = await fixture(true);
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: async ({ skillId }) => skillId !== "ega/beta",
+    denyPolicy: { sourceIds: ["source-b"] },
+  });
+  const search = await runtime.call("search", { query: "hosted" });
+  assert.equal(search.isError, false);
+  assert.deepEqual(search.structuredContent.results.map((row) => row.skill_id), ["ega/alpha"]);
+  assert.doesNotMatch(search.content[0].text, /beta/);
+
+  const resolved = await runtime.call("resolve", { task: "hosted" });
+  assert.equal(resolved.isError, false);
+  for (const field of ["explicit", "selected", "candidates", "rejected"]) {
+    assert.ok(!(resolved.structuredContent[field] ?? []).some((row) => row.id === "ega/beta"));
+  }
+  const inspected = await runtime.call("inspect", {
+    skill_id: "ega/beta",
+    version_hash: value.versions["ega/beta"],
+    release_digest: value.release.digest,
+  });
+  assert.equal(inspected.structuredContent.error.code, "E_CONTENT_DENIED");
+});
+
+test("hosted selection excludes unauthorized resources before search limits and resolve budgets", async () => {
+  const value = await fixture(true);
+  const authorize = async ({ skillId }) => skillId !== "ega/alpha";
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize,
+  });
+
+  const search = await runtime.call("search", { query: "hosted", limit: 1 });
+  assert.equal(search.isError, false);
+  assert.deepEqual(search.structuredContent.results.map((row) => row.skill_id), ["ega/beta"]);
+
+  const resolved = await runtime.call("resolve", {
+    task: "hosted",
+    explicit_skills: ["ega/alpha", "ega/beta"],
+    max_skills: 1,
+  });
+  assert.equal(resolved.isError, false);
+  assert.deepEqual(resolved.structuredContent.explicit.map((row) => row.id), ["ega/beta"]);
+  assert.equal(
+    resolved.structuredContent.explicit_selected_tokens,
+    resolved.structuredContent.explicit[0].recommended_content_tokens,
+  );
+  for (const field of ["explicit", "selected", "candidates", "rejected"]) {
+    assert.ok(!(resolved.structuredContent[field] ?? []).some((row) => row.id === "ega/alpha"));
+  }
+});
+
 test("startup integrity fails closed when a release catalog does not match SQLite", async () => {
   const value = await fixture();
   const badRelease = createEnvelope({
@@ -289,7 +696,7 @@ test("startup integrity fails closed when a release catalog does not match SQLit
   });
   assert.throws(
     () => createHostedRuntime({
-      releases: [{ release: badRelease, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+      releases: [snapshot(value, badRelease)],
       stableReleaseDigest: badRelease.digest,
       authorize: auth(),
     }),
@@ -301,11 +708,7 @@ test("startup integrity binds the exact SQLite artifact digest", async () => {
   const value = await fixture();
   assert.throws(
     () => createHostedRuntime({
-      releases: [{
-        release: value.release,
-        registryHome: value.home,
-        sqliteArtifactDigest: `sha256:${"0".repeat(64)}`,
-      }],
+      releases: [{ ...snapshot(value), sqliteArtifactDigest: `sha256:${"0".repeat(64)}` }],
       stableReleaseDigest: value.release.digest,
       authorize: auth(),
     }),
@@ -317,7 +720,7 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
   const value = await fixture();
   const seenAuth = [];
   const runtime = createHostedRuntime({
-    releases: [{ release: value.release, registryHome: value.home, sqliteArtifactDigest: value.sqliteArtifactDigest }],
+    releases: [snapshot(value)],
     stableReleaseDigest: value.release.digest,
     authorize: async (request) => {
       seenAuth.push(request.authInfo);
@@ -391,6 +794,8 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
     assert.equal(listed.status, 200);
     const listedBody = await listed.json();
     assert.deepEqual(listedBody.result.tools.map((tool) => tool.name), ["resolve", "search", "inspect", "get_content"]);
+    const contentTool = listedBody.result.tools.find((tool) => tool.name === "get_content");
+    assert.equal(contentTool.inputSchema.properties.blob_hash, undefined, "blob hashes must not be raw hosted selectors");
 
     const called = await handler.fetch(request(
       {
@@ -405,6 +810,301 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
     const calledBody = await called.json();
     assert.equal(calledBody.result.structuredContent.effective_release_digest, value.release.digest);
     assert.equal(seenAuth.at(-1).clientId, "test-client");
+
+    const constrained = createHostedMcpHandler(runtime, {
+      verifier: {
+        verifyAccessToken: async (token) => ({
+          token,
+          clientId: "test-client",
+          scopes: ["mcp"],
+          expiresAt: Math.floor(Date.now() / 1000) + 60,
+        }),
+      },
+      oauth: oauth(),
+      allowedHosts: ["mcp.example.test"],
+      allowedOrigins: ["https://client.example.test"],
+      maxContentBytes: 1,
+    });
+    try {
+      const oversizedContent = await constrained.fetch(request({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          _meta: modernEnvelope(),
+          name: "get_content",
+          arguments: {
+            skill_id: value.skillId,
+            version_hash: value.versionHash,
+            level: "L2",
+            max_tokens: 10000,
+            release_digest: value.release.digest,
+          },
+        },
+      }, { authorization: "Bearer valid" }));
+      assert.equal(oversizedContent.status, 413);
+      assert.equal((await oversizedContent.json()).error.code, "E_CONTENT_LIMIT");
+    } finally {
+      await constrained.close();
+    }
+  } finally {
+    await handler.close();
+  }
+});
+
+test("hosted HTTP applies request, response, timeout, concurrency, and connection limits independently", async () => {
+  const value = await fixture();
+  const make = (limits = {}) => createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    ...limits,
+  });
+  const tooSmallRequest = make({ maxRequestBytes: 1 });
+  try {
+    const response = await tooSmallRequest.fetch(request({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }, { authorization: "Bearer valid" }));
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await tooSmallRequest.close();
+  }
+
+  const tooSmallResponse = make({ maxResponseBytes: 1 });
+  try {
+    const response = await tooSmallResponse.fetch(request({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernEnvelope() } }, { authorization: "Bearer valid" }));
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await tooSmallResponse.close();
+  }
+
+  // The SDK calls the runtime authorization seam during tool execution.
+  let toolAborted = false;
+  const timeoutHandler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: async ({ signal }) => {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 25);
+        signal?.addEventListener("abort", () => {
+          toolAborted = true;
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+      return true;
+    },
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(), allowedHosts: ["mcp.example.test"], allowedOrigins: ["https://client.example.test"], toolTimeoutMs: 5,
+  });
+  try {
+    const timed = await timeoutHandler.fetch(request({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } } }, { authorization: "Bearer valid" }));
+    assert.equal(timed.status, 200);
+    assert.equal((await timed.json()).result.structuredContent.error.code, "E_REQUEST_LIMIT");
+    assert.equal(toolAborted, true);
+  } finally {
+    await timeoutHandler.close();
+  }
+
+  const concurrentHandler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)], stableReleaseDigest: value.release.digest,
+    authorize: async () => { await new Promise((resolve) => setTimeout(resolve, 25)); return true; },
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(), allowedHosts: ["mcp.example.test"], allowedOrigins: ["https://client.example.test"], maxConcurrentRequests: 1,
+  });
+  try {
+    const calls = [1, 2].map((id) => concurrentHandler.fetch(request({ jsonrpc: "2.0", id, method: "tools/call", params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } } }, { authorization: "Bearer valid" })));
+    const results = await Promise.all(calls);
+    assert.deepEqual(results.map((response) => response.status).sort(), [200, 429]);
+    for (const response of results) if (response.status === 429) assert.equal((await response.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await concurrentHandler.close();
+  }
+
+  let connectionCount = 0;
+  const limited = make({ maxConcurrentRequests: 32, maxConnections: 1, getActiveConnections: () => connectionCount });
+  try {
+    connectionCount = 1;
+    const rejected = await limited.fetch(request({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: modernEnvelope() } }, { authorization: "Bearer valid" }));
+    assert.equal(rejected.status, 429);
+    assert.equal((await rejected.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await limited.close();
+  }
+});
+
+test("hosted transport and OAuth JWKS limits reject unsafe integer configuration", () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  const value = {
+    release: { digest: `sha256:${"1".repeat(64)}` },
+  };
+  const makeRuntime = () => createHostedRuntime({
+    releases: [],
+    stableReleaseDigest: value.release.digest,
+    authorize: async () => true,
+  });
+  const handlerOptions = {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+  };
+  for (const field of ["maxRequestBytes", "maxResponseBytes", "requestTimeoutMs", "toolTimeoutMs", "maxConcurrentRequests", "maxConnections", "maxContentBytes"]) {
+    assert.throws(
+      () => createHostedMcpHandler(makeRuntime(), { ...handlerOptions, [field]: unsafe }),
+      (error) => error?.code === "E_STARTUP_INTEGRITY",
+      field,
+    );
+  }
+  for (const field of ["jwksTimeoutMs", "jwksMaxAgeMs", "maxJwksBytes"]) {
+    assert.throws(
+      () => createHostedOAuthVerifier({
+        issuer: "https://auth.example.test",
+        resource: "https://mcp.example.test",
+        jwksUri: "https://auth.example.test/.well-known/jwks.json",
+        requiredScopes: ["mcp"],
+        [field]: unsafe,
+      }),
+      /positive safe integers/,
+      field,
+    );
+  }
+  for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => createHostedOAuthVerifier({
+        issuer: "https://auth.example.test",
+        resource: "https://mcp.example.test",
+        jwksUri: "https://auth.example.test/.well-known/jwks.json",
+        requiredScopes: ["mcp"],
+        jwksMaxAgeMs: value,
+      }),
+      /positive safe integers/,
+      `jwksMaxAgeMs=${value}`,
+    );
+  }
+});
+
+test("hosted request capacity remains occupied while timed-out work is still pending", async () => {
+  const value = await fixture();
+  let liveWork = 0;
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: async () => {
+      liveWork += 1;
+      await new Promise(() => {});
+      return true;
+    },
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    requestTimeoutMs: 5,
+    toolTimeoutMs: 50,
+    maxConcurrentRequests: 1,
+  });
+  try {
+    const first = await handler.fetch(request({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(first.status, 408);
+    assert.equal(liveWork, 1);
+
+    const second = await handler.fetch(request({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { _meta: modernEnvelope(), name: "search", arguments: { query: "hosted" } },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(second.status, 429);
+    assert.equal((await second.json()).error.code, "E_REQUEST_LIMIT");
+  } finally {
+    await handler.close();
+  }
+});
+
+test("hosted request cancellation stops an incomplete body before authentication", async () => {
+  const value = await fixture();
+  let pulls = 0;
+  let authCalls = 0;
+  const body = new ReadableStream({
+    pull() {
+      pulls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      return new Promise(() => {});
+    },
+  });
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: value.release.digest,
+    authorize: auth(),
+  }), {
+    verifier: { verifyAccessToken: async () => {
+      authCalls += 1;
+      return { token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 };
+    } },
+    oauth: oauth(),
+    allowedHosts: ["mcp.example.test"],
+    allowedOrigins: ["https://client.example.test"],
+    requestTimeoutMs: 5,
+    maxConcurrentRequests: 1,
+  });
+  try {
+    const first = await handler.fetch(new Request("https://mcp.example.test/mcp", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", host: "mcp.example.test", origin: "https://client.example.test", authorization: "Bearer valid" },
+      body,
+      duplex: "half",
+    }));
+    assert.equal(first.status, 408);
+    assert.equal(pulls, 1);
+    assert.equal(authCalls, 0, "an incomplete request body must not reach authentication");
+
+    const second = await handler.fetch(request({
+      jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: modernEnvelope() },
+    }, { authorization: "Bearer valid" }));
+    assert.equal(second.status, 200, "a canceled body must not leak request capacity");
+    assert.equal(authCalls, 1);
+  } finally {
+    await handler.close();
+  }
+});
+
+test("hosted HTTP bounds unknown-length request streams before consuming them", async () => {
+  const value = await fixture();
+  let pulls = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(33));
+      if (pulls >= 10) controller.close();
+    },
+  });
+  const handler = createHostedMcpHandler(createHostedRuntime({
+    releases: [snapshot(value)], stableReleaseDigest: value.release.digest, authorize: auth(),
+  }), {
+    verifier: { verifyAccessToken: async () => ({ token: "t", clientId: "c", scopes: ["mcp"], expiresAt: Math.floor(Date.now() / 1000) + 60 }) },
+    oauth: oauth(), allowedHosts: ["mcp.example.test"], allowedOrigins: ["https://client.example.test"], maxRequestBytes: 32,
+  });
+  try {
+    const response = await handler.fetch(new Request("https://mcp.example.test/mcp", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", host: "mcp.example.test", origin: "https://client.example.test", authorization: "Bearer valid" },
+      body,
+      duplex: "half",
+    }));
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "E_REQUEST_LIMIT");
+    assert.ok(pulls < 10, `bounded reader consumed ${pulls} chunks`);
   } finally {
     await handler.close();
   }
@@ -412,6 +1112,39 @@ test("hosted HTTP enforces transport gates and exposes only the four tools", asy
 
 function encodeBase64Url(value) {
   return Buffer.from(value).toString("base64url");
+}
+
+function unsignedJwt() {
+  return `${encodeBase64Url(JSON.stringify({ alg: "RS256", kid: "test-key", typ: "JWT" }))}.${encodeBase64Url(JSON.stringify({
+    iss: "https://auth.example.test",
+    aud: "https://mcp.example.test",
+    sub: "user-1",
+    scope: "mcp",
+    exp: Math.floor(Date.now() / 1000) + 60,
+  }))}.invalid-signature`;
+}
+
+function signedJwt(privateKey, kid) {
+  const header = encodeBase64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+  const claims = encodeBase64Url(JSON.stringify({
+    iss: "https://auth.example.test",
+    aud: "https://mcp.example.test",
+    sub: "user-1",
+    scope: "mcp",
+    exp: Math.floor(Date.now() / 1000) + 60,
+  }));
+  const signingInput = `${header}.${claims}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signingInput, "ascii");
+  return `${signingInput}.${signer.sign(privateKey).toString("base64url")}`;
+}
+
+function jwksResponse(keys) {
+  return new Response(JSON.stringify({ keys }), { headers: { "content-type": "application/json" } });
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA signature", async () => {
@@ -432,11 +1165,16 @@ test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA s
   const signature = signer.sign(privateKey).toString("base64url");
   const token = `${signingInput}.${signature}`;
   let jwksReads = 0;
+  let revocationChecks = 0;
   const verifier = createHostedOAuthVerifier({
     issuer: "https://auth.example.test",
     resource: "https://mcp.example.test",
     jwksUri: "https://auth.example.test/.well-known/jwks.json",
     requiredScopes: ["mcp"],
+    isRevoked: () => {
+      revocationChecks += 1;
+      return false;
+    },
     fetch: async () => {
       jwksReads += 1;
       return new Response(JSON.stringify({ keys: [{ ...jwk, kid: "test-key", use: "sig" }] }), {
@@ -448,9 +1186,156 @@ test("hosted OAuth verifier validates issuer, resource, scope, expiry, and RSA s
   assert.equal(authInfo.clientId, "client-1");
   assert.deepEqual(authInfo.scopes, ["mcp"]);
   assert.equal(jwksReads, 1);
+  assert.equal(revocationChecks, 1);
   const alteredSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
   await assert.rejects(
     verifier.verifyAccessToken(`${signingInput}.${alteredSignature}`),
     /signature mismatch/,
   );
+  assert.equal(revocationChecks, 1, "invalid signatures must not reach revocation lookup");
+});
+
+test("hosted OAuth JWKS loading is bounded and cancels oversized streams", async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(4));
+      if (pulls >= 10) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    maxJwksBytes: 8,
+    fetch: async () => new Response(body),
+  });
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS document is too large/);
+  assert.ok(pulls < 10, `JWKS reader consumed ${pulls} chunks`);
+  assert.equal(cancelled, true);
+});
+
+test("hosted OAuth JWKS fetch timeout aborts the underlying fetch and permits retry", async () => {
+  let calls = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksTimeoutMs: 5,
+    fetch: async (_input, init) => {
+      calls += 1;
+      await new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      throw new Error("fetch did not abort");
+    },
+  });
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
+  await assert.rejects(verifier.verifyAccessToken(unsignedJwt()), /JWKS endpoint timed out/);
+  assert.equal(calls, 2, "failed JWKS loads must not poison retry state");
+});
+
+test("hosted OAuth rejects a signing key removed after JWKS freshness expiry", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  const token = signedJwt(privateKey, "k1");
+  await verifier.verifyAccessToken(token);
+  keys = [];
+  await sleep(15);
+  await assert.rejects(verifier.verifyAccessToken(token), /signing key is not published/);
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth accepts a new signing key after JWKS rotation refresh", async () => {
+  const first = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const second = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...first.publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  await verifier.verifyAccessToken(signedJwt(first.privateKey, "k1"));
+  keys = [{ ...second.publicKey.export({ format: "jwk" }), kid: "k2", use: "sig" }];
+  await sleep(15);
+  await verifier.verifyAccessToken(signedJwt(second.privateKey, "k2"));
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth refreshes changed key material even when kid is reused", async () => {
+  const oldKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const newKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let keys = [{ ...oldKey.publicKey.export({ format: "jwk" }), kid: "shared", use: "sig" }];
+  let reads = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 50,
+    fetch: async () => {
+      reads += 1;
+      return jwksResponse(keys);
+    },
+  });
+  const oldToken = signedJwt(oldKey.privateKey, "shared");
+  await verifier.verifyAccessToken(oldToken);
+  keys = [{ ...newKey.publicKey.export({ format: "jwk" }), kid: "shared", use: "sig" }];
+  await sleep(70);
+  await assert.rejects(verifier.verifyAccessToken(oldToken), /signature mismatch/);
+  await verifier.verifyAccessToken(signedJwt(newKey.privateKey, "shared"));
+  assert.equal(reads, 2);
+});
+
+test("hosted OAuth coalesces concurrent JWKS refreshes at expiry", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const keys = [{ ...publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" }];
+  let reads = 0;
+  let active = 0;
+  let maxActive = 0;
+  const verifier = createHostedOAuthVerifier({
+    issuer: "https://auth.example.test",
+    resource: "https://mcp.example.test",
+    jwksUri: "https://auth.example.test/.well-known/jwks.json",
+    requiredScopes: ["mcp"],
+    jwksMaxAgeMs: 5,
+    fetch: async () => {
+      reads += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await sleep(10);
+      active -= 1;
+      return jwksResponse(keys);
+    },
+  });
+  const token = signedJwt(privateKey, "k1");
+  await verifier.verifyAccessToken(token);
+  await sleep(15);
+  await Promise.all(Array.from({ length: 20 }, () => verifier.verifyAccessToken(token)));
+  assert.equal(reads, 2);
+  assert.equal(maxActive, 1);
 });

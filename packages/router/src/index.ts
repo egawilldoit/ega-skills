@@ -13,6 +13,7 @@ export type { LocalDirectoryScan } from "./fingerprint-fs.js";
 export { RouterError } from "./errors.js";
 export type { RouterErrorCode } from "./errors.js";
 export { resolveProjectFingerprint } from "./workspace.js";
+export type { ProjectFingerprintResolutionOptions } from "./workspace.js";
 export {
   createRemoteProjectFingerprint,
   detectRemoteFingerprintRevision,

@@ -36,15 +36,20 @@ import {
   serializeLockfile,
   validateLockfile,
   verifyRemoteLockPlan,
+  verifyRemoteLockPlanAgainstLock,
   hashProjectLock,
   hashNormalizedConfig,
   createProjectContextArtifact,
   createRemoteLockPlan,
+  assertLockInRelease,
+  publishProjectContext,
   verifyHubRelease,
   applyUpdatePlan,
   buildHub,
+  buildHubRelease,
   checkForUpdates,
   extractSelectedRoots,
+  fetchExactCommit,
   fetchRefTip,
   parseSourcesLockYaml,
   parseSourcesYaml,
@@ -55,6 +60,7 @@ import {
   type UpdatePlanDocument,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
+import { validatePortableSkillName } from "@ega-skills/schema";
 
 export type { ImportSummary };
 
@@ -150,7 +156,7 @@ function candidateLockForRelease(
 
 /** Run the complete Contract C build through the public CLI API. */
 export async function runHubBuild(options: HubCommandOptions = {}) {
-  return buildHub(resolve(options.hub ?? "."));
+  return buildHubRelease(resolve(options.hub ?? "."));
 }
 
 /** Read-only Contract B check. The existing Hub build supplies the adopted
@@ -188,7 +194,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
 
 /** Exact-commit Contract B apply. The target is fetched from the approved
  * plan and never re-resolved from the moving source ref. */
-export function runHubUpdate(options: HubUpdateCommandOptions) {
+export async function runHubUpdate(options: HubUpdateCommandOptions) {
   const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as UpdatePlanDocument;
   const source = config.sources[plan.payload?.source_id];
@@ -199,9 +205,11 @@ export function runHubUpdate(options: HubUpdateCommandOptions) {
   const stage = join(workspace, "stage");
   mkdirSync(stage, { recursive: true });
   try {
-    fetchRefTip(source.repository, source.ref, plan.payload.target_commit, fetched);
+    fetchExactCommit(source.repository, plan.payload.target_commit, fetched, { fallbackRef: source.ref });
     extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
-    return applyUpdatePlan({ hubDir, plan, stageDir: stage });
+    // Await before cleanup: applyUpdatePlan reads the extracted stage after
+    // its first asynchronous prospective-build validation.
+    return await applyUpdatePlan({ hubDir, plan, stageDir: stage });
   } finally {
     rmSync(workspace, { force: true, recursive: true });
   }
@@ -386,6 +394,66 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
   return { path: file, written: true };
 }
 
+export interface ValidateOptions {
+  readonly path: string;
+}
+
+export interface ValidateFailure {
+  readonly path: string;
+  readonly error: string;
+}
+
+export interface ValidateResult {
+  readonly path: string;
+  readonly valid: boolean;
+  readonly checked: number;
+  readonly failures: readonly ValidateFailure[];
+}
+
+/**
+ * Validate skill packages without writing to the target or the developer
+ * registry.  The existing importer owns the complete package validation
+ * pipeline; its only writes are directed to this disposable registry.
+ */
+export async function runValidate(options: ValidateOptions): Promise<ValidateResult> {
+  const target = resolve(options.path);
+  const validationHome = mkdtempSync(join(tmpdir(), "ega-skill-validate-"));
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: validationHome }, userHome: tmpdir() });
+  try {
+    const summary = await importSkills(registry, { path: target, namespace: "validation" });
+    return {
+      checked: summary.imported + summary.unchanged + summary.failed,
+      failures: summary.failures,
+      path: target,
+      valid: summary.failed === 0,
+    };
+  } finally {
+    registry.close();
+    rmSync(validationHome, { force: true, recursive: true });
+  }
+}
+
+export interface InitSkillOptions {
+  readonly name: string;
+}
+
+export interface InitSkillResult {
+  readonly path: string;
+  readonly files: readonly ["SKILL.md", "ega.yaml"];
+  readonly created: true;
+}
+
+/** Create the canonical two-file authoring scaffold. */
+export async function runInitSkill(options: InitSkillOptions): Promise<InitSkillResult> {
+  const name = validatePortableSkillName(options.name, { field: "name" });
+  const skillDir = resolve(name);
+  if (existsSync(skillDir)) throw new Error(`Refusing to overwrite existing path: ${skillDir}`);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${name}\ndescription: Describe what this skill does and when to use it.\n---\n\n# ${name}\n\nDescribe the skill instructions here.\n`);
+  writeFileSync(join(skillDir, "ega.yaml"), "schema_version: 1\n");
+  return { created: true, files: ["SKILL.md", "ega.yaml"], path: skillDir };
+}
+
 export interface LockCommandOptions {
   /** Project directory; relative paths resolve against the current working directory. */
   readonly project?: string;
@@ -410,6 +478,8 @@ export interface RemoteLockApplyOptions {
   readonly project?: string;
   /** JSON RemoteLockPlan produced by the reviewed remote planning step. */
   readonly plan: string;
+  /** Exact HubRelease JSON that authorizes the plan's target digest. */
+  readonly release: string;
   /** Explicit human/review approval; false never writes the local lock. */
   readonly approve?: boolean;
 }
@@ -445,6 +515,12 @@ export interface ContextPublishOptions {
   readonly contextId?: string;
   readonly repositoryRoot?: string;
   readonly withoutFingerprint?: boolean;
+  /** Authenticated control-plane base URL. Omit for local artifact preview. */
+  readonly controlPlane?: string;
+  /** Environment variable containing the bearer token. */
+  readonly tokenEnv?: string;
+  /** Process environment supplied by the executable boundary. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ContextPublishResult {
@@ -453,6 +529,7 @@ export interface ContextPublishResult {
   readonly config: ReturnType<typeof parseProjectConfig>;
   readonly lock: ProjectLockV1;
   readonly fingerprint: ReturnType<typeof projectFingerprint>;
+  readonly publication?: Awaited<ReturnType<typeof publishProjectContext>>;
 }
 
 /**
@@ -625,6 +702,11 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
   const raw = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as unknown;
   verifyRemoteLockPlan(raw as Parameters<typeof verifyRemoteLockPlan>[0]);
   const plan = raw as Parameters<typeof verifyRemoteLockPlan>[0];
+  const release = readReleaseFile(options.release);
+  if (release.digest !== plan.target_release_digest) {
+    throw new Error(`Remote lock plan targets ${plan.target_release_digest}, but the supplied release is ${release.digest}.`);
+  }
+  assertLockInRelease(plan.candidate_lock, release);
   const discovery = discoverConfig(options.project ?? ".");
   if (discovery.configPath === null) throw new Error("No .egaskills.yaml found — remote lock apply requires a selected config.");
   const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
@@ -633,11 +715,16 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
     throw new Error(`Remote lock plan config digest ${plan.project_config_digest} does not match local config ${configHash}.`);
   }
   const gated = readConfigAndLock(discovery);
+  verifyRemoteLockPlanAgainstLock(plan, gated.lock);
   const existingDigest = gated.lock === null ? null : hashProjectLock(gated.lock);
   if (existingDigest !== plan.existing_lock_digest) {
     throw new Error("Remote lock plan existing-lock identity does not match the local lock; re-plan before applying.");
   }
   const candidate = validateLockfile(plan.candidate_lock, configHash);
+  const expectedCandidate = candidateLockForRelease(config, release);
+  if (hashProjectLock(candidate) !== hashProjectLock(expectedCandidate)) {
+    throw new Error("Remote lock plan candidate does not match local project policy; re-plan before applying.");
+  }
   const lockFile = join(dirname(discovery.configPath), ".egaskills.lock");
   refuseSymlinkLock(lockFile);
   writeLockAtomically(lockFile, serializeLockfile(candidate));
@@ -669,7 +756,7 @@ export function runRemoteLockPlan(options: RemoteLockPlanOptions): RemoteLockPla
 }
 
 /** Build a non-writing immutable ProjectContext from local authority files. */
-export function runContextPublish(options: ContextPublishOptions): ContextPublishResult {
+export async function runContextPublish(options: ContextPublishOptions): Promise<ContextPublishResult> {
   const authority = readProjectAuthority(options.project ?? ".");
   if (authority.lock === null) throw new Error("Context publication requires an adjacent validated .egaskills.lock.");
   const release = readReleaseFile(options.release);
@@ -682,13 +769,27 @@ export function runContextPublish(options: ContextPublishOptions): ContextPublis
     release,
     fingerprint_digest: fingerprint === null ? null : hashRemoteFingerprint(fingerprint),
   });
-  return Object.freeze({
+  const result = {
     context_id: options.contextId ?? context.context_digest,
     context,
     config: authority.config,
     lock: authority.lock,
     fingerprint,
-  });
+  };
+  if (options.controlPlane !== undefined) {
+    const tokenEnv = options.tokenEnv ?? "EGA_CONTEXT_TOKEN";
+    const token = options.env?.[tokenEnv];
+    if (token === undefined || token.length === 0) throw new Error(`Context publication requires bearer token in ${tokenEnv}.`);
+    return Object.freeze({
+      ...result,
+      publication: await publishProjectContext(options.controlPlane, token, result.context_id, context, {
+        config: result.config,
+        lock: result.lock,
+        fingerprint: result.fingerprint as Readonly<object> | null,
+      }),
+    });
+  }
+  return Object.freeze(result);
 }
 
 /** Convenience: metadata, versions, L1 status, token sizes, provenance. Read-only. */

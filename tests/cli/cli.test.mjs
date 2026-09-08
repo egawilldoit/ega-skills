@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -14,6 +14,13 @@ const cliPackage = JSON.parse(readFileSync(cliPackagePath, "utf8"));
 function runCli(...args) {
   return spawnSync(process.execPath, [cliEntrypoint, ...args], {
     cwd: root,
+    encoding: "utf8",
+  });
+}
+
+function runCliFrom(cwd, ...args) {
+  return spawnSync(process.execPath, [cliEntrypoint, ...args], {
+    cwd,
     encoding: "utf8",
   });
 }
@@ -37,10 +44,12 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills list",
     "  ega-skills inspect <skill-id>",
     "  ega-skills init [<project-dir>] [--force]",
+    "  ega-skills validate <path> [--json]",
+    "  ega-skills init-skill <name>",
     "  ega-skills lock [<project-dir>] [--refresh]",
     "  ega-skills remote-lock plan --release <release.json> --workspace-id <id> --project-id <id> [--output <plan.json>]",
-    "  ega-skills remote-lock apply --plan <plan.json> --yes [--project <project-dir>]",
-    "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>]",
+    "  ega-skills remote-lock apply --plan <plan.json> --release <release.json> --yes [--project <project-dir>]",
+    "  ega-skills context publish --release <release.json> --workspace-id <id> --project-id <id> [--project <project-dir>] [--control-plane <url> --token-env <name>]",
     "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
     "  ega-skills hub build [<hub-dir>]",
     "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
@@ -82,7 +91,13 @@ test("hub build is available through the real CLI entrypoint", () => {
   writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
   const result = runCli("hub", "build", hub);
   assert.equal(result.status, 0);
-  assert.deepEqual(JSON.parse(result.stdout).skills, []);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.skills, []);
+  assert.equal(output.release.object_type, "ega.hub-release");
+  assert.equal(output.releasePackage.snapshot_rows, 0);
+  for (const path of Object.values(output.artifactPaths)) assert.equal(existsSync(path), true, path);
+  assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.release, "utf8")), output.release);
+  assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.releasePackage, "utf8")), output.releasePackage);
   assert.equal(result.stderr, "");
 });
 
@@ -94,4 +109,39 @@ test("hub flag values are not mistaken for positional hub paths", () => {
   const update = runCli("hub", "update", "--plan", "plan.json");
   assert.equal(update.status, 1);
   assert.match(update.stderr, /^ENOENT: no such file or directory/);
+});
+
+test("init-skill creates exactly the canonical two-file scaffold", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "ega-cli-authoring-"));
+  const result = runCliFrom(cwd, "init-skill", "new-skill");
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.created, true);
+  assert.deepEqual(output.files, ["SKILL.md", "ega.yaml"]);
+  assert.equal(existsSync(join(cwd, "new-skill", "SKILL.md")), true);
+  assert.equal(existsSync(join(cwd, "new-skill", "ega.yaml")), true);
+  assert.equal(existsSync(join(cwd, "new-skill", "SKILL.core.md")), false);
+  assert.equal(result.stderr, "");
+});
+
+test("validate is non-mutating, uses the package validator, and reports JSON failures", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "ega-cli-validate-"));
+  const init = runCliFrom(cwd, "init-skill", "valid-skill");
+  assert.equal(init.status, 0);
+  const valid = runCliFrom(cwd, "validate", "valid-skill", "--json");
+  assert.equal(valid.status, 0);
+  assert.deepEqual(JSON.parse(valid.stdout), {
+    checked: 1,
+    failures: [],
+    path: join(cwd, "valid-skill"),
+    valid: true,
+  });
+  writeFileSync(join(cwd, "valid-skill", "SKILL.md"), "---\nname: wrong\ndescription: invalid\n---\n");
+  const invalid = runCliFrom(cwd, "validate", "valid-skill", "--json");
+  assert.equal(invalid.status, 1);
+  const report = JSON.parse(invalid.stdout);
+  assert.equal(report.valid, false);
+  assert.equal(report.failures.length, 1);
+  assert.match(report.failures[0].error, /must exactly match directory/);
+  assert.equal(existsSync(join(cwd, ".ega-skills", "registry.sqlite")), false);
 });

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -15,14 +16,15 @@ function readVector() {
 }
 
 function withVector(mutator, fn) {
-  const original = readVector();
-  const value = JSON.parse(original);
+  const value = JSON.parse(readVector());
   mutator(value);
-  writeFileSync(VECTOR, `${JSON.stringify(value, null, 2)}\n`);
+  const directory = mkdtempSync(join(tmpdir(), "ega-contract-d-"));
+  const vectorPath = join(directory, "hosted-runtime.json");
+  writeFileSync(vectorPath, `${JSON.stringify(value, null, 2)}\n`);
   try {
-    return fn();
+    return fn(vectorPath);
   } finally {
-    writeFileSync(VECTOR, original);
+    rmSync(directory, { force: true, recursive: true });
   }
 }
 
@@ -30,9 +32,13 @@ function runOk() {
   return execFileSync("node", [VALIDATOR], { encoding: "utf8" });
 }
 
-function runBad() {
+function runBad(vectorPath) {
   try {
-    execFileSync("node", [VALIDATOR], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("node", [VALIDATOR], {
+      encoding: "utf8",
+      env: { ...process.env, EGA_CONTRACT_D_VECTOR: vectorPath },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   } catch (error) {
     return `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
   }
