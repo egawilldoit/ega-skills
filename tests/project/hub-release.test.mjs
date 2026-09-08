@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import {
   HubError,
   buildHub,
@@ -64,6 +65,45 @@ test("HubRelease rejects semantic tampering and bad artifact binding", () => {
   assert.throws(() => createReleasePackage(release, HASH("c"), 1), (error) => error.code === "E_PACKAGE_BINDING");
   const wrongSearch = { ...value.artifacts.searchIndexInput, rows: value.artifacts.searchIndexInput.rows.map((row, index) => index === 0 ? { ...row, version_hash: HASH("f") } : row) };
   assert.throws(() => createHubRelease(value, { ...value.artifacts, searchIndexInput: wrongSearch }), (error) => error.code === "E_SEARCH_INPUT");
+  });
+});
+
+test("HubRelease rejects recomputed-digest contract identity forgeries", () => {
+  return fixture().then((value) => {
+    const release = createHubRelease(value, value.artifacts);
+    const forge = (contracts) => createEnvelope({
+      object_type: release.object_type,
+      schema_version: release.schema_version,
+      payload: { ...release.payload, contracts },
+    });
+    const cases = [
+      ["schema", "v9"],
+      ["hashing", 2],
+      ["router", 2],
+      ["search", 2],
+      ["token_estimator", "another-tokenizer"],
+      ["importer_build", 2],
+      ["hub_contract", "A999"],
+      ["update_contract", "B999"],
+      ["build_contract", "C999"],
+    ];
+    for (const [field, replacement] of cases) {
+      const forged = forge({ ...release.payload.contracts, [field]: replacement });
+      assert.notEqual(forged.digest, release.digest);
+      assert.throws(() => verifyHubRelease(forged), (error) => error.code === "E_RELEASE_SCHEMA", field);
+    }
+
+    const unknown = forge({ ...release.payload.contracts, future_contract: 1 });
+    assert.throws(() => verifyHubRelease(unknown), (error) => error.code === "E_RELEASE_SCHEMA");
+
+    const missing = { ...release.payload.contracts };
+    delete missing.build_contract;
+    assert.throws(() => verifyHubRelease(forge(missing)), (error) => error.code === "E_RELEASE_SCHEMA");
+
+    const nullValue = forge({ ...release.payload.contracts, hashing: null });
+    assert.throws(() => verifyHubRelease(nullValue), (error) => error.code === "E_RELEASE_SCHEMA");
+
+    assert.throws(() => createStablePointer("personal", forge({ ...release.payload.contracts, build_contract: "C999" }), 1), (error) => error.code === "E_RELEASE_SCHEMA");
   });
 });
 
