@@ -364,9 +364,13 @@ test("raw Git extraction bypasses smudge/LFS filters and hashes committed bytes"
   writeFileSync(join(repo, "skills", "raw", "SKILL.md"), rawSkill);
   writeFileSync(join(repo, "skills", "raw", "asset.bin"), rawAsset);
   writeFileSync(join(repo, "LICENSE"), Buffer.from("raw license\r\n"));
-  writeFileSync(join(repo, ".gitattributes"), "skills/raw/SKILL.md filter=fake\nskills/raw/asset.bin filter=lfs\nLICENSE filter=fake\n");
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "raw fixture");
+  // Add attributes only after the content commit. This prevents a developer
+  // or CI-installed filter.lfs.clean from changing the committed test bytes.
+  writeFileSync(join(repo, ".gitattributes"), "skills/raw/SKILL.md filter=fake\nskills/raw/asset.bin filter=lfs\nLICENSE filter=fake\n");
+  git(repo, "add", ".gitattributes");
+  git(repo, "commit", "-qm", "raw filter attributes");
   const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const filterCommand = `"${process.execPath.replaceAll('"', '\\"')}" "${filter.replaceAll('"', '\\"')}"`;
   execFileSync("git", ["-C", repo, "config", "filter.fake.smudge", filterCommand], { stdio: "pipe" });
