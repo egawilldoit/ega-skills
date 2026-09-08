@@ -23,6 +23,7 @@ import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
   commit: string;
+  sourceConfigDigest?: string;
   treeDigest: string;
   snapshotDigest: string;
   versions: Record<string, string>;
@@ -86,7 +87,8 @@ function readSkillName(skillMdPath: string): string {
 export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
   const { sourceId, config, adopted, workDir } = input;
   const target = resolveRefToCommit(config.repository, config.ref);
-  if (target === adopted.commit) {
+  const configChanged = adopted.sourceConfigDigest !== undefined && adopted.sourceConfigDigest !== sourceConfigDigest(config);
+  if (target === adopted.commit && !configChanged) {
     // The same commit cannot yield changes: no fetch, no mutation, no plan.
     return { status: "NO_CHANGE", targetCommit: target };
   }

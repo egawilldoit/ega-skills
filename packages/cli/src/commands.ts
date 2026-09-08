@@ -130,8 +130,9 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   try {
     const result = await checkForUpdates({
       adopted: {
-        commit: adopted.resolved_commit,
-        snapshotDigest: adopted.vendored_snapshot_digest,
+      commit: adopted.resolved_commit,
+      sourceConfigDigest: adopted.source_config_digest,
+      snapshotDigest: adopted.vendored_snapshot_digest,
         treeDigest: adopted.selected_skill_tree_digest,
         versions,
       },
