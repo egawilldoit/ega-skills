@@ -232,6 +232,8 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
     mkdirSync(dirname(this.path), { recursive: true });
     const temporaryDirectory = mkdtempSync(join(dirname(this.path), ".ega-context-store-"));
     const temporaryPath = join(temporaryDirectory, "contexts.json");
+    let backupDirectory: string | undefined;
+    let retainedBackupPath: string | undefined;
     try {
       const records = this.load().filter((current) => current.contextId !== record.contextId);
       records.push(record);
@@ -245,19 +247,34 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
         // can restore the last durable store. Never delete the only durable
         // copy before a complete replacement exists.
         if (!existsSync(this.path)) throw error;
-        const backupPath = join(temporaryDirectory, "previous-contexts.json");
+        // Keep the backup outside the temporary directory. If restoration
+        // fails, the finally block must not remove the only remaining durable
+        // copy while cleaning up the failed replacement.
+        backupDirectory = mkdtempSync(join(dirname(this.path), ".ega-context-backup-"));
+        const backupPath = join(backupDirectory, "previous-contexts.json");
         this.renameFile(this.path, backupPath);
         try {
           this.renameFile(temporaryPath, this.path);
         } catch (replacementError) {
-          if (existsSync(this.path)) rmSync(this.path, { force: true });
-          this.renameFile(backupPath, this.path);
+          try {
+            if (existsSync(this.path)) rmSync(this.path, { force: true });
+            this.renameFile(backupPath, this.path);
+          } catch (restoreError) {
+            retainedBackupPath = backupPath;
+            const replacementMessage = replacementError instanceof Error ? replacementError.message : String(replacementError);
+            const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError);
+            throw new Error(`${replacementMessage}; restoration failed: ${restoreMessage}; context backup retained at ${backupPath}`);
+          }
           throw replacementError;
         }
-        rmSync(backupPath, { force: true });
+        rmSync(backupDirectory, { recursive: true, force: true });
+        backupDirectory = undefined;
       }
     } finally {
       rmSync(temporaryDirectory, { recursive: true, force: true });
+      if (backupDirectory !== undefined && retainedBackupPath === undefined) {
+        rmSync(backupDirectory, { recursive: true, force: true });
+      }
     }
   }
 }
@@ -401,7 +418,8 @@ export function createContextControlPlaneHandler(options: ContextControlPlaneOpt
           token,
           workspaceId: current.context.workspace_id,
           projectId: current.context.project_id,
-        }))) return jsonResponse(403, { code: "E_CONTEXT_FORBIDDEN" });
+        // Keep denied and absent context identities indistinguishable.
+        }))) return jsonResponse(404, { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
         return jsonResponse(200, responseFor(current));
       }
       if (revokeMatch !== null && request.method === "DELETE") {
@@ -411,7 +429,7 @@ export function createContextControlPlaneHandler(options: ContextControlPlaneOpt
           token,
           workspaceId: current.context.workspace_id,
           projectId: current.context.project_id,
-        }))) return jsonResponse(403, { code: "E_CONTEXT_FORBIDDEN" });
+        }))) return jsonResponse(404, { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
         return jsonResponse(200, responseFor(options.store.revoke(current.contextId)));
       }
       return jsonResponse(404, { code: "E_CONTROL_PLANE_NOT_FOUND" });
@@ -432,7 +450,7 @@ function controlPlaneUrl(endpoint: string, path: string): URL {
   const base = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
   const url = new URL(path.replace(/^\/+/, ""), base);
   const loopback = url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]");
   if (url.protocol !== "https:" && !loopback) {
     throw new Error("HTTPS is required for remote control-plane endpoints");
   }
@@ -446,6 +464,35 @@ async function readJsonResponse(response: Response): Promise<unknown> {
     return JSON.parse(text) as unknown;
   } catch {
     return undefined;
+  }
+}
+
+function parsePublishedContextResponse(value: unknown, operation: string): PublishContextClientResult {
+  const invalid = (): never => {
+    throw new Error(`${operation} returned an invalid response`);
+  };
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return invalid();
+  const body = value as Record<string, unknown>;
+  const keys = Object.keys(body).sort();
+  if (keys.length < 3 || keys.length > 4 || keys.some((key) => !["authority", "context", "context_id", "revoked"].includes(key))) return invalid();
+  const hasAuthority = Object.prototype.hasOwnProperty.call(body, "authority");
+  if (typeof body.context_id !== "string" || typeof body.revoked !== "boolean" || typeof body.context !== "object" || body.context === null || Array.isArray(body.context)) return invalid();
+  try {
+    assertContextId(body.context_id);
+    verifyProjectContext(body.context as ProjectContext);
+    let authority: ProjectContextAuthority | undefined;
+    if (hasAuthority) {
+      if (typeof body.authority !== "object" || body.authority === null || Array.isArray(body.authority)) return invalid();
+      authority = verifyAuthority(body.context as ProjectContext, body.authority as ProjectContextAuthority);
+    }
+    return Object.freeze({
+      context_id: body.context_id,
+      context: body.context as ProjectContext,
+      ...(authority === undefined ? {} : { authority }),
+      revoked: body.revoked,
+    });
+  } catch {
+    return invalid();
   }
 }
 
@@ -469,7 +516,7 @@ export async function publishProjectContext(
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context publication failed (${String(record["code"] ?? response.status)})`);
   }
-  return body as PublishContextClientResult;
+  return parsePublishedContextResponse(body, "Context publication");
 }
 
 /** Retrieve immutable context metadata through the authenticated boundary. */
@@ -490,7 +537,7 @@ export async function getProjectContext(
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context retrieval failed (${String(record["code"] ?? response.status)})`);
   }
-  return body as PublishContextClientResult;
+  return parsePublishedContextResponse(body, "Context retrieval");
 }
 
 /** List only contexts visible to the authenticated control-plane subject. */
@@ -510,10 +557,16 @@ export async function listProjectContexts(
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context listing failed (${String(record["code"] ?? response.status)})`);
   }
-  if (typeof body !== "object" || body === null || !Array.isArray((body as Record<string, unknown>)["contexts"])) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new Error("Context listing returned an invalid response");
   }
-  return body as ListContextClientResult;
+  const listing = body as Record<string, unknown>;
+  if (Object.keys(listing).length !== 1 || !Array.isArray(listing["contexts"])) {
+    throw new Error("Context listing returned an invalid response");
+  }
+  return Object.freeze({
+    contexts: Object.freeze(listing["contexts"].map((item, index) => parsePublishedContextResponse(item, `Context listing item ${index}`))),
+  });
 }
 
 /** Revoke an immutable context through the authenticated control plane. */
@@ -535,5 +588,5 @@ export async function revokeProjectContext(
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context revocation failed (${String(record["code"] ?? response.status)})`);
   }
-  return body as PublishContextClientResult;
+  return parsePublishedContextResponse(body, "Context revocation");
 }

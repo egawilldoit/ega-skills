@@ -130,7 +130,7 @@ test("self-consistent invented normalized search metadata fails semantic validat
   const searchIndexInput = JSON.parse(read("search-index-input.json"));
   searchIndexInput.rows[0].description = "invented metadata";
   const out = withSwappedFiles(rebindSemanticFiles({ searchIndexInput }), runBad);
-  assert.match(out, /E_SEARCH_INPUT|E_RELEASE_DIGEST/);
+  assert.match(out, /E_SEARCH_INPUT/);
 });
 
 test("stable pointer mismatch fails E_STABLE", () => {

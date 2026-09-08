@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
@@ -12,6 +12,7 @@ import {
   createProjectContextArtifact,
   createRemoteLockPlan,
   hashNormalizedConfig,
+  getProjectContext,
   listProjectContexts,
   verifyProjectContext,
   verifyRemoteLockPlan,
@@ -246,6 +247,9 @@ test("context client preserves an endpoint base path and accepts case-insensitiv
     authorization: "Bearer token-a",
   }]);
 
+  await listProjectContexts("http://[::1]:8787/control-plane", "token-a", fetcher);
+  assert.equal(seen[1].url, "http://[::1]:8787/control-plane/v1/contexts");
+
   const store = createProjectContextStore();
   const handler = createContextControlPlaneHandler({
     store,
@@ -262,6 +266,29 @@ test("context clients report non-JSON control-plane failures by status", async (
   await assert.rejects(
     publishProjectContext("https://control.example.test", "token-a", "ctx-main", {}, {}, async () => new Response("upstream unavailable", { status: 503 })),
     /Context publication failed \(503\)/,
+  );
+});
+
+test("context clients reject malformed successful responses", async () => {
+  const emptyResponse = async () => new Response("", { status: 200 });
+  await assert.rejects(
+    publishProjectContext("https://control.example.test", "token-a", "ctx-main", {}, {}, emptyResponse),
+    /Context publication returned an invalid response/,
+  );
+  await assert.rejects(
+    getProjectContext("https://control.example.test", "token-a", "ctx-main", emptyResponse),
+    /Context retrieval returned an invalid response/,
+  );
+  await assert.rejects(
+    revokeProjectContext("https://control.example.test", "token-a", "ctx-main", emptyResponse),
+    /Context revocation returned an invalid response/,
+  );
+  await assert.rejects(
+    listProjectContexts("https://control.example.test", "token-a", async () => new Response(JSON.stringify({ contexts: [{}] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })),
+    /Context listing item 0 returned an invalid response/,
   );
 });
 
@@ -330,6 +357,48 @@ test("file context replacement failure restores the previous durable store", asy
   }
 });
 
+test("file context persistence retains a backup when restoration also fails", async () => {
+  const root = await mkdtemp(`${tmpdir()}/ega-context-retained-backup-`);
+  try {
+    const path = `${root}/contexts.json`;
+    const persistence = new FileProjectContextPersistence(path);
+    const context = createProjectContextArtifact({
+      workspace_id: "workspace-a",
+      project_id: "project-a",
+      config,
+      lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+      release,
+    });
+    const store = createProjectContextStore(persistence);
+    store.publish({ contextId: "ctx-main", context });
+    const previous = store.get("ctx-main");
+    assert.ok(previous);
+    let targetAttempts = 0;
+    const failingRestoration = new FileProjectContextPersistence(path, (from, to) => {
+      if (to === path) {
+        targetAttempts += 1;
+        if (targetAttempts <= 3) throw new Error("replacement failed");
+      }
+      renameSync(from, to);
+    });
+    let error;
+    try {
+      failingRestoration.save({ ...previous, revoked: true });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /replacement failed; context backup retained at /);
+    assert.equal(targetAttempts, 3);
+    const retainedPath = error.message.match(/context backup retained at (.+)$/)?.[1];
+    assert.ok(retainedPath);
+    const retained = JSON.parse(readFileSync(retainedPath, "utf8"));
+    assert.equal(retained[0].revoked, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("file context persistence rejects malformed record entries before store reconstruction", async () => {
   const root = await mkdtemp(`${tmpdir()}/ega-context-invalid-`);
   try {
@@ -372,5 +441,11 @@ test("context control plane lists only authorized contexts and supports client l
   const forbidden = await fetcher("http://127.0.0.1:8787/v1/contexts/ctx-b", {
     headers: { authorization: "Bearer token-a" },
   });
-  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.status, 404);
+  assert.deepEqual(await forbidden.json(), { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
+  const absent = await fetcher("http://127.0.0.1:8787/v1/contexts/not-published", {
+    headers: { authorization: "Bearer token-a" },
+  });
+  assert.equal(absent.status, 404);
+  assert.deepEqual(await absent.json(), { code: REMOTE_PROJECT_ERROR_CODES.CONTEXT_NOT_FOUND });
 });
