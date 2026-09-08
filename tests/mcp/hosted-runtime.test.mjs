@@ -5,6 +5,7 @@ import { createHostedMcpHandler, createHostedRuntime, hostedContextFromPersisted
 import { createHostedOAuthVerifier } from "../../packages/mcp/dist/hosted-auth.js";
 import {
   createHubRelease,
+  buildHubRelease,
   createContextControlPlaneHandler,
   createProjectContextArtifact,
   createProjectContextStore,
@@ -155,13 +156,30 @@ function auth() {
 function snapshot(value, release = value.release) {
   return {
     release,
-    registryHome: value.home,
-    sqliteArtifactDigest: value.sqliteArtifactDigest,
+    registryHome: value.registryHome ?? value.home,
+    sqliteArtifactDigest: value.sqliteArtifactDigest ?? value.releasePackage.sqlite_artifact_digest,
     releasePackage: value.releasePackage,
     artifacts: value.artifacts,
     ftsTable: value.ftsTable,
     skillSourceIds: value.skillSourceIds,
   };
+}
+
+async function productionReleaseFixture() {
+  const root = await mkdtemp(join(tmpdir(), "ega-hosted-builder-runtime-"));
+  roots.add(root);
+  await mkdir(join(root, "owned", "ega", "alpha"), { recursive: true });
+  await writeFile(
+    join(root, "owned", "ega", "alpha", "SKILL.md"),
+    "---\nname: alpha\ndescription: Production-built hosted skill\n---\n\n# Alpha\n\nBuilt through the release pipeline.\n",
+  );
+  await writeFile(join(root, "owned", "ega", "alpha", "ega.yaml"), "schema_version: 1\ndomains: [engineering]\ntriggers: [production]\n");
+  await writeFile(join(root, "hub.yaml"), "schema_version: 1\nhub:\n  id: production-runtime\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  await writeFile(join(root, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  await writeFile(join(root, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = await buildHubRelease(root);
+  roots.add(built.registryHome);
+  return built;
 }
 
 function contextFor(value, contextId) {
@@ -264,6 +282,53 @@ test("hosted runtime verifies a release and exposes the exact four personal tool
   });
   assert.equal(content.isError, false);
   assert.match(content.structuredContent.content, /Hosted guidance/);
+});
+
+test("production HubRelease artifacts load directly into the hosted runtime", async () => {
+  const built = await productionReleaseFixture();
+  const value = {
+    ...built,
+    home: built.registryHome,
+    sqliteArtifactDigest: built.releasePackage.sqlite_artifact_digest,
+    skillId: "ega/alpha",
+    versionHash: built.skills.find((skill) => skill.skillId === "ega/alpha").versionHash,
+  };
+  const runtime = createHostedRuntime({
+    releases: [snapshot(value)],
+    stableReleaseDigest: built.release.digest,
+    authorize: auth(),
+  });
+  const search = await runtime.call("search", { query: "production" });
+  assert.equal(search.isError, false);
+  assert.equal(search.structuredContent.results[0].skill_id, "ega/alpha");
+  const resolved = await runtime.call("resolve", { task: "production" });
+  assert.equal(resolved.isError, false);
+  const inspected = await runtime.call("inspect", { skill_id: "ega/alpha", release_digest: built.release.digest });
+  assert.equal(inspected.isError, false);
+  const content = await runtime.call("get_content", {
+    skill_id: "ega/alpha",
+    version_hash: value.versionHash,
+    level: "L2",
+    max_tokens: 10000,
+    release_digest: built.release.digest,
+  });
+  assert.equal(content.isError, false);
+  assert.match(content.structuredContent.content, /Built through the release pipeline/);
+
+  const tampered = snapshot({
+    ...value,
+    artifacts: {
+      ...built.artifacts,
+      searchIndexInput: {
+        ...built.artifacts.searchIndexInput,
+        rows: built.artifacts.searchIndexInput.rows.map((row, index) => index === 0 ? { ...row, description: "tampered" } : row),
+      },
+    },
+  });
+  assert.throws(
+    () => createHostedRuntime({ releases: [tampered], stableReleaseDigest: built.release.digest, authorize: auth() }),
+    (error) => error?.code === "E_STARTUP_INTEGRITY",
+  );
 });
 
 test("hosted startup preserves release UTF-16 ordering for punctuation-bearing skill IDs", async () => {
