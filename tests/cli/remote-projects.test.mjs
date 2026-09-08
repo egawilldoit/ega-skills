@@ -182,6 +182,45 @@ test("remote lock apply rejects a self-consistent but false change summary", () 
   assert.deepEqual(readFileSync(join(project, ".egaskills.lock")), before);
 });
 
+test("remote lock apply enforces the current local skill deny policy", () => {
+  const { project, releasePath } = setupProject();
+  const configPath = join(project, ".egaskills.yaml");
+  const lockPath = join(project, ".egaskills.lock");
+  const deniedConfigText = "schema_version: 1\nskills:\n  deny: [ega/alpha]\nrouting:\n  max_skills: 2\n";
+  writeFileSync(configPath, deniedConfigText);
+  const deniedConfig = parseProjectConfig(deniedConfigText);
+  writeFileSync(lockPath, serializeLockfile({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: hashNormalizedConfig(deniedConfig) },
+    skills: {},
+  }));
+
+  const planPath = join(project, "reviewed-plan.json");
+  const planned = runCli(project, "remote-lock", "plan", "--release", releasePath, "--workspace-id", "workspace-a", "--project-id", "project-a", "--without-fingerprint", "--output", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  assert.deepEqual(plan.candidate_lock.skills, {});
+
+  const forgedArtifact = {
+    ...plan,
+    candidate_lock: {
+      ...plan.candidate_lock,
+      skills: { "ega/alpha": { name: "alpha", version_hash: versionHash } },
+    },
+    added_entries: ["ega/alpha"],
+  };
+  delete forgedArtifact.plan_digest;
+  const forged = { ...forgedArtifact, plan_digest: hashBytes(canonicalizeJson(forgedArtifact)) };
+  const forgedPath = join(project, "denied-skill-plan.json");
+  writeFileSync(forgedPath, `${JSON.stringify(forged)}\n`);
+  const before = readFileSync(lockPath);
+  const result = runCli(project, "remote-lock", "apply", "--plan", forgedPath, "--release", releasePath, "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /does not match local project policy/);
+  assert.deepEqual(readFileSync(lockPath), before);
+});
+
 test("context publish uses an authenticated local HTTP control plane and revocation", async () => {
   const { project, releasePath } = setupProject();
   const store = createProjectContextStore();

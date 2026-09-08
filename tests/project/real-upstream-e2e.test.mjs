@@ -19,6 +19,7 @@ import {
   sourceConfigDigest,
   verifyHubRelease,
 } from "../../packages/project/dist/index.js";
+import { verifyEnvelope } from "../../packages/hashing/dist/index.js";
 
 const enabled = process.env.EGA_REAL_UPSTREAM === "1";
 
@@ -229,7 +230,9 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   assert.notEqual(release2.release.digest, release1.release.digest);
   assert.deepEqual(readFileSync(release1.artifactPaths.release), release1ReleaseBytes);
   assert.deepEqual(readFileSync(join(release1.registryHome, "registry.sqlite")), release1FtsBytes);
-  assert.equal(approvedPlanDigest, checked.plan.digest);
+  const verifiedPlanAfterApply = verifyEnvelope(checked.plan);
+  assert.equal(verifiedPlanAfterApply.ok, true);
+  assert.equal(verifiedPlanAfterApply.digest, approvedPlanDigest);
   process.stdout.write(`real-upstream-lifecycle ${JSON.stringify({ commitA, commitB, commitC, approvedPlanDigest })}\n`);
   }
 });

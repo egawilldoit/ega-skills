@@ -418,9 +418,9 @@ export function verifyRemoteLockPlanAgainstLock(
     );
   }
   const expected = lockChanges(existing, plan.candidate_lock);
-  if (JSON.stringify(plan.added_entries) !== JSON.stringify(expected.added) ||
-      JSON.stringify(plan.removed_entries) !== JSON.stringify(expected.removed) ||
-      JSON.stringify(plan.changed_entries) !== JSON.stringify(expected.changed)) {
+  if (digestCanonical(plan.added_entries) !== digestCanonical(expected.added) ||
+      digestCanonical(plan.removed_entries) !== digestCanonical(expected.removed) ||
+      digestCanonical(plan.changed_entries) !== digestCanonical(expected.changed)) {
     remoteError(
       REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT,
       "remote lock plan changes do not match the local and candidate locks",

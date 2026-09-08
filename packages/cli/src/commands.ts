@@ -721,6 +721,10 @@ export function runRemoteLockApply(options: RemoteLockApplyOptions): RemoteLockA
     throw new Error("Remote lock plan existing-lock identity does not match the local lock; re-plan before applying.");
   }
   const candidate = validateLockfile(plan.candidate_lock, configHash);
+  const expectedCandidate = candidateLockForRelease(config, release);
+  if (hashProjectLock(candidate) !== hashProjectLock(expectedCandidate)) {
+    throw new Error("Remote lock plan candidate does not match local project policy; re-plan before applying.");
+  }
   const lockFile = join(dirname(discovery.configPath), ".egaskills.lock");
   refuseSymlinkLock(lockFile);
   writeLockAtomically(lockFile, serializeLockfile(candidate));
