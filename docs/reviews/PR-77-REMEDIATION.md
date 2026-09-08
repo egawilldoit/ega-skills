@@ -102,7 +102,7 @@ Windows. The latest real-upstream run observed Cursor
 `71ed0d1076fec562c1b74ee353121a8d00f75382`, Matt
 `3cca18b368ae95cdbdebbff572ccafa662551015`, and run-scoped approved plan
 digest
-`sha256:b84b3cbca1c48a58d5a75429a738660ccb7265ebe32674b976ccc97336818c10`.
+`sha256:6e47b09b38763f702de35f3ed122723faa4db9ffcbe8180c47436f9ed7e06484`.
 This digest varies with the temporary local-mirror path because that path is
 part of the Contract A source configuration digest; it is not a semantic
 release identity.

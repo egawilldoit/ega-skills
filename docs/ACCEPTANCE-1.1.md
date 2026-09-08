@@ -42,7 +42,7 @@ bare mirror: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
 B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
 C=`3cca18b368ae95cdbdebbff572ccafa662551015`. The latest run recorded the
 run-scoped approved B plan digest
-`sha256:b84b3cbca1c48a58d5a75429a738660ccb7265ebe32674b976ccc97336818c10`;
+`sha256:6e47b09b38763f702de35f3ed122723faa4db9ffcbe8180c47436f9ed7e06484`;
 the tracked ref advanced to C and apply still landed B while preserving R1.
 The digest varies with the temporary local-mirror path because that path is
 part of the Contract A source configuration digest; it is not a semantic
