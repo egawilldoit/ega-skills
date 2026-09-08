@@ -158,7 +158,9 @@ function checkReleasePayload(payload: unknown): asserts payload is HubReleasePay
   if (value["contracts"] === null || typeof value["contracts"] !== "object" || Array.isArray(value["contracts"])) fail("E_RELEASE_SCHEMA", "contracts must be an object");
   const contracts = value["contracts"] as Record<string, unknown>;
   if (JSON.stringify(Object.keys(contracts).sort()) !== JSON.stringify(Object.keys(DEFAULT_RELEASE_CONTRACTS).sort())) fail("E_RELEASE_SCHEMA", "contracts has unknown or missing fields");
-  if (contracts["token_estimator"] !== RELEASE_TOKEN_ESTIMATOR) fail("E_RELEASE_SCHEMA", "contracts.token_estimator must be ega-o200k-v1");
+  for (const [key, expectedValue] of Object.entries(DEFAULT_RELEASE_CONTRACTS)) {
+    if (contracts[key] !== expectedValue) fail("E_RELEASE_SCHEMA", `contracts.${key} does not match the frozen release contract`);
+  }
   if (value["build"] === null || typeof value["build"] !== "object" || Array.isArray(value["build"])) fail("E_RELEASE_SCHEMA", "build must be an object");
   const build = value["build"] as Record<string, unknown>;
   if (build["fresh_registry"] !== true || build["import_failures"] !== 0 || build["expected_catalog_match"] !== true) fail("E_BUILD_ATTESTATION", "HubRelease build attestation is not complete");
