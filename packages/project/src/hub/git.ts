@@ -79,10 +79,36 @@ export function fetchRefTip(repository: string, ref: string, expectedCommit: str
   }
 }
 
-/** Materialize one approved commit without consulting any tracked ref.
+export interface ExactCommitFetchOptions {
+  /** Ref used only to transport history when direct SHA wants are rejected. */
+  readonly fallbackRef?: string;
+  /** Deterministic test seam for servers that reject direct SHA wants. */
+  readonly forceRefFallback?: boolean;
+}
+
+function verifyExactCheckout(dir: string, commit: string): void {
+  let landed: string;
+  try {
+    landed = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch (e) {
+    throw gitError("E_PLAN_FETCH", `cannot read fetched commit: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+  }
+  if (landed !== commit) {
+    throw gitError("E_PLAN_FETCH", `exact fetch landed ${landed}, expected approved commit ${commit}`);
+  }
+}
+
+/** Materialize one approved commit without adopting a moving ref tip.
  *  Apply uses this primitive after plan approval, so a later branch movement
- *  cannot change the content being adopted. */
-export function fetchExactCommit(repository: string, commit: string, dir: string): void {
+ *  cannot change the content being adopted. Some Git servers reject direct
+ *  SHA wants; the verified ref fallback transports history, then checks out
+ *  and proves the approved object itself. */
+export function fetchExactCommit(
+  repository: string,
+  commit: string,
+  dir: string,
+  options: ExactCommitFetchOptions = {},
+): void {
   if (!COMMIT_RE.test(commit)) {
     throw gitError("E_PLAN_FETCH", "approved commit must be 40 lowercase hex");
   }
@@ -93,22 +119,45 @@ export function fetchExactCommit(repository: string, commit: string, dir: string
     execFileSync("git", ["-C", dir, "config", "core.autocrlf", "false"], {
       stdio: ["ignore", "pipe", "pipe"],
     });
-    execFileSync("git", ["-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", repository, commit], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
   } catch (e) {
-    throw gitError("E_PLAN_FETCH", `cannot fetch approved commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+    throw gitError("E_PLAN_FETCH", `cannot initialize exact-commit fetch for ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
   }
-  let landed: string;
+
+  let directFailure: unknown;
+  if (!options.forceRefFallback) {
+    try {
+      execFileSync("git", ["-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--", repository, commit], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      verifyExactCheckout(dir, commit);
+      return;
+    } catch (e) {
+      directFailure = e;
+    }
+  }
+
+  if (options.fallbackRef === undefined || options.fallbackRef.length === 0) {
+    const detail = directFailure === undefined ? "direct fetch was bypassed" : `direct fetch failed: ${String((directFailure as Error)?.message ?? directFailure).slice(0, 120)}`;
+    throw gitError("E_PLAN_FETCH", `${detail}; no verified fallback ref was supplied for approved commit ${commit}`);
+  }
   try {
-    landed = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    // Fetch the ref's history only as an object transport. The ref tip is
+    // never checked out or used as the adopted tree.
+    execFileSync("git", ["-C", dir, "fetch", "--quiet", "--no-tags", "--", repository, options.fallbackRef], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    execFileSync("git", ["-C", dir, "cat-file", "-e", `${commit}^{commit}`], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", commit], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    verifyExactCheckout(dir, commit);
   } catch (e) {
-    throw gitError("E_PLAN_FETCH", `cannot read fetched commit: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
-  }
-  if (landed !== commit) {
-    throw gitError("E_PLAN_FETCH", `exact fetch landed ${landed}, expected approved commit ${commit}`);
+    const direct = directFailure === undefined ? "direct fetch was bypassed" : `direct fetch failed: ${String((directFailure as Error)?.message ?? directFailure).slice(0, 120)}`;
+    throw gitError("E_PLAN_FETCH", `${direct}; verified ref fallback ${options.fallbackRef} could not materialize approved commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
   }
 }
