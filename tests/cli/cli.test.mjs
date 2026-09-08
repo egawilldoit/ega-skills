@@ -49,6 +49,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "  ega-skills hub build [<hub-dir>]",
+      "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
     "",
@@ -96,6 +97,17 @@ test("hub build is available through the real CLI entrypoint", () => {
   assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.release, "utf8")), output.release);
   assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.releasePackage, "utf8")), output.releasePackage);
   assert.equal(result.stderr, "");
+});
+
+test("hub validate checks the adopted Hub without mutation", () => {
+  const hub = mkdtempSync(join(tmpdir(), "ega-cli-hub-validate-"));
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: cli\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const result = runCli("hub", "validate", hub);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { hub, valid: true, skills: 0, sources: 0 });
 });
 
 test("hub flag values are not mistaken for positional hub paths", () => {
@@ -179,6 +191,11 @@ test("hub check --output writes a plan directly consumable by hub update --plan"
   writeFileSync(
     join(repo, "skills", "alpha", "SKILL.md"),
     "---\nname: alpha\ndescription: Alpha skill.\n---\n\nVersion A.\n",
+  );
+  mkdirSync(join(repo, "skills", "beta"), { recursive: true });
+  writeFileSync(
+    join(repo, "skills", "beta", "SKILL.md"),
+    "---\nname: beta\ndescription: Beta skill.\n---\n\nVersion B.\n",
   );
   writeFileSync(join(repo, "LICENSE"), "test license\n");
   git("add", ".");
@@ -289,4 +306,16 @@ sources:
 
   const lockAfter = readFileSync(join(hub, "sources.lock.yaml"), "utf8");
   assert.match(lockAfter, new RegExp(`resolved_commit: ${commitB}`));
+
+  // A deliberate selection-intent change is proposed against the old lock;
+  // it must not be mistaken for a corrupt adopted tree.
+  writeFileSync(join(hub, "sources.yaml"), sourcesYaml.replace("- skills/alpha", "- skills"));
+  const transitionPlanFile = join(hub, "selection-transition.json");
+  const transition = runCli("hub", "check", "upstream", hub, "--output", transitionPlanFile);
+  assert.equal(transition.status, 0, transition.stderr);
+  const transitionPlan = JSON.parse(readFileSync(transitionPlanFile, "utf8"));
+  assert.deepEqual(transitionPlan.payload.added_skills.map((entry) => entry.skill_ref), ["upstream/beta"]);
+  const transitionApply = runCli("hub", "update", "--plan", transitionPlanFile, hub);
+  assert.equal(transitionApply.status, 0, transitionApply.stderr);
+  assert.match(readFileSync(join(hub, "sources.lock.yaml"), "utf8"), /- skills\n/);
 });

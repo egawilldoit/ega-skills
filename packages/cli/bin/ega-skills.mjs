@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubCheck, runHubUpdate } from "../dist/index.js";
+import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -25,6 +25,7 @@ function printHelp() {
       "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
       "  ega-skills hub build [<hub-dir>]",
+      "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
       "",
@@ -318,6 +319,18 @@ async function main() {
       }
       try {
         const result = await runHubBuild({ hub: hubRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "validate") {
+      if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {
+        fail(`Unknown command or option: ${hubRest[1] ?? hubRest[0]}`);
+      }
+      try {
+        const result = await runHubValidate({ hub: hubRest[0] ?? "." });
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
