@@ -75,7 +75,7 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
     const commit = resolveRefToCommit(source.repository, "main");
     const fetched = join(workspace, `${source.id}-fetched`);
     fetchRefTip(source.repository, "main", commit, fetched);
-    const treeDir = join(hubDir, "trees", source.id);
+    const treeDir = join(hubDir, "external", source.id, "repo");
     mkdirSync(treeDir, { recursive: true });
     const tree = extractSelectedRoots(fetched, source.roots, source.provenance, treeDir);
     const unselected = discoverUnselectedSkills(fetched, source.roots);
@@ -165,7 +165,7 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   };
   const parsed = parseSourcesYaml(JSON.stringify({ schema_version: 1, sources: { [source.id]: config } }));
   const fetchedA = join(workspace, "fetched-a");
-  const treeA = join(hubDir, "trees", source.id);
+  const treeA = join(hubDir, "external", source.id, "repo");
   mkdirSync(treeA, { recursive: true });
   fetchExactCommit(mirror, commitA, fetchedA);
   const extractedA = extractSelectedRoots(fetchedA, source.roots, source.provenance, treeA);

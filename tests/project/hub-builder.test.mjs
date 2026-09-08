@@ -36,7 +36,7 @@ function setupBuildHub(beforeLock, afterLock) {
   writeFileSync(join(hubDir, "owned", "ega", "reviewer", "SKILL.md"), skill("reviewer", "Review body."));
   writeFileSync(join(hubDir, "owned", "ega", "reviewer", "ega.yaml"), "schema_version: 1\n");
   mkdirSync(join(hubDir, "owned", "mirror"), { recursive: true });
-  const treeBase = join(hubDir, "trees", "plan");
+  const treeBase = join(hubDir, "external", "plan", "repo");
   writeSkillFiles(treeBase, [
     { body: "Alpha body.", dir: ["skills", "alpha"], name: "alpha" },
     { body: "Beta body.", dir: ["skills", "beta"], name: "beta" },
@@ -128,7 +128,7 @@ test("import failure fails the build (E_BUILD_ATTESTATION)", async () => {
   // Mutated BEFORE the lock so digests stay consistent: the failure must
   // surface at import with zero tolerance, not as a digest mismatch.
   const hubDir = setupBuildHub((dir) => {
-    writeFileSync(join(dir, "trees", "plan", "skills", "beta", "SKILL.md"), "---\nname: beta\n---\nNo description.\n");
+    writeFileSync(join(dir, "external", "plan", "repo", "skills", "beta", "SKILL.md"), "---\nname: beta\n---\nNo description.\n");
   });
   assert.equal(await codeOf(() => buildHub(hubDir)), "E_BUILD_ATTESTATION");
 });
@@ -158,7 +158,7 @@ test("incomplete journal blocks the build (E_RECOVERY_REQUIRED)", async () => {
 
 test("tampered tree fails provenance verification (E_TREE_DIGEST)", async () => {
   const hubDir = setupBuildHub(undefined, (dir) => {
-    writeFileSync(join(dir, "trees", "plan", "LICENSE"), "Forged.\n");
+    writeFileSync(join(dir, "external", "plan", "repo", "LICENSE"), "Forged.\n");
   });
   assert.equal(await codeOf(() => buildHub(hubDir)), "E_TREE_DIGEST");
 });

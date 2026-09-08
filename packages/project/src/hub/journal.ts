@@ -6,7 +6,7 @@
 // `hub build` refuses while recovery is incomplete (E_RECOVERY_REQUIRED).
 //
 // Journal paths are Hub-relative (portable); live layout:
-//   trees/<source>/...   adopted vendored tree
+//   external/<source>/repo/... adopted vendored tree
 //   sources.lock.yaml    adopted lock
 //   .staging/            incoming tree + lock under construction
 //   .backup/             previous tree + lock preserved across the swap
@@ -16,6 +16,7 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import { dirname, join, resolve, sep } from "node:path";
 import { HubError } from "./errors.js";
 import { COMMIT_RE, assertSourceId, isPlainObject } from "./guards.js";
+import { adoptedSourcePath } from "./paths.js";
 
 export type JournalState = "PREPARED" | "TREE_SWAPPED" | "LOCK_SWAPPED" | "COMMITTED";
 
@@ -150,7 +151,7 @@ function journalPaths(hubDir: string, journal: HubJournal): JournalPaths {
     backupLock: join(backup, "sources.lock.yaml"),
     backupTree: join(backup, journal.source_id),
     liveLock: join(root, "sources.lock.yaml"),
-    liveTree: join(root, "trees", journal.source_id),
+    liveTree: adoptedSourcePath(root, journal.source_id),
     staging,
   };
 }

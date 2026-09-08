@@ -22,6 +22,7 @@ import { parseSourcesLockYaml } from "./sources-lock.js";
 import type { SourcesLock } from "./sources-lock.js";
 import { parseSourcesYaml } from "./sources-config.js";
 import { verifySourcesLock } from "./sources-lock.js";
+import { adoptedSourcePath } from "./paths.js";
 
 export interface HubBuildSkill {
   skillId: string;
@@ -108,7 +109,7 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   verifySourcesLock(config, adopted);
   // Provenance: every adopted tree must still match its lock digests.
   for (const [name, record] of Object.entries(adopted.sources)) {
-    const treeDir = join(hubDir, "trees", name);
+    const treeDir = adoptedSourcePath(hubDir, name);
     if (!existsSync(treeDir)) {
       throw new HubError("E_LOCK_MISMATCH", `adopted tree missing for ${name}`);
     }
@@ -135,7 +136,7 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   for (const [name, record] of Object.entries(adopted.sources)) {
     const source = config.sources[name];
     if (!source) continue;
-    const treeDir = join(hubDir, "trees", name);
+    const treeDir = adoptedSourcePath(hubDir, name);
     for (const rel of discoverSkillDirs(treeDir, record.selection.roots)) {
       const leaf = rel.split("/").pop() as string;
       claim(`${source.namespace}/${leaf}`, source.namespace, join(treeDir, ...rel.split("/")));

@@ -172,7 +172,7 @@ async function setupHubAtA(repo, shaA) {
   const coA = checkoutAt(repo, shaA);
   const cfg = parseSourcesYaml(SOURCES_YAML.replace("PLACEHOLDER", repo)).sources["plan"];
   const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
-  const treeDir = join(hubDir, "trees", "plan");
+  const treeDir = join(hubDir, "external", "plan", "repo");
   mkdirSync(treeDir, { recursive: true });
   const tree = extractSelectedRoots(coA, cfg.selection.roots, cfg.provenanceFiles, treeDir);
   const record = {
@@ -239,7 +239,8 @@ test("apply happy path swaps tree and lock, leaves no journal or lock", async ()
   assert.equal(out.record.resolved_commit, shaB);
   assert.equal(out.record.selected_skill_tree_digest, plan.payload.new_selected_tree_digest);
   assert.equal(out.record.vendored_snapshot_digest, plan.payload.new_vendored_snapshot_digest);
-  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
+  assert.equal(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
+  assert.equal(existsSync(join(hub.hubDir, "trees", "plan")), false);
   assert.equal(readJournal(hub.hubDir), null);
   const lock = acquireHubLock(hub.hubDir);
   const ownerFile = readdirSync(join(hub.hubDir, ".hub.lock")).find((name) => name.startsWith("owner."));
@@ -255,13 +256,13 @@ test("provenance-only stage tampering fails before adoption and preserves both d
   const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
   const { plan, stageDir } = await freshPlanAndStage(repo, hub);
   const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
-  const beforeTree = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"));
+  const beforeTree = readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md"));
 
   writeFileSync(join(stageDir, "LICENSE"), "Tampered provenance.\n");
 
   assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_PLAN_DIGEST");
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
-  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md")), beforeTree);
   assert.equal(readJournal(hub.hubDir), null);
 });
 
@@ -286,7 +287,7 @@ test("prospective full-Hub validation rejects an independent global catalog conf
   const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
   const { plan, stageDir } = await freshPlanAndStage(repo, hub);
   const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
-  const beforeTree = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"));
+  const beforeTree = readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md"));
 
   const ownedConflict = join(hub.hubDir, "owned", "plan", "alpha");
   mkdirSync(ownedConflict, { recursive: true });
@@ -298,7 +299,7 @@ test("prospective full-Hub validation rejects an independent global catalog conf
 
   assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_BUILD_ATTESTATION");
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
-  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md")), beforeTree);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md")), beforeTree);
   assert.equal(readJournal(hub.hubDir), null);
 });
 
@@ -319,8 +320,8 @@ test("canonical update lifecycle applies the immutable B plan after the tracked 
 
   const applied = await runHubUpdate({ hub: hub.hubDir, plan: planPath });
   assert.equal(applied.record.resolved_commit, shaB);
-  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
-  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "alpha", "SKILL.md"), "utf8"), skill("alpha", "Alpha body A."));
+  assert.equal(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"), "utf8"), BETA_B);
+  assert.equal(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md"), "utf8"), skill("alpha", "Alpha body A."));
 
   const release2 = await buildHubRelease(hub.hubDir);
   assert.notEqual(release2.release.digest, release1.release.digest);
@@ -345,7 +346,7 @@ test("PREPARED recovery discards staged data and preserves the adopted state", a
   const shaA = makeFixtureRepoShaA(repo);
   const hub = await setupHubAtA(repo, shaA);
   const lockBytes = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
-  const liveBytes = readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"));
+  const liveBytes = readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"));
 
   mkdirSync(join(hub.hubDir, ".staging", "plan"), { recursive: true });
   writeFileSync(join(hub.hubDir, ".staging", "plan", "staged.txt"), "staged\n");
@@ -361,7 +362,7 @@ test("PREPARED recovery discards staged data and preserves the adopted state", a
 
   assert.deepEqual(recoverIfNeeded(hub.hubDir), { recovered: true });
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), lockBytes);
-  assert.deepEqual(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md")), liveBytes);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md")), liveBytes);
   assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
   assert.equal(readJournal(hub.hubDir), null);
 });
@@ -558,9 +559,9 @@ test("crash after tree swap recovers exact previous state", async () => {
   // backup holds A, live tree planted with B content, lock still at A.
   const backupTree = join(hub.hubDir, ".backup", "plan");
   mkdirSync(backupTree, { recursive: true });
-  cpSync(join(hub.hubDir, "trees", "plan"), backupTree, { recursive: true });
+  cpSync(join(hub.hubDir, "external", "plan", "repo"), backupTree, { recursive: true });
   writeFileSync(join(hub.hubDir, ".backup", "sources.lock.yaml"), lockBytes);
-  writeFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), BETA_B);
+  writeFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"), BETA_B);
   writeJournal(hub.hubDir, {
     backup: ".backup",
     expected_old_commit: shaA,
@@ -572,7 +573,7 @@ test("crash after tree swap recovers exact previous state", async () => {
   });
   const res = recoverIfNeeded(hub.hubDir);
   assert.equal(res.recovered, true);
-  assert.equal(readFileSync(join(hub.hubDir, "trees", "plan", "skills", "beta", "SKILL.md"), "utf8"), BETA_A);
+  assert.equal(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md"), "utf8"), BETA_A);
   assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), lockBytes);
   assert.equal(readJournal(hub.hubDir), null);
   assert.equal(existsSync(join(hub.hubDir, ".backup")), false);
