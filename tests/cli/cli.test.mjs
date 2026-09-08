@@ -142,3 +142,151 @@ test("validate is non-mutating, uses the package validator, and reports JSON fai
   assert.match(report.failures[0].error, /must exactly match directory/);
   assert.equal(existsSync(join(cwd, ".ega-skills", "registry.sqlite")), false);
 });
+
+test("hub check --output writes a plan directly consumable by hub update --plan", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { pathToFileURL } = await import("node:url");
+  const {
+    extractSelectedRoots,
+    parseSourcesYaml,
+    sourceConfigDigest,
+  } = await import("../../packages/project/dist/index.js");
+
+  const repo = mkdtempSync(join(tmpdir(), "ega-cli-upstream-"));
+  const hub = mkdtempSync(join(tmpdir(), "ega-cli-update-hub-"));
+  const tree = join(hub, "trees", "upstream");
+
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repo,
+        "-c",
+        "user.name=cli-test",
+        "-c",
+        "user.email=cli-test@example.test",
+        "-c",
+        "core.autocrlf=false",
+        ...args,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+
+  git("init", "-b", "main");
+
+  mkdirSync(join(repo, "skills", "alpha"), { recursive: true });
+  writeFileSync(
+    join(repo, "skills", "alpha", "SKILL.md"),
+    "---\nname: alpha\ndescription: Alpha skill.\n---\n\nVersion A.\n",
+  );
+  writeFileSync(join(repo, "LICENSE"), "test license\n");
+  git("add", ".");
+  git("commit", "-m", "A");
+  const commitA = git("rev-parse", "HEAD");
+
+  mkdirSync(tree, { recursive: true });
+  const adoptedA = extractSelectedRoots(
+    repo,
+    ["skills/alpha"],
+    ["LICENSE"],
+    tree,
+  );
+
+  writeFileSync(
+    join(repo, "skills", "alpha", "SKILL.md"),
+    "---\nname: alpha\ndescription: Alpha skill.\n---\n\nVersion B.\n",
+  );
+  git("add", ".");
+  git("commit", "-m", "B");
+  const commitB = git("rev-parse", "HEAD");
+
+  const repository = pathToFileURL(repo).href;
+  const sourcesYaml = `schema_version: 1
+
+sources:
+  upstream:
+    type: git
+    repository: ${repository}
+    ref: main
+    namespace: upstream
+    selection:
+      roots:
+        - skills/alpha
+    provenance_files:
+      - LICENSE
+`;
+
+  const parsed = parseSourcesYaml(sourcesYaml);
+  const configDigest = sourceConfigDigest(parsed.sources.upstream);
+
+  writeFileSync(
+    join(hub, "hub.yaml"),
+    `schema_version: 1
+
+hub:
+  id: cli-update
+
+owned: []
+
+external:
+  - source: upstream
+`,
+  );
+
+  writeFileSync(join(hub, "sources.yaml"), sourcesYaml);
+
+  writeFileSync(
+    join(hub, "sources.lock.yaml"),
+    `schema_version: 1
+
+sources:
+  upstream:
+    source_config_digest: ${configDigest}
+    repository: ${repository}
+    requested_ref: main
+    namespace: upstream
+    selection:
+      roots:
+        - skills/alpha
+    provenance_files:
+      - LICENSE
+    resolved_commit: ${commitA}
+    selected_skill_tree_digest: ${adoptedA.treeDigest}
+    vendored_snapshot_digest: ${adoptedA.snapshotDigest}
+    extraction_contract: 1
+`,
+  );
+
+  const planFile = join(hub, "update-plan.json");
+
+  const check = runCli(
+    "hub",
+    "check",
+    "upstream",
+    hub,
+    "--output",
+    planFile,
+  );
+
+  assert.equal(check.status, 0, check.stderr);
+  assert.equal(JSON.parse(check.stdout).status, "UPDATE_AVAILABLE");
+
+  const persistedPlan = JSON.parse(readFileSync(planFile, "utf8"));
+  assert.equal(persistedPlan.object_type, "ega.update-plan");
+  assert.equal(persistedPlan.payload.source_id, "upstream");
+  assert.equal(persistedPlan.payload.target_commit, commitB);
+
+  const update = runCli(
+    "hub",
+    "update",
+    "--plan",
+    planFile,
+    hub,
+  );
+
+  assert.equal(update.status, 0, update.stderr);
+
+  const lockAfter = readFileSync(join(hub, "sources.lock.yaml"), "utf8");
+  assert.match(lockAfter, new RegExp(`resolved_commit: ${commitB}`));
+});

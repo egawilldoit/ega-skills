@@ -103,7 +103,9 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
       sourceId: options.sourceId,
       workDir,
     });
-    if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(result, null, 2)}\n`);
+    if (options.output && result.status === "UPDATE_AVAILABLE") {
+      writeFileSync(resolve(options.output), `${JSON.stringify(result.plan, null, 2)}\n`);
+    }
     return result;
   } finally {
     rmSync(workDir, { force: true, recursive: true });
