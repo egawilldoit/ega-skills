@@ -207,6 +207,7 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
   constructor(
     readonly path: string,
     private readonly renameFile: typeof renameSync = renameSync,
+    private readonly removePath: (path: string, options: { recursive?: boolean; force?: boolean }) => void = (path, options) => rmSync(path, options),
   ) {}
 
   load(): readonly ProjectContextStoreRecord[] {
@@ -257,7 +258,7 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
           this.renameFile(temporaryPath, this.path);
         } catch (replacementError) {
           try {
-            if (existsSync(this.path)) rmSync(this.path, { force: true });
+            if (existsSync(this.path)) this.removePath(this.path, { force: true });
             this.renameFile(backupPath, this.path);
           } catch (restoreError) {
             retainedBackupPath = backupPath;
@@ -267,13 +268,18 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
           }
           throw replacementError;
         }
-        rmSync(backupDirectory, { recursive: true, force: true });
+        try {
+          this.removePath(backupDirectory, { recursive: true, force: true });
+        } catch {
+          // The replacement is already durable. Keep the backup for manual
+          // cleanup rather than reporting a false persistence failure.
+        }
         backupDirectory = undefined;
       }
     } finally {
-      rmSync(temporaryDirectory, { recursive: true, force: true });
+      this.removePath(temporaryDirectory, { recursive: true, force: true });
       if (backupDirectory !== undefined && retainedBackupPath === undefined) {
-        rmSync(backupDirectory, { recursive: true, force: true });
+        this.removePath(backupDirectory, { recursive: true, force: true });
       }
     }
   }
@@ -368,6 +374,9 @@ async function boundedJson(request: Request, maxBodyBytes: number): Promise<unkn
  */
 export function createContextControlPlaneHandler(options: ContextControlPlaneOptions): (request: Request) => Promise<Response> {
   const maxBodyBytes = options.maxBodyBytes ?? 1_048_576;
+  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
+    throw new Error("control-plane body limit must be a positive safe integer");
+  }
   return async (request) => {
     const token = bearerToken(request);
     if (token === undefined || !(await options.authenticate(token))) return jsonResponse(401, { code: "E_AUTH_REQUIRED" });

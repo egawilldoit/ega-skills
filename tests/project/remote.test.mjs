@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { canonicalizeJson, createEnvelope, hashBytes } from "../../packages/hashing/dist/index.js";
@@ -238,6 +238,20 @@ test("context control plane bounds unknown-length request bodies before reading 
   assert.ok(pulls < 10, `control plane consumed ${pulls} chunks`);
 });
 
+test("context control plane rejects invalid body limit configuration", () => {
+  for (const maxBodyBytes of [Number.NaN, Number.POSITIVE_INFINITY, 0, -1, 1.5]) {
+    assert.throws(
+      () => createContextControlPlaneHandler({
+        store: createProjectContextStore(),
+        maxBodyBytes,
+        authenticate: () => true,
+        authorize: () => true,
+      }),
+      /positive safe integer/,
+    );
+  }
+});
+
 test("context clients reject remote cleartext endpoints before sending bearer credentials", async () => {
   let fetches = 0;
   await assert.rejects(
@@ -405,6 +419,50 @@ test("file context replacement failure restores the previous durable store", asy
     assert.throws(() => failingReplacement.save({ ...previous, revoked: true }), /replacement failed/);
     assert.equal(targetAttempts, 3);
     assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("file context cleanup failure after replacement does not report a false persistence failure", async () => {
+  const root = await mkdtemp(`${tmpdir()}/ega-context-cleanup-failure-`);
+  try {
+    const path = `${root}/contexts.json`;
+    const persistence = new FileProjectContextPersistence(path);
+    const context = createProjectContextArtifact({
+      workspace_id: "workspace-a",
+      project_id: "project-a",
+      config,
+      lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+      release,
+    });
+    const store = createProjectContextStore(persistence);
+    store.publish({ contextId: "ctx-main", context });
+    const previous = store.get("ctx-main");
+    assert.ok(previous);
+    let targetAttempts = 0;
+    let backupDirectory;
+    const replacement = new FileProjectContextPersistence(
+      path,
+      (from, to) => {
+        if (to === path) {
+          targetAttempts += 1;
+          if (targetAttempts === 1) throw new Error("destination replacement required");
+        }
+        renameSync(from, to);
+      },
+      (target, options) => {
+        if (target.includes(".ega-context-backup-")) {
+          backupDirectory = target;
+          throw new Error("backup cleanup unavailable");
+        }
+        rmSync(target, options);
+      },
+    );
+    assert.doesNotThrow(() => replacement.save({ ...previous, revoked: true }));
+    assert.equal(targetAttempts, 2);
+    assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, true);
+    assert.ok(backupDirectory && existsSync(backupDirectory));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
