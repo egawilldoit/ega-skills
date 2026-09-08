@@ -36,9 +36,12 @@ function git(dir, ...args) {
   execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
 }
 
-async function waitFor(path) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitFor(path, child = null) {
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
     if (existsSync(path)) return;
+    if (child !== null && child.exitCode !== null) {
+      throw new Error(`contender exited before writing ${path}: code=${String(child.exitCode)} signal=${String(child.signalCode)}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`timed out waiting for ${path}`);
@@ -157,7 +160,7 @@ function lockTextFor(record) {
 
 function lockTextForSources(records) {
   return `schema_version: 1\nsources:\n${Object.entries(records)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([name, record]) => `  ${name}:\n${Object.entries(record)
       .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
       .join("\n")}`)
@@ -487,7 +490,7 @@ test("a released process cannot remove a replacement lock", async () => {
   const firstResult = join(hubDir, "first.result");
   const firstRelease = join(hubDir, "first.release");
   const first = spawnLockContender(hubDir, firstResult, firstRelease);
-  await waitFor(firstResult);
+  await waitFor(firstResult, first);
   assert.equal(readFileSync(firstResult, "utf8"), "acquired");
 
   rmSync(join(hubDir, ".hub.lock"), { recursive: true });
@@ -511,7 +514,7 @@ test("two real contenders never both acquire Hub mutation authority", async () =
   const releasePath = join(hubDir, "release");
   const first = spawnLockContender(hubDir, firstResult, releasePath);
   const second = spawnLockContender(hubDir, secondResult, releasePath);
-  await Promise.all([waitFor(firstResult), waitFor(secondResult)]);
+  await Promise.all([waitFor(firstResult, first), waitFor(secondResult, second)]);
   const results = [readFileSync(firstResult, "utf8"), readFileSync(secondResult, "utf8")];
   assert.equal(results.filter((result) => result === "acquired").length, 1);
   assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
@@ -537,7 +540,7 @@ test("two real stale-lock reclaimers cannot both acquire mutation authority", as
   const resultPaths = [0, 1].map((index) => join(hub.hubDir, `.stale-contender-${index}.result`));
   const releasePaths = [0, 1].map((index) => join(hub.hubDir, `.stale-contender-${index}.release`));
   const children = resultPaths.map((resultPath, index) => spawnLockContender(hub.hubDir, resultPath, releasePaths[index]));
-  await Promise.all(resultPaths.map(waitFor));
+  await Promise.all(resultPaths.map((path, index) => waitFor(path, children[index])));
   const results = resultPaths.map((path) => readFileSync(path, "utf8"));
   assert.equal(results.filter((result) => result === "acquired").length, 1);
   assert.equal(results.filter((result) => result.startsWith("error:E_HUB_LOCKED")).length, 1);
