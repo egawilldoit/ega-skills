@@ -32,7 +32,7 @@ import {
   buildHub,
   buildHubRelease,
   checkForUpdates,
-  extractSelectedRoots,
+  extractSelectedRootsFromGit,
   fetchExactCommit,
   fetchRefTip,
   parseSourcesLockYaml,
@@ -126,7 +126,7 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
   mkdirSync(stage, { recursive: true });
   try {
     fetchExactCommit(source.repository, plan.payload.target_commit, fetched, { fallbackRef: source.ref });
-    extractSelectedRoots(fetched, source.selection.roots, source.provenanceFiles, stage);
+    extractSelectedRootsFromGit(fetched, plan.payload.target_commit, source.selection.roots, source.provenanceFiles, stage);
     // Await before cleanup: applyUpdatePlan reads the extracted stage after
     // its first asynchronous prospective-build validation.
     return await applyUpdatePlan({ hubDir, plan, stageDir: stage });

@@ -64,7 +64,7 @@ declare module "node:child_process" {
     args: readonly string[],
     options: { encoding: "utf8"; stdio?: unknown },
   ): string;
-  export function execFileSync(file: string, args: readonly string[], options?: { stdio?: unknown }): Uint8Array;
+  export function execFileSync(file: string, args: readonly string[], options?: { stdio?: unknown; encoding?: "buffer"; maxBuffer?: number }): Uint8Array;
 }
 
 declare module "node:crypto" {

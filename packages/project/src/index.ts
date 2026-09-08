@@ -18,9 +18,12 @@ export {
   QUARANTINE_MAX_FILES,
   QUARANTINE_MAX_TOTAL_BYTES,
   discoverUnselectedSkills,
+  discoverUnselectedSkillsFromGit,
   extractSelectedRoots,
+  extractSelectedRootsFromGit,
+  canonicalSourceManifestDigest,
 } from "./hub/quarantine.js";
-export type { ExtractedTree, ManifestScope, TreeManifestEntry } from "./hub/quarantine.js";
+export type { CanonicalSourceManifestEntry, ExtractedTree, ManifestScope, TreeManifestEntry } from "./hub/quarantine.js";
 export { checkForUpdates } from "./hub/planning.js";
 export { digestStagedTree } from "./hub/quarantine.js";
 export {

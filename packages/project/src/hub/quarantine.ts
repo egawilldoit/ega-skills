@@ -11,6 +11,7 @@
 //   snapshotDigest — selected roots PLUS provenance files
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { canonicalizeJson, sha256Hex } from "@ega-skills/hashing";
@@ -27,8 +28,14 @@ export type ManifestScope = "selected" | "provenance";
 export interface TreeManifestEntry {
   path: string;
   kind: "file";
-  blobSha256: string;
+  blob_sha256: string;
   scope: ManifestScope;
+}
+
+export interface CanonicalSourceManifestEntry {
+  path: string;
+  kind: "file";
+  blob_sha256: string;
 }
 
 export interface ExtractedTree {
@@ -41,8 +48,29 @@ function blobDigest(bytes: Uint8Array): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
+function canonicalManifest(entries: readonly TreeManifestEntry[] | readonly CanonicalSourceManifestEntry[]): CanonicalSourceManifestEntry[] {
+  const byPath = new Map<string, CanonicalSourceManifestEntry>();
+  for (const entry of entries) {
+    byPath.set(entry.path, { blob_sha256: entry.blob_sha256, kind: "file", path: entry.path });
+  }
+  const encoder = new TextEncoder();
+  return [...byPath.values()].sort((a, b) => {
+    const left = encoder.encode(a.path);
+    const right = encoder.encode(b.path);
+    const length = Math.min(left.length, right.length);
+    for (let i = 0; i < length; i += 1) {
+      if (left[i] !== right[i]) return (left[i] as number) - (right[i] as number);
+    }
+    return left.length - right.length;
+  });
+}
+
+export function canonicalSourceManifestDigest(entries: readonly TreeManifestEntry[] | readonly CanonicalSourceManifestEntry[]): string {
+  return `sha256:${sha256Hex(canonicalizeJson(canonicalManifest(entries)))}`;
+}
+
 function digestEntries(entries: readonly TreeManifestEntry[]): string {
-  return `sha256:${sha256Hex(canonicalizeJson([...entries]))}`;
+  return canonicalSourceManifestDigest(entries);
 }
 
 interface Collector {
@@ -94,7 +122,7 @@ function copyTree(
         throw new HubError("E_EXTRACTION_POLICY", "upstream tree exceeds quarantine caps");
       }
       writeFileSync(join(destDir, ...rel.split("/")), bytes);
-      out.manifest.push({ blobSha256: blobDigest(bytes), kind: "file", path: rel, scope });
+      out.manifest.push({ blob_sha256: blobDigest(bytes), kind: "file", path: rel, scope });
       seenFiles.add(rel);
     } else {
       throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in upstream tree: ${rel}`);
@@ -151,7 +179,7 @@ export function extractSelectedRoots(
       parentParts.pop();
       if (parentParts.length > 0) mkdirSync(join(destDir, ...parentParts), { recursive: true });
       writeFileSync(join(destDir, ...rel.split("/")), bytes);
-      out.manifest.push({ blobSha256: blobDigest(bytes), kind: "file", path: rel, scope });
+      out.manifest.push({ blob_sha256: blobDigest(bytes), kind: "file", path: rel, scope });
       seenFiles.add(rel);
     } else {
       throw new HubError("E_EXTRACTION_POLICY", `non-regular file forbidden in upstream tree: ${rel}`);
@@ -185,7 +213,7 @@ export function digestStagedTree(stageDir: string, roots: readonly string[]): Om
       } else if (entry.isFile()) {
         const bytes = readFileSync(childAbs);
         manifest.push({
-          blobSha256: blobDigest(bytes),
+          blob_sha256: blobDigest(bytes),
           kind: "file",
           path: childRel,
           scope: under(childRel) ? "selected" : "provenance",
@@ -199,6 +227,129 @@ export function digestStagedTree(stageDir: string, roots: readonly string[]): Om
   manifest.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const selected = manifest.filter((entry) => entry.scope === "selected");
   return { manifest, snapshotDigest: digestEntries(manifest), treeDigest: digestEntries(selected) };
+}
+
+interface GitTreeEntry {
+  mode: string;
+  type: string;
+  object: string;
+  size: number;
+  path: string;
+}
+
+function gitTreeEntries(repoDir: string, commit: string): GitTreeEntry[] {
+  let raw: Uint8Array;
+  try {
+    execFileSync("git", ["-C", repoDir, "cat-file", "-e", `${commit}^{commit}`], { stdio: ["ignore", "pipe", "pipe"] });
+    raw = execFileSync("git", ["-C", repoDir, "ls-tree", "-r", "-z", "-l", "--full-tree", commit], {
+      encoding: "buffer",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    throw new HubError("E_PLAN_FETCH", `cannot read exact upstream Git tree: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+  }
+  const entries: GitTreeEntry[] = [];
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let start = 0;
+  while (start < raw.length) {
+    let end = start;
+    while (end < raw.length && raw[end] !== 0) end += 1;
+    if (end === start) { start += 1; continue; }
+    let tab = start;
+    while (tab < end && raw[tab] !== 9) tab += 1;
+    if (tab >= end) throw new HubError("E_EXTRACTION_POLICY", "malformed Git tree entry");
+    const header = decoder.decode(raw.slice(start, tab));
+    const match = header.match(/^(\d+) ([a-z]+) ([0-9a-f]{40})\s+(\d+)$/);
+    if (!match) {
+      throw new HubError("E_EXTRACTION_POLICY", "malformed Git tree entry");
+    }
+    const path = decoder.decode(raw.slice(tab + 1, end));
+    assertRelativePosix(path, "upstream Git path");
+    entries.push({ mode: match[1] as string, type: match[2] as string, object: match[3] as string, size: Number(match[4]), path });
+    start = end + 1;
+  }
+  return entries;
+}
+
+function admittedGitPath(path: string, roots: readonly string[], provenanceFiles: readonly string[]): ManifestScope | undefined {
+  if (roots.some((root) => path === root || path.startsWith(`${root}/`))) return "selected";
+  if (provenanceFiles.includes(path)) return "provenance";
+  return undefined;
+}
+
+/** Extract directly from the exact commit's Git tree and blob objects.
+ * No checkout, attributes, smudge, clean filter, textconv, or LFS operation
+ * is involved. The destination receives the exact committed blob bytes. */
+export function extractSelectedRootsFromGit(
+  repoDir: string,
+  commit: string,
+  roots: readonly string[],
+  provenanceFiles: readonly string[],
+  destDir: string,
+): ExtractedTree {
+  for (const path of [...roots, ...provenanceFiles]) assertRelativePosix(path, "quarantine path");
+  const entries = gitTreeEntries(repoDir, commit);
+  const admitted = entries.filter((entry) => admittedGitPath(entry.path, roots, provenanceFiles) !== undefined);
+  const declaredPresent = new Set(admitted.map((entry) => entry.path));
+  for (const root of roots) {
+    if (!entries.some((entry) => entry.path === root || entry.path.startsWith(`${root}/`))) {
+      throw new HubError("E_EXTRACTION_POLICY", `declared path missing upstream: ${root}`);
+    }
+  }
+  for (const file of provenanceFiles) {
+    if (!declaredPresent.has(file)) throw new HubError("E_EXTRACTION_POLICY", `declared path missing upstream: ${file}`);
+  }
+  const out: Collector = { bytes: 0, files: 0, manifest: [] };
+  const seen = new Set<string>();
+  for (const entry of admitted) {
+    const scope = admittedGitPath(entry.path, roots, provenanceFiles) as ManifestScope;
+    if (seen.has(entry.path)) continue;
+    if (entry.path === ".gitmodules" || entry.path.endsWith("/.gitmodules") || entry.path === ".git") {
+      throw new HubError("E_EXTRACTION_POLICY", `forbidden upstream entry: ${entry.path}`);
+    }
+    if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) {
+      throw new HubError("E_EXTRACTION_POLICY", `non-regular Git entry forbidden in upstream tree: ${entry.path}`);
+    }
+    if (!Number.isSafeInteger(entry.size) || entry.size > QUARANTINE_MAX_FILE_BYTES) {
+      throw new HubError("E_EXTRACTION_POLICY", `file exceeds quarantine cap: ${entry.path}`);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = execFileSync("git", ["-C", repoDir, "cat-file", "blob", entry.object], {
+        encoding: "buffer",
+        maxBuffer: QUARANTINE_MAX_FILE_BYTES + 1,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (e) {
+      throw new HubError("E_EXTRACTION_POLICY", `cannot read upstream Git blob for ${entry.path}: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    }
+    if (bytes.length !== entry.size) throw new HubError("E_EXTRACTION_POLICY", `Git blob size mismatch: ${entry.path}`);
+    out.files += 1;
+    out.bytes += bytes.length;
+    if (out.files > QUARANTINE_MAX_FILES || out.bytes > QUARANTINE_MAX_TOTAL_BYTES) {
+      throw new HubError("E_EXTRACTION_POLICY", "upstream tree exceeds quarantine caps");
+    }
+    const parent = join(destDir, ...entry.path.split("/").slice(0, -1));
+    mkdirSync(parent, { recursive: true });
+    writeFileSync(join(destDir, ...entry.path.split("/")), bytes);
+    out.manifest.push({ blob_sha256: blobDigest(bytes), kind: "file", path: entry.path, scope });
+    seen.add(entry.path);
+  }
+  const selected = out.manifest.filter((entry) => entry.scope === "selected");
+  return { manifest: canonicalManifest(out.manifest).map((entry) => ({ ...entry, scope: (selected.some((x) => x.path === entry.path) ? "selected" : "provenance") as ManifestScope })), treeDigest: digestEntries(selected), snapshotDigest: digestEntries(out.manifest) };
+}
+
+/** Discover unselected SKILL.md roots from raw Git tree paths. */
+export function discoverUnselectedSkillsFromGit(repoDir: string, commit: string, roots: readonly string[]): string[] {
+  const entries = gitTreeEntries(repoDir, commit);
+  const under = (dir: string): boolean => roots.some((root) => dir === root || dir.startsWith(`${root}/`));
+  const found = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "blob" || !entry.path.endsWith("/SKILL.md") && entry.path !== "SKILL.md") continue;
+    const dir = entry.path === "SKILL.md" ? "" : entry.path.slice(0, -"/SKILL.md".length);
+    if (!under(dir)) found.add(dir);
+  }
+  return [...found].sort();
 }
 
 /**

@@ -18,7 +18,7 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { discoverUnselectedSkills, extractSelectedRoots } from "./quarantine.js";
+import { discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
@@ -101,8 +101,8 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     fetchRefTip(config.repository, config.ref, target, fetchDir);
     const quarantineDir = mkdtempSync(join(workDir, "quarantine-"));
     tempDirs.push(quarantineDir);
-    const tree = extractSelectedRoots(fetchDir, config.selection.roots, config.provenanceFiles, quarantineDir);
-    const unselected = discoverUnselectedSkills(fetchDir, config.selection.roots);
+    const tree = extractSelectedRootsFromGit(fetchDir, target, config.selection.roots, config.provenanceFiles, quarantineDir);
+    const unselected = discoverUnselectedSkillsFromGit(fetchDir, target, config.selection.roots);
     if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
       return { status: "NO_CHANGE", targetCommit: target };
     }

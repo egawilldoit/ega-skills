@@ -8,8 +8,8 @@ import {
   buildHub,
   buildHubRelease,
   createHubRelease,
-  discoverUnselectedSkills,
-  extractSelectedRoots,
+  discoverUnselectedSkillsFromGit,
+  extractSelectedRootsFromGit,
   fetchExactCommit,
   fetchRefTip,
   applyUpdatePlan,
@@ -77,8 +77,8 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
     fetchRefTip(source.repository, "main", commit, fetched);
     const treeDir = join(hubDir, "external", source.id, "repo");
     mkdirSync(treeDir, { recursive: true });
-    const tree = extractSelectedRoots(fetched, source.roots, source.provenance, treeDir);
-    const unselected = discoverUnselectedSkills(fetched, source.roots);
+    const tree = extractSelectedRootsFromGit(fetched, commit, source.roots, source.provenance, treeDir);
+    const unselected = discoverUnselectedSkillsFromGit(fetched, commit, source.roots);
     assert.ok(unselected.length > 0, `${source.id} must report unselected upstream skills`);
     locks[source.id] = {
       source_config_digest: sourceConfigDigest(config),
@@ -168,7 +168,7 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   const treeA = join(hubDir, "external", source.id, "repo");
   mkdirSync(treeA, { recursive: true });
   fetchExactCommit(mirror, commitA, fetchedA);
-  const extractedA = extractSelectedRoots(fetchedA, source.roots, source.provenance, treeA);
+  const extractedA = extractSelectedRootsFromGit(fetchedA, commitA, source.roots, source.provenance, treeA);
   const lock = {
     schema_version: 1,
     sources: {
@@ -223,7 +223,7 @@ test("real Matt and Cursor upstream corpus and A-to-B-to-C lifecycle", { skip: !
   // This exercises the public plan/apply lifecycle rather than only the lower-
   // level exact-fetch primitive.
   fetchExactCommit(mirror, commitB, fetchedB);
-  extractSelectedRoots(fetchedB, source.roots, source.provenance, stageB);
+  extractSelectedRootsFromGit(fetchedB, commitB, source.roots, source.provenance, stageB);
   await applyUpdatePlan({ hubDir, plan: checked.plan, stageDir: stageB });
   const release2 = await buildHubRelease(hubDir);
   assert.equal(release2.adoptedSources.find(({ sourceId }) => sourceId === source.id)?.resolvedCommit, commitB);
