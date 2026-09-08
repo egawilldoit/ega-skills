@@ -12,6 +12,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false --force",
     "test": "node --test",
+    "test:perf:registry": "node --test --test-concurrency=1 tests/performance/registry-cold-import.perf.mjs",
     "contracts:check-a": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-a.mjs",
     "contracts:test-a": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-a.test.mjs",
     "contracts:check-b": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-b.mjs",
