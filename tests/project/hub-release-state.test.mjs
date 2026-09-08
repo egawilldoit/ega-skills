@@ -56,7 +56,7 @@ function setupStateHub() {
     join(hubDir, "owned", "ega", "reviewer", "ega.yaml"),
     "schema_version: 1\naliases:\n  - code-review\ntriggers:\n  - review\n",
   );
-  const treeBase = join(hubDir, "trees", "plan");
+  const treeBase = join(hubDir, "external", "plan", "repo");
   writeSkillFiles(treeBase, [
     {
       body: "Alpha body.",

@@ -34,6 +34,7 @@ import { parseSourcesLockYaml, type SourceLockRecord } from "./sources-lock.js";
 import type { UpdatePlanDocument } from "./planning.js";
 import { buildHub } from "./builder.js";
 import { parseHubYaml } from "./hub-config.js";
+import { adoptedSourcePath } from "./paths.js";
 
 export interface HubLock {
   release(): void;
@@ -290,11 +291,11 @@ async function validateProspectiveHub(hubDir: string, sourceId: string, stageDir
       }
       copyDirTree(source, target);
     }
-    const adoptedTrees = join(hubDir, "trees");
-    mkdirSync(join(prospective, "trees"), { recursive: true });
-    for (const name of readdirSync(adoptedTrees)) {
-      const sourceTree = join(adoptedTrees, name);
-      const targetTree = join(prospective, "trees", name);
+    const adoptedExternal = join(hubDir, "external");
+    mkdirSync(join(prospective, "external"), { recursive: true });
+    for (const name of readdirSync(adoptedExternal)) {
+      const sourceTree = adoptedSourcePath(hubDir, name);
+      const targetTree = adoptedSourcePath(prospective, name);
       if (name === sourceId) copyDirTree(stageDir, targetTree);
       else copyDirTree(sourceTree, targetTree);
     }
@@ -434,7 +435,7 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     if (existsSync(staging) || existsSync(backup) || readJournal(hubDir)) {
       throw new HubError("E_LOCK_MISMATCH", "hub destination not clean (staging/backup/journal remnants)");
     }
-    const liveTree = join(hubDir, "trees", verified.sourceId);
+    const liveTree = adoptedSourcePath(hubDir, verified.sourceId);
     if (!existsSync(liveTree)) {
       throw new HubError("E_LOCK_MISMATCH", `adopted tree missing for ${verified.sourceId}`);
     }

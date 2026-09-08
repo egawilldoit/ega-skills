@@ -154,7 +154,7 @@ test("hub check --output writes a plan directly consumable by hub update --plan"
 
   const repo = mkdtempSync(join(tmpdir(), "ega-cli-upstream-"));
   const hub = mkdtempSync(join(tmpdir(), "ega-cli-update-hub-"));
-  const tree = join(hub, "trees", "upstream");
+  const tree = join(hub, "external", "upstream", "repo");
 
   const git = (...args) =>
     execFileSync(
