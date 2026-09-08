@@ -76,6 +76,11 @@ The following results were gathered incrementally on the final 1.1 integration l
 - The CLI handoff defect was discovered through this real E2E and fixed in `aeb451c140f9008313da53deda1a3cfbfd41c9a4`.
 - This is local/real-upstream product acceptance evidence, not hosted or staging acceptance.
 
+The pre-P0 source-digest values in the 2026-09-07 evidence are superseded for
+source-identity authority by
+`docs/evidence/1.1-REAL-UPSTREAM-E2E-2026-09-08.md`, which records raw Git blob
+extraction and the Contract A canonical manifest preimage.
+
 ## Post-1.1 boundaries
 
 - Contract D: NOT STARTED / NOT RELEASED

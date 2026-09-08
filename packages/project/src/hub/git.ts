@@ -1,8 +1,8 @@
 // 1.1[C] upstream git operations (EGA-625). Contract B section 2 (check).
 //
 // Exact-commit discipline: `resolveRefToCommit` maps a tracked ref to one
-// commit; `fetchRefTip` materializes that commit and FAILS if the upstream
-// moved in between (never silently follow a moving ref). No shell: argv only.
+// commit; fetch helpers acquire Git objects and verify the exact commit.
+// Source bytes are read later through Git plumbing, never through checkout.
 
 import { execFileSync } from "node:child_process";
 import { HubError } from "./errors.js";
@@ -56,13 +56,12 @@ export function resolveRefToCommit(repository: string, ref: string): string {
  * Mismatch means upstream moved during check: fail, never follow it.
  */
 export function fetchRefTip(repository: string, ref: string, expectedCommit: string, dir: string): void {
-  // NOTE (Windows): core.autocrlf must be off — CRLF conversion would change
-  // quarantined bytes (and therefore tree digests) per platform. EGA needs
-  // byte-deterministic checkouts; canonical line-ending rules live in SPEC-002.
+  // --no-checkout is security-critical: source identity is obtained from raw
+  // Git blobs, so attributes, smudge filters, LFS, and autocrlf cannot run.
   const noEol = "-c";
   const noEolValue = "core.autocrlf=false";
   try {
-    execFileSync("git", [noEol, noEolValue, "clone", "--quiet", "--depth", "1", "--branch", ref, "--", repository, dir], {
+    execFileSync("git", [noEol, noEolValue, "clone", "--quiet", "--no-checkout", "--depth", "1", "--branch", ref, "--", repository, dir], {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (e) {
@@ -86,23 +85,19 @@ export interface ExactCommitFetchOptions {
   readonly forceRefFallback?: boolean;
 }
 
-function verifyExactCheckout(dir: string, commit: string): void {
-  let landed: string;
+function verifyExactObject(dir: string, commit: string): void {
   try {
-    landed = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    execFileSync("git", ["-C", dir, "cat-file", "-e", `${commit}^{commit}`], { stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
-    throw gitError("E_PLAN_FETCH", `cannot read fetched commit: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
-  }
-  if (landed !== commit) {
-    throw gitError("E_PLAN_FETCH", `exact fetch landed ${landed}, expected approved commit ${commit}`);
+    throw gitError("E_PLAN_FETCH", `cannot verify fetched commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
   }
 }
 
-/** Materialize one approved commit without adopting a moving ref tip.
+/** Acquire one approved commit without adopting a moving ref tip.
  *  Apply uses this primitive after plan approval, so a later branch movement
  *  cannot change the content being adopted. Some Git servers reject direct
- *  SHA wants; the verified ref fallback transports history, then checks out
- *  and proves the approved object itself. */
+ *  SHA wants; the verified ref fallback transports history, then proves the
+ *  approved object itself. Source extraction reads Git objects. */
 export function fetchExactCommit(
   repository: string,
   commit: string,
@@ -129,10 +124,7 @@ export function fetchExactCommit(
       execFileSync("git", ["-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--", repository, commit], {
         stdio: ["ignore", "pipe", "pipe"],
       });
-      execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      verifyExactCheckout(dir, commit);
+      verifyExactObject(dir, commit);
       return;
     } catch (e) {
       directFailure = e;
@@ -152,12 +144,9 @@ export function fetchExactCommit(
     execFileSync("git", ["-C", dir, "cat-file", "-e", `${commit}^{commit}`], {
       stdio: ["ignore", "pipe", "pipe"],
     });
-    execFileSync("git", ["-C", dir, "checkout", "--quiet", "--detach", commit], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    verifyExactCheckout(dir, commit);
+    verifyExactObject(dir, commit);
   } catch (e) {
     const direct = directFailure === undefined ? "direct fetch was bypassed" : `direct fetch failed: ${String((directFailure as Error)?.message ?? directFailure).slice(0, 120)}`;
-    throw gitError("E_PLAN_FETCH", `${direct}; verified ref fallback ${options.fallbackRef} could not materialize approved commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+    throw gitError("E_PLAN_FETCH", `${direct}; verified ref fallback ${options.fallbackRef} could not acquire approved commit ${commit}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
   }
 }
