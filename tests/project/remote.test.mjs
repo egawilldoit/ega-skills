@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { createEnvelope } from "../../packages/hashing/dist/index.js";
+import { canonicalizeJson, createEnvelope, hashBytes } from "../../packages/hashing/dist/index.js";
 import {
   REMOTE_PROJECT_ERROR_CODES,
   createProjectContextCacheIdentity,
@@ -16,6 +16,7 @@ import {
   listProjectContexts,
   verifyProjectContext,
   verifyRemoteLockPlan,
+  verifyRemoteLockPlanAgainstLock,
   publishProjectContext,
   revokeProjectContext,
 } from "../../packages/project/dist/index.js";
@@ -137,6 +138,28 @@ test("Contract E rejects forged remote lock change sets", () => {
     () => verifyRemoteLockPlan({ ...forged, plan_digest: `sha256:${"a".repeat(64)}` }),
     (error) => error?.code === REMOTE_PROJECT_ERROR_CODES.INVALID_CONTEXT,
   );
+});
+
+test("Contract E compares equivalent remote lock changes canonically", () => {
+  const previousVersionHash = `sha256:${"0".repeat(64)}`;
+  const existing = lock({ [skillId]: { name: "alpha", version_hash: previousVersionHash } });
+  const candidate = lock({ [skillId]: { name: "alpha", version_hash: versionHash } });
+  const plan = createRemoteLockPlan({
+    workspace_id: "workspace-a",
+    project_id: "project-a",
+    config,
+    existing_lock: existing,
+    candidate_lock: candidate,
+    target_release: release,
+  });
+  const reorderedChange = {
+    candidate_version_hash: versionHash,
+    skill_id: skillId,
+    previous_version_hash: previousVersionHash,
+  };
+  const { plan_digest: _ignored, ...artifact } = { ...plan, changed_entries: [reorderedChange] };
+  const equivalent = { ...artifact, plan_digest: hashBytes(canonicalizeJson(artifact)) };
+  assert.doesNotThrow(() => verifyRemoteLockPlanAgainstLock(equivalent, existing));
 });
 
 test("Contract E cache identity and lifecycle preserve exact artifacts across revocation", () => {
@@ -267,6 +290,36 @@ test("context clients report non-JSON control-plane failures by status", async (
     publishProjectContext("https://control.example.test", "token-a", "ctx-main", {}, {}, async () => new Response("upstream unavailable", { status: 503 })),
     /Context publication failed \(503\)/,
   );
+});
+
+test("context clients bound unknown-length response bodies", async () => {
+  let pulls = 0;
+  const responseBody = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(8));
+      if (pulls >= 10) controller.close();
+    },
+  });
+  await assert.rejects(
+    listProjectContexts("https://control.example.test", "token-a", async () => new Response(responseBody), { maxResponseBytes: 16 }),
+    /control-plane response exceeds configured limit/,
+  );
+  assert.ok(pulls < 10, `control-plane client consumed ${pulls} response chunks`);
+});
+
+test("context clients abort a request that exceeds its deadline", async () => {
+  let aborted = false;
+  const fetcher = async (_input, init) => {
+    init?.signal?.addEventListener("abort", () => { aborted = true; }, { once: true });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return new Response(JSON.stringify({ contexts: [] }), { status: 200 });
+  };
+  await assert.rejects(
+    listProjectContexts("https://control.example.test", "token-a", fetcher, { timeoutMs: 10 }),
+    /control-plane request timed out/,
+  );
+  assert.equal(aborted, true);
 });
 
 test("context clients reject malformed successful responses", async () => {

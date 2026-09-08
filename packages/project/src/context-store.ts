@@ -444,6 +444,16 @@ export function createContextControlPlaneHandler(options: ContextControlPlaneOpt
 
 export interface PublishContextClientResult extends PublishedContextResponse {}
 
+export interface ContextClientOptions {
+  /** Maximum time allowed for fetch and response-body consumption. */
+  readonly timeoutMs?: number;
+  /** Maximum response body size accepted from the control plane. */
+  readonly maxResponseBytes?: number;
+}
+
+const DEFAULT_CONTEXT_CLIENT_TIMEOUT_MS = 10_000;
+const DEFAULT_CONTEXT_CLIENT_MAX_RESPONSE_BYTES = 1_048_576;
+
 function controlPlaneUrl(endpoint: string, path: string): URL {
   // Resolve against the endpoint directory so an explicitly configured base
   // path (for example https://host/api) remains part of the deployment URL.
@@ -457,13 +467,87 @@ function controlPlaneUrl(endpoint: string, path: string): URL {
   return url;
 }
 
-async function readJsonResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
+async function readJsonResponse(response: Response, maxResponseBytes: number, signal: AbortSignal): Promise<unknown> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null && (!/^\d+$/u.test(contentLength) || Number(contentLength) > maxResponseBytes)) {
+    throw new Error("control-plane response exceeds configured limit");
+  }
+  if (response.body === null) return undefined;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const abortRead = (): void => { void reader.cancel("control-plane request aborted").catch(() => undefined); };
+  if (signal.aborted) abortRead();
+  else signal.addEventListener("abort", abortRead, { once: true });
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxResponseBytes) {
+        void reader.cancel("control-plane response exceeds configured limit").catch(() => undefined);
+        throw new Error("control-plane response exceeds configured limit");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    signal.removeEventListener("abort", abortRead);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   if (text.length === 0) return undefined;
   try {
     return JSON.parse(text) as unknown;
   } catch {
     return undefined;
+  }
+}
+
+function contextClientLimits(options: ContextClientOptions): { readonly timeoutMs: number; readonly maxResponseBytes: number } {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CONTEXT_CLIENT_TIMEOUT_MS;
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_CONTEXT_CLIENT_MAX_RESPONSE_BYTES;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || !Number.isSafeInteger(maxResponseBytes) || maxResponseBytes <= 0) {
+    throw new Error("control-plane client limits must be positive safe integers");
+  }
+  return { timeoutMs, maxResponseBytes };
+}
+
+async function fetchContextResponse(
+  fetcher: typeof fetch,
+  url: URL,
+  init: RequestInit,
+  operation: string,
+  options: ContextClientOptions,
+): Promise<{ readonly response: Response; readonly body: unknown }> {
+  const { timeoutMs, maxResponseBytes } = contextClientLimits(options);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const request = (async () => {
+    const response = await fetcher(url, { ...init, signal: controller.signal });
+    return { response, body: await readJsonResponse(response, maxResponseBytes, controller.signal) };
+  })();
+  request.catch(() => undefined);
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new Error(`${operation} control-plane request timed out`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (!timedOut) controller.abort();
   }
 }
 
@@ -504,14 +588,14 @@ export async function publishProjectContext(
   context: ProjectContext,
   authority: ProjectContextAuthority,
   fetcher: typeof fetch = fetch,
+  options: ContextClientOptions = {},
 ): Promise<PublishContextClientResult> {
   if (endpoint.length === 0 || token.length === 0) throw new Error("control-plane endpoint and token are required");
-  const response = await fetcher(controlPlaneUrl(endpoint, "/v1/contexts"), {
+  const { response, body } = await fetchContextResponse(fetcher, controlPlaneUrl(endpoint, "/v1/contexts"), {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ context_id: contextId, context, authority }),
-  });
-  const body = await readJsonResponse(response);
+  }, "Context publication", options);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context publication failed (${String(record["code"] ?? response.status)})`);
@@ -525,14 +609,14 @@ export async function getProjectContext(
   token: string,
   contextId: string,
   fetcher: typeof fetch = fetch,
+  options: ContextClientOptions = {},
 ): Promise<PublishContextClientResult> {
   if (endpoint.length === 0 || token.length === 0 || contextId.length === 0) {
     throw new Error("control-plane endpoint, token, and context id are required");
   }
-  const response = await fetcher(controlPlaneUrl(endpoint, `/v1/contexts/${encodeURIComponent(contextId)}`), {
+  const { response, body } = await fetchContextResponse(fetcher, controlPlaneUrl(endpoint, `/v1/contexts/${encodeURIComponent(contextId)}`), {
     headers: { authorization: `Bearer ${token}` },
-  });
-  const body = await readJsonResponse(response);
+  }, "Context retrieval", options);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context retrieval failed (${String(record["code"] ?? response.status)})`);
@@ -545,14 +629,14 @@ export async function listProjectContexts(
   endpoint: string,
   token: string,
   fetcher: typeof fetch = fetch,
+  options: ContextClientOptions = {},
 ): Promise<ListContextClientResult> {
   if (endpoint.length === 0 || token.length === 0) {
     throw new Error("control-plane endpoint and token are required");
   }
-  const response = await fetcher(controlPlaneUrl(endpoint, "/v1/contexts"), {
+  const { response, body } = await fetchContextResponse(fetcher, controlPlaneUrl(endpoint, "/v1/contexts"), {
     headers: { authorization: `Bearer ${token}` },
-  });
-  const body = await readJsonResponse(response);
+  }, "Context listing", options);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context listing failed (${String(record["code"] ?? response.status)})`);
@@ -575,15 +659,15 @@ export async function revokeProjectContext(
   token: string,
   contextId: string,
   fetcher: typeof fetch = fetch,
+  options: ContextClientOptions = {},
 ): Promise<PublishContextClientResult> {
   if (endpoint.length === 0 || token.length === 0 || contextId.length === 0) {
     throw new Error("control-plane endpoint, token, and context id are required");
   }
-  const response = await fetcher(controlPlaneUrl(endpoint, `/v1/contexts/${encodeURIComponent(contextId)}`), {
+  const { response, body } = await fetchContextResponse(fetcher, controlPlaneUrl(endpoint, `/v1/contexts/${encodeURIComponent(contextId)}`), {
     method: "DELETE",
     headers: { authorization: `Bearer ${token}` },
-  });
-  const body = await readJsonResponse(response);
+  }, "Context revocation", options);
   if (!response.ok) {
     const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
     throw new Error(`Context revocation failed (${String(record["code"] ?? response.status)})`);

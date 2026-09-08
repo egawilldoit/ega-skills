@@ -116,6 +116,7 @@ export type { ProjectContextPersistence } from "./context-store.js";
 export type {
   ContextControlPlaneAuthorization,
   ContextControlPlaneOptions,
+  ContextClientOptions,
   ListContextClientResult,
   PublishContextClientResult,
   PublishedContextResponse,
