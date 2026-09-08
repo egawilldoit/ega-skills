@@ -235,6 +235,7 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
     const temporaryPath = join(temporaryDirectory, "contexts.json");
     let backupDirectory: string | undefined;
     let retainedBackupPath: string | undefined;
+    let committed = false;
     try {
       const records = this.load().filter((current) => current.contextId !== record.contextId);
       records.push(record);
@@ -242,6 +243,7 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
       writeFileSync(temporaryPath, `${JSON.stringify(records, null, 2)}\n`);
       try {
         this.renameFile(temporaryPath, this.path);
+        committed = true;
       } catch (error) {
         // Windows does not replace an existing destination with renameSync.
         // Move the old file aside before replacement so a second rename failure
@@ -256,6 +258,7 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
         this.renameFile(this.path, backupPath);
         try {
           this.renameFile(temporaryPath, this.path);
+          committed = true;
         } catch (replacementError) {
           try {
             if (existsSync(this.path)) this.removePath(this.path, { force: true });
@@ -277,7 +280,14 @@ export class FileProjectContextPersistence implements ProjectContextPersistence 
         backupDirectory = undefined;
       }
     } finally {
-      this.removePath(temporaryDirectory, { recursive: true, force: true });
+      try {
+        this.removePath(temporaryDirectory, { recursive: true, force: true });
+      } catch (error) {
+        // Once the replacement is durable, temporary cleanup is housekeeping,
+        // not part of the logical save. Before that boundary, preserve the
+        // cleanup error so a failed replacement cannot look successful.
+        if (!committed) throw error;
+      }
       if (backupDirectory !== undefined && retainedBackupPath === undefined) {
         this.removePath(backupDirectory, { recursive: true, force: true });
       }

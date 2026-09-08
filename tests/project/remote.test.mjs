@@ -459,10 +459,56 @@ test("file context cleanup failure after replacement does not report a false per
         rmSync(target, options);
       },
     );
-    assert.doesNotThrow(() => replacement.save({ ...previous, revoked: true }));
+    const replacementStore = createProjectContextStore(replacement);
+    assert.doesNotThrow(() => replacementStore.revoke("ctx-main"));
     assert.equal(targetAttempts, 2);
+    assert.equal(replacementStore.get("ctx-main")?.revoked, true);
     assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, true);
     assert.ok(backupDirectory && existsSync(backupDirectory));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("file context temporary cleanup failure after commit does not report a false failure", async () => {
+  const root = await mkdtemp(`${tmpdir()}/ega-context-temp-cleanup-failure-`);
+  try {
+    const path = `${root}/contexts.json`;
+    const persistence = new FileProjectContextPersistence(path);
+    const context = createProjectContextArtifact({
+      workspace_id: "workspace-a",
+      project_id: "project-a",
+      config,
+      lock: lock({ [skillId]: { name: "alpha", version_hash: versionHash } }),
+      release,
+    });
+    const store = createProjectContextStore(persistence);
+    store.publish({ contextId: "ctx-main", context });
+    let targetAttempts = 0;
+    let temporaryDirectory;
+    const replacement = new FileProjectContextPersistence(
+      path,
+      (from, to) => {
+        if (to === path) {
+          targetAttempts += 1;
+          if (targetAttempts === 1) throw new Error("destination replacement required");
+        }
+        renameSync(from, to);
+      },
+      (target, options) => {
+        if (target.includes(".ega-context-store-")) {
+          temporaryDirectory = target;
+          throw new Error("temporary cleanup unavailable");
+        }
+        rmSync(target, options);
+      },
+    );
+    const replacementStore = createProjectContextStore(replacement);
+    assert.doesNotThrow(() => replacementStore.revoke("ctx-main"));
+    assert.equal(targetAttempts, 2);
+    assert.equal(replacementStore.get("ctx-main")?.revoked, true);
+    assert.equal(new FileProjectContextPersistence(path).load()[0].revoked, true);
+    assert.ok(temporaryDirectory && existsSync(temporaryDirectory));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
