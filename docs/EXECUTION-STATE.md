@@ -37,11 +37,18 @@ Updated: 2026-09-08
 
 Skip classification:
 
-- Two Windows-only containment tests run on Windows CI.
+The standard full-suite inventory has five skip classifications:
+
+- Linux-only internal-file-symlink traversal test.
+- Linux-only broken-link traversal test.
 - Codex acceptance smoke requires a fresh hosted-client environment.
 - OpenCode acceptance smoke requires a fresh hosted-client environment.
-- The real-network Matt/Cursor gate is skipped without `EGA_REAL_UPSTREAM=1`;
-  it was separately executed and passed here.
+- The real-network Matt/Cursor gate is skipped without
+  `EGA_REAL_UPSTREAM=1`.
+
+The recorded 855-test run enabled the fifth gate with
+`EGA_REAL_UPSTREAM=1`, so that run has four actual skips; the enabled gate
+passed separately with the upstream identities recorded above.
 
 Remaining external acceptance items are isolated staging deployment, real
 OAuth/client registration, fresh Codex and OpenCode clients, physical

@@ -58,12 +58,17 @@ The enabled real-upstream full suite passed:
 - Contract E: 6/6.
 - Build, typecheck, frozen-spec checks, contract validators, and `git diff --check`: PASS.
 
-Skip classifications for the default full-suite inventory are explicit:
+Skip classifications for the standard full-suite inventory are explicit:
 
-1. Two Windows-only containment tests run on Windows CI.
-2. Codex acceptance smoke requires a fresh hosted-client environment.
-3. OpenCode acceptance smoke requires a fresh hosted-client environment.
-4. The real-network Matt/Cursor gate is skipped without `EGA_REAL_UPSTREAM=1`; it was separately executed and passed here.
+1. Linux-only internal-file-symlink traversal test.
+2. Linux-only broken-link traversal test.
+3. Codex acceptance smoke requires a fresh hosted-client environment.
+4. OpenCode acceptance smoke requires a fresh hosted-client environment.
+5. The real-network Matt/Cursor gate is skipped without `EGA_REAL_UPSTREAM=1`.
+
+The recorded 855-test run enabled the fifth gate with `EGA_REAL_UPSTREAM=1`,
+so that run has four actual skips; the enabled gate passed separately with the
+upstream identities recorded below.
 
 Real upstream result:
 
