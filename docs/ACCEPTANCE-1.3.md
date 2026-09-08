@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Code-under-test SHA: `86e819ad7164d9ec96a7ba7aace4829e9462591f`.
-Exact code-under-test CI: foundation `34208168893`; hashing traversal
-`34208168880` (Ubuntu and Windows).
+Code-under-test SHA: `610650d44f68023c85a803dc250f1d81696e6279`.
+Exact code-under-test CI: foundation `34215575847`; hashing traversal
+`34215575864` (Ubuntu and Windows).
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |

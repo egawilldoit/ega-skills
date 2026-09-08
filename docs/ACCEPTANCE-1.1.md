@@ -2,9 +2,9 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Code-under-test SHA: `86e819ad7164d9ec96a7ba7aace4829e9462591f`.
-Exact code-under-test CI: foundation `34208168893`; hashing traversal
-`34208168880` (Ubuntu and Windows).
+Code-under-test SHA: `610650d44f68023c85a803dc250f1d81696e6279`.
+Exact code-under-test CI: foundation `34215575847`; hashing traversal
+`34215575864` (Ubuntu and Windows).
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -42,11 +42,12 @@ bare mirror: A=`5c89081d4bbeb3d039a42093653f90bb698d780e`,
 B=`6a34259e99bc5fed4f8fe5da61c273dad14edf67`,
 C=`3cca18b368ae95cdbdebbff572ccafa662551015`. The approved B plan digest
 recorded in the latest run was
-`sha256:9c182066cc06a19c43c36ad078a1e18521d47ddb913ee1795386773c4aa3a490`;
+`sha256:819dab697c5169c9b6130f4654eb73d3583fb57ec3ca16949ea8b469e38bcc04`;
 the tracked ref advanced to C and apply still landed B while preserving R1.
 
-Final code-under-test gate summary: full regression PASS, 837 total, 832
+Final code-under-test gate summary: full regression PASS, 845 total, 840
 passed, 0 failed, 5 classified skips. Build, typecheck, specs, and Contracts A
-through E passed. The focused exact-head repair suite passed 48/48.
+through E passed. The focused repair-boundary suite passed 109/109 using:
+`node --test tests/project/hub-adoption.test.mjs tests/project/hub-release-state.test.mjs tests/project/hub-release.test.mjs tests/project/remote.test.mjs tests/mcp/hosted-runtime.test.mjs tests/router/remote-fingerprint.test.mjs tests/contracts/contract-c.test.mjs`.
 No 1.1 release tag or publication was performed. The documentation snapshot
 is evidence-only after the code-under-test commit above.

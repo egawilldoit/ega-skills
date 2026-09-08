@@ -2,11 +2,11 @@
 
 Canonical specification SHA: `2ca5e6309dd8c3a4ecea5e4b15f50c2aadccdeed`
 
-Code-under-test SHA: `86e819ad7164d9ec96a7ba7aace4829e9462591f`.
+Code-under-test SHA: `610650d44f68023c85a803dc250f1d81696e6279`.
 The hosted focused suite and persisted context lifecycle suite pass locally;
-the full regression passes 837 total, 832 passed, 0 failed, 5 classified
-skips. Exact code-under-test CI is foundation `34208168893` and hashing
-traversal `34208168880`, both passing on Ubuntu and Windows.
+the full regression passes 845 total, 840 passed, 0 failed, 5 classified
+skips. Exact code-under-test CI is foundation `34215575847` and hashing
+traversal `34215575864`, both passing on Ubuntu and Windows.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ traversal `34208168880`, both passing on Ubuntu and Windows.
 | Runtime is read-only | PASS | read-only SQLite and repeated-call tests |
 | Emergency deny works | PASS | release, source, and SkillVersion deny tests |
 | Tokens are not logged | PASS | OAuth and hosted boundary tests; no token logging path |
-| Request, response, content, timeout, and concurrency limits | PASS | hosted adversarial transport tests, each local limit independently |
+| Request, response, content, timeout, and concurrency limits | PASS locally | hosted adversarial transport tests exercise each local limit independently, including cancellation and safe-integer configuration validation |
 | Physical connection limit | BLOCKED / NOT YET PROVEN | Requires the production deployment connection adapter; local in-process accounting is not evidence of physical socket enforcement |
 | Startup verifies release integrity | PASS | snapshot tamper tests for package, SQLite, catalog, FTS, and artifacts |
 | Hosted backup and recovery | BLOCKED / NOT YET PROVEN | The local Hub journal tests prove 1.1 transaction recovery, not hosted stable-pointer/auth/authorization metadata backup, immutable release storage restore, or hosted rollback |
