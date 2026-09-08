@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { stringify as stringifyYaml } from "yaml";
 import { verifyEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
-import { COMMIT_RE, SHA256_RE, assertSourceId, isPlainObject } from "./guards.js";
+import { COMMIT_RE, SHA256_RE, assertRelativePosix, assertSortedUnique, assertSourceId, isPlainObject } from "./guards.js";
 import {
   clearJournal,
   durableRename,
@@ -317,6 +317,127 @@ interface VerifiedPlan {
   sourceConfigDigest: string;
 }
 
+const PLAN_KEYS = [
+  "added_skills",
+  "changed_skills",
+  "expected_old",
+  "extraction_contract",
+  "new_selected_tree_digest",
+  "new_vendored_snapshot_digest",
+  "provenance_changes",
+  "removed_skills",
+  "source_config_digest",
+  "source_id",
+  "target_commit",
+  "unselected_new_skills",
+] as const;
+const EXPECTED_OLD_KEYS = ["resolved_commit", "selected_skill_tree_digest"] as const;
+const SKILL_KEYS = ["skill_ref", "version_hash"] as const;
+const CHANGED_SKILL_KEYS = ["canonical_changed", "new_version", "old_version", "raw_changed", "skill_ref"] as const;
+const MUTABLE_REF_KEYS = new Set(["ref", "target_ref", "branch", "rev"]);
+const SKILL_REF_RE = /^[a-z0-9][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function requireExactKeys(value: Record<string, unknown>, expected: readonly string[], what: string): void {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  if (actual.length !== sortedExpected.length || actual.some((key, index) => key !== sortedExpected[index])) {
+    throw new HubError("E_PLAN_SCHEMA", `${what} has unknown or missing fields`);
+  }
+}
+
+function rejectPlanNulls(value: unknown, path: string): void {
+  if (value === null) throw new HubError("E_PLAN_SCHEMA", `${path} must not be null`);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => rejectPlanNulls(entry, `${path}[${index}]`));
+  } else if (isPlainObject(value)) {
+    Object.entries(value).forEach(([key, entry]) => rejectPlanNulls(entry, `${path}.${key}`));
+  }
+}
+
+function rejectMutablePlanRefs(value: unknown, path: string): void {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => rejectMutablePlanRefs(entry, `${path}[${index}]`));
+  } else if (isPlainObject(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (MUTABLE_REF_KEYS.has(key)) {
+        throw new HubError("E_PLAN_REFETCH", `plan must not carry "${key}" (exact commit only)`);
+      }
+      rejectMutablePlanRefs(entry, `${path}.${key}`);
+    }
+  }
+}
+
+function requirePlanList(value: unknown, field: string): unknown[] {
+  if (!Array.isArray(value)) throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must be a list`);
+  return value;
+}
+
+function requireSortedPlanStrings(value: unknown, field: string): string[] {
+  const list = requirePlanList(value, field);
+  if (list.some((entry) => typeof entry !== "string")) {
+    throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} entries must be strings`);
+  }
+  const strings = list as string[];
+  try {
+    assertSortedUnique(strings, `plan payload ${field}`);
+    for (const entry of strings) assertRelativePosix(entry, `plan payload ${field}`);
+  } catch {
+    throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must contain sorted unique relative paths`);
+  }
+  return strings;
+}
+
+function requireSkillRef(value: unknown, field: string): string {
+  if (typeof value !== "string" || !SKILL_REF_RE.test(value)) {
+    throw new HubError("E_PLAN_SCHEMA", `plan ${field} must be a namespace/name reference`);
+  }
+  return value;
+}
+
+function requireSkillEntries(value: unknown, field: "added_skills" | "removed_skills"): string[] {
+  const list = requirePlanList(value, field);
+  const refs: string[] = [];
+  for (const [index, entry] of list.entries()) {
+    if (!isPlainObject(entry)) throw new HubError("E_PLAN_SCHEMA", `plan payload ${field}[${index}] must be an object`);
+    requireExactKeys(entry, SKILL_KEYS, `plan payload ${field}[${index}]`);
+    refs.push(requireSkillRef(entry["skill_ref"], `payload ${field}[${index}].skill_ref`));
+    if (typeof entry["version_hash"] !== "string" || !SHA256_RE.test(entry["version_hash"])) {
+      throw new HubError("E_PLAN_SCHEMA", `plan payload ${field}[${index}].version_hash must match sha256:<64hex>`);
+    }
+  }
+  try {
+    assertSortedUnique(refs, `plan payload ${field} skill_ref`);
+  } catch {
+    throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must be sorted and unique by skill_ref`);
+  }
+  return refs;
+}
+
+function requireChangedSkills(value: unknown): void {
+  const list = requirePlanList(value, "changed_skills");
+  const refs: string[] = [];
+  for (const [index, entry] of list.entries()) {
+    if (!isPlainObject(entry)) throw new HubError("E_PLAN_SCHEMA", `plan payload changed_skills[${index}] must be an object`);
+    requireExactKeys(entry, CHANGED_SKILL_KEYS, `plan payload changed_skills[${index}]`);
+    refs.push(requireSkillRef(entry["skill_ref"], `payload changed_skills[${index}].skill_ref`));
+    for (const version of ["old_version", "new_version"] as const) {
+      if (typeof entry[version] !== "string" || !SHA256_RE.test(entry[version])) {
+        throw new HubError("E_PLAN_SCHEMA", `plan payload changed_skills[${index}].${version} must match sha256:<64hex>`);
+      }
+    }
+    for (const flag of ["raw_changed", "canonical_changed"] as const) {
+      if (typeof entry[flag] !== "boolean") {
+        throw new HubError("E_PLAN_SCHEMA", `plan payload changed_skills[${index}].${flag} must be boolean`);
+      }
+    }
+  }
+  try {
+    assertSortedUnique(refs, "plan payload changed_skills skill_ref");
+  } catch {
+    throw new HubError("E_PLAN_SCHEMA", "plan payload changed_skills must be sorted and unique by skill_ref");
+  }
+}
+
 function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
   const doc = plan as unknown;
   if (!isPlainObject(doc)) {
@@ -332,15 +453,13 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
       `plan envelope invalid: ${verified.message}`,
     );
   }
+  rejectPlanNulls(doc, "plan");
+  rejectMutablePlanRefs(doc["payload"], "plan.payload");
   const payload = doc["payload"];
   if (!isPlainObject(payload)) {
     throw new HubError("E_PLAN_SCHEMA", "plan payload must be an object");
   }
-  for (const forbidden of ["ref", "target_ref", "branch", "rev"]) {
-    if (forbidden in payload) {
-      throw new HubError("E_PLAN_REFETCH", `plan must not carry "${forbidden}" (exact commit only)`);
-    }
-  }
+  requireExactKeys(payload, PLAN_KEYS, "plan payload");
   const text = (field: string): string => {
     if (typeof payload[field] !== "string") {
       throw new HubError("E_PLAN_SCHEMA", `plan payload ${field} must be a string`);
@@ -357,6 +476,7 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
   if (!isPlainObject(expected)) {
     throw new HubError("E_PLAN_SCHEMA", "plan payload expected_old must be an object");
   }
+  requireExactKeys(expected, EXPECTED_OLD_KEYS, "plan payload expected_old");
   if (typeof expected["resolved_commit"] !== "string" || !COMMIT_RE.test(expected["resolved_commit"] as string)) {
     throw new HubError("E_PLAN_COMMIT", "plan expected_old.resolved_commit must be 40 lowercase hex");
   }
@@ -374,6 +494,11 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
   if (typeof payload["source_config_digest"] !== "string" || !SHA256_RE.test(payload["source_config_digest"] as string)) {
     throw new HubError("E_PLAN_SCHEMA", "plan source_config_digest must match sha256:<64hex>");
   }
+  requireSkillEntries(payload["added_skills"], "added_skills");
+  requireSkillEntries(payload["removed_skills"], "removed_skills");
+  requireChangedSkills(payload["changed_skills"]);
+  requireSortedPlanStrings(payload["unselected_new_skills"], "unselected_new_skills");
+  requireSortedPlanStrings(payload["provenance_changes"], "provenance_changes");
   return {
     expectedCommit: expected["resolved_commit"] as string,
     expectedTreeDigest: expected["selected_skill_tree_digest"] as string,
@@ -387,13 +512,15 @@ function verifyPlanShape(plan: UpdatePlanDocument): VerifiedPlan {
 
 export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: SourceLockRecord }> {
   const { hubDir, plan, stageDir } = input;
+  // The caller-supplied plan is untrusted. Parse and verify its complete
+  // immutable schema before acquiring the mutation lock or entering recovery.
+  const verified = verifyPlanShape(plan);
   const lock = acquireHubLock(hubDir);
   try {
     // Recovery mutates Hub state, so it must happen under the same exclusive
     // lock as the update itself. Contract B still requires stage -> PREPARED.
     recoverIfNeeded(hubDir);
     requireCleanJournal(hubDir);
-    const verified = verifyPlanShape(plan);
     const lockFile = join(hubDir, "sources.lock.yaml");
     let lockText: string;
     try {

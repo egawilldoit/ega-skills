@@ -231,6 +231,10 @@ function codeOf(fn) {
     );
 }
 
+function resignedPlan(payload) {
+  return createEnvelope({ object_type: "ega.update-plan", payload, schema_version: 1 });
+}
+
 test("apply happy path swaps tree and lock, leaves no journal or lock", async () => {
   const { dir: repo, shaB } = makeFixtureRepo();
   const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
@@ -438,6 +442,51 @@ test("wrong extraction contract rejected (E_PLAN_SCHEMA)", async () => {
   const resigned = createEnvelope({ object_type: "ega.update-plan", payload: downgraded, schema_version: 1 });
   const downgradedPlan = { digest: resigned.digest, object_type: "ega.update-plan", payload: downgraded, schema_version: 1 };
   assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: downgradedPlan, stageDir })), "E_PLAN_SCHEMA");
+});
+
+const malformedPlanCases = [
+  ["unknown payload field", (payload) => ({ ...payload, unexpected: true }), "E_PLAN_SCHEMA"],
+  ["explicit null payload field", (payload) => ({ ...payload, provenance_changes: null }), "E_PLAN_SCHEMA"],
+  ["unknown expected_old field", (payload) => ({ ...payload, expected_old: { ...payload.expected_old, unexpected: true } }), "E_PLAN_SCHEMA"],
+  ["missing payload field", (payload) => { const { source_config_digest: _removed, ...rest } = payload; return rest; }, "E_PLAN_SCHEMA"],
+  ["malformed added_skills entry", (payload) => ({ ...payload, added_skills: [{ skill_ref: "plan/new" }] }), "E_PLAN_SCHEMA"],
+  ["malformed changed_skills entry", (payload) => ({ ...payload, changed_skills: [{ skill_ref: "plan/beta" }] }), "E_PLAN_SCHEMA"],
+  ["raw_changed is not boolean", (payload) => ({ ...payload, changed_skills: payload.changed_skills.map((entry) => ({ ...entry, raw_changed: "true" })) }), "E_PLAN_SCHEMA"],
+  ["canonical_changed is not boolean", (payload) => ({ ...payload, changed_skills: payload.changed_skills.map((entry) => ({ ...entry, canonical_changed: null })) }), "E_PLAN_SCHEMA"],
+  ["malformed nested digest", (payload) => ({ ...payload, changed_skills: payload.changed_skills.map((entry) => ({ ...entry, old_version: "sha256:bad" })) }), "E_PLAN_SCHEMA"],
+  ["duplicate set-list entry", (payload) => ({ ...payload, provenance_changes: ["LICENSE", "LICENSE"] }), "E_PLAN_SCHEMA"],
+  ["mutable ref field", (payload) => ({ ...payload, ref: "main" }), "E_PLAN_REFETCH"],
+  ["malformed target commit", (payload) => ({ ...payload, target_commit: "main" }), "E_PLAN_COMMIT"],
+  ["wrong extraction contract", (payload) => ({ ...payload, extraction_contract: 2 }), "E_PLAN_SCHEMA"],
+  ["malformed unselected skill path", (payload) => ({ ...payload, unselected_new_skills: ["../escape"] }), "E_PLAN_SCHEMA"],
+  ["malformed provenance change", (payload) => ({ ...payload, provenance_changes: [null] }), "E_PLAN_SCHEMA"],
+];
+
+for (const [name, alter, expectedCode] of malformedPlanCases) {
+  test(`digest-valid malformed plan rejected: ${name}`, async () => {
+    const { dir: repo } = makeFixtureRepo();
+    const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+    const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+    const payload = alter(structuredClone(plan.payload));
+    const malformed = resignedPlan(payload);
+    assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: malformed, stageDir })), expectedCode);
+  });
+}
+
+test("digest-valid schema-invalid plan mutates no adopted state or recovery artifacts", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const beforeLock = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const beforeTree = readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md"));
+  const malformed = resignedPlan({ ...structuredClone(plan.payload), unexpected: true });
+
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan: malformed, stageDir })), "E_PLAN_SCHEMA");
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), beforeLock);
+  assert.deepEqual(readFileSync(join(hub.hubDir, "external", "plan", "repo", "skills", "alpha", "SKILL.md")), beforeTree);
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
+  assert.equal(existsSync(join(hub.hubDir, ".backup")), false);
 });
 
 test("path-unsafe plan source id rejected before Hub lookup", async () => {
