@@ -42,7 +42,7 @@ export interface HostedPrincipal {
 
 export interface HostedRuntimeOptions {
   readonly verifyBearer: (token: string, signal: AbortSignal) => Promise<HostedPrincipal>;
-  readonly authorize: (principal: HostedPrincipal, tool: string, skillId?: string) => Promise<boolean>;
+  readonly authorize: (principal: HostedPrincipal, tool: string, skillId?: string, signal?: AbortSignal) => Promise<boolean>;
   readonly allowedOrigins?: readonly string[];
   readonly deniedReleases?: ReadonlySet<string>;
   readonly deniedSkills?: ReadonlySet<string>;
@@ -187,6 +187,29 @@ function positiveSafeInteger(value: number | undefined, fallback: number, name: 
   return result;
 }
 
+async function deniedByAuthorization(
+  principal: HostedPrincipal,
+  tool: string,
+  skillIds: readonly string[],
+  signal: AbortSignal,
+  authorize: HostedRuntimeOptions["authorize"],
+): Promise<Set<string>> {
+  const denied = new Set<string>();
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      if (signal.aborted) throw signal.reason ?? new Error("request aborted");
+      const index = next++;
+      if (index >= skillIds.length) return;
+      const skillId = skillIds[index];
+      if (skillId === undefined) return;
+      if (!(await authorize(principal, tool, skillId, signal))) denied.add(skillId);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(8, skillIds.length) }, () => worker()));
+  return denied;
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -205,26 +228,47 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
   const deniedSources = options.deniedSources ?? new Set<string>();
   const handler = createMcpHandler((requestContext) => {
     const principal = (requestContext.authInfo?.extra as { principal?: HostedPrincipal } | undefined)?.principal;
+    const requestSignal = requestContext.requestInfo?.signal ?? new AbortController().signal;
+    const authorizationMemo = new Map<string, Promise<boolean>>();
+    const authorizeResource = (tool: string, skillId: string | undefined, final = false): Promise<boolean> => {
+      if (!principal) return Promise.resolve(false);
+      if (final || skillId === undefined) return options.authorize(principal, tool, skillId, requestSignal);
+      const key = `${tool}\0${skillId}`;
+      const cached = authorizationMemo.get(key);
+      if (cached) return cached;
+      const result = options.authorize(principal, tool, skillId, requestSignal);
+      authorizationMemo.set(key, result);
+      return result;
+    };
     const context = withDeniedSkills(snapshot.context, deniedSkills);
     const server = new McpServer({ name: "ega-skills-hosted", version: "1.0.1" }, { capabilities: { tools: {} } });
-    const guard = async (tool: string, args: Record<string, unknown>, body: () => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
+    const guard = async (tool: string, args: Record<string, unknown>, body: (context: McpProjectContext) => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
       try {
         if (!principal || deniedReleases.has(snapshot.releaseDigest)) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
         const skillId = typeof args.skill_id === "string" ? args.skill_id : undefined;
         if (skillId && deniedSkills.has(skillId)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
         if (releaseSourceDenied(snapshot.release, deniedSources)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested source is unavailable");
-        if (!(await options.authorize(principal, tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
-        return await body();
+        if (!(await authorizeResource(tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        let requestContext = context;
+        if (skillId === undefined && (tool === "search" || tool === "resolve")) {
+          const resourceDenied = await deniedByAuthorization(principal, tool, Object.keys(snapshot.release.payload.skill_versions), requestSignal, options.authorize);
+          requestContext = withDeniedSkills(context, resourceDenied);
+        }
+        const result = await body(requestContext);
+        if ((tool === "inspect" || tool === "get_content") && skillId && !(await authorizeResource(tool, skillId, true))) {
+          throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
+        }
+        return result;
       } catch (error) { return errorResult(tool, error); }
     };
     const rejectProject = (args: Record<string, unknown>): void => {
       if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");
       if ("context_id" in args) throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is reserved for Contract E");
     };
-    server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, () => { rejectProject(args); checkRelease(args, snapshot); return runSearchTool(args, context, { ftsTable: snapshot.ftsTable }); }));
-    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async () => { rejectProject(args); checkRelease(args, snapshot); return runResolveTool(args, context); }));
-    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, () => { requirePinned(args, snapshot); const output = runInspectTool(args as unknown as McpInspectArgs, context); return toCallResult(output); }));
-    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, () => { requirePinned(args, snapshot); return runGetContentTool(args, context); }));
+    server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, (requestContext) => { rejectProject(args); checkRelease(args, snapshot); return runSearchTool(args, requestContext, { ftsTable: snapshot.ftsTable }); }));
+    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { rejectProject(args); checkRelease(args, snapshot); return runResolveTool(args, requestContext); }));
+    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, (requestContext) => { requirePinned(args, snapshot); const output = runInspectTool(args as unknown as McpInspectArgs, requestContext); return toCallResult(output); }));
+    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, (requestContext) => { requirePinned(args, snapshot); return runGetContentTool(args, requestContext); }));
     return server;
   }, { legacy: "stateless", responseMode: "json" });
   return {
