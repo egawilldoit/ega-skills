@@ -6,8 +6,10 @@ import test from "node:test";
 
 import {
   deriveFingerprintSets,
+  digestProjectFingerprint,
   fingerprintDirectory,
   localDirectoryScan,
+  resolveProjectFingerprint,
 } from "../../packages/router/dist/index.js";
 
 async function fixture(t) {
@@ -41,6 +43,25 @@ function has(evidence, kind, value, source) {
     (record) => record.kind === kind && record.value === value && record.source === source,
   );
 }
+
+test("SPEC-004 fingerprint digest is portable and package scoped", async (t) => {
+  const first = await fixture(t);
+  await writeProject(first, {
+    "package.json": pkg({ react: "1.0.0" }),
+    "pnpm-lock.yaml": "lockfileVersion: 9\n",
+  });
+  const fingerprint = resolveProjectFingerprint(first);
+  const digest = digestProjectFingerprint(fingerprint);
+  const relocated = fingerprint.projectPath.replace(first, "/different-machine/root");
+  const relocatedDigest = digestProjectFingerprint({
+    ...fingerprint,
+    projectPath: relocated,
+    packageRoot: fingerprint.packageRoot?.replace(first, "/different-machine/root") ?? null,
+    workspaceRoot: fingerprint.workspaceRoot?.replace(first, "/different-machine/root") ?? null,
+  });
+  assert.match(digest, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(relocatedDigest, digest);
+});
 
 // SPEC-004 §5.1.8 detectors.
 

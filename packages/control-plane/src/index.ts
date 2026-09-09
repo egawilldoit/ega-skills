@@ -15,6 +15,14 @@ const ROLE_PERMISSIONS: Record<WorkspaceRole, ReadonlySet<ControlPermission>> = 
 
 export interface Membership { readonly subject: string; readonly role: WorkspaceRole; readonly active: boolean; }
 export interface AuthorizedResource { readonly workspaceId: string; readonly visibility: HubVisibility; readonly ownerSubject: string; }
+export interface StoredProjectContext {
+  readonly contextId: string;
+  readonly workspaceId: string;
+  readonly projectId: string;
+  readonly releaseDigest: string;
+  readonly ownerSubject: string;
+  readonly revoked: boolean;
+}
 
 export function can(role: WorkspaceRole, permission: ControlPermission): boolean {
   return ROLE_PERMISSIONS[role]?.has(permission) ?? false;
@@ -36,6 +44,7 @@ export class InMemoryControlPlane {
   private readonly memberships = new Map<string, Membership>();
   private readonly denies = new Set<string>();
   private readonly resources = new Map<string, AuthorizedResource>();
+  private readonly contexts = new Map<string, StoredProjectContext>();
 
   addMembership(workspaceId: string, membership: Membership): void { this.memberships.set(`${workspaceId}\0${membership.subject}`, membership); }
   setResource(resourceId: string, resource: AuthorizedResource): void { this.resources.set(resourceId, resource); }
@@ -43,6 +52,26 @@ export class InMemoryControlPlane {
   revokeMembership(workspaceId: string, subject: string): void {
     const current = this.memberships.get(`${workspaceId}\0${subject}`);
     if (current) this.memberships.set(`${workspaceId}\0${subject}`, { ...current, active: false });
+  }
+  publishContext(context: Omit<StoredProjectContext, "revoked">): void {
+    if (this.contexts.has(context.contextId)) throw new Error("context identity already exists");
+    this.contexts.set(context.contextId, { ...context, revoked: false });
+  }
+  revokeContext(contextId: string): void {
+    const context = this.contexts.get(contextId);
+    if (context) this.contexts.set(contextId, { ...context, revoked: true });
+  }
+  resolveContext(contextId: string, subject: string): StoredProjectContext | null {
+    const context = this.contexts.get(contextId);
+    if (!context || context.revoked) return null;
+    const membership = this.memberships.get(`${context.workspaceId}\0${subject}`);
+    if (!authorizeWorkspace({
+      subject,
+      membership,
+      resource: { workspaceId: context.workspaceId, visibility: "private", ownerSubject: context.ownerSubject },
+      permission: "read_project",
+    })) return null;
+    return context;
   }
   authorize(resourceId: string, subject: string, permission: ControlPermission): boolean {
     const resource = this.resources.get(resourceId);
