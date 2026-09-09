@@ -248,6 +248,47 @@ test("source commit movement is reported when selected content is unchanged", as
   assert.deepEqual(res.plan.payload.unselected_new_skills, ["skills/delta", "skills/epsilon"]);
 });
 
+test("per-skill raw changes do not report unaffected skills", async () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  const { src } = loadConfig(dir);
+  const candidate = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: "sha256:0",
+      treeDigest: "sha256:0",
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-candidate-")),
+  });
+  assert.equal(candidate.status, "UPDATE_AVAILABLE");
+  const oldTree = adoptedTreeAt(dir, shaA, ["skills/alpha", "skills/beta"], src.provenanceFiles);
+  const newTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: newTree.snapshotDigest,
+      treeDigest: newTree.treeDigest,
+      versions: {
+        "plan/alpha": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/alpha").new_version,
+        "plan/beta": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/beta").new_version,
+      },
+      skillTreeDigests: {
+        "plan/alpha": newTree.skillTreeDigests.alpha,
+        "plan/beta": oldTree.skillTreeDigests.beta,
+      },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-raw-only-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.deepEqual(res.plan.payload.changed_skills.map((entry) => entry.skill_ref), ["plan/beta"]);
+  assert.equal(res.plan.payload.changed_skills[0].raw_changed, true);
+  assert.equal(res.plan.payload.changed_skills[0].canonical_changed, false);
+});
+
 test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {
   const { dir, shaA } = makeFixtureRepo();
   const { src } = loadConfig(dir);
