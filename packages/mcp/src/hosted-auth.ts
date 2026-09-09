@@ -137,7 +137,8 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
     const parts = token.split(".");
     if (parts.length !== 3 || parts.some((part) => part.length === 0)) throw new Error("invalid bearer token");
     const header = decodeJson<{ alg?: string; kid?: string }>(parts[0] as string);
-    if (!supportedAlgorithm(header.alg) || !header.kid) throw new Error("unsupported token algorithm");
+    const algorithm = header.alg;
+    if (!supportedAlgorithm(algorithm) || !header.kid) throw new Error("unsupported token algorithm");
     const claims = decodeJson<Record<string, unknown>>(parts[1] as string);
     const now = Math.floor(Date.now() / 1000);
     if (claims.iss !== options.issuer || !audience(claims.aud, options.audience) || typeof claims.sub !== "string") throw new Error("token claims rejected");
@@ -145,14 +146,14 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
     if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || claims.nbf > now + skew)) throw new Error("token not active");
     if (options.requiredScope && (typeof claims.scope !== "string" || !claims.scope.split(/\s+/).includes(options.requiredScope))) throw new Error("token scope rejected");
     let keys = await load(signal);
-    let key = keys.find((candidate) => candidate.kid === header.kid && keyMatches(candidate, header.alg));
-    if (!key) { keys = await load(signal, true); key = keys.find((candidate) => candidate.kid === header.kid && keyMatches(candidate, header.alg)); }
+    let key = keys.find((candidate) => candidate.kid === header.kid && keyMatches(candidate, algorithm));
+    if (!key) { keys = await load(signal, true); key = keys.find((candidate) => candidate.kid === header.kid && keyMatches(candidate, algorithm)); }
     if (!key) throw new Error("token key unavailable");
-    const verifier = createVerify(ALGORITHMS[header.alg].verify);
+    const verifier = createVerify(ALGORITHMS[algorithm].verify);
     verifier.update(`${parts[0]}.${parts[1]}`); verifier.end();
     const signature = decodePart(parts[2] as string);
-    const publicKey = header.alg === "ES256" ? ecPem(key) : rsaPem(key);
-    const verificationSignature = header.alg === "ES256" ? es256Signature(signature) : signature;
+    const publicKey = algorithm === "ES256" ? ecPem(key) : rsaPem(key);
+    const verificationSignature = algorithm === "ES256" ? es256Signature(signature) : signature;
     if (!verifier.verify(publicKey, verificationSignature)) throw new Error("token signature rejected");
     const scopes = typeof claims.scope === "string" ? claims.scope.split(/\s+/).filter(Boolean) : [];
     return { subject: claims.sub, scopes };
