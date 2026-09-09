@@ -82,6 +82,7 @@ export {
   rollbackStable,
   verifyHubRelease,
 } from "./hub/release.js";
+export { DEFAULT_RELEASE_CONTRACTS } from "./hub/release.js";
 export type {
   HubRelease,
   HubReleaseContracts,
