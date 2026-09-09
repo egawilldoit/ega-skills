@@ -71,4 +71,4 @@ const server = createServer(async (incoming, outgoing) => {
 
 const port = Number(process.env.PORT ?? 8787);
 server.maxConnections = Number(process.env.EGA_HOSTED_MAX_CONNECTIONS ?? 128);
-server.listen(port, "127.0.0.1", () => process.stderr.write(`ega-mcp-hosted listening on ${port}\n`));
+server.listen(port, "127.0.0.1", () => process.stderr.write(`ega-mcp-hosted listening on ${server.address().port}\n`));
