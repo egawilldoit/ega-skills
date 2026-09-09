@@ -8,6 +8,7 @@
     { "path": "./packages/router" },
     { "path": "./packages/project" },
     { "path": "./packages/control-plane" },
+    { "path": "./packages/object-store" },
     { "path": "./packages/mcp" },
     { "path": "./packages/cli" }
   ]
