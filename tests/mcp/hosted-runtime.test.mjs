@@ -93,3 +93,27 @@ test("hosted runtime rejects unauthenticated access before tool execution", asyn
   assert.equal(response.status, 401);
   assert.match(await response.text(), /E_AUTH_REQUIRED/);
 });
+
+test("hosted authorization removes denied skills before search selection", async () => {
+  const hubDir = makeHub();
+  const betaDir = join(hubDir, "owned", "ega", "beta");
+  mkdirSync(betaDir, { recursive: true });
+  writeFileSync(join(betaDir, "SKILL.md"), "---\nname: beta\ndescription: Beta hosted skill.\n---\n\nUse beta when needed.\n");
+  writeFileSync(join(betaDir, "ega.yaml"), "schema_version: 1\ndomains:\n  - engineering\ntriggers:\n  - beta\n");
+  const build = await buildHubRelease(hubDir);
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const calls = [];
+  const handler = createHostedMcpHandler(snapshot, {
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async (_principal, tool, skillId) => {
+      calls.push([tool, skillId]);
+      return skillId !== "ega/beta";
+    },
+  });
+
+  const searched = await rpc(handler, 1, "tools/call", { name: "search", arguments: { query: "hosted", limit: 20 } });
+  assert.notEqual(searched.result.isError, true);
+  assert.doesNotMatch(JSON.stringify(searched.result), /ega\/beta/);
+  assert.match(JSON.stringify(searched.result), /ega\/alpha/);
+  assert.ok(calls.some(([tool, skillId]) => tool === "search" && skillId === "ega/beta"));
+});
