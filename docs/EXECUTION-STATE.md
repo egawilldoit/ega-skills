@@ -1,6 +1,6 @@
 # EGA Skills 1.1 release execution state
 
-Updated: 2026-09-08
+Updated: 2026-09-09
 
 ## Canonical authority
 
@@ -12,8 +12,7 @@ Updated: 2026-09-08
 
 - Integration branch: `integrate/1.1-release`
 - Release PR: #79
-- Latest code-bearing candidate SHA: `0bf992af6d08ec9207d5830bc9665233de99ace0`
-- Documentation reconciliation is committed separately after that code candidate; this file does not claim its own future commit SHA.
+- Latest implementation candidate SHA: `1d927f375871826ecc43a4ced1b6b94f39ab8daa`
 - PR #79 is open and not merged. Its base is `main`.
 
 ## Frozen contract identities
@@ -24,10 +23,11 @@ Updated: 2026-09-08
 
 ## 1.1 milestone state
 
-- 1.1 implementation candidate: VERIFIED
+- 1.1 implementation candidate: COMPLETE / VERIFIED
 - 1.1 merge status: NOT MERGED
 - 1.1 release status: NOT RELEASED
-- Final audit blockers 1–3 are repaired; Blocker 4 is this execution-state reconciliation.
+- P1-C, P1-D, P1-E, P1-F and P2 validation work is complete on the current
+  lineage; Contract D was frozen in `041e1e7`.
 - No release tag was created by this remediation, and `main` has not received PR #79.
 
 ## Final audit blocker evidence
@@ -83,8 +83,8 @@ extraction and the Contract A canonical manifest preimage.
 
 ## Post-1.1 boundaries
 
-- Contract D: NOT STARTED / NOT RELEASED
-- 1.2: NOT STARTED
+- Contract D: FROZEN / NOT RELEASED
+- 1.2: IMPLEMENTATION IN PROGRESS
 - Contract E: NOT STARTED / NOT RELEASED
 - 1.3: NOT STARTED
 - Contract F: NOT STARTED
@@ -105,7 +105,7 @@ After this documentation reconciliation, the remaining 1.1 gate is release autho
 - prepare a separate v1.1.0 version/release change;
 - create a tag/release only after explicit authorization.
 
-Nothing has been merged, released, tagged, deployed, or applied to production by this remediation session.
+Nothing has been merged, released, tagged, deployed, or applied to production by this implementation session.
 
 <!-- codesmith:footer -->
 ---
