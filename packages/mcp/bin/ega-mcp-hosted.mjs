@@ -9,8 +9,14 @@ const artifactDir = process.env.EGA_HOSTED_ARTIFACT_DIR;
 const expectedToken = process.env.EGA_HOSTED_BEARER_TOKEN;
 if (!artifactDir || !expectedToken) throw new Error("EGA_HOSTED_ARTIFACT_DIR and EGA_HOSTED_BEARER_TOKEN are required");
 
-const snapshot = loadHostedReleaseSnapshot(artifactDir);
-const handler = createHostedMcpHandler(snapshot, {
+let snapshot;
+let startupError;
+try {
+  snapshot = loadHostedReleaseSnapshot(artifactDir);
+} catch (error) {
+  startupError = error;
+}
+const handler = snapshot && createHostedMcpHandler(snapshot, {
   verifyBearer: async (token) => {
     if (token !== expectedToken) throw new Error("invalid token");
     return { subject: "local-smoke", scopes: ["ega:read"] };
@@ -19,6 +25,18 @@ const handler = createHostedMcpHandler(snapshot, {
 });
 
 const server = createServer(async (incoming, outgoing) => {
+  if (incoming.url === "/healthz" || incoming.url === "/readyz") {
+    const ready = !startupError && handler;
+    const status = ready ? 200 : 503;
+    outgoing.writeHead(status, { "content-type": "application/json" });
+    outgoing.end(JSON.stringify({ status: ready ? "ready" : "unavailable" }));
+    return;
+  }
+  if (!handler) {
+    outgoing.writeHead(503, { "content-type": "application/json" });
+    outgoing.end(JSON.stringify({ error: { code: "E_RUNTIME_UNAVAILABLE" } }));
+    return;
+  }
   const chunks = [];
   for await (const chunk of incoming) chunks.push(chunk);
   const body = Buffer.concat(chunks);
@@ -39,4 +57,5 @@ const server = createServer(async (incoming, outgoing) => {
 });
 
 const port = Number(process.env.PORT ?? 8787);
+server.maxConnections = Number(process.env.EGA_HOSTED_MAX_CONNECTIONS ?? 128);
 server.listen(port, "127.0.0.1", () => process.stderr.write(`ega-mcp-hosted listening on ${port}\n`));
