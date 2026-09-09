@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate } from "../dist/index.js";
+import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -27,6 +27,9 @@ function printHelp() {
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
+      "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
+      "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
       "",
       "Options:",
@@ -366,6 +369,60 @@ async function main() {
       return;
     }
     fail(`Unknown hub command: ${subcommand ?? ""}`);
+  }
+
+  if (command === "remote-lock") {
+    const [subcommand, ...lockRest] = rest;
+    if (subcommand === "plan") {
+      const project = readFlag(lockRest, "project");
+      const release = readFlag(lockRest, "release");
+      const releaseFile = readFlag(lockRest, "release-file");
+      const output = readFlag(lockRest, "output");
+      if (!project) fail("Missing required --project <project-dir>.");
+      if (!release) fail("Missing required --release <sha256:release|hub-release.json>.");
+      if (!output) fail("Missing required --output <lock-plan.json>.");
+      try {
+        const result = runRemoteLockPlan({ project, release, releaseFile, output });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand !== "apply") fail(`Unknown remote-lock command: ${subcommand ?? ""}`);
+    const plan = readFlag(lockRest, "plan");
+    const positional = readHubPositionals(lockRest, new Set(["plan"]));
+    if (plan === undefined) fail("Missing required --plan <lock-plan.json>.");
+    if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+    try {
+      const result = await runRemoteLockApply({ plan, project: positional[0] ?? "." });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "context") {
+    const [subcommand, ...contextRest] = rest;
+    if (subcommand !== "publish") fail(`Unknown context command: ${subcommand ?? ""}`);
+    const workspace = readFlag(contextRest, "workspace");
+    const projectId = readFlag(contextRest, "project-id");
+    const release = readFlag(contextRest, "release");
+    const output = readFlag(contextRest, "output");
+    const fingerprint = readFlag(contextRest, "fingerprint");
+    if (!workspace) fail("Missing required --workspace <id>.");
+    if (!projectId) fail("Missing required --project-id <id>.");
+    if (!release) fail("Missing required --release <hub-release.json>.");
+    const positional = readHubPositionals(contextRest, new Set(["workspace", "project-id", "release", "output", "fingerprint"]));
+    if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+    try {
+      const result = runContextPublish({ workspace, projectId, release, output, fingerprint, project: positional[0] ?? "." });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
   }
 
   fail(`Unknown command or option: ${command ?? ""}`);

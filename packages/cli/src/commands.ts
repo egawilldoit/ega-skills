@@ -29,7 +29,11 @@ import {
   serializeLockfile,
   validateLockfile,
   applyUpdatePlan,
+  applyRemoteLockPlan,
+  createRemoteLockPlan,
   buildHub,
+  discoverSkillDirs,
+  digestStagedTree,
   buildHubRelease,
   checkForUpdates,
   extractSelectedRootsFromGit,
@@ -39,9 +43,16 @@ import {
   parseSourcesYaml,
   adoptedSourcePath,
   verifySourcesLock,
+  createProjectContext,
+  digestProjectLock,
+  hashNormalizedConfig,
+  verifyHubRelease,
+  type ProjectContextDocument,
+  type HubRelease,
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
+  type RemoteLockPlan,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
 import { validatePortableSkillName } from "@ega-skills/schema";
@@ -72,20 +83,39 @@ function readHubContracts(hub: string) {
   return { config, hubDir, lock };
 }
 
-async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string): Promise<Record<string, string>> {
+async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Promise<{
+  versions: Record<string, string>;
+  skillTreeDigests: Record<string, string>;
+}> {
   const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
   try {
     const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
     if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
     const versions: Record<string, string> = {};
+    const skillTreeDigests: Record<string, string> = {};
     const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
     for (const row of rows) versions[row.skill_id] = row.current_version_hash;
-    return versions;
+    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+    for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+      const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+      skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+    }
+    return { skillTreeDigests, versions };
   } finally {
     registry.close();
     rmSync(registryHome, { force: true, recursive: true });
   }
+}
+
+function readAdoptedSkillTreeDigests(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Record<string, string> {
+  const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+  const skillTreeDigests: Record<string, string> = {};
+  for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+    const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+    skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+  }
+  return skillTreeDigests;
 }
 
 /** Run the complete Contract C build through the public CLI API. */
@@ -114,6 +144,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
   const prefix = `${source.namespace}/`;
   const versions: Record<string, string> = {};
+  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, source.namespace, source.selection.roots);
   try {
     verifySourcesLock(config, lock);
     const build = await buildHub(hubDir);
@@ -124,7 +155,9 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
     // A deliberate sources.yaml selection change is a proposal input. The
     // adopted lock remains the old authority until its plan is applied.
     if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
-    Object.assign(versions, await readAdoptedVersions(hubDir, options.sourceId, source.namespace));
+    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, source.namespace, source.selection.roots);
+    Object.assign(versions, adoptedView.versions);
+    Object.assign(skillTreeDigests, adoptedView.skillTreeDigests);
   }
   const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
   try {
@@ -135,6 +168,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
       snapshotDigest: adopted.vendored_snapshot_digest,
         treeDigest: adopted.selected_skill_tree_digest,
         versions,
+        skillTreeDigests,
       },
       config: source,
       sourceId: options.sourceId,
@@ -177,6 +211,106 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
       }
     },
   });
+}
+
+export interface RemoteLockApplyCommandOptions {
+  readonly plan: string;
+  readonly project?: string;
+}
+
+export interface RemoteLockPlanCommandOptions {
+  readonly project?: string;
+  /** Exact HubRelease digest, or a local HubRelease artifact path. */
+  readonly release: string;
+  /** Local artifact to use when release is supplied as a digest. */
+  readonly releaseFile?: string;
+  readonly output?: string;
+}
+
+/** Create a reviewed remote-lock plan against one exact HubRelease. */
+export function runRemoteLockPlan(options: RemoteLockPlanCommandOptions): RemoteLockPlan {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock plan requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const current = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const releasePath = options.release.startsWith("sha256:") ? options.releaseFile : options.release;
+  if (!releasePath) throw new Error("remote-lock plan requires --release-file when --release is a digest");
+  const release = JSON.parse(readFileSync(resolve(releasePath), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  if (options.release.startsWith("sha256:") && release.digest !== options.release) {
+    throw new Error(`HubRelease digest does not match requested release ${options.release}`);
+  }
+  const candidate: ProjectLockV1 = {
+    lockfile_version: current.lockfile_version,
+    token_estimator: current.token_estimator,
+    generated_from: current.generated_from,
+    skills: Object.fromEntries(Object.entries(current.skills)
+      .filter(([skillId]) => release.payload.skill_versions[skillId] !== undefined)
+      .map(([skillId, entry]) => [skillId, { ...entry, version_hash: release.payload.skill_versions[skillId]! }])),
+  };
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: configDigest,
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: release.digest,
+    current,
+    candidate,
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(plan, null, 2)}\n`);
+  return plan;
+}
+
+/** Apply a reviewed, exact-release-bound remote lock plan locally. */
+export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
+  const projectDir = resolve(options.project ?? ".");
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
+  applyRemoteLockPlan(plan, join(projectDir, ".egaskills.lock"));
+  return { applied: true, path: join(projectDir, ".egaskills.lock"), target_release_digest: plan.payload.target_release_digest };
+}
+
+export interface ContextPublishCommandOptions {
+  readonly project?: string;
+  readonly workspace: string;
+  readonly projectId: string;
+  readonly release: string;
+  readonly output?: string;
+  readonly fingerprint?: string;
+}
+
+/** Build a local immutable ProjectContext handoff from validated project files.
+ * Publication/authentication remains a control-plane operation; this command
+ * never writes the project or release and requires an explicit release artifact.
+ */
+export function runContextPublish(options: ContextPublishCommandOptions): ProjectContextDocument {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("context publish requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const lock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const release = JSON.parse(readFileSync(resolve(options.release), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  for (const [skillId, entry] of Object.entries(lock.skills)) {
+    if (release.payload.skill_versions[skillId] !== entry.version_hash) {
+      throw new Error(`locked skill ${skillId} is not present at the same version in the declared HubRelease`);
+    }
+  }
+  const context = createProjectContext({
+    workspace_id: options.workspace,
+    project_id: options.projectId,
+    config_digest: configDigest,
+    lock_digest: digestProjectLock(lock),
+    release_digest: release.digest,
+    fingerprint_digest: options.fingerprint ?? null,
+    context_contract: "E1",
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(context, null, 2)}\n`);
+  return context;
 }
 
 export interface ResolveCommandOptions {

@@ -58,7 +58,7 @@ interface ExpectedRoot {
 }
 
 /** Skill directories (SKILL.md holders) at or under any of `roots`. */
-function discoverSkillDirs(baseDir: string, roots: readonly string[]): string[] {
+export function discoverSkillDirs(baseDir: string, roots: readonly string[]): string[] {
   const found: string[] = [];
   const walk = (abs: string, rel: string): void => {
     let entries;

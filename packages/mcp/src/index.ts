@@ -18,6 +18,8 @@ export {
 } from "./hosted.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
 export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
+export { createSupabaseContextResolver } from "./hosted-supabase.js";
+export type { SupabaseContextResolverOptions } from "./hosted-supabase.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,

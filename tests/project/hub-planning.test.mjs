@@ -78,9 +78,17 @@ function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
   const clone = mkdtempSync(join(tmpdir(), "ega-plan-adopt-"));
   const dest = mkdtempSync(join(tmpdir(), "ega-adopt-"));
   try {
-    execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
-    execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
-    return extractSelectedRoots(clone, roots, provenanceFiles, dest);
+    // Keep the adopted fixture on the same raw-object path as production.
+    // A normal Windows checkout may apply autocrlf/filters and would create
+    // a false digest difference against the raw candidate manifest.
+    execFileSync("git", ["clone", "-q", "--no-checkout", repoDir, clone], { stdio: "pipe" });
+    const extracted = extractSelectedRootsFromGit(clone, rev, roots, provenanceFiles, dest);
+    const skillTreeDigests = {};
+    for (const root of roots) {
+      const manifest = digestStagedTree(dest, [root]);
+      skillTreeDigests[root.split("/").pop()] = manifest.treeDigest;
+    }
+    return { ...extracted, skillTreeDigests };
   } finally {
     rmSync(clone, { force: true, recursive: true });
     rmSync(dest, { force: true, recursive: true });
@@ -156,6 +164,7 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
       snapshotDigest: adoptedTree.snapshotDigest,
       treeDigest: adoptedTree.treeDigest,
       versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+      skillTreeDigests: { "plan/alpha": adoptedTree.skillTreeDigests.alpha, "plan/beta": adoptedTree.skillTreeDigests.beta },
     },
     config: src,
     sourceId: "plan",
@@ -175,6 +184,9 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   assert.equal(beta.old_version, "sha256:bb");
   assert.ok(/^sha256:[0-9a-f]{64}$/.test(beta.new_version) && beta.new_version !== "sha256:bb");
   assert.equal(beta.raw_changed, true);
+  const alpha = plan.payload.changed_skills.find((s) => s.skill_ref === "plan/alpha");
+  assert.ok(alpha, "alpha canonical version change remains reportable");
+  assert.equal(alpha.raw_changed, false, "unchanged alpha is not reported as raw-changed");
   assert.ok(plan.payload.unselected_new_skills.includes("skills/delta"), "delta reported, not adopted");
   const v = verifyEnvelope(plan);
   assert.equal(v.ok, true);
@@ -202,6 +214,81 @@ test("selected parent roots discover nested skills without adopting outside root
   assert.equal(res.plan.payload.target_commit, shaB);
   assert.deepEqual(res.plan.payload.added_skills.map((entry) => entry.skill_ref), ["plan/delta", "plan/gamma"]);
   assert.ok(!res.plan.payload.unselected_new_skills.includes("skills/delta"));
+});
+
+test("source commit movement is reported when selected content is unchanged", async () => {
+  const { dir, shaB } = makeFixtureRepo();
+  mkdirSync(join(dir, "skills", "epsilon"), { recursive: true });
+  writeFileSync(join(dir, "skills", "epsilon", "SKILL.md"), skill("epsilon", "Epsilon body C, outside selection."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const { src } = loadConfig(dir);
+  const adoptedTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaB,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb", "plan/gamma": "sha256:cc" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-source-change-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.equal(res.plan.payload.target_commit, shaC);
+  assert.deepEqual(res.plan.payload.added_skills, []);
+  assert.deepEqual(
+    res.plan.payload.changed_skills.map(({ skill_ref, raw_changed }) => ({ skill_ref, raw_changed })),
+    [
+      { skill_ref: "plan/alpha", raw_changed: false },
+      { skill_ref: "plan/beta", raw_changed: false },
+      { skill_ref: "plan/gamma", raw_changed: false },
+    ],
+  );
+  assert.deepEqual(res.plan.payload.unselected_new_skills, ["skills/delta", "skills/epsilon"]);
+});
+
+test("per-skill raw changes do not report unaffected skills", async () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  const { src } = loadConfig(dir);
+  const candidate = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: "sha256:0",
+      treeDigest: "sha256:0",
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-candidate-")),
+  });
+  assert.equal(candidate.status, "UPDATE_AVAILABLE");
+  const oldTree = adoptedTreeAt(dir, shaA, ["skills/alpha", "skills/beta"], src.provenanceFiles);
+  const newTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: newTree.snapshotDigest,
+      treeDigest: newTree.treeDigest,
+      versions: {
+        "plan/alpha": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/alpha").new_version,
+        "plan/beta": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/beta").new_version,
+      },
+      skillTreeDigests: {
+        "plan/alpha": newTree.skillTreeDigests.alpha,
+        "plan/beta": oldTree.skillTreeDigests.beta,
+      },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-raw-only-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.deepEqual(res.plan.payload.changed_skills.map((entry) => entry.skill_ref), ["plan/beta"]);
+  assert.equal(res.plan.payload.changed_skills[0].raw_changed, true);
+  assert.equal(res.plan.payload.changed_skills[0].canonical_changed, false);
 });
 
 test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {

@@ -18,7 +18,7 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
+import { canonicalSourceManifestDigest, discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
@@ -27,6 +27,8 @@ export interface AdoptedSourceView {
   treeDigest: string;
   snapshotDigest: string;
   versions: Record<string, string>;
+  /** Per-skill raw identities, when the caller has the adopted tree. */
+  skillTreeDigests?: Record<string, string>;
 }
 
 export interface CheckInput {
@@ -105,9 +107,11 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     tempDirs.push(quarantineDir);
     const tree = extractSelectedRootsFromGit(fetchDir, target, config.selection.roots, config.provenanceFiles, quarantineDir);
     const unselected = discoverUnselectedSkillsFromGit(fetchDir, target, config.selection.roots);
-    if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
-      return { status: "NO_CHANGE", targetCommit: target };
-    }
+    // A new upstream commit is itself a reportable source change, even when
+    // the selected/provenance byte sets are unchanged.  Keeping this as an
+    // UPDATE_AVAILABLE plan preserves the exact commit transition and lets
+    // reviewers see newly added unselected skills rather than silently
+    // collapsing the source movement into NO_CHANGE.
     // Candidate SkillVersions via the V1 importer in a scratch home. The env is
     // fully explicit (no process inheritance) so checks never observe ambient state.
     const scratchHome = mkdtempSync(join(tmpdir(), "ega-plan-scratch-"));
@@ -120,6 +124,7 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       throw new HubError("E_PLAN_FETCH", `candidate tree failed V1 import: ${first ? first.error : "unknown"}`);
     }
     const candidate: Record<string, string> = {};
+    const candidateSkillTreeDigests: Record<string, string> = {};
     const selectedSkillDirs = discoverSelectedSkillsFromGit(fetchDir, target, config.selection.roots);
     for (const skillDir of selectedSkillDirs) {
       const name = readSkillName(join(quarantineDir, ...skillDir.split("/"), "SKILL.md"));
@@ -130,6 +135,14 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
         throw new HubError("E_PLAN_FETCH", `candidate skill imported without a version: ${ref}`);
       }
       candidate[ref] = latest.versionHash;
+      // Derive the per-skill identity from the raw Git manifest already
+      // extracted for this candidate.  This keeps planning independent of
+      // host filesystem separators and reuses the Contract A preimage.
+      const skillPrefix = skillDir.replaceAll("\\\\", "/");
+      candidateSkillTreeDigests[ref] = canonicalSourceManifestDigest(
+        tree.manifest.filter((entry) => entry.scope === "selected" &&
+          (entry.path === skillPrefix || entry.path.startsWith(`${skillPrefix}/`))),
+      );
     }
     const byRef = (a: { skill_ref: string }, b: { skill_ref: string }): number => (a.skill_ref < b.skill_ref ? -1 : 1);
     const added: AddedSkill[] = Object.entries(candidate)
@@ -142,12 +155,21 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       .sort(byRef);
     const selectedTreeChanged = tree.treeDigest !== adopted.treeDigest;
     const changed: PlanSkillChange[] = Object.entries(candidate)
-      .filter(([ref, hash]) => ref in adopted.versions && (selectedTreeChanged || adopted.versions[ref] !== hash))
+      .filter(([ref, hash]) => {
+        if (!(ref in adopted.versions)) return false;
+        const rawChanged = adopted.skillTreeDigests?.[ref] !== undefined
+          ? adopted.skillTreeDigests[ref] !== candidateSkillTreeDigests[ref]
+          : selectedTreeChanged;
+        return rawChanged || adopted.versions[ref] !== hash;
+      })
       .map(([skill_ref, new_version]) => ({
         canonical_changed: adopted.versions[skill_ref] !== new_version,
         new_version,
         old_version: adopted.versions[skill_ref] as string,
-        raw_changed: selectedTreeChanged,
+        raw_changed:
+          adopted.skillTreeDigests?.[skill_ref] !== undefined
+            ? adopted.skillTreeDigests[skill_ref] !== candidateSkillTreeDigests[skill_ref]
+            : selectedTreeChanged,
         skill_ref,
       }))
       .sort(byRef);
