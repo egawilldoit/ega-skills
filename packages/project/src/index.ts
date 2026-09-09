@@ -74,6 +74,15 @@ export type {
   UpdatePlanPayload,
 } from "./hub/planning.js";
 export {
+  applyRemoteLockPlan,
+  createProjectContext,
+  createRemoteLockPlan,
+  digestProjectConfig,
+  digestProjectLock,
+  verifyProjectContext,
+} from "./remote-projects.js";
+export type { ProjectContextDocument, ProjectContextPayload, RemoteLockPlan, RemoteLockPlanPayload, RemoteLockChange } from "./remote-projects.js";
+export {
   casUpdateStable,
   createHubRelease,
   createReleasePackage,
