@@ -49,6 +49,10 @@ function assertDigest(value: string, field: string): void {
 }
 
 function assertContextPayload(payload: ProjectContextPayload): void {
+  const keys = Object.keys(payload).sort();
+  if (keys.join(",") !== "config_digest,context_contract,fingerprint_digest,lock_digest,project_id,release_digest,workspace_id") {
+    throw new Error("invalid project context fields");
+  }
   for (const [field, value] of Object.entries(payload)) {
     if (field === "fingerprint_digest" && value === null) continue;
     if (typeof value !== "string" || value.length === 0) throw new Error(`${field} must be a non-empty string`);
@@ -67,12 +71,11 @@ export function verifyProjectContext(document: unknown): ProjectContextDocument 
   const result = verifyEnvelope(document);
   if (!result.ok || result.digest !== (document as { digest?: unknown })?.digest) throw new Error("invalid project context envelope");
   const value = document as ProjectContextDocument;
+  if (value === null || typeof value !== "object" || Object.keys(value).sort().join(",") !== "digest,object_type,payload,schema_version") {
+    throw new Error("invalid project context envelope fields");
+  }
   if (value.object_type !== "ega.project-context" || value.schema_version !== 1 || value.payload === null || typeof value.payload !== "object") {
     throw new Error("invalid project context identity");
-  }
-  const keys = Object.keys(value.payload).sort();
-  if (keys.join(",") !== "config_digest,context_contract,fingerprint_digest,lock_digest,project_id,release_digest,workspace_id") {
-    throw new Error("invalid project context fields");
   }
   assertContextPayload(value.payload);
   return value;
