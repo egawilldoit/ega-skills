@@ -1,6 +1,6 @@
 # EGA Skills post-V1 release execution state
 
-Updated: 2026-09-09
+Updated: 2026-09-09 (final non-production acceptance inventory)
 
 ## Canonical authority
 
@@ -24,7 +24,7 @@ Updated: 2026-09-09
 | Contract E | `release/contract-e` | `fd077119c1e1fc702fb87c0b6bb06fbb420c516e` | `2d4974f75ac1b825444cebacb00552181852a1a6` | #83 | open, doc-only freeze |
 | 1.3 | `release/1.3` | `2d4974f75ac1b825444cebacb00552181852a1a6` | `065d4d4cf26e2b34b8d1cacc6deeed76c07b95e1` | #84 | open, not merged |
 | Contract F | `release/contract-f` | `065d4d4cf26e2b34b8d1cacc6deeed76c07b95e1` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | #85 | open, doc-only freeze |
-| 2.0 | `release/2.0` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | implementation `e9d6920db4352eb75b43a637d78440a455797cab`; current docs head `ca99a3c9a83fdf63295a9c3e83a727ea9767e912` | #86 | open, candidate |
+| 2.0 | `release/2.0` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | `136e9535cfb864b80a96a7f1d77fcb17f39e6af7` before this acceptance record | #86 | open, candidate |
 
 ## Freeze-order proof
 
@@ -53,9 +53,41 @@ The clean 2.0 implementation at `e9d6920db4352eb75b43a637d78440a455797cab` diffe
 - 1.2 hosted personal implementation: present in clean review branch; local HTTP/snapshot/auth smoke exists, but staging deployment and real OAuth registration remain pending.
 - 1.3 remote projects: present in clean review branch; local project/context smoke exists, hosted acceptance remains pending.
 - 2.0 multi-user candidate: present in clean review branch; local control-plane/object-store/multi-user HTTP smoke exists, real cloud acceptance remains pending.
-- Supabase migrations: present, not applied to any production system.
-- R2/S3 acceptance: not completed.
-- Fresh Codex/OpenCode hosted-client acceptance: not completed.
+- Supabase migrations: present; not applied. The only connected project,
+  `ofpqkogwatceimtzvenh` (`Ega-House-Platform`, `eu-west-1`), is classified
+  UNKNOWN rather than staging, so it was not mutated. Its read-only migration
+  and table inventory did not establish a disposable EGA database.
+- Local database/RLS/RBAC acceptance: BLOCKED; no disposable local Postgres or
+  Supabase service was available, and the repository has no connected
+  Supabase control-plane adapter.
+- R2/S3 acceptance: BLOCKED; no safely classified non-production bucket or
+  object-store connector was available. Local file-backed object-store smoke
+  passed only.
+- Hosted staging deployment and HTTPS acceptance: BLOCKED; no staging target,
+  hostname, or hosted runtime credentials were available. Local hosted HTTP
+  smoke passed.
+- Real OAuth client/provider acceptance: BLOCKED; no staging issuer/JWKS,
+  client registration, or OAuth configuration was available. The local
+  authentication boundary was not presented as OAuth acceptance.
+- Fresh remote Codex/OpenCode hosted-client acceptance: BLOCKED because no
+  deployed remote endpoint/authentication was available. Client-safe local
+  smoke passed with Codex `0.153.4` and OpenCode `1.18.29`.
+- Physical connection/concurrency, request-limit, timeout, backup/restore,
+  and deployed rollback acceptance: BLOCKED without a staging deployment and
+  disposable control-plane database.
+
+## Final non-production acceptance record
+
+- Local product smoke passed on the clean 2.0 candidate: hosted HTTP MCP,
+  multi-user authorization, object-store, remote-project, and client-safe
+  Codex/OpenCode flows. These use the repository's local hosted runtime,
+  `InMemoryControlPlane`, and local file-backed object store; they are not
+  substitutes for staging acceptance.
+- Build, typecheck, frozen-spec checks, Contract A/B/C validators, and
+  `git diff --check` passed on the candidate before this documentation update.
+- No external resource was mutated because every available cloud resource was
+  either UNKNOWN or unavailable. No defect was discovered that justified a
+  production-code change.
 
 ## Real product evidence
 
@@ -63,7 +95,18 @@ Real upstream `https://github.com/mattpocock/skills` acceptance preserved the hi
 
 ## External acceptance blockers
 
-Real non-production Supabase selection/migration, OAuth client registration, non-production R2/S3 credentials, hosted deployment, physical connection-limit evidence, backup/restore, and fresh Codex/OpenCode client acceptance require verified non-production resources or user-owned credentials. No production mutation has been performed.
+Real non-production Supabase selection/migration and RLS, OAuth client registration, non-production R2/S3 credentials, hosted deployment, physical connection-limit evidence, backup/restore, rollback, and fresh remote Codex/OpenCode client acceptance remain blocked on verified non-production resources or user-owned credentials. No production mutation has been performed.
+
+## Milestone status after acceptance inventory
+
+- 1.1 implementation: IMPLEMENTED; external staging gates not exercised here.
+- 1.2 implementation: IMPLEMENTED; local HTTP smoke PASS; staging/client acceptance BLOCKED.
+- 1.3 implementation: IMPLEMENTED; local remote-project smoke PASS; hosted acceptance BLOCKED.
+- 2.0 implementation: IMPLEMENTED; local multi-user smoke PASS; real database,
+  RLS, object-store, deployment, backup/restore, and two-user hosted acceptance
+  BLOCKED.
+- Merge readiness: NO. The clean PR series remains open and unmerged pending
+  final review and the blocked external acceptance gates.
 
 ## Release controls
 
