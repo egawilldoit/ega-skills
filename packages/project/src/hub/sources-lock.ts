@@ -1,7 +1,7 @@
 // 1.1[B] sources.lock.yaml runtime (EGA-624). Contract A section 5.
 
 import { HubError } from "./errors.js";
-import { COMMIT_RE, SHA256_RE, isPlainObject, parseYamlMapping } from "./guards.js";
+import { COMMIT_RE, SHA256_RE, assertRelativePosix, assertSortedUnique, assertSourceId, isPlainObject, parseYamlMapping } from "./guards.js";
 import { sourceConfigDigest, type SourceConfig, type SourcesConfig } from "./sources-config.js";
 
 export interface LockedSelection {
@@ -60,6 +60,7 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
   }
   const sources: Record<string, SourceLockRecord> = {};
   for (const [name, entry] of Object.entries(raw)) {
+    assertSourceId(name, `sources.lock.yaml source ${name}`, "E_LOCK_MISMATCH");
     if (!isPlainObject(entry)) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} must be a mapping`);
     }
@@ -87,10 +88,23 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     if (!isPlainObject(selection) || !Array.isArray(selection["roots"])) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} selection.roots must be a list`);
     }
+    if (Object.keys(selection).some((key) => key !== "roots")) {
+      throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} selection has unknown fields`);
+    }
+    for (const root of selection["roots"]) {
+      if (typeof root !== "string") throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} selection roots must be strings`);
+      try { assertRelativePosix(root, `sources.lock.yaml source ${name} selection root`); } catch (error) { throw new HubError("E_LOCK_MISMATCH", (error as Error).message); }
+    }
+    try { assertSortedUnique(selection["roots"] as string[], `sources.lock.yaml source ${name} selection.roots`); } catch (error) { throw new HubError("E_LOCK_MISMATCH", (error as Error).message); }
     const provenance = entry["provenance_files"];
     if (!Array.isArray(provenance)) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} provenance_files must be a list`);
     }
+    for (const file of provenance) {
+      if (typeof file !== "string") throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} provenance files must be strings`);
+      try { assertRelativePosix(file, `sources.lock.yaml source ${name} provenance file`); } catch (error) { throw new HubError("E_LOCK_MISMATCH", (error as Error).message); }
+    }
+    try { assertSortedUnique(provenance as string[], `sources.lock.yaml source ${name} provenance_files`); } catch (error) { throw new HubError("E_LOCK_MISMATCH", (error as Error).message); }
     if (typeof entry["resolved_commit"] !== "string" || !COMMIT_RE.test(entry["resolved_commit"] as string)) {
       throw new HubError("E_LOCK_COMMIT", `sources.lock.yaml source ${name} resolved_commit must be 40 lowercase hex`);
     }

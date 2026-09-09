@@ -1,7 +1,7 @@
 // 1.1[B] hub.yaml runtime (EGA-624). Contract A section 3.
 
 import { HubError } from "./errors.js";
-import { NAMESPACE_RE, assertRelativePosix, isPlainObject, parseYamlMapping, rejectUnknownFields } from "./guards.js";
+import { NAMESPACE_RE, assertRelativePosix, assertSourceId, isPlainObject, parseYamlMapping, rejectUnknownFields } from "./guards.js";
 import type { SourcesConfig } from "./sources-config.js";
 
 export interface OwnedEntry {
@@ -28,6 +28,7 @@ export function parseHubYaml(text: string): HubConfig {
   if (!isPlainObject(hub) || typeof hub["id"] !== "string" || hub["id"].length === 0) {
     throw new HubError("E_HUB_SCHEMA", "hub.yaml hub.id must be a non-empty string");
   }
+  rejectUnknownFields(hub, new Set(["id"]), "hub.yaml hub");
   const ownedRaw = doc["owned"];
   if (!Array.isArray(ownedRaw)) {
     throw new HubError("E_HUB_SCHEMA", "hub.yaml owned must be a list");
@@ -36,6 +37,7 @@ export function parseHubYaml(text: string): HubConfig {
     if (!isPlainObject(entry) || typeof entry["path"] !== "string" || typeof entry["namespace"] !== "string") {
       throw new HubError("E_HUB_SCHEMA", "hub.yaml owned entries need {path, namespace} strings");
     }
+    rejectUnknownFields(entry, new Set(["path", "namespace"]), "hub.yaml owned entry");
     try {
       assertRelativePosix(entry["path"], "hub.yaml owned.path");
     } catch (e) {
@@ -54,6 +56,8 @@ export function parseHubYaml(text: string): HubConfig {
     if (!isPlainObject(entry) || typeof entry["source"] !== "string") {
       throw new HubError("E_HUB_SCHEMA", "hub.yaml external entries need {source} string");
     }
+    rejectUnknownFields(entry, new Set(["source"]), "hub.yaml external entry");
+    assertSourceId(entry["source"], "hub.yaml external.source", "E_HUB_SCHEMA");
     return entry["source"];
   });
   return { external, hubId: hub["id"], owned, schemaVersion: 1 };

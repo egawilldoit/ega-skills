@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInspect, runList, runLock, runResolve } from "../dist/index.js";
+import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -20,8 +20,14 @@ function printHelp() {
       "  ega-skills list",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
+      "  ega-skills validate <path> [--json]",
+      "  ega-skills init-skill <name>",
       "  ega-skills lock [<project-dir>] [--refresh]",
       "  ega-skills resolve --project <path> --task \"<task>\" [--explicit <id>] [--max-skills 1-3] [--max-tokens 1-1000000]",
+      "  ega-skills hub build [<hub-dir>]",
+      "  ega-skills hub validate [<hub-dir>]",
+      "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
       "",
       "Options:",
       "  --help     Show this help.",
@@ -68,6 +74,28 @@ function readFlag(rest, name) {
     }
   }
   return undefined;
+}
+
+function readHubPositionals(rest, valueFlags) {
+  const positional = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const token = rest[i];
+    if (token.startsWith("--")) {
+      const equals = token.indexOf("=");
+      const name = token.slice(2, equals === -1 ? undefined : equals);
+      if (!valueFlags.has(name)) fail(`Unknown command or option: ${token}`);
+      if (equals === -1) {
+        const value = rest[i + 1];
+        if (typeof value !== "string" || value.startsWith("--")) {
+          fail(`Missing value for --${name}.`);
+        }
+        i += 1;
+      }
+      continue;
+    }
+    positional.push(token);
+  }
+  return positional;
 }
 
 function readRepeatableFlag(rest, name) {
@@ -174,6 +202,34 @@ async function main() {
     return;
   }
 
+  if (command === "validate") {
+    const positional = rest.filter((token) => !token.startsWith("-"));
+    const json = rest.includes("--json");
+    const extra = rest.filter((token) => token !== "--json" && token !== positional[0]);
+    if (positional.length === 0) fail("Missing validate <path>.");
+    if (positional.length > 1 || extra.length > 0) fail(`Unknown command or option: ${extra[0] ?? positional[1]}`);
+    try {
+      const result = await runValidate({ path: positional[0] });
+      if (json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else process.stdout.write(`${result.valid ? "Valid" : "Invalid"}: ${result.checked} skill(s) checked\n`);
+      if (!result.valid) process.exitCode = 1;
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "init-skill") {
+    if (rest.length !== 1 || rest[0].startsWith("-")) fail("Usage: ega-skills init-skill <name>");
+    try {
+      const result = await runInitSkill({ name: rest[0] });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
   if (command === "lock") {
     let refresh = false;
     const positional = [];
@@ -253,6 +309,63 @@ async function main() {
       fail(error instanceof Error ? error.message : String(error));
     }
     return;
+  }
+
+  if (command === "hub") {
+    const [subcommand, ...hubRest] = rest;
+    if (subcommand === "build") {
+      if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {
+        fail(`Unknown command or option: ${hubRest[1] ?? hubRest[0]}`);
+      }
+      try {
+        const result = await runHubBuild({ hub: hubRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "validate") {
+      if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {
+        fail(`Unknown command or option: ${hubRest[1] ?? hubRest[0]}`);
+      }
+      try {
+        const result = await runHubValidate({ hub: hubRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "check") {
+      const output = readFlag(hubRest, "output");
+      const positional = readHubPositionals(hubRest, new Set(["output"]));
+      const [sourceId, hub] = positional;
+      if (sourceId === undefined) fail("Missing hub check <source-id>.");
+      if (output === undefined) fail("Missing required --output <plan.json>.");
+      if (positional.length > 2) fail(`Unknown command or option: ${positional[2]}`);
+      try {
+        const result = await runHubCheck({ sourceId, output, hub: hub ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (subcommand === "update") {
+      const plan = readFlag(hubRest, "plan");
+      const positional = readHubPositionals(hubRest, new Set(["plan"]));
+      if (plan === undefined) fail("Missing required --plan <plan.json>.");
+      if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+      try {
+        const result = await runHubUpdate({ plan, hub: positional[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    fail(`Unknown hub command: ${subcommand ?? ""}`);
   }
 
   fail(`Unknown command or option: ${command ?? ""}`);
