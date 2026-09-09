@@ -148,7 +148,13 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       .sort(byRef);
     const selectedTreeChanged = tree.treeDigest !== adopted.treeDigest;
     const changed: PlanSkillChange[] = Object.entries(candidate)
-      .filter(([ref, hash]) => ref in adopted.versions && (selectedTreeChanged || adopted.versions[ref] !== hash))
+      .filter(([ref, hash]) => {
+        if (!(ref in adopted.versions)) return false;
+        const rawChanged = adopted.skillTreeDigests?.[ref] !== undefined
+          ? adopted.skillTreeDigests[ref] !== candidateSkillTreeDigests[ref]
+          : selectedTreeChanged;
+        return rawChanged || adopted.versions[ref] !== hash;
+      })
       .map(([skill_ref, new_version]) => ({
         canonical_changed: adopted.versions[skill_ref] !== new_version,
         new_version,
