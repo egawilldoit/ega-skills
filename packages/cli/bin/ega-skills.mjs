@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate } from "../dist/index.js";
+import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockApply } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -27,6 +27,7 @@ function printHelp() {
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
       "",
       "Options:",
@@ -366,6 +367,22 @@ async function main() {
       return;
     }
     fail(`Unknown hub command: ${subcommand ?? ""}`);
+  }
+
+  if (command === "remote-lock") {
+    const [subcommand, ...lockRest] = rest;
+    if (subcommand !== "apply") fail(`Unknown remote-lock command: ${subcommand ?? ""}`);
+    const plan = readFlag(lockRest, "plan");
+    const positional = readHubPositionals(lockRest, new Set(["plan"]));
+    if (plan === undefined) fail("Missing required --plan <lock-plan.json>.");
+    if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+    try {
+      const result = await runRemoteLockApply({ plan, project: positional[0] ?? "." });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
   }
 
   fail(`Unknown command or option: ${command ?? ""}`);
