@@ -24,11 +24,12 @@ export class FileObjectStore implements ImmutableObjectStore {
       const existing = await readFile(path);
       verifyDigest(digest, existing);
       return;
-    } catch {
-      await writeFile(path, bytes, { flag: "wx" }).catch(async (error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    await writeFile(path, bytes, { flag: "wx" }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    });
   }
   async get(digest: string): Promise<Uint8Array | null> {
     if (!/^sha256:[0-9a-f]{64}$/.test(digest)) throw new Error("invalid object digest");
