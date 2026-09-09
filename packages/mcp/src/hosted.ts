@@ -1,0 +1,233 @@
+/** Contract D hosted personal runtime.
+ *
+ * This module is deliberately read-only: callers provide an already-built
+ * immutable HubRelease artifact directory and narrow authentication/policy
+ * adapters. The MCP SDK owns protocol parsing and Streamable HTTP transport;
+ * this layer owns snapshot integrity and hosted scope rules.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import Database, { type DatabaseConnection } from "better-sqlite3";
+import {
+  createMcpHandler,
+  McpServer,
+  type AuthInfo,
+  type CallToolResult,
+  type McpHttpHandler,
+} from "@modelcontextprotocol/server";
+import { sha256Hex } from "@ega-skills/hashing";
+import { verifyHubRelease, type HubRelease } from "@ega-skills/project";
+import { PROJECT_CONFIG_V1_DEFAULTS, type ProjectConfigV1 } from "@ega-skills/project";
+import { getCacheBlob, getSkillVersion } from "@ega-skills/registry";
+import { runGetContentTool, GET_CONTENT_OUTPUT_SCHEMA } from "./get-content.js";
+import { runInspectTool, inspectOutputSchema, type McpInspectArgs } from "./inspect.js";
+import { runResolveTool, RESOLVE_OUTPUT_SCHEMA } from "./resolve.js";
+import { runSearchTool, SEARCH_OUTPUT_SCHEMA } from "./search.js";
+import { toolSchema } from "./server.js";
+import type { McpProjectContext } from "./project-context.js";
+
+export interface HostedReleaseSnapshot {
+  readonly artifactDir: string;
+  readonly release: HubRelease;
+  readonly releaseDigest: string;
+  readonly sqlitePath: string;
+  readonly ftsTable: string;
+  readonly context: McpProjectContext;
+}
+
+export interface HostedPrincipal {
+  readonly subject: string;
+  readonly scopes: readonly string[];
+}
+
+export interface HostedRuntimeOptions {
+  readonly verifyBearer: (token: string, signal: AbortSignal) => Promise<HostedPrincipal>;
+  readonly authorize: (principal: HostedPrincipal, tool: string, skillId?: string) => Promise<boolean>;
+  readonly allowedOrigins?: readonly string[];
+  readonly deniedReleases?: ReadonlySet<string>;
+  readonly deniedSkills?: ReadonlySet<string>;
+  readonly deniedSources?: ReadonlySet<string>;
+  readonly maxBodyBytes?: number;
+}
+
+export class HostedRuntimeError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "HostedRuntimeError";
+    this.code = code;
+  }
+}
+
+function object(value: unknown, name: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", `${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], name: string): void {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, i) => key !== expected[i])) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", `${name} has invalid fields`);
+  }
+}
+
+/** Verify the complete immutable release package before readiness. */
+export function loadHostedReleaseSnapshot(artifactDir: string): HostedReleaseSnapshot {
+  const releasePath = join(artifactDir, "hub-release.json");
+  const packagePath = join(artifactDir, "release-package.json");
+  const sqlitePath = join(artifactDir, "registry.sqlite");
+  if (![releasePath, packagePath, sqlitePath].every(existsSync)) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", "Hosted release artifacts are incomplete");
+  }
+  let release: HubRelease;
+  let releasePackage: Record<string, unknown>;
+  try {
+    release = JSON.parse(readFileSync(releasePath, "utf8")) as HubRelease;
+    releasePackage = object(JSON.parse(readFileSync(packagePath, "utf8")), "release package");
+  } catch (error) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", `Hosted release JSON is invalid: ${String(error)}`);
+  }
+  try {
+    verifyHubRelease(release);
+  } catch (error) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  exactKeys(releasePackage, ["hub_release_digest", "sqlite_artifact_digest", "snapshot_rows"], "release package");
+  if (releasePackage.hub_release_digest !== release.digest || typeof releasePackage.sqlite_artifact_digest !== "string" ||
+      !/^sha256:[0-9a-f]{64}$/.test(releasePackage.sqlite_artifact_digest) ||
+      !Number.isSafeInteger(releasePackage.snapshot_rows) || (releasePackage.snapshot_rows as number) < 0) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", "Release package identity is invalid");
+  }
+  if (`sha256:${sha256Hex(readFileSync(sqlitePath))}` !== releasePackage.sqlite_artifact_digest) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", "SQLite artifact digest mismatch");
+  }
+  const ftsTable = `release_fts_${release.digest.slice("sha256:".length)}`;
+  let db: DatabaseConnection | undefined;
+  try {
+    db = new Database(sqlitePath, { readonly: true, fileMustExist: true });
+    if (db.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("SQLite integrity check failed");
+    const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(ftsTable);
+    if (!table) throw new Error("release FTS table missing");
+    const rows = db.prepare(`SELECT count(*) AS count FROM ${ftsTable}`).get() as { count: number };
+    if (rows.count !== releasePackage.snapshot_rows) throw new Error("release FTS row count mismatch");
+    const cacheDir = join(artifactDir, "cache", "sha256");
+    for (const [skillId, versionHash] of Object.entries(release.payload.skill_versions)) {
+      const version = getSkillVersion(db, skillId, versionHash);
+      const manifest = object(JSON.parse(version.manifestJson), `manifest for ${skillId}`);
+      if (!Array.isArray(manifest.files)) throw new Error(`manifest for ${skillId} has no files`);
+      for (const file of manifest.files) {
+        const entry = object(file, `manifest file for ${skillId}`);
+        if (typeof entry.blob_hash !== "string") throw new Error(`manifest blob missing for ${skillId}`);
+        getCacheBlob(cacheDir, entry.blob_hash);
+      }
+    }
+  } catch (error) {
+    throw new HostedRuntimeError("E_SNAPSHOT_INVALID", `SQLite snapshot is invalid: ${String(error)}`);
+  } finally {
+    db?.close();
+  }
+  const config: ProjectConfigV1 = Object.freeze({
+    ...PROJECT_CONFIG_V1_DEFAULTS,
+    skills: Object.freeze({ ...PROJECT_CONFIG_V1_DEFAULTS.skills }),
+  });
+  return Object.freeze({
+    artifactDir,
+    release,
+    releaseDigest: release.digest,
+    sqlitePath,
+    ftsTable,
+    context: Object.freeze({
+      projectPath: artifactDir,
+      configPath: null,
+      lockPath: null,
+      config,
+      hasSelectedConfig: false,
+      lock: null,
+      lockMode: "UNLOCKED",
+      registryHome: artifactDir,
+      registryDatabase: sqlitePath,
+      registryAvailable: true,
+    }),
+  });
+}
+
+function errorResult(tool: string, error: unknown): CallToolResult {
+  const code = error instanceof HostedRuntimeError ? error.code : "E_RUNTIME_UNAVAILABLE";
+  const message = error instanceof Error ? error.message : "Hosted request failed";
+  return { content: [{ type: "text", text: JSON.stringify({ error: { code, message, tool } }) }], isError: true };
+}
+
+function toCallResult(output: unknown): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output } as CallToolResult;
+}
+
+function withDeniedSkills(context: McpProjectContext, deniedSkills: ReadonlySet<string>): McpProjectContext {
+  if (deniedSkills.size === 0) return context;
+  const deny = [...new Set([...context.config.skills.deny, ...deniedSkills])].sort();
+  return Object.freeze({
+    ...context,
+    config: Object.freeze({
+      ...context.config,
+      skills: Object.freeze({ ...context.config.skills, deny }),
+    }),
+  });
+}
+
+export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options: HostedRuntimeOptions): McpHttpHandler {
+  const maxBodyBytes = options.maxBodyBytes ?? 1_048_576;
+  const deniedReleases = options.deniedReleases ?? new Set<string>();
+  const deniedSkills = options.deniedSkills ?? new Set<string>();
+  const deniedSources = options.deniedSources ?? new Set<string>();
+  const handler = createMcpHandler((requestContext) => {
+    const principal = (requestContext.authInfo?.extra as { principal?: HostedPrincipal } | undefined)?.principal;
+    const context = withDeniedSkills(snapshot.context, deniedSkills);
+    const server = new McpServer({ name: "ega-skills-hosted", version: "1.0.1" }, { capabilities: { tools: {} } });
+    const guard = async (tool: string, args: Record<string, unknown>, body: () => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
+      try {
+        if (!principal || deniedReleases.has(snapshot.releaseDigest)) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        const skillId = typeof args.skill_id === "string" ? args.skill_id : undefined;
+        if (skillId && deniedSkills.has(skillId)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
+        if (releaseSourceDenied(snapshot.release, deniedSources)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested source is unavailable");
+        if (!(await options.authorize(principal, tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        return await body();
+      } catch (error) { return errorResult(tool, error); }
+    };
+    const rejectProject = (args: Record<string, unknown>): void => {
+      if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");
+      if ("context_id" in args) throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is reserved for Contract E");
+    };
+    server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, () => { rejectProject(args); checkRelease(args, snapshot); return runSearchTool(args, context, { ftsTable: snapshot.ftsTable }); }));
+    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async () => { rejectProject(args); checkRelease(args, snapshot); return runResolveTool(args, context); }));
+    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, () => { requirePinned(args, snapshot); const output = runInspectTool(args as unknown as McpInspectArgs, context); return toCallResult(output); }));
+    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, () => { requirePinned(args, snapshot); return runGetContentTool(args, context); }));
+    return server;
+  }, { legacy: "stateless", responseMode: "json" });
+  return {
+    ...handler,
+    fetch: async (request, requestOptions) => {
+      if (request.body && Number(request.headers.get("content-length") ?? 0) > maxBodyBytes) return new Response("Request too large", { status: 413 });
+      const origin = request.headers.get("origin");
+      if (origin && options.allowedOrigins && !options.allowedOrigins.includes(origin)) return new Response("Origin rejected", { status: 403 });
+      const header = request.headers.get("authorization");
+      if (!header?.startsWith("Bearer ") || header.length <= 7) return new Response(JSON.stringify({ error: { code: "E_AUTH_REQUIRED" } }), { status: 401, headers: { "content-type": "application/json" } });
+      try {
+        const principal = await options.verifyBearer(header.slice(7), request.signal);
+        return handler.fetch(request, { ...requestOptions, authInfo: { token: "redacted", clientId: "hosted", scopes: [...principal.scopes], extra: { principal } } as unknown as AuthInfo });
+      } catch { return new Response(JSON.stringify({ error: { code: "E_TOKEN_INVALID" } }), { status: 401, headers: { "content-type": "application/json" } }); }
+    },
+  };
+}
+
+function checkRelease(args: Record<string, unknown>, snapshot: HostedReleaseSnapshot): void {
+  if (args.release_digest !== undefined && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not the verified release");
+}
+function requirePinned(args: Record<string, unknown>, snapshot: HostedReleaseSnapshot): void {
+  if (typeof args.context_id === "string") throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is reserved for Contract E");
+  if (args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require the verified release digest");
+}
+function releaseSourceDenied(release: HubRelease, denied: ReadonlySet<string>): boolean {
+  return release.payload.adopted_sources.some((source) => denied.has(source.source_id));
+}

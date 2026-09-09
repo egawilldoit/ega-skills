@@ -17,6 +17,8 @@ declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): Stats;
   export function realpathSync(path: string): string;
+  export function readFileSync(path: string, encoding: "utf8"): string;
+  export function readFileSync(path: string): Uint8Array;
 }
 
 declare module "node:path" {
@@ -65,7 +67,7 @@ declare module "better-sqlite3" {
     close(): void;
   }
   interface DatabaseConstructor {
-    new (filename: string): DatabaseConnection;
+    new (filename: string, options?: { readonly?: boolean; fileMustExist?: boolean }): DatabaseConnection;
   }
   const Database: DatabaseConstructor;
   export default Database;
