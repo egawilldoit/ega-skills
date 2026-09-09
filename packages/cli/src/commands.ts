@@ -31,6 +31,8 @@ import {
   applyUpdatePlan,
   applyRemoteLockPlan,
   buildHub,
+  discoverSkillDirs,
+  digestStagedTree,
   buildHubRelease,
   checkForUpdates,
   extractSelectedRootsFromGit,
@@ -80,20 +82,39 @@ function readHubContracts(hub: string) {
   return { config, hubDir, lock };
 }
 
-async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string): Promise<Record<string, string>> {
+async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Promise<{
+  versions: Record<string, string>;
+  skillTreeDigests: Record<string, string>;
+}> {
   const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
   try {
     const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
     if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
     const versions: Record<string, string> = {};
+    const skillTreeDigests: Record<string, string> = {};
     const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
     for (const row of rows) versions[row.skill_id] = row.current_version_hash;
-    return versions;
+    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+    for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+      const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+      skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+    }
+    return { skillTreeDigests, versions };
   } finally {
     registry.close();
     rmSync(registryHome, { force: true, recursive: true });
   }
+}
+
+function readAdoptedSkillTreeDigests(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Record<string, string> {
+  const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+  const skillTreeDigests: Record<string, string> = {};
+  for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+    const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+    skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+  }
+  return skillTreeDigests;
 }
 
 /** Run the complete Contract C build through the public CLI API. */
@@ -122,6 +143,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
   const prefix = `${source.namespace}/`;
   const versions: Record<string, string> = {};
+  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, source.namespace, source.selection.roots);
   try {
     verifySourcesLock(config, lock);
     const build = await buildHub(hubDir);
@@ -132,7 +154,9 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
     // A deliberate sources.yaml selection change is a proposal input. The
     // adopted lock remains the old authority until its plan is applied.
     if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
-    Object.assign(versions, await readAdoptedVersions(hubDir, options.sourceId, source.namespace));
+    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, source.namespace, source.selection.roots);
+    Object.assign(versions, adoptedView.versions);
+    Object.assign(skillTreeDigests, adoptedView.skillTreeDigests);
   }
   const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
   try {
@@ -143,6 +167,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
       snapshotDigest: adopted.vendored_snapshot_digest,
         treeDigest: adopted.selected_skill_tree_digest,
         versions,
+        skillTreeDigests,
       },
       config: source,
       sourceId: options.sourceId,

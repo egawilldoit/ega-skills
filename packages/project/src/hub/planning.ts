@@ -18,7 +18,7 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
+import { digestStagedTree, discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
@@ -27,6 +27,8 @@ export interface AdoptedSourceView {
   treeDigest: string;
   snapshotDigest: string;
   versions: Record<string, string>;
+  /** Per-skill raw identities, when the caller has the adopted tree. */
+  skillTreeDigests?: Record<string, string>;
 }
 
 export interface CheckInput {
@@ -122,6 +124,7 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       throw new HubError("E_PLAN_FETCH", `candidate tree failed V1 import: ${first ? first.error : "unknown"}`);
     }
     const candidate: Record<string, string> = {};
+    const candidateSkillTreeDigests: Record<string, string> = {};
     const selectedSkillDirs = discoverSelectedSkillsFromGit(fetchDir, target, config.selection.roots);
     for (const skillDir of selectedSkillDirs) {
       const name = readSkillName(join(quarantineDir, ...skillDir.split("/"), "SKILL.md"));
@@ -132,6 +135,7 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
         throw new HubError("E_PLAN_FETCH", `candidate skill imported without a version: ${ref}`);
       }
       candidate[ref] = latest.versionHash;
+      candidateSkillTreeDigests[ref] = digestStagedTree(quarantineDir, [skillDir]).treeDigest;
     }
     const byRef = (a: { skill_ref: string }, b: { skill_ref: string }): number => (a.skill_ref < b.skill_ref ? -1 : 1);
     const added: AddedSkill[] = Object.entries(candidate)
@@ -149,7 +153,10 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
         canonical_changed: adopted.versions[skill_ref] !== new_version,
         new_version,
         old_version: adopted.versions[skill_ref] as string,
-        raw_changed: selectedTreeChanged,
+        raw_changed:
+          adopted.skillTreeDigests?.[skill_ref] !== undefined
+            ? adopted.skillTreeDigests[skill_ref] !== candidateSkillTreeDigests[skill_ref]
+            : selectedTreeChanged,
         skill_ref,
       }))
       .sort(byRef);
