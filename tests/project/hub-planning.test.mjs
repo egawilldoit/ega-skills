@@ -78,9 +78,11 @@ function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
   const clone = mkdtempSync(join(tmpdir(), "ega-plan-adopt-"));
   const dest = mkdtempSync(join(tmpdir(), "ega-adopt-"));
   try {
-    execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
-    execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
-    const extracted = extractSelectedRoots(clone, roots, provenanceFiles, dest);
+    // Keep the adopted fixture on the same raw-object path as production.
+    // A normal Windows checkout may apply autocrlf/filters and would create
+    // a false digest difference against the raw candidate manifest.
+    execFileSync("git", ["clone", "-q", "--no-checkout", repoDir, clone], { stdio: "pipe" });
+    const extracted = extractSelectedRootsFromGit(clone, rev, roots, provenanceFiles, dest);
     const skillTreeDigests = {};
     for (const root of roots) {
       const manifest = digestStagedTree(dest, [root]);
