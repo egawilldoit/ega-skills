@@ -16,6 +16,8 @@ export {
   loadHostedReleaseSnapshot,
   HostedRuntimeError,
 } from "./hosted.js";
+export { createJwksBearerVerifier } from "./hosted-auth.js";
+export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,
