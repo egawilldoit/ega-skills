@@ -24,7 +24,7 @@ Updated: 2026-09-09
 | Contract E | `release/contract-e` | `fd077119c1e1fc702fb87c0b6bb06fbb420c516e` | `2d4974f75ac1b825444cebacb00552181852a1a6` | #83 | open, doc-only freeze |
 | 1.3 | `release/1.3` | `2d4974f75ac1b825444cebacb00552181852a1a6` | `065d4d4cf26e2b34b8d1cacc6deeed76c07b95e1` | #84 | open, not merged |
 | Contract F | `release/contract-f` | `065d4d4cf26e2b34b8d1cacc6deeed76c07b95e1` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | #85 | open, doc-only freeze |
-| 2.0 | `release/2.0` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | `e9d6920db4352eb75b43a637d78440a455797cab` | #86 | open, candidate |
+| 2.0 | `release/2.0` | `a4c00a03fbaa2b1b412a2374a3f1bc7b33277251` | implementation `e9d6920db4352eb75b43a637d78440a455797cab`; current docs head `ca99a3c9a83fdf63295a9c3e83a727ea9767e912` | #86 | open, candidate |
 
 ## Freeze-order proof
 
@@ -45,7 +45,7 @@ The original mixed `f064c95a360d1441fbf2cad30bcd8cd11b2e7b68` was not replayed w
 
 ## Candidate equivalence
 
-Clean 2.0 `e9d6920db4352eb75b43a637d78440a455797cab` differs from checkpoint `aa2b51abce4ede01656369b64dad0222971557ba` only in `docs/EXECUTION-STATE.md`; production implementation is otherwise tree-equivalent. The checkpoint remains preserved and is not the final merge lineage.
+The clean 2.0 implementation at `e9d6920db4352eb75b43a637d78440a455797cab` differs from checkpoint `aa2b51abce4ede01656369b64dad0222971557ba` only in release-state metadata; production implementation is otherwise tree-equivalent. The current `ca99a3c9a83fdf63295a9c3e83a727ea9767e912` adds the reconstructed lineage documentation. The checkpoint remains preserved and is not the final merge lineage.
 
 ## Implementation and acceptance state
 
