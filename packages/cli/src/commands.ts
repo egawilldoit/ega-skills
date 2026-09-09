@@ -29,6 +29,7 @@ import {
   serializeLockfile,
   validateLockfile,
   applyUpdatePlan,
+  applyRemoteLockPlan,
   buildHub,
   buildHubRelease,
   checkForUpdates,
@@ -42,6 +43,7 @@ import {
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
+  type RemoteLockPlan,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
 import { validatePortableSkillName } from "@ega-skills/schema";
@@ -177,6 +179,19 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
       }
     },
   });
+}
+
+export interface RemoteLockApplyCommandOptions {
+  readonly plan: string;
+  readonly project?: string;
+}
+
+/** Apply a reviewed, exact-release-bound remote lock plan locally. */
+export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
+  const projectDir = resolve(options.project ?? ".");
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
+  applyRemoteLockPlan(plan, join(projectDir, ".egaskills.lock"));
+  return { applied: true, path: join(projectDir, ".egaskills.lock"), target_release_digest: plan.payload.target_release_digest };
 }
 
 export interface ResolveCommandOptions {
