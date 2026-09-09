@@ -57,3 +57,25 @@ test("remote lock plan is exact-release bound and applies only the reviewed cand
   applyRemoteLockPlan(plan, path);
   assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")));
 });
+
+test("remote lock apply rejects forged or malformed change summaries", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: digest("a"),
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: digest("c"),
+    current,
+    candidate,
+  });
+  const path = join(mkdtempSync(join(tmpdir(), "ega-remote-lock-invalid-")), ".egaskills.lock");
+  const forged = structuredClone(plan);
+  forged.payload.changes[0].new_version = digest("d");
+  forged.digest = createEnvelope({ object_type: forged.object_type, schema_version: forged.schema_version, payload: forged.payload }).digest;
+  assert.throws(() => applyRemoteLockPlan(forged, path), /does not match candidate lock/);
+
+  const extra = structuredClone(plan);
+  extra.payload.changes[0].unexpected = true;
+  extra.digest = createEnvelope({ object_type: extra.object_type, schema_version: extra.schema_version, payload: extra.payload }).digest;
+  assert.throws(() => applyRemoteLockPlan(extra, path), /unknown or missing fields/);
+});
