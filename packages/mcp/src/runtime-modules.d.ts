@@ -34,6 +34,11 @@ declare module "node:util" {
   }
 }
 
+declare module "node:crypto" {
+  export interface Verify { update(data: string): Verify; end(): void; verify(key: string, signature: Uint8Array): boolean; }
+  export function createVerify(algorithm: string): Verify;
+}
+
 declare module "node:process" {
   interface Stdin {
     on(event: "end" | "close", listener: () => void): Stdin;
