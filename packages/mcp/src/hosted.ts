@@ -48,6 +48,9 @@ export interface HostedRuntimeOptions {
   readonly deniedSkills?: ReadonlySet<string>;
   readonly deniedSources?: ReadonlySet<string>;
   readonly maxBodyBytes?: number;
+  readonly maxResponseBytes?: number;
+  readonly requestTimeoutMs?: number;
+  readonly maxConcurrentRequests?: number;
 }
 
 export class HostedRuntimeError extends Error {
@@ -176,8 +179,27 @@ function withDeniedSkills(context: McpProjectContext, deniedSkills: ReadonlySet<
   });
 }
 
+function positiveSafeInteger(value: number | undefined, fallback: number, name: string): number {
+  const result = value ?? fallback;
+  if (!Number.isSafeInteger(result) || result <= 0) {
+    throw new HostedRuntimeError("E_RUNTIME_CONFIG", `${name} must be a positive safe integer`);
+  }
+  return result;
+}
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options: HostedRuntimeOptions): McpHttpHandler {
-  const maxBodyBytes = options.maxBodyBytes ?? 1_048_576;
+  const maxBodyBytes = positiveSafeInteger(options.maxBodyBytes, 1_048_576, "maxBodyBytes");
+  const maxResponseBytes = positiveSafeInteger(options.maxResponseBytes, 4 * 1_048_576, "maxResponseBytes");
+  const requestTimeoutMs = positiveSafeInteger(options.requestTimeoutMs, 30_000, "requestTimeoutMs");
+  const maxConcurrentRequests = positiveSafeInteger(options.maxConcurrentRequests, 32, "maxConcurrentRequests");
+  let activeRequests = 0;
   const deniedReleases = options.deniedReleases ?? new Set<string>();
   const deniedSkills = options.deniedSkills ?? new Set<string>();
   const deniedSources = options.deniedSources ?? new Set<string>();
@@ -208,15 +230,43 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
   return {
     ...handler,
     fetch: async (request, requestOptions) => {
-      if (request.body && Number(request.headers.get("content-length") ?? 0) > maxBodyBytes) return new Response("Request too large", { status: 413 });
-      const origin = request.headers.get("origin");
-      if (origin && options.allowedOrigins && !options.allowedOrigins.includes(origin)) return new Response("Origin rejected", { status: 403 });
-      const header = request.headers.get("authorization");
-      if (!header?.startsWith("Bearer ") || header.length <= 7) return new Response(JSON.stringify({ error: { code: "E_AUTH_REQUIRED" } }), { status: 401, headers: { "content-type": "application/json" } });
+      if (activeRequests >= maxConcurrentRequests) return jsonResponse(429, { error: { code: "E_CONCURRENCY_LIMIT" } });
+      activeRequests += 1;
+      const timeoutController = new AbortController();
+      const abortFromRequest = () => timeoutController.abort(request.signal.reason);
+      request.signal.addEventListener("abort", abortFromRequest, { once: true });
+      const timeout = setTimeout(() => timeoutController.abort(new Error("request timeout")), requestTimeoutMs);
       try {
-        const principal = await options.verifyBearer(header.slice(7), request.signal);
-        return handler.fetch(request, { ...requestOptions, authInfo: { token: "redacted", clientId: "hosted", scopes: [...principal.scopes], extra: { principal } } as unknown as AuthInfo });
-      } catch { return new Response(JSON.stringify({ error: { code: "E_TOKEN_INVALID" } }), { status: 401, headers: { "content-type": "application/json" } }); }
+        let boundedRequest = request;
+        if (request.body) {
+          const declaredLength = Number(request.headers.get("content-length") ?? 0);
+          if (declaredLength > maxBodyBytes) return new Response("Request too large", { status: 413 });
+          const body = new Uint8Array(await request.arrayBuffer());
+          if (body.byteLength > maxBodyBytes) return new Response("Request too large", { status: 413 });
+          boundedRequest = new Request(request, { body, signal: timeoutController.signal });
+        } else {
+          boundedRequest = new Request(request, { signal: timeoutController.signal });
+        }
+      const origin = request.headers.get("origin");
+        if (origin && options.allowedOrigins && !options.allowedOrigins.includes(origin)) return new Response("Origin rejected", { status: 403 });
+        const header = boundedRequest.headers.get("authorization");
+        if (!header?.startsWith("Bearer ") || header.length <= 7) return jsonResponse(401, { error: { code: "E_AUTH_REQUIRED" } });
+        let principal: HostedPrincipal;
+        try {
+          principal = await options.verifyBearer(header.slice(7), timeoutController.signal);
+        } catch { return jsonResponse(401, { error: { code: "E_TOKEN_INVALID" } }); }
+        const response = await handler.fetch(boundedRequest, { ...requestOptions, authInfo: { token: "redacted", clientId: "hosted", scopes: [...principal.scopes], extra: { principal } } as unknown as AuthInfo });
+        const responseBody = new Uint8Array(await response.arrayBuffer());
+        if (responseBody.byteLength > maxResponseBytes) return new Response("Response too large", { status: 500 });
+        return new Response(responseBody, response);
+      } catch (error) {
+        if (timeoutController.signal.aborted) return jsonResponse(504, { error: { code: "E_REQUEST_TIMEOUT" } });
+        return jsonResponse(500, { error: { code: "E_RUNTIME_UNAVAILABLE" } });
+      } finally {
+        clearTimeout(timeout);
+        request.signal.removeEventListener("abort", abortFromRequest);
+        activeRequests -= 1;
+      }
     },
   };
 }
