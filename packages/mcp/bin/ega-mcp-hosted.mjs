@@ -3,21 +3,63 @@
 // intentionally supplied by an external verifier in production; this entry
 // point only provides a disposable local smoke adapter.
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { loadHostedReleaseSnapshot, createHostedMcpHandler, createJwksBearerVerifier } from "../dist/index.js";
+import { InMemoryControlPlane } from "@ega-skills/control-plane";
 
 const artifactDir = process.env.EGA_HOSTED_ARTIFACT_DIR;
 const expectedToken = process.env.EGA_HOSTED_BEARER_TOKEN;
 const issuer = process.env.EGA_HOSTED_ISSUER;
 const audience = process.env.EGA_HOSTED_AUDIENCE;
 const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
+const authorizationPath = process.env.EGA_HOSTED_AUTHZ_FILE;
 if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
   throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
 }
+if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
 
 let snapshot;
 let startupError;
+let controlPlane;
+let deniedSkills = new Set();
+let deniedSources = new Set();
+let deniedReleases = new Set();
 try {
   snapshot = loadHostedReleaseSnapshot(artifactDir);
+  const policy = JSON.parse(readFileSync(authorizationPath, "utf8"));
+  const policyKeys = Object.keys(policy ?? {}).sort();
+  const allowedPolicyKeys = ["authorized_subjects", "denied_releases", "denied_skills", "denied_sources", "denies", "memberships", "owner_subject", "visibility", "workspace_id"];
+  if (policy === null || typeof policy !== "object" || Array.isArray(policy) ||
+      policyKeys.some((key, index) => key !== allowedPolicyKeys[index]) ||
+      typeof policy.workspace_id !== "string" || typeof policy.visibility !== "string" ||
+      !["private", "workspace", "public"].includes(policy.visibility) ||
+      typeof policy.owner_subject !== "string" || !Array.isArray(policy.memberships) ||
+      !Array.isArray(policy.denies) ||
+      ["authorized_subjects", "denied_releases", "denied_skills", "denied_sources"].some((key) =>
+        policy[key] !== undefined && (!Array.isArray(policy[key]) || policy[key].some((value) => typeof value !== "string")))) {
+    throw new Error("hosted authorization policy has invalid shape");
+  }
+  controlPlane = new InMemoryControlPlane();
+  const hubId = snapshot.release.payload.hub_id;
+  controlPlane.setResource(hubId, {
+    workspaceId: policy.workspace_id,
+    visibility: policy.visibility,
+    ownerSubject: policy.owner_subject,
+    authorizedSubjects: policy.authorized_subjects,
+  });
+  for (const membership of policy.memberships) {
+    if (membership === null || typeof membership !== "object" ||
+        typeof membership.subject !== "string" || !["owner", "admin", "maintainer", "member", "viewer"].includes(membership.role) ||
+        typeof membership.active !== "boolean") throw new Error("hosted authorization membership has invalid shape");
+    controlPlane.addMembership(policy.workspace_id, membership);
+  }
+  for (const denied of policy.denies) {
+    if (typeof denied !== "string") throw new Error("hosted authorization deny has invalid shape");
+    controlPlane.deny(denied);
+  }
+  deniedSkills = new Set(policy.denied_skills ?? []);
+  deniedSources = new Set(policy.denied_sources ?? []);
+  deniedReleases = new Set(policy.denied_releases ?? []);
 } catch (error) {
   startupError = error;
 }
@@ -34,7 +76,15 @@ const handler = snapshot && createHostedMcpHandler(snapshot, {
       if (token !== expectedToken) throw new Error("invalid token");
       return { subject: "local-smoke", scopes: ["ega:read"] };
     },
-  authorize: async () => true,
+  authorize: async (principal) => {
+    if (!controlPlane) return false;
+    const hubId = snapshot.release.payload.hub_id;
+    if (!controlPlane.authorize(hubId, principal.subject, "read_hub")) return false;
+    return true;
+  },
+  deniedSkills,
+  deniedSources,
+  deniedReleases,
 });
 
 const server = createServer(async (incoming, outgoing) => {

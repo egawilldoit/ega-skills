@@ -31,10 +31,18 @@ async function waitForReady(child, port) {
 
 test("hosted CLI serves a real built release over HTTP", async (t) => {
   const build = await buildHubRelease(makeHub());
+  const authzPath = join(build.registryHome, "authz.json");
+  writeFileSync(authzPath, JSON.stringify({
+    workspace_id: "local-workspace",
+    visibility: "private",
+    owner_subject: "local-smoke",
+    memberships: [{ subject: "local-smoke", role: "owner", active: true }],
+    denies: [],
+  }));
   const port = 18787 + Math.floor(Math.random() * 1000);
   const child = spawn(process.execPath, ["packages/mcp/bin/ega-mcp-hosted.mjs"], {
     cwd: join(import.meta.dirname, "../.."),
-    env: { ...process.env, PORT: String(port), EGA_HOSTED_ARTIFACT_DIR: build.registryHome, EGA_HOSTED_BEARER_TOKEN: "smoke-token" },
+    env: { ...process.env, PORT: String(port), EGA_HOSTED_ARTIFACT_DIR: build.registryHome, EGA_HOSTED_BEARER_TOKEN: "smoke-token", EGA_HOSTED_AUTHZ_FILE: authzPath },
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
