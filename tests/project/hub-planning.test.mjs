@@ -1,20 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HubError,
   checkForUpdates,
+  canonicalSourceManifestDigest,
+  digestStagedTree,
   discoverUnselectedSkills,
+  discoverUnselectedSkillsFromGit,
   extractSelectedRoots,
+  extractSelectedRootsFromGit,
+  fetchExactCommit,
   fetchRefTip,
   parseSourcesYaml,
   resolveRefToCommit,
   sourceConfigDigest,
 } from "../../packages/project/dist/index.js";
-import { verifyEnvelope } from "../../packages/hashing/dist/index.js";
+import { canonicalizeJson, sha256Hex, verifyEnvelope } from "../../packages/hashing/dist/index.js";
 
 const SOURCES_YAML = `schema_version: 1
 sources:
@@ -33,7 +38,7 @@ sources:
 `;
 
 function git(dir, ...args) {
-  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", ...args], { stdio: "pipe" });
+  execFileSync("git", ["-C", dir, "-c", "user.name=plan", "-c", "user.email=plan@t", "-c", "core.autocrlf=false", ...args], { stdio: "pipe" });
 }
 
 function skill(name, body) {
@@ -73,9 +78,17 @@ function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
   const clone = mkdtempSync(join(tmpdir(), "ega-plan-adopt-"));
   const dest = mkdtempSync(join(tmpdir(), "ega-adopt-"));
   try {
-    execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
-    execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
-    return extractSelectedRoots(clone, roots, provenanceFiles, dest);
+    // Keep the adopted fixture on the same raw-object path as production.
+    // A normal Windows checkout may apply autocrlf/filters and would create
+    // a false digest difference against the raw candidate manifest.
+    execFileSync("git", ["clone", "-q", "--no-checkout", repoDir, clone], { stdio: "pipe" });
+    const extracted = extractSelectedRootsFromGit(clone, rev, roots, provenanceFiles, dest);
+    const skillTreeDigests = {};
+    for (const root of roots) {
+      const manifest = digestStagedTree(dest, [root]);
+      skillTreeDigests[root.split("/").pop()] = manifest.treeDigest;
+    }
+    return { ...extracted, skillTreeDigests };
   } finally {
     rmSync(clone, { force: true, recursive: true });
     rmSync(dest, { force: true, recursive: true });
@@ -95,6 +108,26 @@ function codeOf(fn) {
       },
     );
 }
+
+test("Contract A source digest uses the independent canonical manifest preimage", () => {
+  const entries = [
+    { path: "skills/b/SKILL.md", kind: "file", blob_sha256: `sha256:${"b".repeat(64)}` },
+    { path: "LICENSE", kind: "file", blob_sha256: `sha256:${"a".repeat(64)}` },
+  ];
+  const expected = `sha256:${sha256Hex(canonicalizeJson([
+    entries[1],
+    entries[0],
+  ]))}`;
+  assert.equal(canonicalSourceManifestDigest(entries), expected);
+  assert.equal(
+    canonicalSourceManifestDigest([
+      { ...entries[0], scope: "selected" },
+      { ...entries[1], scope: "provenance" },
+    ]),
+    expected,
+    "implementation-only scope metadata must not enter the Contract A preimage",
+  );
+});
 
 test("resolveRefToCommit pins the exact tip", () => {
   const { dir, shaB } = makeFixtureRepo();
@@ -131,6 +164,7 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
       snapshotDigest: adoptedTree.snapshotDigest,
       treeDigest: adoptedTree.treeDigest,
       versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+      skillTreeDigests: { "plan/alpha": adoptedTree.skillTreeDigests.alpha, "plan/beta": adoptedTree.skillTreeDigests.beta },
     },
     config: src,
     sourceId: "plan",
@@ -150,10 +184,111 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   assert.equal(beta.old_version, "sha256:bb");
   assert.ok(/^sha256:[0-9a-f]{64}$/.test(beta.new_version) && beta.new_version !== "sha256:bb");
   assert.equal(beta.raw_changed, true);
+  const alpha = plan.payload.changed_skills.find((s) => s.skill_ref === "plan/alpha");
+  assert.ok(alpha, "alpha canonical version change remains reportable");
+  assert.equal(alpha.raw_changed, false, "unchanged alpha is not reported as raw-changed");
   assert.ok(plan.payload.unselected_new_skills.includes("skills/delta"), "delta reported, not adopted");
   const v = verifyEnvelope(plan);
   assert.equal(v.ok, true);
   assert.ok(cfg);
+});
+
+test("selected parent roots discover nested skills without adopting outside roots", async () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  const cfg = parseSourcesYaml(SOURCES_YAML.replace("PLACEHOLDER", dir).replace(/        - skills\/alpha\n        - skills\/beta\n        - skills\/gamma/, "        - skills"));
+  const src = cfg.sources.plan;
+  const adoptedTree = adoptedTreeAt(dir, shaA, ["skills"], src.provenanceFiles);
+  const work = mkdtempSync(join(tmpdir(), "ega-plan-parent-root-"));
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: work,
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.equal(res.plan.payload.target_commit, shaB);
+  assert.deepEqual(res.plan.payload.added_skills.map((entry) => entry.skill_ref), ["plan/delta", "plan/gamma"]);
+  assert.ok(!res.plan.payload.unselected_new_skills.includes("skills/delta"));
+});
+
+test("source commit movement is reported when selected content is unchanged", async () => {
+  const { dir, shaB } = makeFixtureRepo();
+  mkdirSync(join(dir, "skills", "epsilon"), { recursive: true });
+  writeFileSync(join(dir, "skills", "epsilon", "SKILL.md"), skill("epsilon", "Epsilon body C, outside selection."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const { src } = loadConfig(dir);
+  const adoptedTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaB,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb", "plan/gamma": "sha256:cc" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-source-change-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.equal(res.plan.payload.target_commit, shaC);
+  assert.deepEqual(res.plan.payload.added_skills, []);
+  assert.deepEqual(
+    res.plan.payload.changed_skills.map(({ skill_ref, raw_changed }) => ({ skill_ref, raw_changed })),
+    [
+      { skill_ref: "plan/alpha", raw_changed: false },
+      { skill_ref: "plan/beta", raw_changed: false },
+      { skill_ref: "plan/gamma", raw_changed: false },
+    ],
+  );
+  assert.deepEqual(res.plan.payload.unselected_new_skills, ["skills/delta", "skills/epsilon"]);
+});
+
+test("per-skill raw changes do not report unaffected skills", async () => {
+  const { dir, shaA, shaB } = makeFixtureRepo();
+  const { src } = loadConfig(dir);
+  const candidate = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: "sha256:0",
+      treeDigest: "sha256:0",
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-candidate-")),
+  });
+  assert.equal(candidate.status, "UPDATE_AVAILABLE");
+  const oldTree = adoptedTreeAt(dir, shaA, ["skills/alpha", "skills/beta"], src.provenanceFiles);
+  const newTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: newTree.snapshotDigest,
+      treeDigest: newTree.treeDigest,
+      versions: {
+        "plan/alpha": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/alpha").new_version,
+        "plan/beta": candidate.plan.payload.changed_skills.find((entry) => entry.skill_ref === "plan/beta").new_version,
+      },
+      skillTreeDigests: {
+        "plan/alpha": newTree.skillTreeDigests.alpha,
+        "plan/beta": oldTree.skillTreeDigests.beta,
+      },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-raw-only-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.deepEqual(res.plan.payload.changed_skills.map((entry) => entry.skill_ref), ["plan/beta"]);
+  assert.equal(res.plan.payload.changed_skills[0].raw_changed, true);
+  assert.equal(res.plan.payload.changed_skills[0].canonical_changed, false);
 });
 
 test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {
@@ -206,7 +341,9 @@ test("annotated tags resolve to the peeled commit", () => {
   assert.equal(resolveRefToCommit(dir, "v1"), shaA);
   const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
   fetchRefTip(dir, "v1", shaA, dest);
-  assert.equal(readFileSync(join(dest, "skills", "alpha", "SKILL.md"), "utf8").includes("Alpha body A."), true);
+  const extracted = mkdtempSync(join(tmpdir(), "ega-fetch-out-"));
+  extractSelectedRootsFromGit(dest, shaA, ["skills/alpha"], [], extracted);
+  assert.equal(readFileSync(join(extracted, "skills", "alpha", "SKILL.md"), "utf8").includes("Alpha body A."), true);
 });
 
 test("branch wins over same-named annotated tag (fetch precedence)", () => {
@@ -216,7 +353,9 @@ test("branch wins over same-named annotated tag (fetch precedence)", () => {
   assert.equal(resolveRefToCommit(dir, "release"), shaB);
   const dest = mkdtempSync(join(tmpdir(), "ega-fetch-"));
   fetchRefTip(dir, "release", shaB, dest);
-  assert.equal(readFileSync(join(dest, "skills", "beta", "SKILL.md"), "utf8").includes("Beta body B, changed."), true);
+  const extracted = mkdtempSync(join(tmpdir(), "ega-fetch-out-"));
+  extractSelectedRootsFromGit(dest, shaB, ["skills/beta"], [], extracted);
+  assert.equal(readFileSync(join(extracted, "skills", "beta", "SKILL.md"), "utf8").includes("Beta body B, changed."), true);
 });
 
 test("successful checks leave no temp directories behind", async () => {
@@ -245,6 +384,60 @@ test("fetch tip mismatch fails E_PLAN_FETCH (upstream moved during check)", asyn
   assert.equal(await codeOf(() => Promise.resolve(fetchRefTip(dir, "main", shaA, dest))), "E_PLAN_FETCH");
 });
 
+test("fetchExactCommit ignores a later movement of the tracked branch", () => {
+  const { dir, shaB } = makeFixtureRepo();
+  writeFileSync(join(dir, "skills", "beta", "SKILL.md"), skill("beta", "Beta body C, moved tip."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  assert.notEqual(shaC, shaB);
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-exact-"));
+  fetchExactCommit(dir, shaB, dest);
+  const extracted = mkdtempSync(join(tmpdir(), "ega-fetch-out-"));
+  const tree = extractSelectedRootsFromGit(dest, shaB, ["skills/beta"], [], extracted);
+  assert.equal(tree.manifest[0].path, "skills/beta/SKILL.md");
+  assert.equal(readFileSync(join(extracted, "skills", "beta", "SKILL.md"), "utf8"), skill("beta", "Beta body B, changed."));
+});
+
+test("verified ref fallback materializes the approved commit, never the moving ref tip", () => {
+  const { dir, shaB } = makeFixtureRepo();
+  writeFileSync(join(dir, "skills", "beta", "SKILL.md"), skill("beta", "Beta body C, moved tip."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const dest = mkdtempSync(join(tmpdir(), "ega-fetch-fallback-"));
+
+  fetchExactCommit(dir, shaB, dest, { fallbackRef: "main", forceRefFallback: true });
+
+  execFileSync("git", ["-C", dest, "cat-file", "-e", `${shaB}^{commit}`], { stdio: "pipe" });
+  assert.notEqual(shaC, shaB);
+  const extracted = mkdtempSync(join(tmpdir(), "ega-fetch-out-"));
+  extractSelectedRootsFromGit(dest, shaB, ["skills/beta"], [], extracted);
+  assert.equal(readFileSync(join(extracted, "skills", "beta", "SKILL.md"), "utf8"), skill("beta", "Beta body B, changed."));
+});
+
+test("exact-commit fallback fails closed for unavailable or malformed approvals", () => {
+  const { dir } = makeFixtureRepo();
+  const unavailable = mkdtempSync(join(tmpdir(), "ega-fetch-unavailable-"));
+  assert.throws(
+    () => fetchExactCommit(dir, "f".repeat(40), unavailable, { fallbackRef: "main", forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /could not acquire approved commit/.test(error.message),
+  );
+
+  const malformed = mkdtempSync(join(tmpdir(), "ega-fetch-malformed-"));
+  assert.throws(
+    () => fetchExactCommit(dir, "not-a-commit", malformed, { fallbackRef: "main", forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /40 lowercase hex/.test(error.message),
+  );
+
+  const missingFallback = mkdtempSync(join(tmpdir(), "ega-fetch-no-fallback-"));
+  const { shaB } = makeFixtureRepo();
+  assert.throws(
+    () => fetchExactCommit(dir, shaB, missingFallback, { forceRefFallback: true }),
+    (error) => error instanceof HubError && error.code === "E_PLAN_FETCH" && /no verified fallback ref/.test(error.message),
+  );
+});
+
 test("discoverUnselectedSkills reports outside roots only", () => {
   const { dir } = makeFixtureRepo();
   assert.deepEqual(discoverUnselectedSkills(dir, ["skills/alpha", "skills/beta", "skills/gamma"]), ["skills/delta"]);
@@ -257,6 +450,66 @@ test("extraction is deterministic across runs", () => {
   const b = extractSelectedRoots(dir, src.selection.roots, src.provenanceFiles, mkdtempSync(join(tmpdir(), "ega-x-")));
   assert.equal(a.treeDigest, b.treeDigest);
   assert.deepEqual(a.manifest, b.manifest);
+});
+
+test("overlapping selected and provenance declarations form one canonical set", () => {
+  const { dir } = makeFixtureRepo();
+  const dest = mkdtempSync(join(tmpdir(), "ega-overlap-"));
+  const extracted = extractSelectedRoots(dir, ["skills/alpha"], ["skills/alpha/SKILL.md"], dest);
+  assert.deepEqual(extracted.manifest.map((entry) => entry.path), ["skills/alpha/SKILL.md"]);
+  const staged = digestStagedTree(dest, ["skills/alpha"]);
+  assert.equal(extracted.treeDigest, staged.treeDigest);
+  assert.equal(extracted.snapshotDigest, staged.snapshotDigest);
+});
+
+test("raw Git extraction bypasses smudge/LFS filters and hashes committed bytes", () => {
+  const repo = mkdtempSync(join(tmpdir(), "ega-raw-git-"));
+  const marker = join(repo, "filter-marker");
+  const filter = join(repo, "fake-filter.cjs");
+  writeFileSync(filter, "process.stdin.pipe(process.stdout); process.stdin.on('end', () => { require('node:fs').writeFileSync(process.env.EGA_FILTER_MARKER, 'ran'); });\n");
+  git(repo, "init", "-b", "main");
+  mkdirSync(join(repo, "skills", "raw"), { recursive: true });
+  const rawSkill = Buffer.from(skill("raw", "raw bytes\n"));
+  const rawAsset = Buffer.from("version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 3\n");
+  writeFileSync(join(repo, "skills", "raw", "SKILL.md"), rawSkill);
+  writeFileSync(join(repo, "skills", "raw", "asset.bin"), rawAsset);
+  writeFileSync(join(repo, "LICENSE"), Buffer.from("raw license\r\n"));
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "raw fixture");
+  // Add attributes only after the content commit. This prevents a developer
+  // or CI-installed filter.lfs.clean from changing the committed test bytes.
+  writeFileSync(join(repo, ".gitattributes"), "skills/raw/SKILL.md filter=fake\nskills/raw/asset.bin filter=lfs\nLICENSE filter=fake\n");
+  git(repo, "add", ".gitattributes");
+  git(repo, "commit", "-qm", "raw filter attributes");
+  const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const filterCommand = `"${process.execPath.replaceAll('"', '\\"')}" "${filter.replaceAll('"', '\\"')}"`;
+  execFileSync("git", ["-C", repo, "config", "filter.fake.smudge", filterCommand], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "config", "filter.lfs.smudge", filterCommand], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "config", "core.autocrlf", "true"], { stdio: "pipe" });
+
+  // Control: the old checkout-based source path executes the configured filter.
+  rmSync(join(repo, "skills"), { force: true, recursive: true });
+  rmSync(join(repo, "LICENSE"), { force: true });
+  execFileSync("git", ["-C", repo, "checkout", "--force", commit], {
+    env: { ...process.env, EGA_FILTER_MARKER: marker },
+    stdio: "pipe",
+  });
+  assert.equal(existsSync(marker), true, "checkout control must demonstrate the old smudge hazard");
+  rmSync(marker, { force: true });
+
+  const dest = mkdtempSync(join(tmpdir(), "ega-raw-out-"));
+  const extracted = extractSelectedRootsFromGit(repo, commit, ["skills/raw"], ["LICENSE"], dest);
+  assert.equal(existsSync(marker), false, "raw extraction must not invoke any smudge filter");
+  assert.deepEqual(readFileSync(join(dest, "skills", "raw", "SKILL.md")), rawSkill);
+  assert.deepEqual(readFileSync(join(dest, "skills", "raw", "asset.bin")), rawAsset);
+  assert.deepEqual(readFileSync(join(dest, "LICENSE")), Buffer.from("raw license\r\n"));
+  const expected = `sha256:${sha256Hex(canonicalizeJson([
+    { path: "skills/raw/SKILL.md", kind: "file", blob_sha256: `sha256:${sha256Hex(rawSkill)}` },
+    { path: "skills/raw/asset.bin", kind: "file", blob_sha256: `sha256:${sha256Hex(rawAsset)}` },
+  ]))}`;
+  assert.equal(extracted.treeDigest, expected);
+  assert.equal(extracted.manifest.every((entry) => !Object.hasOwn(entry, "scope")), false, "scope may remain internal metadata");
+  assert.equal(extracted.manifest.some((entry) => entry.path === "LICENSE"), true);
 });
 
 test("frozen Contract B example plan still verifies (no drift)", () => {

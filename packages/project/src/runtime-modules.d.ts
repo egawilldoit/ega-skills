@@ -29,7 +29,14 @@ declare module "node:fs" {
   export function writeFileSync(path: string, data: Uint8Array | string): void;
   export function mkdirSync(path: string, options?: { recursive?: boolean }): string | undefined;
   export function mkdtempSync(prefix: string): string;
+  export function existsSync(path: string): boolean;
+  export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
+  export function rmdirSync(path: string): void;
+  export function openSync(path: string, flags: string): number;
+  export function writeSync(fd: number, data: string | Uint8Array): number;
+  export function fsyncSync(fd: number): void;
+  export function closeSync(fd: number): void;
 }
 
 declare module "node:util" {
@@ -57,7 +64,7 @@ declare module "node:child_process" {
     args: readonly string[],
     options: { encoding: "utf8"; stdio?: unknown },
   ): string;
-  export function execFileSync(file: string, args: readonly string[], options?: { stdio?: unknown }): Uint8Array;
+  export function execFileSync(file: string, args: readonly string[], options?: { stdio?: unknown; encoding?: "buffer"; maxBuffer?: number }): Uint8Array;
 }
 
 declare module "node:crypto" {

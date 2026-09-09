@@ -70,6 +70,13 @@ test("unknown source field rejected (E_SOURCE_SCHEMA)", () => {
   assert.equal(codeOf(() => parseSourcesYaml(bad)), "E_SOURCE_SCHEMA");
 });
 
+test("source mapping keys are path-safe", () => {
+  const badSources = read("sources.yaml").replace("  mattpocock:", "  ../escape:");
+  assert.equal(codeOf(() => parseSourcesYaml(badSources)), "E_SOURCE_SCHEMA");
+  const badLock = read("sources.lock.yaml").replace("  mattpocock:", "  ../escape:");
+  assert.equal(codeOf(() => parseSourcesLockYaml(badLock)), "E_LOCK_MISMATCH");
+});
+
 test("unknown hub field rejected (E_HUB_SCHEMA)", () => {
   assert.equal(codeOf(() => parseHubYaml(`${read("hub.yaml")}\nbogus: 1\n`)), "E_HUB_SCHEMA");
 });
@@ -128,6 +135,28 @@ test("hub lists exactly the configured sources", () => {
 
 test("explicit null rejected (missing and null differ)", () => {
   assert.equal(codeOf(() => parseHubYaml("schema_version: 1\nhub: null\nowned: []\nexternal: []\n")), "E_HUB_SCHEMA");
+});
+
+test("nested Hub and source schemas reject unknown fields and unsafe source ids", () => {
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("hub:\n  id: personal", "hub:\n  id: personal\n  extra: true"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("  - path: owned/ega\n    namespace: ega", "  - path: owned/ega\n    namespace: ega\n    extra: true"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseHubYaml(read("hub.yaml").replace("  - source: mattpocock", "  - source: ../escape"))), "E_HUB_SCHEMA");
+  assert.equal(codeOf(() => parseSourcesYaml(read("sources.yaml").replace("    selection:\n", "    selection:\n      extra: true\n"))), "E_SOURCE_SELECTION");
+});
+
+test("nested lock selection and provenance are strict canonical sets", () => {
+  const lockText = read("sources.lock.yaml");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    selection:\n", "    selection:\n      extra: true\n"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    provenance_files:\n", "    provenance_files:\n      - ../escape\n"))), "E_LOCK_MISMATCH");
+});
+
+test("lock scalar and collection constraints match sources.yaml", () => {
+  const lockText = read("sources.lock.yaml");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    repository: https://github.com/mattpocock/skills", "    repository: mirror/skills"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    namespace: mattpocock", "    namespace: bad namespace"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    requested_ref: main", "    requested_ref: \"\""))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("      roots:\n        - skills/engineering/code-review\n        - skills/engineering/tdd\n        - skills/productivity/grilling", "      roots: []"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    provenance_files:\n      - LICENSE", "    provenance_files: []"))), "E_LOCK_MISMATCH");
 });
 
 // Final Contract A reconciliation: runtime accepts exactly what the

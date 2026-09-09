@@ -26,9 +26,14 @@ importers:
       '@ega-skills/router':
         specifier: workspace:*
         version: link:../router
+      '@ega-skills/schema':
+        specifier: workspace:*
+        version: link:../schema
       yaml:
         specifier: 2.9.0
         version: 2.9.0
+
+  packages/control-plane: {}
 
   packages/hashing:
     dependencies:
@@ -42,6 +47,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@ega-skills/control-plane':
+        specifier: workspace:*
+        version: link:../control-plane
       '@ega-skills/hashing':
         specifier: workspace:*
         version: link:../hashing
@@ -63,6 +71,12 @@ importers:
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
+
+  packages/object-store:
+    devDependencies:
+      '@types/node':
+        specifier: 24.3.0
+        version: 24.3.0
 
   packages/project:
     dependencies:
@@ -90,6 +104,9 @@ importers:
 
   packages/router:
     dependencies:
+      '@ega-skills/hashing':
+        specifier: workspace:*
+        version: link:../hashing
       '@ega-skills/project':
         specifier: workspace:*
         version: link:../project

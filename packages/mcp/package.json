@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "ega-mcp": "./bin/ega-mcp.mjs"
+    "ega-mcp": "./bin/ega-mcp.mjs",
+    "ega-mcp-hosted": "./bin/ega-mcp-hosted.mjs"
   },
   "exports": {
     ".": {
@@ -19,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/control-plane": "workspace:*",
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",

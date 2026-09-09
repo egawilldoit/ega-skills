@@ -2,12 +2,13 @@
 //
 // import: ega-skills import <path> --namespace <namespace> (REQUIRED surface).
 // list/inspect: local read-only conveniences reusing registry reads; they
-// define no new V1 behavior and never mutate state. No resolve/lock/update/
-// sync/approve surface exists in V1. init (EGA-583) writes the frozen
+// define no new V1 behavior and never mutate state. Hub build/check/update
+// expose the frozen Hub adoption surface. init (EGA-583) writes the frozen
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
-import { existsSync, lstatSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   RegistryError,
@@ -27,12 +28,290 @@ import {
   refreshLock,
   serializeLockfile,
   validateLockfile,
+  applyUpdatePlan,
+  applyRemoteLockPlan,
+  createRemoteLockPlan,
+  buildHub,
+  discoverSkillDirs,
+  digestStagedTree,
+  buildHubRelease,
+  checkForUpdates,
+  extractSelectedRootsFromGit,
+  fetchExactCommit,
+  fetchRefTip,
+  parseSourcesLockYaml,
+  parseSourcesYaml,
+  adoptedSourcePath,
+  verifySourcesLock,
+  createProjectContext,
+  digestProjectLock,
+  hashNormalizedConfig,
+  verifyHubRelease,
+  type ProjectContextDocument,
+  type HubRelease,
   type ProjectLockV1,
   type RefreshLockDiff,
+  type UpdatePlanDocument,
+  type RemoteLockPlan,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
+import { validatePortableSkillName } from "@ega-skills/schema";
 
 export type { ImportSummary };
+
+export interface HubCommandOptions {
+  readonly hub?: string;
+}
+
+export interface HubCheckCommandOptions extends HubCommandOptions {
+  readonly sourceId: string;
+  readonly output?: string;
+}
+
+export interface HubUpdateCommandOptions extends HubCommandOptions {
+  readonly plan: string;
+}
+
+function hubFile(hubDir: string, name: string): string {
+  return join(hubDir, name);
+}
+
+function readHubContracts(hub: string) {
+  const hubDir = resolve(hub);
+  const config = parseSourcesYaml(readFileSync(hubFile(hubDir, "sources.yaml"), "utf8"));
+  const lock = parseSourcesLockYaml(readFileSync(hubFile(hubDir, "sources.lock.yaml"), "utf8"));
+  return { config, hubDir, lock };
+}
+
+async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Promise<{
+  versions: Record<string, string>;
+  skillTreeDigests: Record<string, string>;
+}> {
+  const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
+  try {
+    const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
+    if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
+    const versions: Record<string, string> = {};
+    const skillTreeDigests: Record<string, string> = {};
+    const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
+    for (const row of rows) versions[row.skill_id] = row.current_version_hash;
+    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+    for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+      const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+      skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+    }
+    return { skillTreeDigests, versions };
+  } finally {
+    registry.close();
+    rmSync(registryHome, { force: true, recursive: true });
+  }
+}
+
+function readAdoptedSkillTreeDigests(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Record<string, string> {
+  const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+  const skillTreeDigests: Record<string, string> = {};
+  for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+    const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+    skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+  }
+  return skillTreeDigests;
+}
+
+/** Run the complete Contract C build through the public CLI API. */
+export async function runHubBuild(options: HubCommandOptions = {}) {
+  return buildHubRelease(resolve(options.hub ?? "."));
+}
+
+/** Validate the currently adopted Hub without fetching or mutating it. */
+export async function runHubValidate(options: HubCommandOptions = {}) {
+  const hubDir = resolve(options.hub ?? ".");
+  const build = await buildHub(hubDir);
+  return {
+    hub: hubDir,
+    valid: true,
+    skills: build.skills.length,
+    sources: build.adoptedSources.length,
+  };
+}
+
+/** Read-only Contract B check. The existing Hub build supplies the adopted
+ * SkillVersion map without allowing ambient developer registry history in. */
+export async function runHubCheck(options: HubCheckCommandOptions) {
+  const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
+  const source = config.sources[options.sourceId];
+  const adopted = lock.sources[options.sourceId];
+  if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
+  const prefix = `${source.namespace}/`;
+  const versions: Record<string, string> = {};
+  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, source.namespace, source.selection.roots);
+  try {
+    verifySourcesLock(config, lock);
+    const build = await buildHub(hubDir);
+    for (const skill of build.skills) {
+      if (skill.skillId.startsWith(prefix)) versions[skill.skillId] = skill.versionHash;
+    }
+  } catch (error) {
+    // A deliberate sources.yaml selection change is a proposal input. The
+    // adopted lock remains the old authority until its plan is applied.
+    if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
+    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, source.namespace, source.selection.roots);
+    Object.assign(versions, adoptedView.versions);
+    Object.assign(skillTreeDigests, adoptedView.skillTreeDigests);
+  }
+  const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
+  try {
+    const result = await checkForUpdates({
+      adopted: {
+      commit: adopted.resolved_commit,
+      sourceConfigDigest: adopted.source_config_digest,
+      snapshotDigest: adopted.vendored_snapshot_digest,
+        treeDigest: adopted.selected_skill_tree_digest,
+        versions,
+        skillTreeDigests,
+      },
+      config: source,
+      sourceId: options.sourceId,
+      workDir,
+    });
+    if (options.output && result.status === "UPDATE_AVAILABLE") {
+      writeFileSync(resolve(options.output), `${JSON.stringify(result.plan, null, 2)}\n`);
+    } else if (options.output && result.status === "NO_CHANGE") {
+      // A successful no-change check must not leave an older actionable plan
+      // claiming to describe the current source state.
+      rmSync(resolve(options.output), { force: true });
+    }
+    return result;
+  } finally {
+    rmSync(workDir, { force: true, recursive: true });
+  }
+}
+
+/** Exact-commit Contract B apply. The target is fetched from the approved
+ * plan and never re-resolved from the moving source ref. */
+export async function runHubUpdate(options: HubUpdateCommandOptions) {
+  const { config, hubDir, lock } = readHubContracts(options.hub ?? ".");
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as UpdatePlanDocument;
+  const source = config.sources[plan.payload?.source_id];
+  const adopted = lock.sources[plan.payload?.source_id];
+  if (!source || !adopted) throw new Error(`Unknown adopted Hub source in plan: ${plan.payload?.source_id ?? ""}`);
+  return await applyUpdatePlan({
+    hubDir,
+    plan,
+    sourceConfig: source,
+    prepareStage: (stage) => {
+      const fetched = mkdtempSync(join(tmpdir(), "ega-cli-hub-fetch-"));
+      try {
+        // Apply transports only the immutable approved object. A moving ref
+        // is check-time input, never an apply-time fallback authority.
+        fetchExactCommit(source.repository, plan.payload.target_commit, fetched);
+        extractSelectedRootsFromGit(fetched, plan.payload.target_commit, source.selection.roots, source.provenanceFiles, stage);
+      } finally {
+        rmSync(fetched, { force: true, recursive: true });
+      }
+    },
+  });
+}
+
+export interface RemoteLockApplyCommandOptions {
+  readonly plan: string;
+  readonly project?: string;
+}
+
+export interface RemoteLockPlanCommandOptions {
+  readonly project?: string;
+  /** Exact HubRelease digest, or a local HubRelease artifact path. */
+  readonly release: string;
+  /** Local artifact to use when release is supplied as a digest. */
+  readonly releaseFile?: string;
+  readonly output?: string;
+}
+
+/** Create a reviewed remote-lock plan against one exact HubRelease. */
+export function runRemoteLockPlan(options: RemoteLockPlanCommandOptions): RemoteLockPlan {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock plan requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const current = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const releasePath = options.release.startsWith("sha256:") ? options.releaseFile : options.release;
+  if (!releasePath) throw new Error("remote-lock plan requires --release-file when --release is a digest");
+  const release = JSON.parse(readFileSync(resolve(releasePath), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  if (options.release.startsWith("sha256:") && release.digest !== options.release) {
+    throw new Error(`HubRelease digest does not match requested release ${options.release}`);
+  }
+  const candidate: ProjectLockV1 = {
+    lockfile_version: current.lockfile_version,
+    token_estimator: current.token_estimator,
+    generated_from: current.generated_from,
+    skills: Object.fromEntries(Object.entries(current.skills)
+      .filter(([skillId]) => release.payload.skill_versions[skillId] !== undefined)
+      .map(([skillId, entry]) => [skillId, { ...entry, version_hash: release.payload.skill_versions[skillId]! }])),
+  };
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: configDigest,
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: release.digest,
+    current,
+    candidate,
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(plan, null, 2)}\n`);
+  return plan;
+}
+
+/** Apply a reviewed, exact-release-bound remote lock plan locally. */
+export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
+  const projectDir = resolve(options.project ?? ".");
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
+  applyRemoteLockPlan(plan, join(projectDir, ".egaskills.lock"));
+  return { applied: true, path: join(projectDir, ".egaskills.lock"), target_release_digest: plan.payload.target_release_digest };
+}
+
+export interface ContextPublishCommandOptions {
+  readonly project?: string;
+  readonly workspace: string;
+  readonly projectId: string;
+  readonly release: string;
+  readonly output?: string;
+  readonly fingerprint?: string;
+}
+
+/** Build a local immutable ProjectContext handoff from validated project files.
+ * Publication/authentication remains a control-plane operation; this command
+ * never writes the project or release and requires an explicit release artifact.
+ */
+export function runContextPublish(options: ContextPublishCommandOptions): ProjectContextDocument {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("context publish requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const lock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const release = JSON.parse(readFileSync(resolve(options.release), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  for (const [skillId, entry] of Object.entries(lock.skills)) {
+    if (release.payload.skill_versions[skillId] !== entry.version_hash) {
+      throw new Error(`locked skill ${skillId} is not present at the same version in the declared HubRelease`);
+    }
+  }
+  const context = createProjectContext({
+    workspace_id: options.workspace,
+    project_id: options.projectId,
+    config_digest: configDigest,
+    lock_digest: digestProjectLock(lock),
+    release_digest: release.digest,
+    fingerprint_digest: options.fingerprint ?? null,
+    context_contract: "E1",
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(context, null, 2)}\n`);
+  return context;
+}
 
 export interface ResolveCommandOptions {
   readonly project: string;
@@ -211,6 +490,66 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
   }
   writeFileSync(file, INIT_CONFIG_YAML);
   return { path: file, written: true };
+}
+
+export interface ValidateOptions {
+  readonly path: string;
+}
+
+export interface ValidateFailure {
+  readonly path: string;
+  readonly error: string;
+}
+
+export interface ValidateResult {
+  readonly path: string;
+  readonly valid: boolean;
+  readonly checked: number;
+  readonly failures: readonly ValidateFailure[];
+}
+
+/**
+ * Validate skill packages without writing to the target or the developer
+ * registry.  The existing importer owns the complete package validation
+ * pipeline; its only writes are directed to this disposable registry.
+ */
+export async function runValidate(options: ValidateOptions): Promise<ValidateResult> {
+  const target = resolve(options.path);
+  const validationHome = mkdtempSync(join(tmpdir(), "ega-skill-validate-"));
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: validationHome }, userHome: tmpdir() });
+  try {
+    const summary = await importSkills(registry, { path: target, namespace: "validation" });
+    return {
+      checked: summary.imported + summary.unchanged + summary.failed,
+      failures: summary.failures,
+      path: target,
+      valid: summary.failed === 0,
+    };
+  } finally {
+    registry.close();
+    rmSync(validationHome, { force: true, recursive: true });
+  }
+}
+
+export interface InitSkillOptions {
+  readonly name: string;
+}
+
+export interface InitSkillResult {
+  readonly path: string;
+  readonly files: readonly ["SKILL.md", "ega.yaml"];
+  readonly created: true;
+}
+
+/** Create the canonical two-file authoring scaffold. */
+export async function runInitSkill(options: InitSkillOptions): Promise<InitSkillResult> {
+  const name = validatePortableSkillName(options.name, { field: "name" });
+  const skillDir = resolve(name);
+  if (existsSync(skillDir)) throw new Error(`Refusing to overwrite existing path: ${skillDir}`);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${name}\ndescription: Describe what this skill does and when to use it.\n---\n\n# ${name}\n\nDescribe the skill instructions here.\n`);
+  writeFileSync(join(skillDir, "ega.yaml"), "schema_version: 1\n");
+  return { created: true, files: ["SKILL.md", "ega.yaml"], path: skillDir };
 }
 
 export interface LockCommandOptions {

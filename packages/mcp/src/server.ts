@@ -125,7 +125,7 @@ const TOOL_NOT_IMPLEMENTED_RESULTS: Readonly<Record<ToolName, CallToolResult>> =
  * to clients via `tools/list`.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function toolSchema(spec: {
+export function toolSchema(spec: {
   fields: Record<
     string,
     | { type: "string"; nonEmpty?: boolean }
