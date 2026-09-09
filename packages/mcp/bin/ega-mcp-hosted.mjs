@@ -3,11 +3,16 @@
 // intentionally supplied by an external verifier in production; this entry
 // point only provides a disposable local smoke adapter.
 import { createServer } from "node:http";
-import { loadHostedReleaseSnapshot, createHostedMcpHandler } from "../dist/index.js";
+import { loadHostedReleaseSnapshot, createHostedMcpHandler, createJwksBearerVerifier } from "../dist/index.js";
 
 const artifactDir = process.env.EGA_HOSTED_ARTIFACT_DIR;
 const expectedToken = process.env.EGA_HOSTED_BEARER_TOKEN;
-if (!artifactDir || !expectedToken) throw new Error("EGA_HOSTED_ARTIFACT_DIR and EGA_HOSTED_BEARER_TOKEN are required");
+const issuer = process.env.EGA_HOSTED_ISSUER;
+const audience = process.env.EGA_HOSTED_AUDIENCE;
+const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
+if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
+  throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
+}
 
 let snapshot;
 let startupError;
@@ -17,10 +22,18 @@ try {
   startupError = error;
 }
 const handler = snapshot && createHostedMcpHandler(snapshot, {
-  verifyBearer: async (token) => {
-    if (token !== expectedToken) throw new Error("invalid token");
-    return { subject: "local-smoke", scopes: ["ega:read"] };
-  },
+  verifyBearer: issuer && audience && jwksUrl
+    ? createJwksBearerVerifier({
+      issuer,
+      audience,
+      jwksUrl,
+      requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE ?? "ega:read",
+      jwksMaxAgeMs: process.env.EGA_HOSTED_JWKS_MAX_AGE_MS ? Number(process.env.EGA_HOSTED_JWKS_MAX_AGE_MS) : undefined,
+    })
+    : async (token) => {
+      if (token !== expectedToken) throw new Error("invalid token");
+      return { subject: "local-smoke", scopes: ["ega:read"] };
+    },
   authorize: async () => true,
 });
 
