@@ -30,6 +30,7 @@ import {
   validateLockfile,
   applyUpdatePlan,
   applyRemoteLockPlan,
+  createRemoteLockPlan,
   buildHub,
   discoverSkillDirs,
   digestStagedTree,
@@ -215,6 +216,51 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
 export interface RemoteLockApplyCommandOptions {
   readonly plan: string;
   readonly project?: string;
+}
+
+export interface RemoteLockPlanCommandOptions {
+  readonly project?: string;
+  /** Exact HubRelease digest, or a local HubRelease artifact path. */
+  readonly release: string;
+  /** Local artifact to use when release is supplied as a digest. */
+  readonly releaseFile?: string;
+  readonly output?: string;
+}
+
+/** Create a reviewed remote-lock plan against one exact HubRelease. */
+export function runRemoteLockPlan(options: RemoteLockPlanCommandOptions): RemoteLockPlan {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock plan requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const current = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const releasePath = options.release.startsWith("sha256:") ? options.releaseFile : options.release;
+  if (!releasePath) throw new Error("remote-lock plan requires --release-file when --release is a digest");
+  const release = JSON.parse(readFileSync(resolve(releasePath), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  if (options.release.startsWith("sha256:") && release.digest !== options.release) {
+    throw new Error(`HubRelease digest does not match requested release ${options.release}`);
+  }
+  const candidate: ProjectLockV1 = {
+    lockfile_version: current.lockfile_version,
+    token_estimator: current.token_estimator,
+    generated_from: current.generated_from,
+    skills: Object.fromEntries(Object.entries(current.skills)
+      .filter(([skillId]) => release.payload.skill_versions[skillId] !== undefined)
+      .map(([skillId, entry]) => [skillId, { ...entry, version_hash: release.payload.skill_versions[skillId]! }])),
+  };
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: configDigest,
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: release.digest,
+    current,
+    candidate,
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(plan, null, 2)}\n`);
+  return plan;
 }
 
 /** Apply a reviewed, exact-release-bound remote lock plan locally. */

@@ -1,4 +1,4 @@
-export { runImport, runInit, runInitSkill, runValidate, runInspect, runList, runLock, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockApply, runContextPublish } from "./commands.js";
+export { runImport, runInit, runInitSkill, runValidate, runInspect, runList, runLock, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "./commands.js";
 export { runResolve } from "./commands.js";
 export type {
   ImportSummary,

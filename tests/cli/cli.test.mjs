@@ -63,6 +63,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
@@ -134,6 +135,34 @@ test("remote-lock apply is available through the real CLI entrypoint", () => {
     target_release_digest: digest("c"),
   });
   assert.match(readFileSync(join(project, ".egaskills.lock"), "utf8"), new RegExp(digest("b")));
+});
+
+test("remote-lock plan binds a local project to an exact HubRelease digest", () => {
+  const project = mkdtempSync(join(tmpdir(), "ega-cli-lock-plan-"));
+  const config = parseProjectConfig("schema_version: 1\n");
+  writeFileSync(join(project, ".egaskills.yaml"), "schema_version: 1\n");
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: hashNormalizedConfig(config) },
+    skills: {},
+  }));
+  const hub = join(project, "hub");
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: lock-plan-hub\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = runCli("hub", "build", hub);
+  assert.equal(built.status, 0);
+  const release = JSON.parse(built.stdout).artifactPaths.release;
+  const output = join(project, "lock-plan.json");
+  const result = runCli("remote-lock", "plan", "--project", project, "--release", JSON.parse(readFileSync(release, "utf8")).digest, "--release-file", release, "--output", output);
+  assert.equal(result.status, 0);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.object_type, "ega.remote-lock-plan");
+  assert.equal(plan.payload.target_release_digest, JSON.parse(readFileSync(release, "utf8")).digest);
+  assert.deepEqual(plan.payload.candidate_lock.skills, {});
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), plan);
 });
 
 test("context publish creates an immutable artifact from validated local project files and a real HubRelease", () => {
