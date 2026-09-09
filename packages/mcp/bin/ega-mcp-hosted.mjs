@@ -4,7 +4,12 @@
 // point only provides a disposable local smoke adapter.
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { loadHostedReleaseSnapshot, createHostedMcpHandler, createJwksBearerVerifier } from "../dist/index.js";
+import {
+  loadHostedReleaseSnapshot,
+  createHostedMcpHandler,
+  createJwksBearerVerifier,
+  createSupabaseContextResolver,
+} from "../dist/index.js";
 import { InMemoryControlPlane } from "@ega-skills/control-plane";
 
 const artifactDir = process.env.EGA_HOSTED_ARTIFACT_DIR;
@@ -13,6 +18,8 @@ const issuer = process.env.EGA_HOSTED_ISSUER;
 const audience = process.env.EGA_HOSTED_AUDIENCE;
 const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
 const authorizationPath = process.env.EGA_HOSTED_AUTHZ_FILE;
+const supabaseUrl = process.env.EGA_HOSTED_SUPABASE_URL;
+const supabaseSecretKey = process.env.EGA_HOSTED_SUPABASE_SECRET_KEY;
 const allowedOrigins = process.env.EGA_HOSTED_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
 const maxBodyBytes = Number(process.env.EGA_HOSTED_MAX_BODY_BYTES ?? 1_048_576);
 if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
@@ -21,10 +28,14 @@ if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
 if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
 if (!allowedOrigins?.length) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
 if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error("EGA_HOSTED_MAX_BODY_BYTES must be a positive safe integer");
+if ((supabaseUrl && !supabaseSecretKey) || (!supabaseUrl && supabaseSecretKey)) {
+  throw new Error("EGA_HOSTED_SUPABASE_URL and EGA_HOSTED_SUPABASE_SECRET_KEY must be configured together");
+}
 
 let snapshot;
 let startupError;
 let controlPlane;
+let resolveContext;
 let deniedSkills = new Set();
 let deniedSources = new Set();
 let deniedReleases = new Set();
@@ -64,6 +75,16 @@ try {
   deniedSkills = new Set(policy.denied_skills ?? []);
   deniedSources = new Set(policy.denied_sources ?? []);
   deniedReleases = new Set(policy.denied_releases ?? []);
+  if (supabaseUrl && supabaseSecretKey) {
+    resolveContext = createSupabaseContextResolver({
+      supabaseUrl,
+      secretKey: supabaseSecretKey,
+      resolveRelease: async (releaseDigest) => {
+        if (releaseDigest !== snapshot.releaseDigest) throw new Error("release unavailable");
+        return snapshot;
+      },
+    });
+  }
 } catch (error) {
   startupError = error;
 }
@@ -87,6 +108,7 @@ const handler = snapshot && createHostedMcpHandler(snapshot, {
     if (!controlPlane.authorize(hubId, principal.subject, "read_hub")) return false;
     return true;
   },
+  ...(resolveContext ? { resolveContext } : {}),
   deniedSkills,
   deniedSources,
   deniedReleases,
