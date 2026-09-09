@@ -53,6 +53,8 @@ export interface HostedRuntimeOptions {
   readonly maxConcurrentRequests?: number;
   /** Resolve the personal stable pointer once for an unpinned request. */
   readonly resolveStableRelease?: (signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
+  /** Resolve and authorize an exact Contract E context before tool execution. */
+  readonly resolveContext?: (contextId: string, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
 }
 
 export class HostedRuntimeError extends Error {
@@ -258,9 +260,11 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     };
     let stableSnapshotPromise: Promise<HostedReleaseSnapshot> | undefined;
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
-      if (args.release_digest !== undefined || args.context_id !== undefined || !options.resolveStableRelease) {
-        return Promise.resolve(snapshot);
+      if (typeof args.context_id === "string") {
+        if (!options.resolveContext) return Promise.reject(new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is unavailable"));
+        return options.resolveContext(args.context_id, requestSignal);
       }
+      if (args.release_digest !== undefined || !options.resolveStableRelease) return Promise.resolve(snapshot);
       return stableSnapshotPromise ??= options.resolveStableRelease(requestSignal);
     };
     const server = new McpServer({ name: "ega-skills-hosted", version: "1.0.1" }, { capabilities: { tools: {} } });
@@ -286,7 +290,6 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     };
     const rejectProject = (args: Record<string, unknown>): void => {
       if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");
-      if ("context_id" in args) throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is reserved for Contract E");
     };
     server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runSearchTool(args, requestContext, { ftsTable: effectiveSnapshot.ftsTable }); }));
     server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runResolveTool(args, requestContext, { env: { EGA_SKILLS_HOME: effectiveSnapshot.context.registryHome } }); }));
@@ -345,8 +348,7 @@ function checkRelease(args: Record<string, unknown>, snapshot: HostedReleaseSnap
   if (args.release_digest !== undefined && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not the verified release");
 }
 function requirePinned(args: Record<string, unknown>, snapshot: HostedReleaseSnapshot): void {
-  if (typeof args.context_id === "string") throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is reserved for Contract E");
-  if (args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require the verified release digest");
+  if (typeof args.context_id !== "string" && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
 }
 function releaseSourceDenied(release: HubRelease, denied: ReadonlySet<string>): boolean {
   return release.payload.adopted_sources.some((source) => denied.has(source.source_id));
