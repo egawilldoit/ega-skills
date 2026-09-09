@@ -95,7 +95,11 @@ const handler = snapshot && createHostedMcpHandler(snapshot, {
       issuer,
       audience,
       jwksUrl,
-      requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE ?? "ega:read",
+      // Supabase user/OAuth access tokens may not contain an application-specific
+      // scope. Authorization is still enforced by the authenticated subject plus
+      // the control-plane/RLS graph. Deployments can opt into a required standard
+      // scope explicitly with EGA_HOSTED_REQUIRED_SCOPE.
+      requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE || undefined,
       jwksMaxAgeMs: process.env.EGA_HOSTED_JWKS_MAX_AGE_MS ? Number(process.env.EGA_HOSTED_JWKS_MAX_AGE_MS) : undefined,
     })
     : async (token) => {
