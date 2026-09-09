@@ -317,8 +317,8 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
         } else {
           boundedRequest = new Request(request, { signal: timeoutController.signal });
         }
-      const origin = request.headers.get("origin");
-        if (origin && options.allowedOrigins && !options.allowedOrigins.includes(origin)) return new Response("Origin rejected", { status: 403 });
+        const origin = request.headers.get("origin");
+        if (options.allowedOrigins && (!origin || !options.allowedOrigins.includes(origin))) return new Response("Origin rejected", { status: 403 });
         const header = boundedRequest.headers.get("authorization");
         if (!header?.startsWith("Bearer ") || header.length <= 7) return jsonResponse(401, { error: { code: "E_AUTH_REQUIRED" } });
         let principal: HostedPrincipal;
