@@ -52,8 +52,12 @@ export function authorizeWorkspace(input: {
   permission: ControlPermission;
   denied?: boolean;
 }): boolean {
-  if (input.denied || !input.membership?.active || input.membership.subject !== input.subject) return false;
+  if (input.denied || (input.membership && input.membership.subject !== input.subject) || input.membership?.active === false) return false;
+  // Public Hub reads are policy-authorized without requiring workspace
+  // membership. Authentication still happens at the hosted boundary; this
+  // function only evaluates the Hub's control-plane visibility policy.
   if (input.resource.visibility === "public" && input.permission === "read_hub") return true;
+  if (!input.membership) return false;
   if (input.resource.visibility === "private" && input.permission === "read_hub" &&
       input.subject !== input.resource.ownerSubject && !input.resource.authorizedSubjects?.includes(input.subject)) return false;
   return can(input.membership.role, input.permission);
