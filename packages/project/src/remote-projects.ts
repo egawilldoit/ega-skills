@@ -48,6 +48,32 @@ function assertDigest(value: string, field: string): void {
   if (!DIGEST.test(value)) throw new Error(`${field} must be sha256:<64 lowercase hex>`);
 }
 
+function assertExactKeys(value: Record<string, unknown>, expected: readonly string[], field: string): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) throw new Error(`${field} has unknown or missing fields`);
+}
+
+function validateRemoteLockChanges(value: unknown, candidate: ProjectLockV1): void {
+  if (!Array.isArray(value)) throw new Error("changes must be a list");
+  let previous = "";
+  for (const [index, raw] of value.entries()) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`changes[${index}] must be an object`);
+    const change = raw as Record<string, unknown>;
+    assertExactKeys(change, ["skill_ref", "old_version", "new_version"], `changes[${index}]`);
+    if (typeof change.skill_ref !== "string" || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(change.skill_ref) || change.skill_ref <= previous) {
+      throw new Error("changes must be sorted and unique by skill_ref");
+    }
+    previous = change.skill_ref;
+    for (const field of ["old_version", "new_version"] as const) {
+      const version = change[field];
+      if (version !== null) assertDigest(version as string, `changes[${index}].${field}`);
+    }
+    const candidateVersion = candidate.skills[change.skill_ref]?.version_hash ?? null;
+    if (change.new_version !== candidateVersion) throw new Error(`changes[${index}].new_version does not match candidate lock`);
+  }
+}
+
 function assertContextPayload(payload: ProjectContextPayload): void {
   const keys = Object.keys(payload).sort();
   if (keys.join(",") !== "config_digest,context_contract,fingerprint_digest,lock_digest,project_id,release_digest,workspace_id") {
@@ -111,14 +137,18 @@ export function createRemoteLockPlan(input: {
 }
 
 export function applyRemoteLockPlan(plan: RemoteLockPlan, lockPath: string): void {
+  if (plan === null || typeof plan !== "object" || Array.isArray(plan)) throw new Error("invalid remote lock plan");
+  assertExactKeys(plan as unknown as Record<string, unknown>, ["object_type", "schema_version", "payload", "digest"], "remote lock plan");
   if (plan.object_type !== "ega.remote-lock-plan" || plan.schema_version !== 1 || !verifyEnvelope(plan).ok) throw new Error("invalid remote lock plan");
   const payload = plan.payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid remote lock plan payload");
   const payloadKeys = Object.keys(payload).sort();
   if (payloadKeys.join(",") !== "candidate_lock,changes,existing_lock_digest,project_config_digest,target_release_digest") throw new Error("invalid remote lock plan payload");
   assertDigest(payload.project_config_digest, "project_config_digest");
   assertDigest(payload.existing_lock_digest, "existing_lock_digest");
   assertDigest(payload.target_release_digest, "target_release_digest");
-  validateLockfile(payload.candidate_lock, payload.project_config_digest);
+  const candidate = validateLockfile(payload.candidate_lock, payload.project_config_digest);
+  validateRemoteLockChanges(payload.changes, candidate);
   const temp = join(dirname(lockPath), `.egaskills.lock.${Date.now()}.tmp`);
   mkdirSync(dirname(lockPath), { recursive: true });
   writeFileSync(temp, serializeLockfile(plan.payload.candidate_lock));
