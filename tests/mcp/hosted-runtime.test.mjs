@@ -113,6 +113,23 @@ test("hosted unpinned requests resolve the stable release once and report its di
   assert.equal(stableLookups, 1);
 });
 
+test("hosted context requests pin the resolver-selected release without personal fallback", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  let requested;
+  const handler = createHostedMcpHandler(snapshot, {
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+    resolveContext: async (contextId) => {
+      requested = contextId;
+      return snapshot;
+    },
+  });
+  const inspected = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: { skill_id: "ega/alpha", context_id: "ctx-1" } });
+  assert.notEqual(inspected.result.isError, true);
+  assert.equal(requested, "ctx-1");
+});
+
 test("hosted authorization removes denied skills before search selection", async () => {
   const hubDir = makeHub();
   const betaDir = join(hubDir, "owned", "ega", "beta");
