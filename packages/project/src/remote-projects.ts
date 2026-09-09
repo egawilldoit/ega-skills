@@ -2,7 +2,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createEnvelope, hashBytes, canonicalizeJson, verifyEnvelope } from "@ega-skills/hashing";
 import type { ProjectConfigV1 } from "./config.js";
-import { serializeLockfile, type ProjectLockV1 } from "./lock.js";
+import { serializeLockfile, validateLockfile, type ProjectLockV1 } from "./lock.js";
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SHA = /^[0-9a-f]{40}$/;
@@ -94,23 +94,31 @@ export function createRemoteLockPlan(input: {
   assertDigest(input.projectConfigDigest, "projectConfigDigest");
   assertDigest(input.existingLockDigest, "existingLockDigest");
   assertDigest(input.targetReleaseDigest, "targetReleaseDigest");
-  const ids = new Set([...Object.keys(input.current.skills), ...Object.keys(input.candidate.skills)]);
+  const candidate = validateLockfile(input.candidate, input.projectConfigDigest);
+  const ids = new Set([...Object.keys(input.current.skills), ...Object.keys(candidate.skills)]);
   const changes: RemoteLockChange[] = [...ids].sort().flatMap((skill_ref) => {
     const oldVersion = input.current.skills[skill_ref]?.version_hash ?? null;
-    const newVersion = input.candidate.skills[skill_ref]?.version_hash ?? null;
+    const newVersion = candidate.skills[skill_ref]?.version_hash ?? null;
     return oldVersion === newVersion ? [] : [{ skill_ref, old_version: oldVersion, new_version: newVersion }];
   });
   return createEnvelope({ object_type: "ega.remote-lock-plan", schema_version: 1, payload: {
     project_config_digest: input.projectConfigDigest,
     existing_lock_digest: input.existingLockDigest,
     target_release_digest: input.targetReleaseDigest,
-    candidate_lock: input.candidate,
+    candidate_lock: candidate,
     changes,
   } }) as RemoteLockPlan;
 }
 
 export function applyRemoteLockPlan(plan: RemoteLockPlan, lockPath: string): void {
   if (plan.object_type !== "ega.remote-lock-plan" || plan.schema_version !== 1 || !verifyEnvelope(plan).ok) throw new Error("invalid remote lock plan");
+  const payload = plan.payload;
+  const payloadKeys = Object.keys(payload).sort();
+  if (payloadKeys.join(",") !== "candidate_lock,changes,existing_lock_digest,project_config_digest,target_release_digest") throw new Error("invalid remote lock plan payload");
+  assertDigest(payload.project_config_digest, "project_config_digest");
+  assertDigest(payload.existing_lock_digest, "existing_lock_digest");
+  assertDigest(payload.target_release_digest, "target_release_digest");
+  validateLockfile(payload.candidate_lock, payload.project_config_digest);
   const temp = join(dirname(lockPath), `.egaskills.lock.${Date.now()}.tmp`);
   mkdirSync(dirname(lockPath), { recursive: true });
   writeFileSync(temp, serializeLockfile(plan.payload.candidate_lock));
