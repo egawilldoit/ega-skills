@@ -13,10 +13,12 @@ const issuer = process.env.EGA_HOSTED_ISSUER;
 const audience = process.env.EGA_HOSTED_AUDIENCE;
 const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
 const authorizationPath = process.env.EGA_HOSTED_AUTHZ_FILE;
+const allowedOrigins = process.env.EGA_HOSTED_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
 if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
   throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
 }
 if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
+if (!allowedOrigins?.length) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
 
 let snapshot;
 let startupError;
@@ -28,9 +30,9 @@ try {
   snapshot = loadHostedReleaseSnapshot(artifactDir);
   const policy = JSON.parse(readFileSync(authorizationPath, "utf8"));
   const policyKeys = Object.keys(policy ?? {}).sort();
-  const allowedPolicyKeys = ["authorized_subjects", "denied_releases", "denied_skills", "denied_sources", "denies", "memberships", "owner_subject", "visibility", "workspace_id"];
+  const allowedPolicyKeys = ["authorized_subjects", "denied_releases", "denied_skills", "denied_sources", "denies", "memberships", "owner_subject", "visibility", "workspace_id"].sort();
   if (policy === null || typeof policy !== "object" || Array.isArray(policy) ||
-      policyKeys.some((key, index) => key !== allowedPolicyKeys[index]) ||
+      policyKeys.some((key) => !allowedPolicyKeys.includes(key)) ||
       typeof policy.workspace_id !== "string" || typeof policy.visibility !== "string" ||
       !["private", "workspace", "public"].includes(policy.visibility) ||
       typeof policy.owner_subject !== "string" || !Array.isArray(policy.memberships) ||
@@ -64,6 +66,7 @@ try {
   startupError = error;
 }
 const handler = snapshot && createHostedMcpHandler(snapshot, {
+  allowedOrigins,
   verifyBearer: issuer && audience && jwksUrl
     ? createJwksBearerVerifier({
       issuer,

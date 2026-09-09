@@ -42,7 +42,7 @@ test("hosted CLI serves a real built release over HTTP", async (t) => {
   const port = 18787 + Math.floor(Math.random() * 1000);
   const child = spawn(process.execPath, ["packages/mcp/bin/ega-mcp-hosted.mjs"], {
     cwd: join(import.meta.dirname, "../.."),
-    env: { ...process.env, PORT: String(port), EGA_HOSTED_ARTIFACT_DIR: build.registryHome, EGA_HOSTED_BEARER_TOKEN: "smoke-token", EGA_HOSTED_AUTHZ_FILE: authzPath },
+    env: { ...process.env, PORT: String(port), EGA_HOSTED_ARTIFACT_DIR: build.registryHome, EGA_HOSTED_BEARER_TOKEN: "smoke-token", EGA_HOSTED_AUTHZ_FILE: authzPath, EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost" },
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
