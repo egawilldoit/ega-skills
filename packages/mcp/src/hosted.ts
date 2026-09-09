@@ -54,7 +54,7 @@ export interface HostedRuntimeOptions {
   /** Resolve the personal stable pointer once for an unpinned request. */
   readonly resolveStableRelease?: (signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
   /** Resolve and authorize an exact Contract E context before tool execution. */
-  readonly resolveContext?: (contextId: string, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
+  readonly resolveContext?: (contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
 }
 
 export class HostedRuntimeError extends Error {
@@ -262,7 +262,8 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
       if (typeof args.context_id === "string") {
         if (!options.resolveContext) return Promise.reject(new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is unavailable"));
-        return options.resolveContext(args.context_id, requestSignal);
+        if (!principal) return Promise.reject(new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized"));
+        return options.resolveContext(args.context_id, principal, requestSignal);
       }
       if (args.release_digest !== undefined || !options.resolveStableRelease) return Promise.resolve(snapshot);
       return stableSnapshotPromise ??= options.resolveStableRelease(requestSignal);
