@@ -12,7 +12,7 @@ Updated: 2026-09-09
 
 - Integration branch: `integrate/1.1-release`
 - Release PR: #79
-- Latest implementation candidate SHA: `1d927f375871826ecc43a4ced1b6b94f39ab8daa`
+- Latest implementation candidate SHA: `75aa765b8cd776debeabed24ad22c8a3620c140c`
 - PR #79 is open and not merged. Its base is `main`.
 
 ## Frozen contract identities
@@ -28,6 +28,8 @@ Updated: 2026-09-09
 - 1.1 release status: NOT RELEASED
 - P1-C, P1-D, P1-E, P1-F and P2 validation work is complete on the current
   lineage; Contract D was frozen in `041e1e7`.
+- The public `remote-lock plan` CLI handoff was added in `75aa765`; it binds a
+  candidate lock to a verified exact HubRelease artifact and digest.
 - No release tag was created by this remediation, and `main` has not received PR #79.
 
 ## Final audit blocker evidence
@@ -83,12 +85,15 @@ extraction and the Contract A canonical manifest preimage.
 
 ## Post-1.1 boundaries
 
-- Contract D: FROZEN / NOT RELEASED
-- 1.2: IMPLEMENTATION IN PROGRESS
-- Contract E: NOT STARTED / NOT RELEASED
-- 1.3: NOT STARTED
-- Contract F: NOT STARTED
-- 2.0: NOT STARTED
+- Contract D: FROZEN / NOT RELEASED (`041e1e7`)
+- 1.2: LOCAL IMPLEMENTATION CANDIDATE VERIFIED / NOT RELEASED
+- Contract E: FROZEN / NOT RELEASED (`c5b64ce`)
+- 1.3: LOCAL IMPLEMENTATION CANDIDATE VERIFIED / NOT RELEASED
+- Contract F: FROZEN / NOT RELEASED (`f064c95`)
+- 2.0: LOCAL IMPLEMENTATION CANDIDATE VERIFIED / NOT RELEASED
+- Local real HTTP smoke covers hosted personal and multi-user isolation paths;
+  external hosted deployment, OAuth registration, and applied Supabase/R2
+  staging acceptance remain pending.
 - No hosted OAuth/client-registration acceptance has been performed for later milestones.
 - No production deployment was performed.
 
