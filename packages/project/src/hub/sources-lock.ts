@@ -1,8 +1,8 @@
 // 1.1[B] sources.lock.yaml runtime (EGA-624). Contract A section 5.
 
 import { HubError } from "./errors.js";
-import { COMMIT_RE, SHA256_RE, assertRelativePosix, assertSortedUnique, assertSourceId, isPlainObject, parseYamlMapping } from "./guards.js";
-import { sourceConfigDigest, type SourceConfig, type SourcesConfig } from "./sources-config.js";
+import { COMMIT_RE, NAMESPACE_RE, SHA256_RE, assertRelativePosix, assertSortedUnique, assertSourceId, isPlainObject, parseYamlMapping } from "./guards.js";
+import { isValidRepository, sourceConfigDigest, type SourceConfig, type SourcesConfig } from "./sources-config.js";
 
 export interface LockedSelection {
   roots: string[];
@@ -79,13 +79,22 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     if (typeof entry["source_config_digest"] !== "string" || !SHA256_RE.test(entry["source_config_digest"] as string)) {
       throw new HubError("E_LOCK_DIGEST", `sources.lock.yaml source ${name} source_config_digest must match sha256:<64hex>`);
     }
+    if (!isValidRepository(entry["repository"])) {
+      throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} repository is invalid`);
+    }
+    if (typeof entry["requested_ref"] !== "string" || entry["requested_ref"].length === 0) {
+      throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} requested_ref must be a non-empty string`);
+    }
+    if (typeof entry["namespace"] !== "string" || !NAMESPACE_RE.test(entry["namespace"])) {
+      throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} namespace is invalid`);
+    }
     for (const field of ["repository", "requested_ref", "namespace"] as const) {
       if (typeof entry[field] !== "string") {
         throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} ${field} must be a string`);
       }
     }
     const selection = entry["selection"];
-    if (!isPlainObject(selection) || !Array.isArray(selection["roots"])) {
+    if (!isPlainObject(selection) || !Array.isArray(selection["roots"]) || selection["roots"].length === 0) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} selection.roots must be a list`);
     }
     if (Object.keys(selection).some((key) => key !== "roots")) {
@@ -97,7 +106,7 @@ export function parseSourcesLockYaml(text: string): SourcesLock {
     }
     try { assertSortedUnique(selection["roots"] as string[], `sources.lock.yaml source ${name} selection.roots`); } catch (error) { throw new HubError("E_LOCK_MISMATCH", (error as Error).message); }
     const provenance = entry["provenance_files"];
-    if (!Array.isArray(provenance)) {
+    if (!Array.isArray(provenance) || provenance.length === 0) {
       throw new HubError("E_LOCK_MISMATCH", `sources.lock.yaml source ${name} provenance_files must be a list`);
     }
     for (const file of provenance) {
