@@ -80,7 +80,13 @@ function adoptedTreeAt(repoDir, rev, roots, provenanceFiles) {
   try {
     execFileSync("git", ["clone", "-q", repoDir, clone], { stdio: "pipe" });
     execFileSync("git", ["-C", clone, "checkout", "-q", rev], { stdio: "pipe" });
-    return extractSelectedRoots(clone, roots, provenanceFiles, dest);
+    const extracted = extractSelectedRoots(clone, roots, provenanceFiles, dest);
+    const skillTreeDigests = {};
+    for (const root of roots) {
+      const manifest = digestStagedTree(dest, [root]);
+      skillTreeDigests[root.split("/").pop()] = manifest.treeDigest;
+    }
+    return { ...extracted, skillTreeDigests };
   } finally {
     rmSync(clone, { force: true, recursive: true });
     rmSync(dest, { force: true, recursive: true });
@@ -156,6 +162,7 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
       snapshotDigest: adoptedTree.snapshotDigest,
       treeDigest: adoptedTree.treeDigest,
       versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb" },
+      skillTreeDigests: { "plan/alpha": adoptedTree.skillTreeDigests.alpha, "plan/beta": adoptedTree.skillTreeDigests.beta },
     },
     config: src,
     sourceId: "plan",
@@ -175,6 +182,9 @@ test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest
   assert.equal(beta.old_version, "sha256:bb");
   assert.ok(/^sha256:[0-9a-f]{64}$/.test(beta.new_version) && beta.new_version !== "sha256:bb");
   assert.equal(beta.raw_changed, true);
+  const alpha = plan.payload.changed_skills.find((s) => s.skill_ref === "plan/alpha");
+  assert.ok(alpha, "alpha canonical version change remains reportable");
+  assert.equal(alpha.raw_changed, false, "unchanged alpha is not reported as raw-changed");
   assert.ok(plan.payload.unselected_new_skills.includes("skills/delta"), "delta reported, not adopted");
   const v = verifyEnvelope(plan);
   assert.equal(v.ok, true);
