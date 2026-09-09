@@ -23,6 +23,17 @@ export interface StoredProjectContext {
   readonly ownerSubject: string;
   readonly revoked: boolean;
 }
+export interface AuditEvent {
+  readonly actor: string;
+  readonly workspaceId: string;
+  readonly operation: string;
+  readonly targetId: string;
+  readonly result: "allowed" | "denied";
+}
+export interface SourceCredentialReference {
+  readonly sourceId: string;
+  readonly secretReference: string;
+}
 
 export function can(role: WorkspaceRole, permission: ControlPermission): boolean {
   return ROLE_PERMISSIONS[role]?.has(permission) ?? false;
@@ -45,6 +56,9 @@ export class InMemoryControlPlane {
   private readonly denies = new Set<string>();
   private readonly resources = new Map<string, AuthorizedResource>();
   private readonly contexts = new Map<string, StoredProjectContext>();
+  private readonly auditEvents: AuditEvent[] = [];
+  private readonly quotas = new Map<string, { limit: number; used: number }>();
+  private readonly sourceCredentials = new Map<string, SourceCredentialReference>();
 
   addMembership(workspaceId: string, membership: Membership): void { this.memberships.set(`${workspaceId}\0${membership.subject}`, membership); }
   setResource(resourceId: string, resource: AuthorizedResource): void { this.resources.set(resourceId, resource); }
@@ -73,6 +87,25 @@ export class InMemoryControlPlane {
     })) return null;
     return context;
   }
+  recordAudit(event: AuditEvent): void { this.auditEvents.push(Object.freeze({ ...event })); }
+  listAuditEvents(): readonly AuditEvent[] { return [...this.auditEvents]; }
+  setQuota(key: string, limit: number): void {
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new Error("quota limit must be a non-negative safe integer");
+    this.quotas.set(key, { limit, used: 0 });
+  }
+  consumeQuota(key: string, amount = 1): boolean {
+    const quota = this.quotas.get(key);
+    if (!quota || !Number.isSafeInteger(amount) || amount < 0 || quota.used + amount > quota.limit) return false;
+    quota.used += amount;
+    return true;
+  }
+  registerSourceCredential(reference: SourceCredentialReference): void {
+    if (!reference.sourceId || !reference.secretReference || /secret|token|password/i.test(reference.secretReference)) {
+      throw new Error("source credentials must be opaque secret references");
+    }
+    this.sourceCredentials.set(reference.sourceId, Object.freeze({ ...reference }));
+  }
+  sourceCredential(sourceId: string): SourceCredentialReference | null { return this.sourceCredentials.get(sourceId) ?? null; }
   authorize(resourceId: string, subject: string, permission: ControlPermission): boolean {
     const resource = this.resources.get(resourceId);
     if (!resource) return false;

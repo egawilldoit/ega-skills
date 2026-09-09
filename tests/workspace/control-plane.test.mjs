@@ -41,3 +41,16 @@ test("project contexts are immutable identities with membership and revocation c
     ownerSubject: "user-a",
   }));
 });
+
+test("control-plane audit, quota and source credentials keep security metadata bounded", () => {
+  const plane = new InMemoryControlPlane();
+  plane.recordAudit({ actor: "user-a", workspaceId: "workspace-a", operation: "publish_context", targetId: "context-a", result: "allowed" });
+  assert.equal(plane.listAuditEvents().length, 1);
+  plane.setQuota("workspace-a:requests", 2);
+  assert.equal(plane.consumeQuota("workspace-a:requests"), true);
+  assert.equal(plane.consumeQuota("workspace-a:requests", 1), true);
+  assert.equal(plane.consumeQuota("workspace-a:requests"), false);
+  plane.registerSourceCredential({ sourceId: "matt", secretReference: "vault://ega/matt" });
+  assert.equal(plane.sourceCredential("matt")?.secretReference, "vault://ega/matt");
+  assert.throws(() => plane.registerSourceCredential({ sourceId: "bad", secretReference: "token-value" }));
+});
