@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createRemoteLockPlan, digestProjectLock } from "../../packages/project/dist/index.js";
+import { createRemoteLockPlan, digestProjectLock, hashNormalizedConfig, parseProjectConfig, serializeLockfile } from "../../packages/project/dist/index.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cliPackagePath = join(root, "packages", "cli", "package.json");
@@ -64,6 +64,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
+      "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
     "",
     "Options:",
@@ -133,6 +134,31 @@ test("remote-lock apply is available through the real CLI entrypoint", () => {
     target_release_digest: digest("c"),
   });
   assert.match(readFileSync(join(project, ".egaskills.lock"), "utf8"), new RegExp(digest("b")));
+});
+
+test("context publish creates an immutable artifact from validated local project files and a real HubRelease", () => {
+  const project = mkdtempSync(join(tmpdir(), "ega-cli-context-"));
+  writeFileSync(join(project, ".egaskills.yaml"), "schema_version: 1\n");
+  const config = parseProjectConfig("schema_version: 1\n");
+  const lock = { lockfile_version: 1, token_estimator: "ega-o200k-v1", generated_from: { config_hash: hashNormalizedConfig(config) }, skills: {} };
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile(lock));
+  const hub = join(project, "hub");
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: context-hub\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = runCli("hub", "build", hub);
+  assert.equal(built.status, 0, built.stderr);
+  const releasePath = JSON.parse(built.stdout).artifactPaths.release;
+  const output = join(project, "context.json");
+  const result = runCli("context", "publish", "--workspace", "workspace-a", "--project-id", "project-a", "--release", releasePath, project, "--output", output);
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout);
+  assert.equal(context.object_type, "ega.project-context");
+  assert.equal(context.payload.workspace_id, "workspace-a");
+  assert.equal(context.payload.project_id, "project-a");
+  assert.equal(context.payload.release_digest, JSON.parse(readFileSync(releasePath, "utf8")).digest);
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), context);
 });
 
 test("hub validate checks the adopted Hub without mutation", () => {

@@ -40,6 +40,12 @@ import {
   parseSourcesYaml,
   adoptedSourcePath,
   verifySourcesLock,
+  createProjectContext,
+  digestProjectLock,
+  hashNormalizedConfig,
+  verifyHubRelease,
+  type ProjectContextDocument,
+  type HubRelease,
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
@@ -192,6 +198,48 @@ export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
   applyRemoteLockPlan(plan, join(projectDir, ".egaskills.lock"));
   return { applied: true, path: join(projectDir, ".egaskills.lock"), target_release_digest: plan.payload.target_release_digest };
+}
+
+export interface ContextPublishCommandOptions {
+  readonly project?: string;
+  readonly workspace: string;
+  readonly projectId: string;
+  readonly release: string;
+  readonly output?: string;
+  readonly fingerprint?: string;
+}
+
+/** Build a local immutable ProjectContext handoff from validated project files.
+ * Publication/authentication remains a control-plane operation; this command
+ * never writes the project or release and requires an explicit release artifact.
+ */
+export function runContextPublish(options: ContextPublishCommandOptions): ProjectContextDocument {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("context publish requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const lock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const release = JSON.parse(readFileSync(resolve(options.release), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  for (const [skillId, entry] of Object.entries(lock.skills)) {
+    if (release.payload.skill_versions[skillId] !== entry.version_hash) {
+      throw new Error(`locked skill ${skillId} is not present at the same version in the declared HubRelease`);
+    }
+  }
+  const context = createProjectContext({
+    workspace_id: options.workspace,
+    project_id: options.projectId,
+    config_digest: configDigest,
+    lock_digest: digestProjectLock(lock),
+    release_digest: release.digest,
+    fingerprint_digest: options.fingerprint ?? null,
+    context_contract: "E1",
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(context, null, 2)}\n`);
+  return context;
 }
 
 export interface ResolveCommandOptions {
