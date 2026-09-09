@@ -14,7 +14,13 @@ const ROLE_PERMISSIONS: Record<WorkspaceRole, ReadonlySet<ControlPermission>> = 
 };
 
 export interface Membership { readonly subject: string; readonly role: WorkspaceRole; readonly active: boolean; }
-export interface AuthorizedResource { readonly workspaceId: string; readonly visibility: HubVisibility; readonly ownerSubject: string; }
+export interface AuthorizedResource {
+  readonly workspaceId: string;
+  readonly visibility: HubVisibility;
+  readonly ownerSubject: string;
+  /** Explicit private-resource grants; workspace membership is not enough. */
+  readonly authorizedSubjects?: readonly string[];
+}
 export interface StoredProjectContext {
   readonly contextId: string;
   readonly workspaceId: string;
@@ -48,6 +54,8 @@ export function authorizeWorkspace(input: {
 }): boolean {
   if (input.denied || !input.membership?.active || input.membership.subject !== input.subject) return false;
   if (input.resource.visibility === "public" && input.permission === "read_hub") return true;
+  if (input.resource.visibility === "private" && input.permission === "read_hub" &&
+      input.subject !== input.resource.ownerSubject && !input.resource.authorizedSubjects?.includes(input.subject)) return false;
   return can(input.membership.role, input.permission);
 }
 
