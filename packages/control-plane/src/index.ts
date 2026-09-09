@@ -34,8 +34,19 @@ export interface AuditEvent {
   readonly workspaceId: string;
   readonly operation: string;
   readonly targetId: string;
+  readonly oldIdentity: string | null;
+  readonly newIdentity: string | null;
+  readonly requestId: string;
+  readonly occurredAt: string;
   readonly result: "allowed" | "denied";
 }
+
+export type AuditEventInput = Omit<AuditEvent, "oldIdentity" | "newIdentity" | "requestId" | "occurredAt"> & {
+  readonly oldIdentity?: string | null;
+  readonly newIdentity?: string | null;
+  readonly requestId?: string;
+  readonly occurredAt?: string;
+};
 export interface SourceCredentialReference {
   readonly sourceId: string;
   readonly secretReference: string;
@@ -72,11 +83,27 @@ export class InMemoryControlPlane {
   private readonly quotas = new Map<string, { limit: number; used: number }>();
   private readonly sourceCredentials = new Map<string, SourceCredentialReference>();
 
-  addMembership(workspaceId: string, membership: Membership): void { this.memberships.set(`${workspaceId}\0${membership.subject}`, membership); }
+  addMembership(workspaceId: string, membership: Membership): void {
+    if (membership.role === "owner" && !membership.active) throw new Error("owner membership must remain active");
+    const key = `${workspaceId}\0${membership.subject}`;
+    const current = this.memberships.get(key);
+    if (current?.role === "owner" && membership.role !== "owner") {
+      throw new Error("owner transfer requires an explicit replacement-owner transaction");
+    }
+    if (membership.role === "owner") {
+      for (const [otherKey, other] of this.memberships) {
+        if (otherKey.startsWith(`${workspaceId}\0`) && other.subject !== membership.subject && other.role === "owner") {
+          throw new Error("workspace must have exactly one owner");
+        }
+      }
+    }
+    this.memberships.set(key, membership);
+  }
   setResource(resourceId: string, resource: AuthorizedResource): void { this.resources.set(resourceId, resource); }
   deny(resourceId: string): void { this.denies.add(resourceId); }
   revokeMembership(workspaceId: string, subject: string): void {
     const current = this.memberships.get(`${workspaceId}\0${subject}`);
+    if (current?.role === "owner") throw new Error("owner membership cannot be revoked without a replacement owner");
     if (current) this.memberships.set(`${workspaceId}\0${subject}`, { ...current, active: false });
   }
   publishContext(context: Omit<StoredProjectContext, "revoked">): void {
@@ -99,7 +126,19 @@ export class InMemoryControlPlane {
     })) return null;
     return context;
   }
-  recordAudit(event: AuditEvent): void { this.auditEvents.push(Object.freeze({ ...event })); }
+  recordAudit(event: AuditEventInput): void {
+    const normalized: AuditEvent = {
+      ...event,
+      oldIdentity: event.oldIdentity ?? null,
+      newIdentity: event.newIdentity ?? null,
+      requestId: event.requestId ?? "local",
+      occurredAt: event.occurredAt ?? new Date().toISOString(),
+    };
+    if (!/^\S+$/.test(normalized.requestId) || Number.isNaN(Date.parse(normalized.occurredAt))) {
+      throw new Error("audit event metadata is invalid");
+    }
+    this.auditEvents.push(Object.freeze(normalized));
+  }
   listAuditEvents(): readonly AuditEvent[] { return [...this.auditEvents]; }
   setQuota(key: string, limit: number): void {
     if (!Number.isSafeInteger(limit) || limit < 0) throw new Error("quota limit must be a non-negative safe integer");

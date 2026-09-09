@@ -18,6 +18,14 @@ test("multi-user control plane authorizes by membership and deny precedence", ()
   assert.equal(plane.authorize("hub-a", "user-b", "read_hub"), false);
 });
 
+test("control plane preserves one active owner and requires explicit transfer", () => {
+  const plane = new InMemoryControlPlane();
+  plane.addMembership("ws", { subject: "owner-a", role: "owner", active: true });
+  assert.throws(() => plane.addMembership("ws", { subject: "owner-b", role: "owner", active: true }), /exactly one owner/);
+  assert.throws(() => plane.revokeMembership("ws", "owner-a"), /replacement owner/);
+  assert.throws(() => plane.addMembership("ws", { subject: "owner-a", role: "admin", active: true }), /replacement-owner/);
+});
+
 test("public Hub reads follow public policy without workspace membership", () => {
   const plane = new InMemoryControlPlane();
   plane.setResource("hub-public", { workspaceId: "ws-a", visibility: "public", ownerSubject: "user-a" });
@@ -56,6 +64,8 @@ test("control-plane audit, quota and source credentials keep security metadata b
   const plane = new InMemoryControlPlane();
   plane.recordAudit({ actor: "user-a", workspaceId: "workspace-a", operation: "publish_context", targetId: "context-a", result: "allowed" });
   assert.equal(plane.listAuditEvents().length, 1);
+  assert.equal(plane.listAuditEvents()[0].oldIdentity, null);
+  assert.equal(plane.listAuditEvents()[0].requestId, "local");
   plane.setQuota("workspace-a:requests", 2);
   assert.equal(plane.consumeQuota("workspace-a:requests"), true);
   assert.equal(plane.consumeQuota("workspace-a:requests", 1), true);

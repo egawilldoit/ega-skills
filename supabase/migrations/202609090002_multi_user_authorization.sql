@@ -7,6 +7,11 @@ create table if not exists public.workspace_memberships (
   primary key (workspace_id, subject)
 );
 
+-- Ownership transfer is an explicit control-plane transaction; never allow
+-- two simultaneous owner authorities for one workspace.
+create unique index if not exists workspace_memberships_one_owner
+  on public.workspace_memberships (workspace_id) where role = 'owner';
+
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.personal_workspaces(id),
