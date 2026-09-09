@@ -48,10 +48,41 @@ alter table public.project_contexts enable row level security;
 alter table public.context_revocations enable row level security;
 alter table public.quota_policies enable row level security;
 
+-- Never query workspace_memberships directly from its own RLS policy. Postgres
+-- would recursively evaluate the same policy. Keep the authorization lookup in
+-- a SECURITY DEFINER helper owned by the migration/table owner, which bypasses
+-- RLS on workspace_memberships while still binding the decision to the current
+-- JWT subject.
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
+
+create or replace function private.has_workspace_role(
+  target_workspace_id uuid,
+  allowed_roles text[]
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.workspace_memberships m
+    where m.workspace_id = target_workspace_id
+      and m.subject = auth.jwt() ->> 'sub'
+      and m.role = any(allowed_roles)
+      and m.active
+  );
+$$;
+
+revoke all on function private.has_workspace_role(uuid, text[]) from public;
+grant execute on function private.has_workspace_role(uuid, text[]) to authenticated;
+
 create policy membership_self_or_owner on public.workspace_memberships for select using (
-  subject = auth.jwt() ->> 'sub' or workspace_id in (
-    select workspace_id from public.workspace_memberships where subject = auth.jwt() ->> 'sub' and role in ('owner', 'admin') and active
-  )
+  subject = auth.jwt() ->> 'sub'
+  or private.has_workspace_role(workspace_id, array['owner', 'admin']::text[])
 );
 create policy project_member_read on public.projects for select using (
   workspace_id in (select workspace_id from public.workspace_memberships where subject = auth.jwt() ->> 'sub' and active)
