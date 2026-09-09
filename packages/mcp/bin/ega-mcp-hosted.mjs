@@ -14,11 +14,13 @@ const audience = process.env.EGA_HOSTED_AUDIENCE;
 const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
 const authorizationPath = process.env.EGA_HOSTED_AUTHZ_FILE;
 const allowedOrigins = process.env.EGA_HOSTED_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
+const maxBodyBytes = Number(process.env.EGA_HOSTED_MAX_BODY_BYTES ?? 1_048_576);
 if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
   throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
 }
 if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
 if (!allowedOrigins?.length) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
+if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error("EGA_HOSTED_MAX_BODY_BYTES must be a positive safe integer");
 
 let snapshot;
 let startupError;
@@ -103,8 +105,25 @@ const server = createServer(async (incoming, outgoing) => {
     outgoing.end(JSON.stringify({ error: { code: "E_RUNTIME_UNAVAILABLE" } }));
     return;
   }
+  const declaredLength = Number(incoming.headers["content-length"] ?? 0);
+  if (declaredLength > maxBodyBytes) {
+    incoming.resume();
+    outgoing.writeHead(413);
+    outgoing.end("Request too large");
+    return;
+  }
   const chunks = [];
-  for await (const chunk of incoming) chunks.push(chunk);
+  let bodyLength = 0;
+  for await (const chunk of incoming) {
+    bodyLength += chunk.byteLength;
+    if (bodyLength > maxBodyBytes) {
+      incoming.destroy();
+      outgoing.writeHead(413);
+      outgoing.end("Request too large");
+      return;
+    }
+    chunks.push(chunk);
+  }
   const body = Buffer.concat(chunks);
   const headers = new Headers();
   for (const [key, value] of Object.entries(incoming.headers)) {
