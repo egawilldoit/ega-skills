@@ -18,7 +18,7 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { digestStagedTree, discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
+import { canonicalSourceManifestDigest, discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
@@ -135,7 +135,14 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
         throw new HubError("E_PLAN_FETCH", `candidate skill imported without a version: ${ref}`);
       }
       candidate[ref] = latest.versionHash;
-      candidateSkillTreeDigests[ref] = digestStagedTree(quarantineDir, [skillDir]).treeDigest;
+      // Derive the per-skill identity from the raw Git manifest already
+      // extracted for this candidate.  This keeps planning independent of
+      // host filesystem separators and reuses the Contract A preimage.
+      const skillPrefix = skillDir.replaceAll("\\\\", "/");
+      candidateSkillTreeDigests[ref] = canonicalSourceManifestDigest(
+        tree.manifest.filter((entry) => entry.scope === "selected" &&
+          (entry.path === skillPrefix || entry.path.startsWith(`${skillPrefix}/`))),
+      );
     }
     const byRef = (a: { skill_ref: string }, b: { skill_ref: string }): number => (a.skill_ref < b.skill_ref ? -1 : 1);
     const added: AddedSkill[] = Object.entries(candidate)
