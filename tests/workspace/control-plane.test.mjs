@@ -18,6 +18,14 @@ test("multi-user control plane authorizes by membership and deny precedence", ()
   assert.equal(plane.authorize("hub-a", "user-b", "read_hub"), false);
 });
 
+test("public Hub reads follow public policy without workspace membership", () => {
+  const plane = new InMemoryControlPlane();
+  plane.setResource("hub-public", { workspaceId: "ws-a", visibility: "public", ownerSubject: "user-a" });
+  assert.equal(plane.authorize("hub-public", "authenticated-outsider", "read_hub"), true);
+  plane.deny("hub-public");
+  assert.equal(plane.authorize("hub-public", "authenticated-outsider", "read_hub"), false);
+});
+
 test("project contexts are immutable identities with membership and revocation checks", () => {
   const plane = new InMemoryControlPlane();
   plane.addMembership("workspace-a", { subject: "user-a", role: "owner", active: true });
