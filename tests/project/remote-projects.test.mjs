@@ -10,6 +10,7 @@ import {
   digestProjectLock,
   verifyProjectContext,
 } from "../../packages/project/dist/index.js";
+import { createEnvelope } from "../../packages/hashing/dist/index.js";
 
 const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
 const lock = (skill, version) => ({
@@ -33,6 +34,10 @@ test("ProjectContext binds one immutable release and verifies its envelope", () 
   const forged = structuredClone(context);
   forged.payload.release_digest = digest("d");
   assert.throws(() => verifyProjectContext(forged));
+  const extra = structuredClone(context);
+  extra.payload.extra = "forbidden";
+  extra.digest = createEnvelope({ object_type: extra.object_type, schema_version: extra.schema_version, payload: extra.payload }).digest;
+  assert.throws(() => verifyProjectContext(extra));
 });
 
 test("remote lock plan is exact-release bound and applies only the reviewed candidate", () => {
