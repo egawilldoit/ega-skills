@@ -105,9 +105,11 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     tempDirs.push(quarantineDir);
     const tree = extractSelectedRootsFromGit(fetchDir, target, config.selection.roots, config.provenanceFiles, quarantineDir);
     const unselected = discoverUnselectedSkillsFromGit(fetchDir, target, config.selection.roots);
-    if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
-      return { status: "NO_CHANGE", targetCommit: target };
-    }
+    // A new upstream commit is itself a reportable source change, even when
+    // the selected/provenance byte sets are unchanged.  Keeping this as an
+    // UPDATE_AVAILABLE plan preserves the exact commit transition and lets
+    // reviewers see newly added unselected skills rather than silently
+    // collapsing the source movement into NO_CHANGE.
     // Candidate SkillVersions via the V1 importer in a scratch home. The env is
     // fully explicit (no process inheritance) so checks never observe ambient state.
     const scratchHome = mkdtempSync(join(tmpdir(), "ega-plan-scratch-"));

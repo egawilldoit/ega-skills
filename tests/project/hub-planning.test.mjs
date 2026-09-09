@@ -204,6 +204,40 @@ test("selected parent roots discover nested skills without adopting outside root
   assert.ok(!res.plan.payload.unselected_new_skills.includes("skills/delta"));
 });
 
+test("source commit movement is reported when selected content is unchanged", async () => {
+  const { dir, shaB } = makeFixtureRepo();
+  mkdirSync(join(dir, "skills", "epsilon"), { recursive: true });
+  writeFileSync(join(dir, "skills", "epsilon", "SKILL.md"), skill("epsilon", "Epsilon body C, outside selection."));
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "C");
+  const shaC = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const { src } = loadConfig(dir);
+  const adoptedTree = adoptedTreeAt(dir, shaB, ["skills/alpha", "skills/beta", "skills/gamma"], src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaB,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa", "plan/beta": "sha256:bb", "plan/gamma": "sha256:cc" },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-source-change-")),
+  });
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  assert.equal(res.plan.payload.target_commit, shaC);
+  assert.deepEqual(res.plan.payload.added_skills, []);
+  assert.deepEqual(
+    res.plan.payload.changed_skills.map(({ skill_ref, raw_changed }) => ({ skill_ref, raw_changed })),
+    [
+      { skill_ref: "plan/alpha", raw_changed: false },
+      { skill_ref: "plan/beta", raw_changed: false },
+      { skill_ref: "plan/gamma", raw_changed: false },
+    ],
+  );
+  assert.deepEqual(res.plan.payload.unselected_new_skills, ["skills/delta", "skills/epsilon"]);
+});
+
 test("plan change lists are sorted by skill_ref (Contract B set-list rule)", async () => {
   const { dir, shaA } = makeFixtureRepo();
   const { src } = loadConfig(dir);
