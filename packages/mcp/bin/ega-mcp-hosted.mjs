@@ -21,26 +21,25 @@ const authorizationPath = process.env.EGA_HOSTED_AUTHZ_FILE;
 const supabaseUrl = process.env.EGA_HOSTED_SUPABASE_URL;
 const supabaseSecretKey = process.env.EGA_HOSTED_SUPABASE_SECRET_KEY;
 const allowedOrigins = process.env.EGA_HOSTED_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
-const maxBodyBytes = Number(process.env.EGA_HOSTED_MAX_BODY_BYTES ?? 1_048_576);
-if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
-  throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
-}
-if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
-if (!allowedOrigins?.length) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
-if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error("EGA_HOSTED_MAX_BODY_BYTES must be a positive safe integer");
-if ((supabaseUrl && !supabaseSecretKey) || (!supabaseUrl && supabaseSecretKey)) {
-  throw new Error("EGA_HOSTED_SUPABASE_URL and EGA_HOSTED_SUPABASE_SECRET_KEY must be configured together");
-}
+const configuredMaxBodyBytes = Number(process.env.EGA_HOSTED_MAX_BODY_BYTES ?? 1_048_576);
 
-let snapshot;
-let startupError;
-let controlPlane;
-let resolveContext;
-let deniedSkills = new Set();
-let deniedSources = new Set();
-let deniedReleases = new Set();
+// Startup is atomic: env validation, artifact verification, policy validation,
+// and control-plane construction all complete before `handler` is published.
+// A failure leaves the serving state unavailable and logs one generic error.
+let maxBodyBytes = 0;
+let handler;
 try {
-  snapshot = loadHostedReleaseSnapshot(artifactDir);
+  if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
+    throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
+  }
+  if (!authorizationPath) throw new Error("EGA_HOSTED_AUTHZ_FILE is required; hosted authorization must fail closed");
+  if (!allowedOrigins?.length) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
+  if (!Number.isSafeInteger(configuredMaxBodyBytes) || configuredMaxBodyBytes <= 0) throw new Error("EGA_HOSTED_MAX_BODY_BYTES must be a positive safe integer");
+  if ((supabaseUrl && !supabaseSecretKey) || (!supabaseUrl && supabaseSecretKey)) {
+    throw new Error("EGA_HOSTED_SUPABASE_URL and EGA_HOSTED_SUPABASE_SECRET_KEY must be configured together");
+  }
+
+  const snapshot = loadHostedReleaseSnapshot(artifactDir);
   const policy = JSON.parse(readFileSync(authorizationPath, "utf8"));
   const policyKeys = Object.keys(policy ?? {}).sort();
   const allowedPolicyKeys = ["authorized_subjects", "denied_releases", "denied_skills", "denied_sources", "denies", "memberships", "owner_subject", "visibility", "workspace_id"].sort();
@@ -54,7 +53,7 @@ try {
         policy[key] !== undefined && (!Array.isArray(policy[key]) || policy[key].some((value) => typeof value !== "string")))) {
     throw new Error("hosted authorization policy has invalid shape");
   }
-  controlPlane = new InMemoryControlPlane();
+  const controlPlane = new InMemoryControlPlane();
   const hubId = snapshot.release.payload.hub_id;
   controlPlane.setResource(hubId, {
     workspaceId: policy.workspace_id,
@@ -72,9 +71,10 @@ try {
     if (typeof denied !== "string") throw new Error("hosted authorization deny has invalid shape");
     controlPlane.deny(denied);
   }
-  deniedSkills = new Set(policy.denied_skills ?? []);
-  deniedSources = new Set(policy.denied_sources ?? []);
-  deniedReleases = new Set(policy.denied_releases ?? []);
+  const deniedSkills = new Set(policy.denied_skills ?? []);
+  const deniedSources = new Set(policy.denied_sources ?? []);
+  const deniedReleases = new Set(policy.denied_releases ?? []);
+  let resolveContext;
   if (supabaseUrl && supabaseSecretKey) {
     resolveContext = createSupabaseContextResolver({
       supabaseUrl,
@@ -85,42 +85,39 @@ try {
       },
     });
   }
+  handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins,
+    verifyBearer: issuer && audience && jwksUrl
+      ? createJwksBearerVerifier({
+        issuer,
+        audience,
+        jwksUrl,
+        // Supabase user/OAuth access tokens may not contain an application-specific
+        // scope. Authorization is still enforced by the authenticated subject plus
+        // the control-plane/RLS graph. Deployments can opt into a required standard
+        // scope explicitly with EGA_HOSTED_REQUIRED_SCOPE.
+        requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE || undefined,
+        jwksMaxAgeMs: process.env.EGA_HOSTED_JWKS_MAX_AGE_MS ? Number(process.env.EGA_HOSTED_JWKS_MAX_AGE_MS) : undefined,
+      })
+      : async (token) => {
+        if (token !== expectedToken) throw new Error("invalid token");
+        return { subject: "local-smoke", scopes: ["ega:read"] };
+      },
+    authorize: async (principal) => controlPlane.authorize(hubId, principal.subject, "read_hub"),
+    ...(resolveContext ? { resolveContext } : {}),
+    deniedSkills,
+    deniedSources,
+    deniedReleases,
+  });
+  maxBodyBytes = configuredMaxBodyBytes;
 } catch (error) {
-  startupError = error;
+  handler = undefined;
+  process.stderr.write(`ega-mcp-hosted startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
 }
-const handler = snapshot && createHostedMcpHandler(snapshot, {
-  allowedOrigins,
-  verifyBearer: issuer && audience && jwksUrl
-    ? createJwksBearerVerifier({
-      issuer,
-      audience,
-      jwksUrl,
-      // Supabase user/OAuth access tokens may not contain an application-specific
-      // scope. Authorization is still enforced by the authenticated subject plus
-      // the control-plane/RLS graph. Deployments can opt into a required standard
-      // scope explicitly with EGA_HOSTED_REQUIRED_SCOPE.
-      requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE || undefined,
-      jwksMaxAgeMs: process.env.EGA_HOSTED_JWKS_MAX_AGE_MS ? Number(process.env.EGA_HOSTED_JWKS_MAX_AGE_MS) : undefined,
-    })
-    : async (token) => {
-      if (token !== expectedToken) throw new Error("invalid token");
-      return { subject: "local-smoke", scopes: ["ega:read"] };
-    },
-  authorize: async (principal) => {
-    if (!controlPlane) return false;
-    const hubId = snapshot.release.payload.hub_id;
-    if (!controlPlane.authorize(hubId, principal.subject, "read_hub")) return false;
-    return true;
-  },
-  ...(resolveContext ? { resolveContext } : {}),
-  deniedSkills,
-  deniedSources,
-  deniedReleases,
-});
 
 const server = createServer(async (incoming, outgoing) => {
   if (incoming.url === "/healthz" || incoming.url === "/readyz") {
-    const ready = !startupError && handler;
+    const ready = handler !== undefined;
     const status = ready ? 200 : 503;
     outgoing.writeHead(status, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ status: ready ? "ready" : "unavailable" }));
