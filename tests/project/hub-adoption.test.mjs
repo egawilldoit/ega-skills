@@ -735,6 +735,25 @@ test("crash after tree swap recovers exact previous state", async () => {
 test("requireCleanJournal refuses while recovery is incomplete", () => {
   const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
   requireCleanJournal(hubDir);
+  const treeDir = join(hubDir, "external", "plan", "repo");
+  mkdirSync(join(treeDir, "skills", "alpha"), { recursive: true });
+  writeFileSync(join(treeDir, "skills", "alpha", "SKILL.md"), skill("alpha", "Alpha body A."));
+  writeFileSync(join(treeDir, "LICENSE"), "License A.\n");
+  const tree = digestStagedTree(treeDir, ["skills/alpha"]);
+  writeFileSync(join(hubDir, "sources.lock.yaml"), lockTextForSources({
+    plan: {
+      source_config_digest: `sha256:${"c".repeat(64)}`,
+      repository: mkdtempSync(join(tmpdir(), "ega-repo-")),
+      requested_ref: "main",
+      namespace: "plan",
+      selection: { roots: ["skills/alpha"] },
+      provenance_files: ["LICENSE"],
+      resolved_commit: "a".repeat(40),
+      selected_skill_tree_digest: tree.treeDigest,
+      vendored_snapshot_digest: tree.snapshotDigest,
+      extraction_contract: 1,
+    },
+  }));
   writeJournal(hubDir, {
     backup: ".backup",
     expected_old_commit: "a".repeat(40),
