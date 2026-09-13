@@ -16,7 +16,7 @@ import {
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { sha256Hex } from "@ega-skills/hashing";
-import { verifyHubRelease, type HubRelease } from "@ega-skills/project";
+import { verifyHubRelease, verifyReleaseProjection, type HubRelease } from "@ega-skills/project";
 import { PROJECT_CONFIG_V1_DEFAULTS, type ProjectConfigV1 } from "@ega-skills/project";
 import { getCacheBlob, getSkillVersion } from "@ega-skills/registry";
 import { runGetContentTool, GET_CONTENT_OUTPUT_SCHEMA } from "./get-content.js";
@@ -122,6 +122,11 @@ export function loadHostedReleaseSnapshot(artifactDir: string): HostedReleaseSna
     if (!table) throw new Error("release FTS table missing");
     const rows = db.prepare(`SELECT count(*) AS count FROM ${ftsTable}`).get() as { count: number };
     if (rows.count !== releasePackage.snapshot_rows) throw new Error("release FTS row count mismatch");
+    // The runtime projection must equal the semantic artifacts the
+    // HubRelease binds: exact catalog, aliases, search rows in BOTH FTS
+    // tables, token metadata, manifests, and file identities. SQLite bytes
+    // alone are not semantic identity.
+    verifyReleaseProjection(db, release.payload, ftsTable);
     const cacheDir = join(artifactDir, "cache", "sha256");
     for (const [skillId, versionHash] of Object.entries(release.payload.skill_versions)) {
       const version = getSkillVersion(db, skillId, versionHash);

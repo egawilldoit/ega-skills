@@ -55,6 +55,7 @@ export {
   deriveTokenArtifact,
   queryReleaseFts,
   verifyReleaseCorpus,
+  verifyReleaseProjection,
 } from "./hub/release-state.js";
 export type {
   AliasMapDoc,
