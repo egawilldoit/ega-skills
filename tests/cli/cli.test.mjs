@@ -28,11 +28,11 @@ function runCliFrom(cwd, ...args) {
 
 const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
 
-function testLock(version) {
+function testLock(version, configHash = digest("a")) {
   return {
     lockfile_version: 1,
     token_estimator: "ega-o200k-v1",
-    generated_from: { config_hash: digest("a") },
+    generated_from: { config_hash: configHash },
     skills: { "ega/alpha": { name: "alpha", version_hash: digest(version) } },
   };
 }
@@ -116,10 +116,14 @@ test("hub build is available through the real CLI entrypoint", () => {
 
 test("remote-lock apply is available through the real CLI entrypoint", () => {
   const project = mkdtempSync(join(tmpdir(), "ega-cli-project-"));
-  const current = testLock("a");
-  const candidate = testLock("b");
+  const configText = "schema_version: 1\n";
+  writeFileSync(join(project, ".egaskills.yaml"), configText);
+  const configDigest = hashNormalizedConfig(parseProjectConfig(configText));
+  const current = testLock("a", configDigest);
+  const candidate = testLock("b", configDigest);
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile(current));
   const plan = createRemoteLockPlan({
-    projectConfigDigest: digest("a"),
+    projectConfigDigest: configDigest,
     existingLockDigest: digestProjectLock(current),
     targetReleaseDigest: digest("c"),
     current,

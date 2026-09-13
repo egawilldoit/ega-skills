@@ -1,5 +1,6 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { createEnvelope, hashBytes, canonicalizeJson, verifyEnvelope } from "@ega-skills/hashing";
 import type { ProjectConfigV1 } from "./config.js";
 import { serializeLockfile, validateLockfile, type ProjectLockV1 } from "./lock.js";
@@ -121,22 +122,81 @@ export function createRemoteLockPlan(input: {
   assertDigest(input.existingLockDigest, "existingLockDigest");
   assertDigest(input.targetReleaseDigest, "targetReleaseDigest");
   const candidate = validateLockfile(input.candidate, input.projectConfigDigest);
-  const ids = new Set([...Object.keys(input.current.skills), ...Object.keys(candidate.skills)]);
-  const changes: RemoteLockChange[] = [...ids].sort().flatMap((skill_ref) => {
-    const oldVersion = input.current.skills[skill_ref]?.version_hash ?? null;
-    const newVersion = candidate.skills[skill_ref]?.version_hash ?? null;
-    return oldVersion === newVersion ? [] : [{ skill_ref, old_version: oldVersion, new_version: newVersion }];
-  });
   return createEnvelope({ object_type: "ega.remote-lock-plan", schema_version: 1, payload: {
     project_config_digest: input.projectConfigDigest,
     existing_lock_digest: input.existingLockDigest,
     target_release_digest: input.targetReleaseDigest,
     candidate_lock: candidate,
-    changes,
+    changes: completeRemoteLockChanges(input.current, candidate),
   } }) as RemoteLockPlan;
 }
 
-export function applyRemoteLockPlan(plan: RemoteLockPlan, lockPath: string): void {
+/**
+ * The complete current → candidate transition across the union of both lock
+ * catalogs. Apply recomputes this and requires the plan to describe it
+ * exactly, so a plan cannot understate or misstate the reviewed transition.
+ */
+function completeRemoteLockChanges(current: ProjectLockV1, candidate: ProjectLockV1): RemoteLockChange[] {
+  const ids = new Set([...Object.keys(current.skills), ...Object.keys(candidate.skills)]);
+  return [...ids].sort().flatMap((skill_ref) => {
+    const oldVersion = current.skills[skill_ref]?.version_hash ?? null;
+    const newVersion = candidate.skills[skill_ref]?.version_hash ?? null;
+    return oldVersion === newVersion ? [] : [{ skill_ref, old_version: oldVersion, new_version: newVersion }];
+  });
+}
+
+/** Preconditions that bind a reviewed plan to the exact project state. */
+export interface RemoteLockApplyPreconditions {
+  /** Digest of the selected normalized project config at apply time. */
+  readonly projectConfigDigest: string;
+  /** Parsed lock adjacent to the selected config at apply time. */
+  readonly currentLock: ProjectLockV1;
+}
+
+function syncDirectory(path: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    fsyncSync(fd);
+  } catch (error) {
+    const code = (error as { code?: unknown })?.code;
+    if (!["EINVAL", "EISDIR", "ENOTSUP", "EOPNOTSUPP", "EPERM"].includes(String(code))) throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/**
+ * Atomic lock write: exclusive-create a uniquely named temp (no fixed-name
+ * collision), fsync it, rename over the target, then sync the directory.
+ * A failure removes the temp and leaves the prior lock byte-identical.
+ */
+function writeLockAtomically(lockPath: string, text: string): void {
+  const temp = `${lockPath}.${randomUUID()}.tmp`;
+  let fd: number | undefined;
+  try {
+    mkdirSync(dirname(lockPath), { recursive: true });
+    fd = openSync(temp, "wx");
+    writeSync(fd, text);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(temp, lockPath);
+  } catch (error) {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* preserve the original failure */ }
+    }
+    try { rmSync(temp, { force: true }); } catch { /* best-effort temp cleanup */ }
+    throw error;
+  }
+  syncDirectory(dirname(lockPath));
+}
+
+export function applyRemoteLockPlan(
+  plan: RemoteLockPlan,
+  lockPath: string,
+  preconditions: RemoteLockApplyPreconditions,
+): void {
   if (plan === null || typeof plan !== "object" || Array.isArray(plan)) throw new Error("invalid remote lock plan");
   assertExactKeys(plan as unknown as Record<string, unknown>, ["object_type", "schema_version", "payload", "digest"], "remote lock plan");
   if (plan.object_type !== "ega.remote-lock-plan" || plan.schema_version !== 1 || !verifyEnvelope(plan).ok) throw new Error("invalid remote lock plan");
@@ -147,10 +207,24 @@ export function applyRemoteLockPlan(plan: RemoteLockPlan, lockPath: string): voi
   assertDigest(payload.project_config_digest, "project_config_digest");
   assertDigest(payload.existing_lock_digest, "existing_lock_digest");
   assertDigest(payload.target_release_digest, "target_release_digest");
+  if (preconditions === null || typeof preconditions !== "object" || Array.isArray(preconditions)) {
+    throw new Error("remote lock apply requires current project preconditions");
+  }
+  assertDigest(preconditions.projectConfigDigest, "projectConfigDigest");
+  // A plan bound to a different project configuration is a foreign plan.
+  if (payload.project_config_digest !== preconditions.projectConfigDigest) {
+    throw new Error("project config does not match the reviewed plan");
+  }
+  // A lock edited or replaced after planning makes the plan stale.
+  if (digestProjectLock(preconditions.currentLock) !== payload.existing_lock_digest) {
+    throw new Error("existing lock does not match the reviewed plan");
+  }
   const candidate = validateLockfile(payload.candidate_lock, payload.project_config_digest);
   validateRemoteLockChanges(payload.changes, candidate);
-  const temp = join(dirname(lockPath), `.egaskills.lock.${Date.now()}.tmp`);
-  mkdirSync(dirname(lockPath), { recursive: true });
-  writeFileSync(temp, serializeLockfile(plan.payload.candidate_lock));
-  renameSync(temp, lockPath);
+  // The plan must describe the COMPLETE transition, not a caller-chosen subset.
+  const expectedChanges = completeRemoteLockChanges(preconditions.currentLock, candidate);
+  if (hashBytes(canonicalizeJson(payload.changes)) !== hashBytes(canonicalizeJson(expectedChanges))) {
+    throw new Error("changes do not completely describe the lock transition");
+  }
+  writeLockAtomically(lockPath, serializeLockfile(candidate));
 }
