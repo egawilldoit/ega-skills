@@ -153,6 +153,15 @@ export interface RemoteLockApplyPreconditions {
   readonly currentLock: ProjectLockV1;
 }
 
+/** Injection seam for the post-rename directory synchronization step. */
+export interface RemoteLockApplyOptions {
+  /**
+   * Defaults to a real directory fsync. Tests inject failures here to pin
+   * the post-commit durability contract.
+   */
+  readonly syncDirectory?: (path: string) => void;
+}
+
 function syncDirectory(path: string): void {
   let fd: number | undefined;
   try {
@@ -169,9 +178,14 @@ function syncDirectory(path: string): void {
 /**
  * Atomic lock write: exclusive-create a uniquely named temp (no fixed-name
  * collision), fsync it, rename over the target, then sync the directory.
- * A failure removes the temp and leaves the prior lock byte-identical.
+ *
+ * Failures BEFORE the rename remove the temp and leave the prior lock
+ * byte-identical. A failure of the post-rename directory sync is a
+ * post-commit durability failure: the candidate lock is already complete on
+ * disk, so it is reported as exactly that — never as a preserved old lock —
+ * and a retry converges to a deterministic stale rejection.
  */
-function writeLockAtomically(lockPath: string, text: string): void {
+function writeLockAtomically(lockPath: string, text: string, syncDir: (path: string) => void): void {
   const temp = `${lockPath}.${randomUUID()}.tmp`;
   let fd: number | undefined;
   try {
@@ -189,13 +203,19 @@ function writeLockAtomically(lockPath: string, text: string): void {
     try { rmSync(temp, { force: true }); } catch { /* best-effort temp cleanup */ }
     throw error;
   }
-  syncDirectory(dirname(lockPath));
+  try {
+    syncDir(dirname(lockPath));
+  } catch (error) {
+    const detail = error instanceof Error && error.message.length > 0 ? error.message : String(error);
+    throw new Error(`remote lock apply committed the candidate lock but directory durability sync failed: ${detail}`);
+  }
 }
 
 export function applyRemoteLockPlan(
   plan: RemoteLockPlan,
   lockPath: string,
   preconditions: RemoteLockApplyPreconditions,
+  options: RemoteLockApplyOptions = {},
 ): void {
   if (plan === null || typeof plan !== "object" || Array.isArray(plan)) throw new Error("invalid remote lock plan");
   assertExactKeys(plan as unknown as Record<string, unknown>, ["object_type", "schema_version", "payload", "digest"], "remote lock plan");
@@ -226,5 +246,5 @@ export function applyRemoteLockPlan(
   if (hashBytes(canonicalizeJson(payload.changes)) !== hashBytes(canonicalizeJson(expectedChanges))) {
     throw new Error("changes do not completely describe the lock transition");
   }
-  writeLockAtomically(lockPath, serializeLockfile(candidate));
+  writeLockAtomically(lockPath, serializeLockfile(candidate), options.syncDirectory ?? syncDirectory);
 }

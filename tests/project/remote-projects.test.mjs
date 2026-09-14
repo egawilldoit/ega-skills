@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,10 +11,14 @@ import {
   digestProjectLock,
   hashNormalizedConfig,
   parseProjectConfig,
+  validateLockfile,
   verifyProjectContext,
 } from "../../packages/project/dist/index.js";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import { runRemoteLockApply } from "../../packages/cli/dist/index.js";
+
+const projectRequire = createRequire(new URL("../../packages/project/package.json", import.meta.url));
+const parseYaml = projectRequire("yaml").parse;
 
 const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
 const lock = (skill, version, configHash = digest("a")) => ({
@@ -141,6 +146,35 @@ test("remote lock apply locates the discovered project boundary from a nested di
   assert.equal(result.path, join(project, ".egaskills.lock"));
   assert.match(readFileSync(join(project, ".egaskills.lock"), "utf8"), new RegExp(digest("b")));
   assert.deepEqual(readdirSync(nested), [], "nested invocation must not write a lock");
+});
+
+test("a post-rename durability failure is reported as an explicit post-commit state", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-durability-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+      syncDirectory: () => {
+        throw Object.assign(new Error("injected EIO"), { code: "EIO" });
+      },
+    }),
+    /committed the candidate lock but directory durability sync failed/,
+    "a durability failure after the rename must be reported as post-commit, not as a preserved old lock",
+  );
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")), "the committed candidate must be complete on disk");
+  assert.deepEqual(readdirSync(dir), [".egaskills.lock"], "no temp artifacts may remain");
+
+  const onDisk = validateLockfile(parseYaml(readFileSync(path, "utf8")), digest("a"));
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: onDisk, projectConfigDigest: digest("a") }),
+    /existing lock does not match/,
+    "retry with the already-applied candidate must converge to a deterministic stale rejection",
+  );
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")));
 });
 
 test("remote lock apply rejects forged or malformed change summaries", () => {
