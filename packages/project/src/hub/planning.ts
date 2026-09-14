@@ -11,7 +11,7 @@
 // the checker; apply-time reporting refines this against the preserved old
 // tree). Canonical identity always comes from the V1 importer, never invented.
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEnvelope } from "@ega-skills/hashing";
@@ -77,15 +77,6 @@ export type CheckResult =
   | { status: "NO_CHANGE"; targetCommit: string }
   | { status: "UPDATE_AVAILABLE"; plan: UpdatePlanDocument };
 
-function readSkillName(skillMdPath: string): string {
-  const text = readFileSync(skillMdPath, "utf8");
-  const match = text.match(/^name:\s*(.+?)\s*$/m);
-  if (!match || !match[1]) {
-    throw new HubError("E_PLAN_FETCH", `candidate skill has no frontmatter name: ${skillMdPath}`);
-  }
-  return match[1];
-}
-
 export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
   const { sourceId, config, adopted, workDir } = input;
   const target = resolveRefToCommit(config.repository, config.ref);
@@ -127,8 +118,13 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     const candidateSkillTreeDigests: Record<string, string> = {};
     const selectedSkillDirs = discoverSelectedSkillsFromGit(fetchDir, target, config.selection.roots);
     for (const skillDir of selectedSkillDirs) {
-      const name = readSkillName(join(quarantineDir, ...skillDir.split("/"), "SKILL.md"));
-      const ref = `${config.namespace}/${name}`;
+      // Canonical identity comes exclusively from the importer that just
+      // accepted this tree: it requires the frontmatter name to equal the
+      // skill directory leaf (SPEC-001 §5.1.2), so the canonical ID is the
+      // namespace plus that leaf. Never re-read frontmatter here — quoted,
+      // commented, or otherwise valid YAML would disagree with the importer.
+      const leaf = skillDir.split("/").pop() as string;
+      const ref = `${config.namespace}/${leaf}`;
       const rows = listSkillVersions(registry.db, ref);
       const latest = rows[rows.length - 1];
       if (!latest) {

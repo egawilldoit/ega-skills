@@ -263,12 +263,22 @@ export function runRemoteLockPlan(options: RemoteLockPlanCommandOptions): Remote
   return plan;
 }
 
-/** Apply a reviewed, exact-release-bound remote lock plan locally. */
+/** Apply a reviewed, exact-release-bound remote lock plan to the discovered project. */
 export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
   const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock apply requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const currentLock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
-  applyRemoteLockPlan(plan, join(projectDir, ".egaskills.lock"));
-  return { applied: true, path: join(projectDir, ".egaskills.lock"), target_release_digest: plan.payload.target_release_digest };
+  applyRemoteLockPlan(plan, discovery.lockPath, {
+    currentLock,
+    projectConfigDigest: configDigest,
+  });
+  return { applied: true, path: discovery.lockPath, target_release_digest: plan.payload.target_release_digest };
 }
 
 export interface ContextPublishCommandOptions {

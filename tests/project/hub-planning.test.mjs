@@ -150,6 +150,81 @@ test("NO_CHANGE when adopted equals upstream tip", async () => {
   assert.equal(res.targetCommit, shaB);
 });
 
+test("planning accepts quoted frontmatter names exactly as the canonical importer does", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ega-plan-quoted-"));
+  git(dir, "init", "-b", "main");
+  for (const name of ["double", "single", "comment"]) {
+    mkdirSync(join(dir, "skills", name), { recursive: true });
+    writeFileSync(join(dir, "skills", name, "SKILL.md"), skill(name, `${name} body A.`));
+  }
+  writeFileSync(join(dir, "LICENSE"), "License A.\n");
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "A");
+  const shaA = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+  writeFileSync(join(dir, "skills", "double", "SKILL.md"), `---\nname: "double"\ndescription: double body B.\n---\n\nChanged.\n`);
+  writeFileSync(join(dir, "skills", "single", "SKILL.md"), `---\nname: 'single'\ndescription: single body B.\n---\n\nChanged.\n`);
+  writeFileSync(join(dir, "skills", "comment", "SKILL.md"), `---\nname : "comment"   # trailing comment\ndescription: comment body B.\n---\n\nChanged.\n`);
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "B");
+
+  const roots = ["skills/comment", "skills/double", "skills/single"];
+  const configText = `schema_version: 1\nsources:\n  plan:\n    type: git\n    repository: ${dir}\n    ref: main\n    namespace: plan\n    selection:\n      roots:\n${roots.map((root) => `        - ${root}`).join("\n")}\n    provenance_files:\n      - LICENSE\n`;
+  const src = parseSourcesYaml(configText).sources["plan"];
+  const adoptedTree = adoptedTreeAt(dir, shaA, roots, src.provenanceFiles);
+  const res = await checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/double": "sha256:aa", "plan/single": "sha256:bb", "plan/comment": "sha256:cc" },
+      skillTreeDigests: {
+        "plan/double": adoptedTree.skillTreeDigests.double,
+        "plan/single": adoptedTree.skillTreeDigests.single,
+        "plan/comment": adoptedTree.skillTreeDigests.comment,
+      },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-work-")),
+  });
+
+  assert.equal(res.status, "UPDATE_AVAILABLE");
+  const refs = res.plan.payload.changed_skills.map((skill) => skill.skill_ref).sort();
+  assert.deepEqual(refs, ["plan/comment", "plan/double", "plan/single"]);
+  assert.ok(res.plan.payload.changed_skills.every((skill) => /^sha256:[0-9a-f]{64}$/.test(skill.new_version)));
+});
+
+test("planning rejects malformed frontmatter names through canonical validation", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ega-plan-badname-"));
+  git(dir, "init", "-b", "main");
+  mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
+  writeFileSync(join(dir, "skills", "alpha", "SKILL.md"), skill("alpha", "Alpha body A."));
+  writeFileSync(join(dir, "LICENSE"), "License A.\n");
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "A");
+  const shaA = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  writeFileSync(join(dir, "skills", "alpha", "SKILL.md"), `---\nname: "Alpha"\ndescription: bad name.\n---\n\nChanged.\n`);
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "B");
+
+  const configText = `schema_version: 1\nsources:\n  plan:\n    type: git\n    repository: ${dir}\n    ref: main\n    namespace: plan\n    selection:\n      roots:\n        - skills/alpha\n    provenance_files:\n      - LICENSE\n`;
+  const src = parseSourcesYaml(configText).sources["plan"];
+  const adoptedTree = adoptedTreeAt(dir, shaA, ["skills/alpha"], src.provenanceFiles);
+  assert.equal(await codeOf(() => checkForUpdates({
+    adopted: {
+      commit: shaA,
+      snapshotDigest: adoptedTree.snapshotDigest,
+      treeDigest: adoptedTree.treeDigest,
+      versions: { "plan/alpha": "sha256:aa" },
+      skillTreeDigests: { "plan/alpha": adoptedTree.skillTreeDigests.alpha },
+    },
+    config: src,
+    sourceId: "plan",
+    workDir: mkdtempSync(join(tmpdir(), "ega-plan-work-")),
+  })), "E_PLAN_FETCH");
+});
+
 test("UPDATE_AVAILABLE carries exact commit, change sets, and a verifying digest", async () => {
   const { dir, shaA, shaB } = makeFixtureRepo();
   const { cfg, src } = loadConfig(dir);

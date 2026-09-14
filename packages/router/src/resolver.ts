@@ -74,6 +74,14 @@ export interface ResolveInput {
   readonly explicitSkills?: readonly string[];
   readonly budget?: ResolveBudgetInput;
   readonly policy?: ResolvePolicyInput;
+  /**
+   * Skills invisible to this resolution (hosted authorization). Excluded IDs
+   * and their aliases are removed from the reference index before any
+   * resolution step, so they can never appear in selected, candidates,
+   * rejected, or explanations. Local callers omit this: policy rejection
+   * semantics stay frozen.
+   */
+  readonly excludedSkillIds?: readonly string[];
   /** Environment carrying EGA_SKILLS_HOME for the registry. */
   readonly env: Record<string, string | undefined>;
 }
@@ -162,16 +170,17 @@ function routerImplementationVersion(): string {
 function loadL0Rows(
   registry: RegistryHandle,
   locked: ReadonlyMap<string, string> | null,
+  excluded: ReadonlySet<string>,
 ): { rows: L0Row[]; knownSkills: { canonicalId: string; aliases: readonly string[] }[] } {
   const db = registry.db;
   const skills = queryAll<{ skill_id: string; namespace: string; name: string }>(
     db,
     "SELECT skill_id, namespace, name FROM skills ORDER BY skill_id ASC",
-  );
+  ).filter((skill) => !excluded.has(skill.skill_id));
   const aliasRows = queryAll<{ alias: string; skill_id: string }>(
     db,
     "SELECT alias, skill_id FROM skill_aliases ORDER BY alias ASC",
-  );
+  ).filter((row) => !excluded.has(row.skill_id));
   const ownedAliases = new Map<string, string[]>();
   for (const row of aliasRows) {
     const list = ownedAliases.get(row.skill_id);
@@ -182,7 +191,7 @@ function loadL0Rows(
   const targets: Array<{ skillId: string; versionHash: string }> = [];
   if (locked !== null) {
     for (const [skillId, versionHash] of [...locked].sort()) {
-      targets.push({ skillId, versionHash });
+      if (!excluded.has(skillId)) targets.push({ skillId, versionHash });
     }
   } else {
     for (const skill of skills) {
@@ -398,7 +407,8 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   // never migrate the registry or materialize the home tree as a side effect.
   const registry = openRegistry({ env: input.env, readonly: true });
   try {
-    const loaded = loadL0Rows(registry, locked);
+    const excluded = new Set(input.excludedSkillIds ?? []);
+    const loaded = loadL0Rows(registry, locked, excluded);
     const rows = loaded.rows;
     const knownSkills = loaded.knownSkills;
     const eligible = new Map(rows.map((row) => [row.canonicalId, toEligibleSkill(row)]));

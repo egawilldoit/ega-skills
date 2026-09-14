@@ -613,6 +613,24 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     // real adopted tree and lock remain untouched if any global invariant
     // fails, including duplicate IDs or malformed imported skills.
     await validateProspectiveHub(hubDir, verified.sourceId, stageDir, newLockText);
+    // Contract B §5/§7 freshness: the early check bound the plan to the lock
+    // record; here, under the mutation lock and immediately before any
+    // mutation, recompute the live adopted identities and re-check the
+    // destination. A tree or lock edited after planning must never be
+    // silently overwritten, and uncommitted lock edits refuse the apply.
+    if (readFileSync(lockFile, "utf8") !== lockText) {
+      throw new HubError("E_PLAN_STALE", "adopted lock changed after planning");
+    }
+    if (existsSync(staging) || existsSync(backup) || readJournal(hubDir)) {
+      throw new HubError("E_LOCK_MISMATCH", "hub destination became dirty before install");
+    }
+    const liveIdentity = digestStagedTree(liveTree, current.selection.roots);
+    if (
+      liveIdentity.treeDigest !== verified.expectedTreeDigest ||
+      liveIdentity.snapshotDigest !== current.vendored_snapshot_digest
+    ) {
+      throw new HubError("E_PLAN_STALE", "adopted tree no longer matches the plan's expected state");
+    }
     // Build + validate the staged tree, then open the journal.
     busyGuard(() => copyDirTree(stageDir, join(staging, verified.sourceId)));
     const journal: HubJournal = {

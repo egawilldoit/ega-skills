@@ -16,7 +16,7 @@ import {
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { sha256Hex } from "@ega-skills/hashing";
-import { verifyHubRelease, type HubRelease } from "@ega-skills/project";
+import { verifyHubRelease, verifyReleaseProjection, type HubRelease } from "@ega-skills/project";
 import { PROJECT_CONFIG_V1_DEFAULTS, type ProjectConfigV1 } from "@ega-skills/project";
 import { getCacheBlob, getSkillVersion } from "@ega-skills/registry";
 import { runGetContentTool, GET_CONTENT_OUTPUT_SCHEMA } from "./get-content.js";
@@ -53,6 +53,8 @@ export interface HostedRuntimeOptions {
   readonly maxConcurrentRequests?: number;
   /** Resolve the personal stable pointer once for an unpinned request. */
   readonly resolveStableRelease?: (signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
+  /** Load one exact verified release by digest (R1/R2 pins). */
+  readonly resolveRelease?: (releaseDigest: string, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
   /** Resolve and authorize an exact Contract E context before tool execution. */
   readonly resolveContext?: (contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
 }
@@ -120,6 +122,11 @@ export function loadHostedReleaseSnapshot(artifactDir: string): HostedReleaseSna
     if (!table) throw new Error("release FTS table missing");
     const rows = db.prepare(`SELECT count(*) AS count FROM ${ftsTable}`).get() as { count: number };
     if (rows.count !== releasePackage.snapshot_rows) throw new Error("release FTS row count mismatch");
+    // The runtime projection must equal the semantic artifacts the
+    // HubRelease binds: exact catalog, aliases, search rows in BOTH FTS
+    // tables, token metadata, manifests, and file identities. SQLite bytes
+    // alone are not semantic identity.
+    verifyReleaseProjection(db, release.payload, ftsTable);
     const cacheDir = join(artifactDir, "cache", "sha256");
     for (const [skillId, versionHash] of Object.entries(release.payload.skill_versions)) {
       const version = getSkillVersion(db, skillId, versionHash);
@@ -258,15 +265,38 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       authorizationMemo.set(key, result);
       return result;
     };
-    let stableSnapshotPromise: Promise<HostedReleaseSnapshot> | undefined;
+    let selectionPromise: Promise<HostedReleaseSnapshot> | undefined;
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
-      if (typeof args.context_id === "string") {
-        if (!options.resolveContext) return Promise.reject(new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is unavailable"));
-        if (!principal) return Promise.reject(new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized"));
-        return options.resolveContext(args.context_id, principal, requestSignal);
-      }
-      if (args.release_digest !== undefined || !options.resolveStableRelease) return Promise.resolve(snapshot);
-      return stableSnapshotPromise ??= options.resolveStableRelease(requestSignal);
+      // One request selects exactly one release handle. Every tool phase
+      // (guard, body, post-checks) reuses this promise, so a context is
+      // resolved once and no phase can observe a different snapshot.
+      selectionPromise ??= (async () => {
+        const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
+        const requestedDigest = typeof args.release_digest === "string" ? args.release_digest : undefined;
+        let resolved: HostedReleaseSnapshot;
+        if (contextId !== undefined) {
+          if (!options.resolveContext) throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id is unavailable");
+          if (!principal) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+          resolved = await options.resolveContext(contextId, principal, requestSignal);
+        } else if (requestedDigest !== undefined) {
+          if (options.resolveRelease) {
+            resolved = await options.resolveRelease(requestedDigest, requestSignal);
+          } else if (requestedDigest === snapshot.releaseDigest) {
+            resolved = snapshot;
+          } else {
+            throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not available");
+          }
+        } else if (options.resolveStableRelease) {
+          resolved = await options.resolveStableRelease(requestSignal);
+        } else {
+          resolved = snapshot;
+        }
+        if (requestedDigest !== undefined && resolved.releaseDigest !== requestedDigest) {
+          throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not the verified release");
+        }
+        return resolved;
+      })();
+      return selectionPromise;
     };
     const server = new McpServer({ name: "ega-skills-hosted", version: "1.0.1" }, { capabilities: { tools: {} } });
     const guard = async (tool: string, args: Record<string, unknown>, body: (context: McpProjectContext) => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
@@ -293,9 +323,9 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");
     };
     server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runSearchTool(args, requestContext, { ftsTable: effectiveSnapshot.ftsTable }); }));
-    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runResolveTool(args, requestContext, { env: { EGA_SKILLS_HOME: effectiveSnapshot.context.registryHome } }); }));
-    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, (requestContext) => { requirePinned(args, snapshot); const output = runInspectTool(args as unknown as McpInspectArgs, requestContext); return toCallResult(output); }));
-    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, (requestContext) => { requirePinned(args, snapshot); return runGetContentTool(args, requestContext); }));
+    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runResolveTool(args, requestContext, { env: { EGA_SKILLS_HOME: effectiveSnapshot.context.registryHome }, excludedSkillIds: requestContext.config.skills.deny }); }));
+    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); const output = runInspectTool(args as unknown as McpInspectArgs, requestContext); return toCallResult(output); }));
+    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); return runGetContentTool(args, requestContext); }));
     return server;
   }, { legacy: "stateless", responseMode: "json" });
   return {
