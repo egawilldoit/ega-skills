@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -318,6 +318,201 @@ test("a live mutation guard is never stolen by a concurrent apply", () => {
     readdirSync(dir).filter((name) => name.startsWith(".egaskills.lock")).sort(),
     [".egaskills.lock"],
   );
+});
+
+test("a symlinked guard directory is rejected and external files are never touched", async () => {
+  const base = mkdtempSync(join(tmpdir(), "ega-remote-lock-symlink-"));
+  const project = join(base, "project");
+  const external = join(base, "external");
+  mkdirSync(project, { recursive: true });
+  mkdirSync(external, { recursive: true });
+  const lockPath = join(project, ".egaskills.lock");
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  writeFileSync(lockPath, `${JSON.stringify(current, null, 2)}\n`);
+
+  const dead = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve) => dead.once("exit", resolve));
+  writeFileSync(join(external, "owner.deadmarker"), JSON.stringify({ pid: dead.pid, token: "deadmarker" }));
+  writeFileSync(join(external, "sentinel.txt"), "sentinel bytes\n");
+  const sentinelBefore = readFileSync(join(external, "sentinel.txt"));
+  const ownerBefore = readFileSync(join(external, "owner.deadmarker"));
+  // A junction works without elevated privileges on Windows; the type is
+  // ignored on POSIX, where this creates a plain directory symlink.
+  symlinkSync(external, join(project, ".egaskills.lock.guard"), "junction");
+  assert.equal(
+    existsSync(join(project, ".egaskills.lock.guard")),
+    true,
+    "the guard path must be a symlink/junction for this reproduction",
+  );
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, lockPath, { currentLock: current, projectConfigDigest: digest("a") }),
+    /cannot read the mutation guard state/,
+    "a linked guard path must be rejected, never traversed",
+  );
+  assert.equal(
+    existsSync(join(external, "owner.deadmarker")),
+    true,
+    "reclamation must never reach through the linked guard to the external owner marker",
+  );
+  assert.deepEqual(readFileSync(join(external, "owner.deadmarker")), ownerBefore);
+  assert.deepEqual(readFileSync(join(external, "sentinel.txt")), sentinelBefore, "external files must remain byte-identical");
+  assert.equal(
+    existsSync(join(project, ".egaskills.lock.guard")),
+    true,
+    "ambiguous guard state must not be repaired destructively",
+  );
+});
+
+test("a symlinked owner marker is rejected and the external target is untouched", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-owner-link-"));
+  const external = join(dir, "external");
+  mkdirSync(external, { recursive: true });
+  const lockPath = join(dir, ".egaskills.lock");
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  writeFileSync(lockPath, `${JSON.stringify(current, null, 2)}\n`);
+  writeFileSync(join(external, "dead.json"), JSON.stringify({ pid: 2147483000, token: "external" }));
+  const externalBefore = readFileSync(join(external, "dead.json"));
+  const guardDir = `${lockPath}.guard`;
+  mkdirSync(guardDir, { recursive: true });
+  symlinkSync(join(external, "dead.json"), join(guardDir, "owner.linked"), "file");
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, lockPath, { currentLock: current, projectConfigDigest: digest("a") }),
+    /cannot read the mutation guard state/,
+    "an owner entry that is not a real regular file must be rejected",
+  );
+  assert.deepEqual(readFileSync(join(external, "dead.json")), externalBefore, "the external marker target must survive");
+  assert.equal(existsSync(join(guardDir, "owner.linked")), true, "the owner symlink must not be deleted");
+});
+
+test("an empty guard directory fails closed without being stolen or reinitialized", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-empty-guard-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  mkdirSync(`${path}.guard`, { recursive: true });
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /mutation guard/,
+  );
+  assert.deepEqual(
+    readdirSync(`${path}.guard`),
+    [],
+    "an empty guard must not be silently reinitialized",
+  );
+});
+
+test("a guard with multiple owner files fails closed as ambiguous", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-multi-guard-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const guardDir = `${path}.guard`;
+  mkdirSync(guardDir, { recursive: true });
+  writeFileSync(join(guardDir, "owner.aaaaaaaa"), JSON.stringify({ pid: 2147483000, token: "a" }));
+  writeFileSync(join(guardDir, "owner.bbbbbbbb"), JSON.stringify({ pid: 2147483000, token: "b" }));
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /mutation guard/,
+  );
+  assert.deepEqual(
+    readdirSync(guardDir).sort(),
+    ["owner.aaaaaaaa", "owner.bbbbbbbb"],
+    "ambiguous guard state must not be repaired destructively",
+  );
+});
+
+test("an owner entry that is a directory fails closed", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-owner-dir-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const guardDir = `${path}.guard`;
+  mkdirSync(join(guardDir, "owner.aaaaaaaa"), { recursive: true });
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /mutation guard/,
+  );
+  assert.equal(existsSync(join(guardDir, "owner.aaaaaaaa")), true, "the owner directory must not be removed");
+});
+
+test("a malformed owner marker fails closed", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-badmarker-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const guardDir = `${path}.guard`;
+  mkdirSync(guardDir, { recursive: true });
+  writeFileSync(join(guardDir, "owner.aaaaaaaa"), "not-json");
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /mutation guard/,
+  );
+  assert.equal(existsSync(join(guardDir, "owner.aaaaaaaa")), true, "unreadable guard state must not be deleted");
+});
+
+test("a regular file at the guard path fails closed", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-file-guard-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  writeFileSync(`${path}.guard`, "not a guard directory");
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /mutation guard/,
+  );
+  assert.equal(existsSync(`${path}.guard`), true, "the file must not be removed or replaced");
+});
+
+test("release never removes a replacement owner's marker", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-replacement-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const guardDir = `${path}.guard`;
+
+  applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+    beforeCommit: () => {
+      // Simulate a replacement owner that took the guard directory over
+      // while the outer apply held it: the outer owner marker disappears
+      // and a different live owner appears.
+      const owners = readdirSync(guardDir).filter((name) => name.startsWith("owner."));
+      assert.equal(owners.length, 1, `the outer apply must hold exactly one owner marker; got ${JSON.stringify(owners)}`);
+      rmSync(join(guardDir, owners[0]), { force: false });
+      writeFileSync(join(guardDir, "owner.replacement"), JSON.stringify({ pid: process.pid, token: "replacement" }));
+    },
+  });
+
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")), "the outer apply still commits its reviewed candidate");
+  assert.deepEqual(
+    readdirSync(guardDir),
+    ["owner.replacement"],
+    "release must never remove another owner's marker",
+  );
+  rmSync(join(guardDir, "owner.replacement"), { force: false });
+  rmdirSync(guardDir);
 });
 
 test("a stale mutation guard left by a dead process is reclaimed deterministically", async () => {

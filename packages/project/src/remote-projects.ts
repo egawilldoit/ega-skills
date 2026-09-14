@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { TextEncoder } from "node:util";
 import { dirname, join } from "node:path";
@@ -178,15 +178,26 @@ export interface RemoteLockApplyOptions {
 
 // --- Exclusive mutation guard -------------------------------------------------
 //
-// Mirrors the Hub mutation lock pattern: an exclusive-create guard directory
-// holding one owner file with a live pid. A live owner is never stolen; a
-// guard left by a dead process is reclaimed by removing exactly that owner's
-// file and the now-empty directory. Release removes only the owner's own
-// marker, so a replacement owner is never affected.
+// Mirrors the Hub mutation lock's confinement model: the guard path is
+// verified with lstat BEFORE any traversal, so a symlink or junction at the
+// guard path is rejected instead of followed; directory entries are
+// enumerated with Dirent types, so an owner marker that is itself a symlink,
+// a directory, missing, or duplicated fails closed; and reclamation removes
+// ONLY the exact owner entry that was just verified, with a non-recursive
+// directory removal. Ambiguous or unreadable guard state is never repaired
+// destructively and a live owner is never stolen.
 
 interface GuardOwner {
   readonly pid: number;
   readonly token: string;
+}
+
+interface GuardSnapshot {
+  /** A real, verified guard directory. */
+  readonly kind: "directory";
+  readonly ownerPath: string | undefined;
+  readonly marker: string | undefined;
+  readonly owner: GuardOwner | undefined;
 }
 
 let guardGeneration = 0;
@@ -203,16 +214,7 @@ function guardDirectory(lockPath: string): string {
   return `${lockPath}.guard`;
 }
 
-function readGuardSnapshot(dir: string): { ownerPath: string; marker: string; owner: GuardOwner } | undefined {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return undefined;
-  }
-  const owners = entries.filter((name) => name.startsWith("owner."));
-  if (owners.length !== 1 || owners[0] === undefined) return undefined;
-  const ownerPath = join(dir, owners[0]);
+function readGuardOwner(ownerPath: string): { marker: string; owner: GuardOwner } | undefined {
   let text: string;
   try {
     text = readFileSync(ownerPath, "utf8").trim();
@@ -226,10 +228,38 @@ function readGuardSnapshot(dir: string): { ownerPath: string; marker: string; ow
         typeof (value as { token?: unknown }).token !== "string") {
       return undefined;
     }
-    return { marker: text, owner: value as GuardOwner, ownerPath };
+    return { marker: text, owner: value as GuardOwner };
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Snapshot the guard state without ever following a link: the guard path
+ * must lstat as a real directory, the single `owner.*` entry must be a real
+ * regular file per its Dirent type, and the marker must parse. Anything else
+ * is reported as unreadable state that must fail closed.
+ */
+function readGuardSnapshot(path: string): GuardSnapshot | undefined {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return undefined;
+  }
+  if (!stat.isDirectory()) return undefined;
+  let entries;
+  try {
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const owners = entries.filter((entry) => entry.name.startsWith("owner."));
+  if (owners.length !== 1 || !owners[0]?.isFile()) return undefined;
+  const ownerPath = join(path, owners[0].name);
+  const owner = readGuardOwner(ownerPath);
+  if (owner === undefined) return undefined;
+  return { kind: "directory", ownerPath, marker: owner.marker, owner: owner.owner };
 }
 
 function guardOwnerIsAlive(owner: GuardOwner): boolean {
@@ -253,10 +283,34 @@ function acquireRemoteLockGuard(lockPath: string): { release(): void } {
       if ((error as { code?: unknown }).code !== "EEXIST") throw error;
       const snapshot = readGuardSnapshot(dir);
       if (snapshot === undefined) {
+        // Either the guard vanished between EEXIST and lstat (retry) or the
+        // guard path is a symlink/junction/file/otherwise unverifiable.
+        // Never traverse or repair state that could not be verified.
+        let linkStat;
+        try {
+          linkStat = lstatSync(dir);
+        } catch {
+          linkStat = undefined;
+        }
+        if (linkStat === undefined) continue;
+        throw new Error("remote lock apply cannot read the mutation guard state; refusing to steal or repair it");
+      }
+      if (snapshot.owner === undefined || snapshot.ownerPath === undefined || snapshot.marker === undefined) {
         throw new Error("remote lock apply cannot read the mutation guard owner; refusing to steal it");
       }
       if (guardOwnerIsAlive(snapshot.owner)) {
         throw new Error("remote lock apply is contended: another apply holds the mutation guard");
+      }
+      // Verify the exact owner entry one last time, immediately before the
+      // destructive action, and remove ONLY that verified entry.
+      let verified: { isFile(): boolean } | undefined;
+      try {
+        verified = lstatSync(snapshot.ownerPath);
+      } catch {
+        verified = undefined;
+      }
+      if (verified === undefined || !verified.isFile()) {
+        throw new Error("remote lock apply is contended: guard owner changed during reclamation");
       }
       try {
         rmSync(snapshot.ownerPath, { force: false });
