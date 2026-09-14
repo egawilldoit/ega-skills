@@ -16,6 +16,18 @@ export {
   loadHostedReleaseSnapshot,
   HostedRuntimeError,
 } from "./hosted.js";
+export {
+  createHostedRuntimeFromEnv,
+  parseHostedAuthzPolicy,
+  readHostedAuthzSource,
+  validateHostedAuthzPolicy,
+  DEFAULT_HOSTED_MAX_BODY_BYTES,
+  DEFAULT_HOSTED_MAX_CONCURRENT_REQUESTS,
+  DEFAULT_HOSTED_MAX_RESPONSE_BYTES,
+  DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
+  HOSTED_AUTHZ_PRECEDENCE,
+} from "./hosted-runtime.js";
+export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
 export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
 export { createSupabaseContextResolver } from "./hosted-supabase.js";
