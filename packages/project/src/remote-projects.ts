@@ -1,6 +1,8 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, writeSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { TextEncoder } from "node:util";
+import { dirname, join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { createEnvelope, hashBytes, canonicalizeJson, verifyEnvelope } from "@ega-skills/hashing";
 import type { ProjectConfigV1 } from "./config.js";
 import { serializeLockfile, validateLockfile, type ProjectLockV1 } from "./lock.js";
@@ -153,13 +155,152 @@ export interface RemoteLockApplyPreconditions {
   readonly currentLock: ProjectLockV1;
 }
 
-/** Injection seam for the post-rename directory synchronization step. */
+/** Injection seams for the mutation guard and durable write path. */
 export interface RemoteLockApplyOptions {
   /**
    * Defaults to a real directory fsync. Tests inject failures here to pin
    * the post-commit durability contract.
    */
   readonly syncDirectory?: (path: string) => void;
+  /**
+   * One writeSync-shaped chunk write: (fd, bytes, bufferOffset) → bytes
+   * written. Defaults to the real fs.writeSync; the durable writer loops
+   * over this until every byte is written, so injected partial writes are
+   * completed and zero-progress writes fail closed.
+   */
+  readonly write?: (fd: number, bytes: Uint8Array, offset: number) => number;
+  /**
+   * Invoked after the mutation guard is acquired and the on-disk lock is
+   * validated, before the candidate temp file is written.
+   */
+  readonly beforeCommit?: () => void;
+}
+
+// --- Exclusive mutation guard -------------------------------------------------
+//
+// Mirrors the Hub mutation lock pattern: an exclusive-create guard directory
+// holding one owner file with a live pid. A live owner is never stolen; a
+// guard left by a dead process is reclaimed by removing exactly that owner's
+// file and the now-empty directory. Release removes only the owner's own
+// marker, so a replacement owner is never affected.
+
+interface GuardOwner {
+  readonly pid: number;
+  readonly token: string;
+}
+
+let guardGeneration = 0;
+
+function guardToken(): string {
+  guardGeneration += 1;
+  const nodeProcess = (globalThis as { process?: { pid?: number } }).process;
+  return createHash("sha256")
+    .update(new TextEncoder().encode(`${nodeProcess?.pid ?? 0}:${Date.now()}:${guardGeneration}:${Math.random()}`))
+    .digest("hex");
+}
+
+function guardDirectory(lockPath: string): string {
+  return `${lockPath}.guard`;
+}
+
+function readGuardSnapshot(dir: string): { ownerPath: string; marker: string; owner: GuardOwner } | undefined {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return undefined;
+  }
+  const owners = entries.filter((name) => name.startsWith("owner."));
+  if (owners.length !== 1 || owners[0] === undefined) return undefined;
+  const ownerPath = join(dir, owners[0]);
+  let text: string;
+  try {
+    text = readFileSync(ownerPath, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value === null || typeof value !== "object" ||
+        typeof (value as { pid?: unknown }).pid !== "number" ||
+        typeof (value as { token?: unknown }).token !== "string") {
+      return undefined;
+    }
+    return { marker: text, owner: value as GuardOwner, ownerPath };
+  } catch {
+    return undefined;
+  }
+}
+
+function guardOwnerIsAlive(owner: GuardOwner): boolean {
+  const nodeProcess = (globalThis as { process?: { kill(pid: number, signal: number): void } }).process;
+  if (nodeProcess === undefined || !Number.isInteger(owner.pid) || owner.pid < 1) return true;
+  try {
+    nodeProcess.kill(owner.pid, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: unknown }).code !== "ESRCH";
+  }
+}
+
+function acquireRemoteLockGuard(lockPath: string): { release(): void } {
+  const dir = guardDirectory(lockPath);
+  mkdirSync(dirname(lockPath), { recursive: true });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      mkdirSync(dir);
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== "EEXIST") throw error;
+      const snapshot = readGuardSnapshot(dir);
+      if (snapshot === undefined) {
+        throw new Error("remote lock apply cannot read the mutation guard owner; refusing to steal it");
+      }
+      if (guardOwnerIsAlive(snapshot.owner)) {
+        throw new Error("remote lock apply is contended: another apply holds the mutation guard");
+      }
+      try {
+        rmSync(snapshot.ownerPath, { force: false });
+      } catch {
+        throw new Error("remote lock apply is contended: guard owner changed during reclamation");
+      }
+      try {
+        rmdirSync(dir);
+      } catch {
+        throw new Error("remote lock apply is contended: another apply holds the mutation guard");
+      }
+      continue;
+    }
+    const nodeProcess = (globalThis as { process?: { pid?: number } }).process;
+    const owner: GuardOwner = { pid: nodeProcess?.pid ?? 0, token: guardToken() };
+    const marker = JSON.stringify(owner);
+    const ownerPath = join(dir, `owner.${owner.token}`);
+    let fd: number | undefined;
+    try {
+      fd = openSync(ownerPath, "wx");
+      writeSync(fd, marker);
+    } catch (error) {
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* preserve the original failure */ }
+      }
+      try { rmSync(ownerPath, { force: true }); } catch { /* best-effort cleanup */ }
+      try { rmdirSync(dir); } catch { /* best-effort cleanup */ }
+      throw error;
+    }
+    closeSync(fd);
+    let released = false;
+    return {
+      release(): void {
+        if (released) return;
+        released = true;
+        const current = readGuardSnapshot(dir);
+        if (current !== undefined && current.ownerPath === ownerPath && current.marker === marker) {
+          rmSync(ownerPath, { force: false });
+          try { rmdirSync(dir); } catch { /* a replacement owner now holds the guard */ }
+        }
+      },
+    };
+  }
+  throw new Error("remote lock apply is contended: another apply holds the mutation guard");
 }
 
 function syncDirectory(path: string): void {
@@ -175,9 +316,14 @@ function syncDirectory(path: string): void {
   }
 }
 
+function defaultWriteChunk(fd: number, bytes: Uint8Array, offset: number): number {
+  return writeSync(fd, bytes, offset);
+}
+
 /**
  * Atomic lock write: exclusive-create a uniquely named temp (no fixed-name
- * collision), fsync it, rename over the target, then sync the directory.
+ * collision), write EVERY byte (looping over chunk writes; zero-progress
+ * fails closed), fsync, rename over the target, then sync the directory.
  *
  * Failures BEFORE the rename remove the temp and leave the prior lock
  * byte-identical. A failure of the post-rename directory sync is a
@@ -185,13 +331,22 @@ function syncDirectory(path: string): void {
  * disk, so it is reported as exactly that — never as a preserved old lock —
  * and a retry converges to a deterministic stale rejection.
  */
-function writeLockAtomically(lockPath: string, text: string, syncDir: (path: string) => void): void {
+function writeLockAtomically(lockPath: string, text: string, options: RemoteLockApplyOptions): void {
+  const write = options.write ?? defaultWriteChunk;
   const temp = `${lockPath}.${randomUUID()}.tmp`;
   let fd: number | undefined;
   try {
     mkdirSync(dirname(lockPath), { recursive: true });
     fd = openSync(temp, "wx");
-    writeSync(fd, text);
+    const bytes = new TextEncoder().encode(text);
+    let total = 0;
+    while (total < bytes.length) {
+      const written = write(fd, bytes, total);
+      if (!Number.isInteger(written) || written <= 0) {
+        throw new Error(`remote lock write made no progress (${total}/${bytes.length} bytes written)`);
+      }
+      total += written;
+    }
     fsyncSync(fd);
     closeSync(fd);
     fd = undefined;
@@ -204,7 +359,7 @@ function writeLockAtomically(lockPath: string, text: string, syncDir: (path: str
     throw error;
   }
   try {
-    syncDir(dirname(lockPath));
+    (options.syncDirectory ?? syncDirectory)(dirname(lockPath));
   } catch (error) {
     const detail = error instanceof Error && error.message.length > 0 ? error.message : String(error);
     throw new Error(`remote lock apply committed the candidate lock but directory durability sync failed: ${detail}`);
@@ -232,19 +387,48 @@ export function applyRemoteLockPlan(
   }
   assertDigest(preconditions.projectConfigDigest, "projectConfigDigest");
   // A plan bound to a different project configuration is a foreign plan.
+  // The caller-provided lock is an early validation hint only; disk state
+  // under the mutation guard is authoritative.
   if (payload.project_config_digest !== preconditions.projectConfigDigest) {
     throw new Error("project config does not match the reviewed plan");
   }
-  // A lock edited or replaced after planning makes the plan stale.
   if (digestProjectLock(preconditions.currentLock) !== payload.existing_lock_digest) {
     throw new Error("existing lock does not match the reviewed plan");
   }
   const candidate = validateLockfile(payload.candidate_lock, payload.project_config_digest);
   validateRemoteLockChanges(payload.changes, candidate);
-  // The plan must describe the COMPLETE transition, not a caller-chosen subset.
-  const expectedChanges = completeRemoteLockChanges(preconditions.currentLock, candidate);
-  if (hashBytes(canonicalizeJson(payload.changes)) !== hashBytes(canonicalizeJson(expectedChanges))) {
-    throw new Error("changes do not completely describe the lock transition");
+  // Serialize mutation authority BEFORE reading the authoritative current
+  // lock, and hold the guard through validation, rename, and durability
+  // synchronization. Two applies that both planned from the same starting
+  // lock can no longer both pass stale protection: the second one re-reads
+  // the winner's committed lock from disk and is rejected as stale.
+  const guard = acquireRemoteLockGuard(lockPath);
+  try {
+    let diskText: string;
+    try {
+      diskText = readFileSync(lockPath, "utf8");
+    } catch {
+      throw new Error("existing lock is missing on disk; refusing to apply the reviewed plan");
+    }
+    let diskLock: ProjectLockV1;
+    try {
+      diskLock = validateLockfile(parseYaml(diskText), preconditions.projectConfigDigest);
+    } catch (error) {
+      const detail = error instanceof Error && error.message.length > 0 ? error.message : String(error);
+      throw new Error(`existing lock on disk is not valid for the reviewed project config: ${detail}`);
+    }
+    if (digestProjectLock(diskLock) !== payload.existing_lock_digest) {
+      throw new Error("existing lock does not match the reviewed plan");
+    }
+    // The plan must describe the COMPLETE transition from the ACTUAL disk
+    // state, not a caller-chosen subset or a possibly stale in-memory hint.
+    const expectedChanges = completeRemoteLockChanges(diskLock, candidate);
+    if (hashBytes(canonicalizeJson(payload.changes)) !== hashBytes(canonicalizeJson(expectedChanges))) {
+      throw new Error("changes do not completely describe the lock transition");
+    }
+    options.beforeCommit?.();
+    writeLockAtomically(lockPath, serializeLockfile(candidate), options);
+  } finally {
+    guard.release();
   }
-  writeLockAtomically(lockPath, serializeLockfile(candidate), options.syncDirectory ?? syncDirectory);
 }

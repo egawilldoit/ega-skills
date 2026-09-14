@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,6 +20,8 @@ import { runRemoteLockApply } from "../../packages/cli/dist/index.js";
 
 const projectRequire = createRequire(new URL("../../packages/project/package.json", import.meta.url));
 const parseYaml = projectRequire("yaml").parse;
+const projectPackageJson = new URL("../../packages/project/package.json", import.meta.url).pathname;
+const projectDist = new URL("../../packages/project/dist/index.js", import.meta.url).pathname;
 
 const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
 const lock = (skill, version, configHash = digest("a")) => ({
@@ -36,6 +39,13 @@ function planFor({ current, candidate, configDigest = digest("a") }) {
     current,
     candidate,
   });
+}
+
+function waitForFile(path, what) {
+  for (let attempt = 0; attempt < 500_000; attempt += 1) {
+    if (existsSync(path)) return;
+  }
+  throw new Error(`timed out waiting for ${what}: ${path}`);
 }
 
 test("ProjectContext binds one immutable release and verifies its envelope", () => {
@@ -66,8 +76,14 @@ test("remote lock plan is exact-release bound and applies only the reviewed cand
   assert.deepEqual(plan.payload.changes, [{ skill_ref: "ega/alpha", old_version: digest("a"), new_version: digest("b") }]);
   const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-"));
   const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
   applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") });
   assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")));
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith(".egaskills.lock")),
+    [".egaskills.lock"],
+    "no temp or guard artifacts may remain after a normal apply",
+  );
 });
 
 test("remote lock apply rejects a stale existing lock and preserves it", () => {
@@ -121,10 +137,238 @@ test("remote lock apply rejects a transition that is not completely described", 
   subset.payload.changes = subset.payload.changes.filter((change) => change.skill_ref === "ega/alpha");
   subset.digest = createEnvelope({ object_type: subset.object_type, schema_version: subset.schema_version, payload: subset.payload }).digest;
   const path = join(mkdtempSync(join(tmpdir(), "ega-remote-lock-subset-")), ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
   assert.throws(
     () => applyRemoteLockPlan(subset, path, { currentLock: current, projectConfigDigest: digest("a") }),
     /completely describe/,
   );
+});
+
+test("remote lock apply refuses to apply when the lock is missing on disk", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-missing-"));
+  const path = join(dir, ".egaskills.lock");
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }),
+    /missing on disk/,
+    "the caller-provided lock object must never substitute for the real file",
+  );
+  assert.deepEqual(readdirSync(dir), [], "a failed apply must not create a lock");
+});
+
+test("two competing applies from the same starting lock cannot both commit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-race-"));
+  const lockPath = join(dir, ".egaskills.lock");
+  const configDigest = digest("a");
+  const base = lock("ega/alpha", "a", configDigest);
+  writeFileSync(lockPath, `${JSON.stringify(base, null, 2)}\n`);
+  const planB = planFor({ current: base, candidate: lock("ega/alpha", "b", configDigest), configDigest });
+  const planC = planFor({ current: base, candidate: lock("ega/alpha", "c", configDigest), configDigest });
+  const planBPath = join(dir, "plan-b.json");
+  const planCPath = join(dir, "plan-c.json");
+  writeFileSync(planBPath, JSON.stringify(planB));
+  writeFileSync(planCPath, JSON.stringify(planC));
+
+  const readyB = join(dir, "ready-b");
+  const readyC = join(dir, "ready-c");
+  const resultB = join(dir, "result-b");
+  const resultC = join(dir, "result-c");
+  const startPath = join(dir, "start");
+
+  const childScript = `
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+const require = createRequire(process.env.EGA_RACE_PROJECT_PKG);
+const { applyRemoteLockPlan, validateLockfile } = require(process.env.EGA_RACE_DIST);
+const parseYaml = require("yaml").parse;
+const lockPath = process.env.EGA_RACE_LOCK;
+const configDigest = process.env.EGA_RACE_CONFIG_DIGEST;
+const plan = JSON.parse(readFileSync(process.env.EGA_RACE_PLAN, "utf8"));
+// Both contenders observe the same starting disk state BEFORE the barrier,
+// exactly like two processes that each read A before either commits.
+const hint = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
+writeFileSync(process.env.EGA_RACE_READY, "1");
+const start = process.env.EGA_RACE_START;
+let opened = false;
+for (let i = 0; i < 500_000 && !opened; i += 1) opened = existsSync(start);
+if (!opened) {
+  writeFileSync(process.env.EGA_RACE_RESULT, "error:start barrier never opened");
+  process.exit(0);
+}
+try {
+  applyRemoteLockPlan(plan, lockPath, { currentLock: hint, projectConfigDigest: configDigest });
+  writeFileSync(process.env.EGA_RACE_RESULT, "ok");
+} catch (error) {
+  writeFileSync(process.env.EGA_RACE_RESULT, "error:" + String(error?.message ?? error));
+}
+process.exit(0);
+`;
+  const scriptPath = join(dir, "contender.mjs");
+  writeFileSync(scriptPath, childScript);
+
+  const childEnv = (planPath, ready, result) => ({
+    ...process.env,
+    EGA_RACE_PROJECT_PKG: projectPackageJson,
+    EGA_RACE_DIST: projectDist,
+    EGA_RACE_LOCK: lockPath,
+    EGA_RACE_PLAN: planPath,
+    EGA_RACE_CONFIG_DIGEST: configDigest,
+    EGA_RACE_READY: ready,
+    EGA_RACE_RESULT: result,
+    EGA_RACE_START: startPath,
+  });
+  const childB = spawn(process.execPath, [scriptPath], { env: childEnv(planBPath, readyB, resultB), stdio: ["ignore", "ignore", "pipe"] });
+  const childC = spawn(process.execPath, [scriptPath], { env: childEnv(planCPath, readyC, resultC), stdio: ["ignore", "ignore", "pipe"] });
+  let childStderr = "";
+  childB.stderr.on("data", (chunk) => { childStderr += chunk; });
+  childC.stderr.on("data", (chunk) => { childStderr += chunk; });
+
+  waitForFile(readyB, "contender B readiness");
+  waitForFile(readyC, "contender C readiness");
+  // Single-shot barrier: both contenders are live and blocking on this file.
+  writeFileSync(startPath, "go");
+  waitForFile(resultB, "contender B result");
+  waitForFile(resultC, "contender C result");
+
+  const resultTextB = readFileSync(resultB, "utf8");
+  const resultTextC = readFileSync(resultC, "utf8");
+  const outcomes = [resultTextB, resultTextC];
+  const successes = outcomes.filter((outcome) => outcome === "ok").length;
+  assert.equal(successes, 1, `exactly one competing apply may commit; got ${JSON.stringify(outcomes)}${childStderr}`);
+
+  const onDisk = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
+  assert.ok(
+    [digest("b"), digest("c")].includes(onDisk.skills["ega/alpha"].version_hash),
+    `final disk state must be exactly B or C, got ${JSON.stringify(onDisk.skills)}`,
+  );
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith(".egaskills.lock")).sort(),
+    [".egaskills.lock"],
+    "no temp or guard artifacts may remain",
+  );
+
+  const loserPlan = resultTextB === "ok" ? planC : planB;
+  assert.throws(
+    () => applyRemoteLockPlan(loserPlan, lockPath, { currentLock: base, projectConfigDigest: configDigest }),
+    /existing lock does not match/,
+    "retrying the losing original plan must converge to a stale rejection",
+  );
+});
+
+test("a live mutation guard is never stolen by a concurrent apply", () => {
+  const current = lock("ega/alpha", "a");
+  const candidateB = lock("ega/alpha", "b");
+  const candidateC = lock("ega/alpha", "c");
+  const planB = planFor({ current, candidate: candidateB });
+  const planC = planFor({ current, candidate: candidateC });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-guard-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+
+  let innerError;
+  applyRemoteLockPlan(planB, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+    beforeCommit: () => {
+      try {
+        applyRemoteLockPlan(planC, path, { currentLock: current, projectConfigDigest: digest("a") });
+        innerError = new Error("inner apply unexpectedly succeeded while the guard was held");
+      } catch (error) {
+        innerError = error;
+      }
+    },
+  });
+  assert.match(String(innerError?.message ?? ""), /contended/, "a held guard must fail contention, never be stolen");
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")), "the outer apply must still commit");
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith(".egaskills.lock")).sort(),
+    [".egaskills.lock"],
+  );
+});
+
+test("a stale mutation guard left by a dead process is reclaimed deterministically", async () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-stale-guard-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+
+  const dead = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve) => dead.once("exit", resolve));
+  mkdirSync(`${path}.guard`, { recursive: true });
+  writeFileSync(join(`${path}.guard`, `owner.${"d".repeat(64)}`), JSON.stringify({ pid: dead.pid, token: "d".repeat(64) }));
+
+  applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") });
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")));
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith(".egaskills.lock")).sort(),
+    [".egaskills.lock"],
+    "the reclaimed guard must be cleaned up with the winning apply",
+  );
+});
+
+test("a zero-progress write fails closed and preserves the prior lock", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-zerowrite-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const before = readFileSync(path);
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+      write: () => 0,
+    }),
+    /no progress/,
+    "a writer that makes no progress must fail instead of publishing an incomplete lock",
+  );
+  assert.deepEqual(readFileSync(path), before, "the prior lock must remain byte-identical");
+  assert.deepEqual(readdirSync(dir), [".egaskills.lock"], "the temp file must be cleaned up");
+});
+
+test("partial writes are driven to completion before fsync and rename", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-partial-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+
+  let calls = 0;
+  applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+    write: (fd, bytes, offset) => {
+      calls += 1;
+      const chunk = Math.min(9, bytes.length - offset);
+      projectRequire("node:fs").writeSync(fd, bytes, offset, chunk);
+      return chunk;
+    },
+  });
+  assert.ok(calls >= 2, `the writer must loop over partial writes; got ${calls} call(s)`);
+  assert.match(readFileSync(path, "utf8"), new RegExp(digest("b")), "every byte must reach the committed lock");
+});
+
+test("a write failure before rename preserves the old lock and leaves no candidate", () => {
+  const current = lock("ega/alpha", "a");
+  const candidate = lock("ega/alpha", "b");
+  const plan = planFor({ current, candidate });
+  const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-writefail-"));
+  const path = join(dir, ".egaskills.lock");
+  writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+  const before = readFileSync(path);
+
+  assert.throws(
+    () => applyRemoteLockPlan(plan, path, { currentLock: current, projectConfigDigest: digest("a") }, {
+      write: () => {
+        throw Object.assign(new Error("injected write EIO"), { code: "EIO" });
+      },
+    }),
+    /injected write EIO/,
+  );
+  assert.deepEqual(readFileSync(path), before, "the prior lock must remain byte-identical");
+  assert.deepEqual(readdirSync(dir), [".egaskills.lock"], "no temp candidate may remain");
 });
 
 test("remote lock apply locates the discovered project boundary from a nested directory", () => {

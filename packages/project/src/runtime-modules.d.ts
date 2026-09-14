@@ -35,6 +35,7 @@ declare module "node:fs" {
   export function rmdirSync(path: string): void;
   export function openSync(path: string, flags: string): number;
   export function writeSync(fd: number, data: string | Uint8Array): number;
+  export function writeSync(fd: number, data: Uint8Array, offset?: number): number;
   export function fsyncSync(fd: number): void;
   export function closeSync(fd: number): void;
 }
@@ -43,6 +44,10 @@ declare module "node:util" {
   export class TextDecoder {
     constructor(encoding?: string, options?: { fatal?: boolean });
     decode(input?: Uint8Array): string;
+  }
+  export class TextEncoder {
+    constructor();
+    encode(input?: string): Uint8Array;
   }
 }
 
