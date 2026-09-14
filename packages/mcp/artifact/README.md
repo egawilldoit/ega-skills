@@ -9,6 +9,17 @@ Set on Vercel:
 EGA_HOSTED_ARTIFACT_DIR=./artifact
 ```
 
+## Provisioned release
+
+- Release digest: `sha256:70a37c28e767230e04e45e34a33689113870394cda88f017f2aac322aaeb3f66`
+- Hub id: `personal`
+- Skills (5, real reviewed upstream only — no fixtures, no examples):
+  `cursor/architect`, `cursor/setup-pstack`, `mattpocock/code-review`,
+  `mattpocock/grilling`, `mattpocock/tdd`
+- Built by `scripts/hosted/build-deployment-artifact.mjs` from pinned
+  reviewed commits; see `PROVENANCE.md` for sources, digests, and the
+  reproduce/validate commands.
+
 A valid artifact contains everything required by the current loader
 (`loadHostedReleaseSnapshot`), including:
 
@@ -31,7 +42,9 @@ node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
 The application reaches `/readyz = 200` only after the complete release
 passes verification.
 
-Note: `registry.sqlite*` and `cache/` are git-ignored by default (developer
-safety). Provisioning the production artifact therefore requires an
-explicit step (for example `git add -f` of the validated files) — see
-`packages/mcp/VERCEL.md` and report artifact status in the deployment PR.
+Note: `registry.sqlite*` and `cache/` stay git-ignored by default
+(developer safety). The provisioned production files above were added
+explicitly with `git add -f`; `.gitattributes` pins them binary so no
+platform normalizes the bytes. Re-provisioning means rebuilding with the
+script, re-validating (exit 0), and force-adding the new exact bytes —
+never editing them in place.

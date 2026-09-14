@@ -123,20 +123,20 @@ optional `authorized_subjects`/`denied_releases`/`denied_skills`/
   integers; an invalid value logs one sanitized line and exits non-zero
   instead of binding the wrong port or dropping the connection limit.
 
-## Artifact provisioning (remaining input)
+## Artifact provisioning
 
-No canonical verified deployment artifact exists in the repository (only
-Contract C examples and test fixtures, which MUST NOT be used as
-production content). Before the first deployment:
+Provisioned and verified in this branch (`sha256:70a37c28…eb3f66`, hub
+`personal`, 5 real reviewed upstream skills — no fixtures, no examples):
 
-1. Produce the immutable release out-of-band with the existing Contract C
-   build (`buildHubRelease`) from the reviewed Hub sources.
-2. Place `hub-release.json`, `release-package.json`, `registry.sqlite`,
-   and `cache/sha256/` content under `packages/mcp/artifact/`.
-3. Run `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact`
-   (exit 0 required) — it calls the existing verification code.
-4. Commit/provide the validated files (note: `registry.sqlite*` and
-   `cache/` are git-ignored by default, so this needs an explicit step).
+1. Built out-of-band with the existing Contract C build:
+   `node scripts/hosted/build-deployment-artifact.mjs`
+   (pins reviewed commits, cross-checks evidence digests, gates on the
+   runtime loader; see `packages/mcp/artifact/PROVENANCE.md`).
+2. Files live under `packages/mcp/artifact/` (`hub-release.json`,
+   `release-package.json`, `registry.sqlite`, `cache/sha256/`), committed
+   explicitly (`git add -f`; binary-pinned in `.gitattributes`).
+3. Validated: `node scripts/hosted/validate-artifact.mjs
+   packages/mcp/artifact` exits 0.
 
 `/readyz` returns `200` only after this exact verification passes at
 instance startup.
