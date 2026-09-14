@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   applyRemoteLockPlan,
   createProjectContext,
@@ -20,8 +21,8 @@ import { runRemoteLockApply } from "../../packages/cli/dist/index.js";
 
 const projectRequire = createRequire(new URL("../../packages/project/package.json", import.meta.url));
 const parseYaml = projectRequire("yaml").parse;
-const projectPackageJson = new URL("../../packages/project/package.json", import.meta.url).pathname;
-const projectDist = new URL("../../packages/project/dist/index.js", import.meta.url).pathname;
+const projectPackageJson = fileURLToPath(new URL("../../packages/project/package.json", import.meta.url));
+const projectDist = fileURLToPath(new URL("../../packages/project/dist/index.js", import.meta.url));
 
 const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
 const lock = (skill, version, configHash = digest("a")) => ({
@@ -184,29 +185,36 @@ test("two competing applies from the same starting lock cannot both commit", asy
   const childScript = `
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-const require = createRequire(process.env.EGA_RACE_PROJECT_PKG);
-const { applyRemoteLockPlan, validateLockfile } = require(process.env.EGA_RACE_DIST);
-const parseYaml = require("yaml").parse;
-const lockPath = process.env.EGA_RACE_LOCK;
-const configDigest = process.env.EGA_RACE_CONFIG_DIGEST;
-const plan = JSON.parse(readFileSync(process.env.EGA_RACE_PLAN, "utf8"));
-// Both contenders observe the same starting disk state BEFORE the barrier,
-// exactly like two processes that each read A before either commits.
-const hint = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
-writeFileSync(process.env.EGA_RACE_READY, "1");
-const start = process.env.EGA_RACE_START;
-const barrierDeadline = Date.now() + 60_000;
-let opened = false;
-while (!opened && Date.now() < barrierDeadline) opened = existsSync(start);
-if (!opened) {
-  writeFileSync(process.env.EGA_RACE_RESULT, "error:start barrier never opened");
-  process.exit(0);
-}
 try {
-  applyRemoteLockPlan(plan, lockPath, { currentLock: hint, projectConfigDigest: configDigest });
-  writeFileSync(process.env.EGA_RACE_RESULT, "ok");
+  const require = createRequire(process.env.EGA_RACE_PROJECT_PKG);
+  const { applyRemoteLockPlan, validateLockfile } = require(process.env.EGA_RACE_DIST);
+  const parseYaml = require("yaml").parse;
+  const lockPath = process.env.EGA_RACE_LOCK;
+  const configDigest = process.env.EGA_RACE_CONFIG_DIGEST;
+  const plan = JSON.parse(readFileSync(process.env.EGA_RACE_PLAN, "utf8"));
+  // Both contenders observe the same starting disk state BEFORE the barrier,
+  // exactly like two processes that each read A before either commits.
+  const hint = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
+  writeFileSync(process.env.EGA_RACE_READY, "1");
+  const start = process.env.EGA_RACE_START;
+  const barrierDeadline = Date.now() + 60_000;
+  let opened = false;
+  while (!opened && Date.now() < barrierDeadline) opened = existsSync(start);
+  if (!opened) {
+    writeFileSync(process.env.EGA_RACE_RESULT, "error:start barrier never opened");
+    process.exit(0);
+  }
+  try {
+    applyRemoteLockPlan(plan, lockPath, { currentLock: hint, projectConfigDigest: configDigest });
+    writeFileSync(process.env.EGA_RACE_RESULT, "ok");
+  } catch (error) {
+    writeFileSync(process.env.EGA_RACE_RESULT, "error:" + String(error?.message ?? error));
+  }
 } catch (error) {
-  writeFileSync(process.env.EGA_RACE_RESULT, "error:" + String(error?.message ?? error));
+  // Startup failures must be diagnosable: report them through the result file.
+  try {
+    writeFileSync(process.env.EGA_RACE_RESULT, "error:startup:" + String(error?.message ?? error).slice(0, 400));
+  } catch { /* nothing else to do */ }
 }
 process.exit(0);
 `;
@@ -229,19 +237,40 @@ process.exit(0);
   let childStderr = "";
   childB.stderr.on("data", (chunk) => { childStderr += chunk; });
   childC.stderr.on("data", (chunk) => { childStderr += chunk; });
+  // Attached at spawn time: contenders exit quickly and the exit event fires once.
+  const exitOf = (child) => new Promise((resolve) => child.once("exit", (code, signal) => resolve(`code=${String(code)} signal=${String(signal)}`)));
+  const exitBPromise = exitOf(childB);
+  const exitCPromise = exitOf(childC);
 
-  await waitForFile(readyB, "contender B readiness");
-  await waitForFile(readyC, "contender C readiness");
+  // A contender that fails during startup reports through its result file
+  // instead of its ready file; surface that instead of timing out.
+  const waitForReadyOrResult = async (readyPath, resultPath, what) => {
+    const deadline = Date.now() + 120_000;
+    while (!existsSync(readyPath) && !existsSync(resultPath)) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${readyPath}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    if (!existsSync(readyPath)) {
+      throw new Error(`${what} failed before readiness: ${readFileSync(resultPath, "utf8")}`);
+    }
+  };
+  await waitForReadyOrResult(readyB, resultB, "contender B");
+  await waitForReadyOrResult(readyC, resultC, "contender C");
   // Single-shot barrier: both contenders are live and blocking on this file.
   writeFileSync(startPath, "go");
   await waitForFile(resultB, "contender B result");
   await waitForFile(resultC, "contender C result");
+  const [exitB, exitC] = await Promise.all([exitBPromise, exitCPromise]);
 
   const resultTextB = readFileSync(resultB, "utf8");
   const resultTextC = readFileSync(resultC, "utf8");
   const outcomes = [resultTextB, resultTextC];
   const successes = outcomes.filter((outcome) => outcome === "ok").length;
-  assert.equal(successes, 1, `exactly one competing apply may commit; got ${JSON.stringify(outcomes)}${childStderr}`);
+  assert.equal(
+    successes,
+    1,
+    `exactly one competing apply may commit; got ${JSON.stringify(outcomes)} exits B=${exitB} C=${exitC} stderr=${childStderr}`,
+  );
 
   const onDisk = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
   assert.ok(
