@@ -41,11 +41,14 @@ function planFor({ current, candidate, configDigest = digest("a") }) {
   });
 }
 
-function waitForFile(path, what) {
-  for (let attempt = 0; attempt < 500_000; attempt += 1) {
-    if (existsSync(path)) return;
+async function waitForFile(path, what) {
+  // Harness readiness wait only: the applies themselves are ordered by the
+  // single-shot start barrier, never by this poll.
+  const deadline = Date.now() + 120_000;
+  while (!existsSync(path)) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${path}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`timed out waiting for ${what}: ${path}`);
 }
 
 test("ProjectContext binds one immutable release and verifies its envelope", () => {
@@ -159,7 +162,7 @@ test("remote lock apply refuses to apply when the lock is missing on disk", () =
   assert.deepEqual(readdirSync(dir), [], "a failed apply must not create a lock");
 });
 
-test("two competing applies from the same starting lock cannot both commit", () => {
+test("two competing applies from the same starting lock cannot both commit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ega-remote-lock-race-"));
   const lockPath = join(dir, ".egaskills.lock");
   const configDigest = digest("a");
@@ -192,8 +195,9 @@ const plan = JSON.parse(readFileSync(process.env.EGA_RACE_PLAN, "utf8"));
 const hint = validateLockfile(parseYaml(readFileSync(lockPath, "utf8")), configDigest);
 writeFileSync(process.env.EGA_RACE_READY, "1");
 const start = process.env.EGA_RACE_START;
+const barrierDeadline = Date.now() + 60_000;
 let opened = false;
-for (let i = 0; i < 500_000 && !opened; i += 1) opened = existsSync(start);
+while (!opened && Date.now() < barrierDeadline) opened = existsSync(start);
 if (!opened) {
   writeFileSync(process.env.EGA_RACE_RESULT, "error:start barrier never opened");
   process.exit(0);
@@ -226,12 +230,12 @@ process.exit(0);
   childB.stderr.on("data", (chunk) => { childStderr += chunk; });
   childC.stderr.on("data", (chunk) => { childStderr += chunk; });
 
-  waitForFile(readyB, "contender B readiness");
-  waitForFile(readyC, "contender C readiness");
+  await waitForFile(readyB, "contender B readiness");
+  await waitForFile(readyC, "contender C readiness");
   // Single-shot barrier: both contenders are live and blocking on this file.
   writeFileSync(startPath, "go");
-  waitForFile(resultB, "contender B result");
-  waitForFile(resultC, "contender C result");
+  await waitForFile(resultB, "contender B result");
+  await waitForFile(resultC, "contender C result");
 
   const resultTextB = readFileSync(resultB, "utf8");
   const resultTextC = readFileSync(resultC, "utf8");
