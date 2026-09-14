@@ -27,23 +27,22 @@ import { createVercelRequestListener } from "./dist/vercel-adapter.js";
 
 // Atomic startup: a failure leaves the serving state unavailable and logs
 // one generic sanitized error (never policy contents, never secrets).
-let getHandler: () => undefined = () => undefined;
+let handler;
 let maxBodyBytes = 1_048_576;
 let maxResponseBytes = 4 * 1_048_576;
 
 try {
   const runtime = createHostedRuntimeFromEnv(process.env);
-  const handler = runtime.handler;
-  getHandler = () => handler;
+  handler = runtime.handler;
   maxBodyBytes = runtime.maxBodyBytes;
   maxResponseBytes = runtime.maxResponseBytes;
 } catch (error) {
-  getHandler = () => undefined;
+  handler = undefined;
   process.stderr.write(`ega-mcp-vercel startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
 }
 
 const listener = createVercelRequestListener({
-  getHandler,
+  getHandler: () => handler,
   maxBodyBytes,
   maxResponseBytes,
 });
