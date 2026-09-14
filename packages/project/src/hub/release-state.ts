@@ -16,7 +16,7 @@
 // rules so 1.1[G] can verify artifacts before emitting a HubRelease.
 
 import { tmpdir } from "node:os";
-import { canonicalizeJson, sha256Hex } from "@ega-skills/hashing";
+import { canonicalizeJson, hashCanonicalManifest, sha256Hex } from "@ega-skills/hashing";
 import { getSkillVersion, getTokenCount, openRegistry } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import type { HubBuildResult } from "./builder.js";
@@ -425,6 +425,10 @@ function projectionFail(message: string): never {
   throw new HubError("E_RELEASE_DIGEST", `release projection mismatch: ${message}`);
 }
 
+function projectionMessage(error: unknown): string {
+  return error instanceof Error && error.message.length > 0 ? error.message : String(error);
+}
+
 function projectionDigest(value: unknown): string {
   return `sha256:${sha256Hex(canonicalizeJson(value))}`;
 }
@@ -563,6 +567,31 @@ function checkRuntimeFiles(db: ProjectionDb, versions: Readonly<Record<string, s
 }
 
 /**
+ * The SkillVersion identity is SHA256(JCS(canonical manifest)). The stored
+ * manifest must recompute to exactly the release-declared version hash, so a
+ * modified identity-bearing field (license, allowed tools, anti-triggers,
+ * file role/size/kind) cannot survive a projection that otherwise stays
+ * consistent. Reuses the canonical hashing implementation — never a copy.
+ */
+function checkRuntimeManifestIdentities(db: ProjectionDb, versions: Readonly<Record<string, string>>): void {
+  for (const [skillId, versionHash] of Object.entries(versions)) {
+    const manifest = manifestFor(db, skillId, versionHash);
+    let recomputed: string;
+    try {
+      recomputed = hashCanonicalManifest(manifest);
+    } catch (error) {
+      throw new HubError(
+        "E_RELEASE_DIGEST",
+        `release projection mismatch: stored manifest for ${skillId} is not a canonical SkillVersion manifest: ${projectionMessage(error)}`,
+      );
+    }
+    if (recomputed !== versionHash) {
+      projectionFail(`stored manifest for ${skillId} does not hash to the declared SkillVersion identity`);
+    }
+  }
+}
+
+/**
  * Verify that the runtime registry projection equals the semantic artifacts
  * bound by the HubRelease: exact catalog, aliases, search rows (both the
  * registry and release FTS tables), token metadata, manifests, and file
@@ -581,6 +610,7 @@ export function verifyReleaseProjection(
 ): void {
   const versions = payload.skill_versions;
   checkRuntimeCatalog(db, versions);
+  checkRuntimeManifestIdentities(db, versions);
   const aliasMap = deriveAliasMapFrom(db, versions);
   const searchIndexInput = deriveSearchIndexInputFrom(db, versions);
   const tokenArtifact = deriveTokenArtifactFrom(db, versions);

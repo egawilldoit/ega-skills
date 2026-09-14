@@ -85,6 +85,33 @@ test("tampered runtime manifests are rejected even with an updated package check
   expectSnapshotRejected(artifactDir, "tampered manifest");
 });
 
+test("a manifest-only portable.license tamper is rejected", async () => {
+  const artifactDir = await freshRelease();
+  mutate(join(artifactDir, "registry.sqlite"), [{
+    sql: "UPDATE skill_versions SET manifest_json = replace(manifest_json, '\"name\":\"alpha\"}', '\"name\":\"alpha\",\"license\":\"EVIL\"}') WHERE skill_id = 'ega/alpha'",
+  }]);
+  repackage(artifactDir);
+  expectSnapshotRejected(artifactDir, "portable.license tamper");
+});
+
+test("a manifest-only routing.anti_triggers tamper is rejected", async () => {
+  const artifactDir = await freshRelease();
+  mutate(join(artifactDir, "registry.sqlite"), [{
+    sql: "UPDATE skill_versions SET manifest_json = replace(manifest_json, '\"anti_triggers\":[]', '\"anti_triggers\":[\"tampered\"]') WHERE skill_id = 'ega/alpha'",
+  }]);
+  repackage(artifactDir);
+  expectSnapshotRejected(artifactDir, "anti_triggers tamper");
+});
+
+test("a manifest-only files[].content_kind tamper is rejected", async () => {
+  const artifactDir = await freshRelease();
+  mutate(join(artifactDir, "registry.sqlite"), [{
+    sql: "UPDATE skill_versions SET manifest_json = replace(manifest_json, '\"content_kind\":\"TEXT\"', '\"content_kind\":\"BINARY\"') WHERE skill_id = 'ega/alpha'",
+  }]);
+  repackage(artifactDir);
+  expectSnapshotRejected(artifactDir, "content_kind tamper");
+});
+
 test("tampered token metadata is rejected even with an updated package checksum", async () => {
   const artifactDir = await freshRelease();
   mutate(join(artifactDir, "registry.sqlite"), [{
