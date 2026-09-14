@@ -111,7 +111,7 @@ test("normal TREE_SWAPPED recovery restores old content and is repeatable", () =
   const { hubDir, liveTree } = makeHub();
   const backupTree = join(hubDir, ".backup", "plan");
   mkdirSync(backupTree, { recursive: true });
-  writeTree(backupTree, OLD_BODY, "backup");
+  writeTree(backupTree, OLD_BODY);
   writeFileSync(join(hubDir, ".backup", "sources.lock.yaml"), readFileSync(join(hubDir, "sources.lock.yaml"), "utf8"));
   writeTree(liveTree, NEW_BODY, "incoming");
   writeJournalFor(hubDir, "TREE_SWAPPED");
@@ -135,19 +135,19 @@ const crashWindows = [
     const backupTree = join(hubDir, ".backup", "plan");
     rmSync(join(hubDir, "external", "plan", "repo"), { recursive: true, force: true });
     mkdirSync(backupTree, { recursive: true });
-    writeTree(backupTree, OLD_BODY, "backup");
+    writeTree(backupTree, OLD_BODY);
   }],
   ["incoming tree installed before TREE_SWAPPED", "TREE_SWAPPED", (hubDir) => {
     const backupTree = join(hubDir, ".backup", "plan");
     mkdirSync(backupTree, { recursive: true });
-    writeTree(backupTree, OLD_BODY, "backup");
+    writeTree(backupTree, OLD_BODY);
     writeFileSync(join(hubDir, ".backup", "sources.lock.yaml"), readFileSync(join(hubDir, "sources.lock.yaml"), "utf8"));
     writeTree(join(hubDir, "external", "plan", "repo"), NEW_BODY, "incoming");
   }],
   ["new lock installed before LOCK_SWAPPED", "TREE_SWAPPED", (hubDir) => {
     const backupTree = join(hubDir, ".backup", "plan");
     mkdirSync(backupTree, { recursive: true });
-    writeTree(backupTree, OLD_BODY, "backup");
+    writeTree(backupTree, OLD_BODY);
     writeFileSync(join(hubDir, ".backup", "sources.lock.yaml"), readFileSync(join(hubDir, "sources.lock.yaml"), "utf8"));
     writeTree(join(hubDir, "external", "plan", "repo"), NEW_BODY, "incoming");
     const incoming = treeDigests(join(hubDir, "external", "plan", "repo"));
@@ -182,6 +182,30 @@ test("missing adopted content is never reported as recovered", () => {
   assertRecoveryError(() => recoverIfNeeded(hubDir));
   assert.equal(readJournal(hubDir) !== null, true, "journal must remain for retry");
   assert.equal(existsSync(join(backup, "sources.lock.yaml")), true, "recovery material must remain");
+});
+
+test("provenance-only backup corruption is rejected because the snapshot digest is verified", () => {
+  const { hubDir, liveTree, oldLock } = makeHub();
+  const lockTreeDigest = oldLock.match(/selected_skill_tree_digest: (sha256:[0-9a-f]{64})/)?.[1];
+  const lockSnapshotDigest = oldLock.match(/vendored_snapshot_digest: (sha256:[0-9a-f]{64})/)?.[1];
+  assert.ok(lockTreeDigest && lockSnapshotDigest);
+
+  const backupTree = join(hubDir, ".backup", "plan");
+  mkdirSync(backupTree, { recursive: true });
+  writeTree(backupTree, OLD_BODY, "backup");
+  writeFileSync(join(backupTree, "LICENSE"), "TAMPERED provenance license\n");
+  writeFileSync(join(hubDir, ".backup", "sources.lock.yaml"), oldLock);
+  writeTree(liveTree, NEW_BODY, "incoming");
+  writeJournalFor(hubDir, "TREE_SWAPPED");
+
+  const backupState = digestStagedTree(backupTree, ["skills"]);
+  assert.equal(backupState.treeDigest, lockTreeDigest, "the selected tree digest must be unchanged by the provenance edit");
+  assert.notEqual(backupState.snapshotDigest, lockSnapshotDigest, "the snapshot digest must differ — this is provenance-only corruption");
+
+  assertRecoveryError(() => recoverIfNeeded(hubDir));
+  assert.equal(liveBody(hubDir), NEW_BODY, "live content must be untouched");
+  assert.equal(existsSync(backupTree), true, "backup material must remain");
+  assert.equal(readJournal(hubDir) !== null, true, "journal must remain for retry");
 });
 
 test("a corrupt backup tree is never installed over live content", () => {

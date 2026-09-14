@@ -213,8 +213,12 @@ function messageOf(error: unknown): string {
 
 /**
  * Lock/tree consistency check for recovery: the adopted lock must bind the
- * journal's expected previous commit, and the tree must match the lock's
- * recorded selection digest. Any mismatch fails closed so recovery never
+ * journal's expected previous commit, and the restored tree must match BOTH
+ * identities the lock records — the selected skill tree digest AND the
+ * vendored snapshot digest (selected roots plus provenance files). A
+ * provenance-only edit changes the snapshot without moving the tree digest,
+ * so verifying either one alone would accept a backup that is not the exact
+ * previous adopted state. Any mismatch fails closed so recovery never
  * reports success over content it could not verify.
  */
 function verifyAdoptedState(tree: string, lockPath: string, journal: IncompleteJournal): void {
@@ -231,14 +235,17 @@ function verifyAdoptedState(tree: string, lockPath: string, journal: IncompleteJ
       "recovery lock does not bind the expected previous commit",
     );
   }
-  let treeDigest: string;
+  let state;
   try {
-    treeDigest = digestStagedTree(tree, record.selection.roots).treeDigest;
+    state = digestStagedTree(tree, record.selection.roots);
   } catch (error) {
     throw new HubError("E_RECOVERY_REQUIRED", `recovery cannot verify the adopted tree: ${messageOf(error)}`);
   }
-  if (treeDigest !== record.selected_skill_tree_digest) {
+  if (state.treeDigest !== record.selected_skill_tree_digest) {
     throw new HubError("E_RECOVERY_REQUIRED", "recovery tree digest does not match the adopted lock");
+  }
+  if (state.snapshotDigest !== record.vendored_snapshot_digest) {
+    throw new HubError("E_RECOVERY_REQUIRED", "recovery snapshot digest does not match the adopted lock");
   }
 }
 
