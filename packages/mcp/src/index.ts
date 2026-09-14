@@ -28,6 +28,8 @@ export {
   HOSTED_AUTHZ_PRECEDENCE,
 } from "./hosted-runtime.js";
 export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
+export { createVercelRequestListener } from "./vercel-adapter.js";
+export type { VercelAdapterState, VercelNodeRequest, VercelNodeResponse } from "./vercel-adapter.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
 export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
 export { createSupabaseContextResolver } from "./hosted-supabase.js";
