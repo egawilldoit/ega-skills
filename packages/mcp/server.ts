@@ -22,14 +22,24 @@
 // bundled. See `VERCEL.md`.
 
 import { createServer } from "node:http";
+import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { createHostedRuntimeFromEnv } from "./dist/hosted-runtime.js";
 import { createVercelRequestListener } from "./dist/vercel-adapter.js";
 
 // Atomic startup: a failure leaves the serving state unavailable and logs
 // one generic sanitized error (never policy contents, never secrets).
-let handler;
+let handler: McpHttpHandler | undefined;
 let maxBodyBytes = 1_048_576;
 let maxResponseBytes = 4 * 1_048_576;
+
+function positiveSocketEnv(raw: string | undefined, fallback: number, name: string): number {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    process.stderr.write(`ega-mcp-vercel startup failed: ${name} must be a positive safe integer\n`);
+    process.exit(1);
+  }
+  return value;
+}
 
 try {
   const runtime = createHostedRuntimeFromEnv(process.env);
@@ -64,9 +74,12 @@ const server = createServer((incoming, outgoing) => {
   });
 });
 
-server.maxConnections = Number(process.env.EGA_HOSTED_MAX_CONNECTIONS ?? 128);
+server.maxConnections = positiveSocketEnv(process.env.EGA_HOSTED_MAX_CONNECTIONS, 128, "EGA_HOSTED_MAX_CONNECTIONS");
 
-const port = Number(process.env.PORT ?? 3000);
-server.listen(port, "127.0.0.1", () => {
+const port = positiveSocketEnv(process.env.PORT, 3000, "PORT");
+// No host pin: Vercel routes to the server through an internal port and the
+// documented Node-server form is listen(port). (The local smoke adapter in
+// bin/ keeps 127.0.0.1 deliberately.)
+server.listen(port, () => {
   process.stderr.write(`ega-mcp-vercel listening on ${port}\n`);
 });

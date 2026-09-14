@@ -14,7 +14,7 @@
 //
 // Exit 0: the complete release passed verification (deployment candidate).
 // Exit 1: missing/corrupt/incomplete artifact (sanitized reason only).
-import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
+import { createHostedRuntimeFromEnv, loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
 
 const artifactDir = process.argv[2] ?? process.env.EGA_HOSTED_ARTIFACT_DIR;
 if (!artifactDir) {
@@ -33,4 +33,18 @@ try {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`validate-artifact: FAIL code=${code} reason=${message}\n`);
   process.exit(1);
+}
+
+// Optional readiness probe: when authorization configuration is also present
+// in env, verify the FULL startup (/readyz semantics), not just the snapshot.
+// Artifact validation above determines the exit code; this line is advisory.
+if (process.env.EGA_HOSTED_AUTHZ_JSON !== undefined || process.env.EGA_HOSTED_AUTHZ_FILE !== undefined) {
+  try {
+    createHostedRuntimeFromEnv({ ...process.env, EGA_HOSTED_ARTIFACT_DIR: artifactDir });
+    process.stdout.write("readiness: READY\n");
+  } catch (error) {
+    process.stdout.write(`readiness: NOT-READY (${error instanceof Error ? error.message : String(error)})\n`);
+  }
+} else {
+  process.stdout.write("readiness: NOT-CHECKED (no EGA_HOSTED_AUTHZ_JSON or EGA_HOSTED_AUTHZ_FILE in env)\n");
 }

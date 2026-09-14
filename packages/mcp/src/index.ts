@@ -25,7 +25,6 @@ export {
   DEFAULT_HOSTED_MAX_CONCURRENT_REQUESTS,
   DEFAULT_HOSTED_MAX_RESPONSE_BYTES,
   DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
-  HOSTED_AUTHZ_PRECEDENCE,
 } from "./hosted-runtime.js";
 export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
 export { createVercelRequestListener } from "./vercel-adapter.js";

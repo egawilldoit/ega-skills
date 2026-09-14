@@ -73,6 +73,15 @@ const server = createServer(async (incoming, outgoing) => {
   outgoing.end(Buffer.from(await response.arrayBuffer()));
 });
 
-const port = Number(process.env.PORT ?? 8787);
-server.maxConnections = Number(process.env.EGA_HOSTED_MAX_CONNECTIONS ?? 128);
+const port = positiveSocketEnv(process.env.PORT, 8787, "PORT");
+server.maxConnections = positiveSocketEnv(process.env.EGA_HOSTED_MAX_CONNECTIONS, 128, "EGA_HOSTED_MAX_CONNECTIONS");
 server.listen(port, "127.0.0.1", () => process.stderr.write(`ega-mcp-hosted listening on ${server.address().port}\n`));
+
+function positiveSocketEnv(raw, fallback, name) {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    process.stderr.write(`ega-mcp-hosted startup failed: ${name} must be a positive safe integer\n`);
+    process.exit(1);
+  }
+  return value;
+}

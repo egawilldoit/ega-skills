@@ -434,3 +434,141 @@ test("vercel JSON authorization wins deterministically when both sources are set
   const listed = await mcpCall(base, 1, "tools/list");
   assert.equal(listed.status, 200);
 });
+
+test("vercel JSON content beats divergent valid file content", async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), "ega-vercel-diverge-"));
+  const authzPath = join(workDir, "authz.json");
+  writeFileSync(authzPath, policyJSON({ denied_skills: ["ega/alpha"] }));
+  const env = { ...validEnv(BUILD.registryHome), EGA_HOSTED_AUTHZ_FILE: authzPath };
+  const { base } = await startServer(t, env);
+  const searched = parseRpc(await (await mcpCall(base, 1, "tools/call", { name: "search", arguments: { query: "alpha", limit: 5 } })).text());
+  assert.notEqual(searched.result.isError, true, JSON.stringify(searched));
+  assert.match(JSON.stringify(searched.result), /ega\/alpha/);
+});
+
+test("vercel blank authorization values fail closed instead of falling back", async () => {
+  const fileEnv = validEnv(BUILD.registryHome);
+  delete fileEnv.EGA_HOSTED_AUTHZ_JSON;
+  assert.throws(
+    () => createHostedRuntimeFromEnv({ ...fileEnv, EGA_HOSTED_AUTHZ_JSON: "   " }),
+    /set but empty/,
+  );
+  const workDir = mkdtempSync(join(tmpdir(), "ega-vercel-blankfile-"));
+  const authzPath = join(workDir, "authz.json");
+  writeFileSync(authzPath, policyJSON());
+  assert.throws(
+    () => createHostedRuntimeFromEnv({ ...fileEnv, EGA_HOSTED_AUTHZ_FILE: "   " }),
+    /set but empty/,
+  );
+  void authzPath;
+});
+
+test("vercel chunked oversized bodies without content-length are rejected", async (t) => {
+  const { base } = await startServer(t, validEnv(BUILD.registryHome, { EGA_HOSTED_MAX_BODY_BYTES: "64" }));
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("x".repeat(1024)));
+      controller.close();
+    },
+  });
+  const response = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: mcpHeaders(),
+    body: stream,
+    duplex: "half",
+  });
+  assert.equal(response.status, 413);
+  await response.text();
+});
+
+test("vercel malformed JSON bodies fail without leaking secrets", async (t) => {
+  const { base } = await startServer(t, validEnv(BUILD.registryHome));
+  const response = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: mcpHeaders(),
+    body: "not-json{{{",
+  });
+  assert.equal(response.status, 400);
+  const body = await response.text();
+  assert.match(body, /Parse error/);
+  assert.doesNotMatch(body, new RegExp(SECRET_TOKEN));
+});
+
+test("vercel adapter pipes synthetic streams with pre-header limits", async (t) => {
+  const big = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("x".repeat(100)));
+      controller.close();
+    },
+  });
+  const listener = createVercelRequestListener({
+    getHandler: () => ({ fetch: async () => new Response(big, { headers: { "content-type": "text/plain" } }) }),
+    maxBodyBytes: 1_048_576,
+    maxResponseBytes: 10,
+  });
+  const server = createServer((incoming, outgoing) => {
+    void listener(incoming, outgoing);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "GET" });
+  assert.equal(response.status, 500);
+  assert.match(await response.text(), /E_RUNTIME_UNAVAILABLE/);
+});
+
+test("vercel adapter passes through null response bodies", async (t) => {
+  const listener = createVercelRequestListener({
+    getHandler: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
+    maxBodyBytes: 1_048_576,
+    maxResponseBytes: 1_048_576,
+  });
+  const server = createServer((incoming, outgoing) => {
+    void listener(incoming, outgoing);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "GET" });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
+  assert.equal((await fetch(`http://127.0.0.1:${port}/healthz`)).status, 200);
+});
+
+test("vercel JWKS configuration authenticates through the shared runtime", async (t) => {
+  const { generateKeyPairSync, createSign } = await import("node:crypto");
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "vercel-k1", kty: "RSA" };
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const mint = (claims) => {
+    const header = encode({ alg: "RS256", kid: "vercel-k1", typ: "JWT" });
+    const body = encode(claims);
+    const signer = createSign("RSA-SHA256");
+    signer.update(`${header}.${body}`);
+    signer.end();
+    return `${header}.${body}.${signer.sign(privateKey).toString("base64url")}`;
+  };
+  const issuer = "https://issuer.example";
+  const audience = "https://ega.example/mcp";
+  const jwksUrl = "https://issuer.example/.well-known/jwks.json";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    if (String(input).startsWith(jwksUrl)) {
+      return new Response(JSON.stringify({ keys: [jwk] }), { headers: { "content-type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const { EGA_HOSTED_BEARER_TOKEN: _dropped, ...jwksEnv } = validEnv(BUILD.registryHome);
+  void _dropped;
+  const env = { ...jwksEnv, EGA_HOSTED_ISSUER: issuer, EGA_HOSTED_AUDIENCE: audience, EGA_HOSTED_JWKS_URL: jwksUrl };
+  const { base } = await startServer(t, env);
+  const claims = { iss: issuer, aud: audience, sub: "local-smoke", exp: Math.floor(Date.now() / 1000) + 60 };
+  const ok = await mcpCall(base, 1, "tools/list", {}, { token: mint(claims) });
+  assert.equal(ok.status, 200);
+  const bad = await mcpCall(base, 1, "tools/list", {}, { token: mint({ ...claims, aud: "wrong" }) });
+  assert.equal(bad.status, 401);
+  assert.match(await bad.text(), /E_TOKEN_INVALID/);
+});

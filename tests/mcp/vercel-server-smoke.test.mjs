@@ -74,3 +74,36 @@ test("vercel server.ts serves the verified release over real HTTP", async (t) =>
   assert.match(await response.text(), /ega\/alpha/);
   assert.doesNotMatch(stderr, /server-smoke-token/);
 });
+
+test("vercel server.ts rejects invalid socket configuration without leaking", async (t) => {
+  const build = await buildHubRelease(makeHub());
+  const policy = {
+    workspace_id: "vercel-server-workspace",
+    visibility: "private",
+    owner_subject: "local-smoke",
+    memberships: [{ subject: "local-smoke", role: "owner", active: true }],
+    denies: [],
+  };
+  const baseEnv = {
+    ...process.env,
+    EGA_HOSTED_ARTIFACT_DIR: build.registryHome,
+    EGA_HOSTED_BEARER_TOKEN: "server-smoke-token",
+    EGA_HOSTED_AUTHZ_JSON: JSON.stringify(policy),
+    EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
+  };
+  for (const extra of [{ PORT: "abc" }, { EGA_HOSTED_MAX_CONNECTIONS: "0" }]) {
+    const child = spawn(process.execPath, ["packages/mcp/server.ts"], {
+      cwd: join(import.meta.dirname, "../.."),
+      env: { ...baseEnv, ...extra },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const code = await new Promise((resolve) => child.on("exit", resolve));
+    t.after(() => child.kill());
+    assert.notEqual(code, 0, JSON.stringify(extra));
+    assert.match(stderr, /must be a positive safe integer/);
+    assert.doesNotMatch(stderr, /server-smoke-token/);
+  }
+});

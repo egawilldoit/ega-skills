@@ -23,7 +23,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
-import { InMemoryControlPlane } from "@ega-skills/control-plane";
+import { InMemoryControlPlane, WORKSPACE_ROLES, type WorkspaceRole } from "@ega-skills/control-plane";
 import {
   createHostedMcpHandler,
   loadHostedReleaseSnapshot,
@@ -32,8 +32,6 @@ import {
 } from "./hosted.js";
 import { createJwksBearerVerifier } from "./hosted-auth.js";
 import { createSupabaseContextResolver } from "./hosted-supabase.js";
-
-export const HOSTED_AUTHZ_PRECEDENCE = "EGA_HOSTED_AUTHZ_JSON" as const;
 
 export const DEFAULT_HOSTED_MAX_BODY_BYTES = 1_048_576;
 export const DEFAULT_HOSTED_MAX_RESPONSE_BYTES = 4 * 1_048_576;
@@ -52,7 +50,7 @@ const ALLOWED_POLICY_KEYS = [
   "workspace_id",
 ].sort();
 
-const WORKSPACE_ROLES = new Set(["owner", "admin", "maintainer", "member", "viewer"]);
+const WORKSPACE_ROLE_SET: ReadonlySet<string> = new Set<string>(WORKSPACE_ROLES);
 
 export interface HostedAuthzPolicy {
   readonly workspace_id: string;
@@ -79,7 +77,7 @@ export interface HostedRuntimeHandle {
 
 function requiredEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
-  return trimmed ? value : undefined;
+  return trimmed ? trimmed : undefined;
 }
 
 function positiveInt(raw: string | undefined, fallback: number, name: string): number {
@@ -96,12 +94,19 @@ export function readHostedAuthzSource(env: Readonly<Record<string, string | unde
   readonly kind: "json-env" | "file";
   readonly raw: string;
 } {
-  const json = requiredEnv(env["EGA_HOSTED_AUTHZ_JSON"]);
-  const file = requiredEnv(env["EGA_HOSTED_AUTHZ_FILE"]);
-  if (json !== undefined) {
-    return { kind: "json-env", raw: json };
+  const jsonRaw = env["EGA_HOSTED_AUTHZ_JSON"];
+  const fileRaw = env["EGA_HOSTED_AUTHZ_FILE"];
+  if (jsonRaw !== undefined) {
+    if (jsonRaw.trim() === "") {
+      throw new Error("EGA_HOSTED_AUTHZ_JSON is set but empty; hosted authorization must fail closed");
+    }
+    return { kind: "json-env", raw: jsonRaw };
   }
-  if (file !== undefined) {
+  if (fileRaw !== undefined) {
+    const file = fileRaw.trim();
+    if (file === "") {
+      throw new Error("EGA_HOSTED_AUTHZ_FILE is set but empty; hosted authorization must fail closed");
+    }
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
@@ -148,7 +153,7 @@ export function validateHostedAuthzPolicy(policy: unknown): asserts policy is Ho
       membership === null ||
       typeof membership !== "object" ||
       typeof (membership as { subject?: unknown }).subject !== "string" ||
-      !WORKSPACE_ROLES.has((membership as { role?: unknown }).role as string) ||
+      !WORKSPACE_ROLE_SET.has((membership as { role?: unknown }).role as string) ||
       typeof (membership as { active?: unknown }).active !== "boolean"
     ) {
       throw new Error("hosted authorization membership has invalid shape");
@@ -231,7 +236,7 @@ export function createHostedRuntimeFromEnv(
   for (const membership of policy.memberships) {
     controlPlane.addMembership(policy.workspace_id, {
       subject: membership.subject,
-      role: membership.role as "owner" | "admin" | "maintainer" | "member" | "viewer",
+      role: membership.role as WorkspaceRole,
       active: membership.active,
     });
   }
@@ -267,8 +272,12 @@ export function createHostedRuntimeFromEnv(
             // Supabase user/OAuth access tokens may not contain an
             // application-specific scope. Authorization is still enforced by
             // the authenticated subject plus the control-plane/RLS graph.
+            // A whitespace-only scope is treated as unset (never a valid
+            // scope); deployments needing a scope set it explicitly.
             ...(requiredScope ? { requiredScope } : {}),
-            ...(jwksMaxAgeRaw ? { jwksMaxAgeMs: Number(jwksMaxAgeRaw) } : {}),
+            ...(jwksMaxAgeRaw !== undefined
+              ? { jwksMaxAgeMs: positiveInt(jwksMaxAgeRaw, DEFAULT_HOSTED_REQUEST_TIMEOUT_MS, "EGA_HOSTED_JWKS_MAX_AGE_MS") }
+              : {}),
           })
         : async (token) => {
             if (token !== expectedToken) throw new Error("invalid token");

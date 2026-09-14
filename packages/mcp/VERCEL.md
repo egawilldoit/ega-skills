@@ -14,11 +14,15 @@ multiple instances). No request depends on durable local mutation.
 detects `server.{js,cjs,mjs,ts,cts,mts}` at the Project Root Directory and
 turns it into a Function via the `server.listen()` call. Do not confuse it
 with `packages/mcp/src/server.ts` (the local stdio MCP server — not
-deployed).
+deployed). The Root Directory `server.ts` takes detector precedence; the
+`src/server.ts` stdio module never calls `listen()` and is never deployed.
 
 Shared construction lives in `packages/mcp/src/hosted-runtime.ts` and is
 used by BOTH `bin/ega-mcp-hosted.mjs` (local smoke) and `server.ts`, so
-there is exactly one authorization implementation.
+there is exactly one authorization implementation. HTTP plumbing is
+intentionally NOT shared: the local smoke adapter keeps its exact
+historical behavior (including `/healthz` returning 503 before readiness),
+while the Vercel adapter implements the deployment contract below.
 
 HTTP routing/bridging lives in `packages/mcp/src/vercel-adapter.ts`:
 
@@ -102,8 +106,9 @@ optional `authorized_subjects`/`denied_releases`/`denied_skills`/
   (root `tsc -b`), not Vercel's default.
 - Fluid compute: instances are shared concurrently and ephemeral. The
   runtime keeps no request-specific globals, performs no durable local
-  writes (SQLite opened read-only/verified, `query_only` request reads),
-  no runtime git, installs, or release generation.
+  writes (startup opens the snapshot `readonly:true`; request reads go
+  through `query_only`-locked handles), no runtime git, installs, or
+  release generation.
 - Streaming: Fluid supports streaming; the adapter pipes Web response
   streams chunk-by-chunk (never `await response.arrayBuffer()` first). The
   four MCP tools run with SDK `responseMode: "json"` (strictly
@@ -114,6 +119,9 @@ optional `authorized_subjects`/`denied_releases`/`denied_skills`/
   max connections, Origin allow-list (fail-closed), JWT/JWKS validation,
   deny policy (release/skill/source), context/release mismatch protection,
   fail-closed startup, no anonymous MCP execution, no wildcard CORS.
+  `PORT` and `EGA_HOSTED_MAX_CONNECTIONS` are validated as positive safe
+  integers; an invalid value logs one sanitized line and exits non-zero
+  instead of binding the wrong port or dropping the connection limit.
 
 ## Artifact provisioning (remaining input)
 

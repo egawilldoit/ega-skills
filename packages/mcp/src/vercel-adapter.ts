@@ -55,6 +55,22 @@ function headerValue(value: string | readonly string[] | undefined): string | un
   return typeof value === "string" ? value : value.join(", ");
 }
 
+// Hop-by-hop and framing headers describe the outer Node connection, not the
+// inner Web request. They must not be laundered downstream: the adapter owns
+// the streamed byte count as the authoritative body pre-check and Undici
+// recomputes framing for the re-buffered body.
+const UNFORWARDED_HEADERS: ReadonlySet<string> = new Set([
+  "connection",
+  "content-length",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
 function jsonBody(outgoing: VercelNodeResponse, status: number, body: unknown): void {
   outgoing.writeHead(status, { "content-type": "application/json" });
   outgoing.end(JSON.stringify(body));
@@ -179,7 +195,10 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
       for await (const chunk of incoming) {
         bodyLength += chunk.byteLength;
         if (bodyLength > state.maxBodyBytes) {
-          incoming.destroy();
+          // Stop reading: abandoning the iterator applies backpressure and
+          // Node closes the connection after the early response, so memory
+          // stays bounded. Destroying the request stream here would race the
+          // 413 against socket teardown on some platforms.
           if (!outgoing.writableEnded) {
             outgoing.writeHead(413, { "content-type": "text/plain" });
             outgoing.end("Request too large");
@@ -204,6 +223,7 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
 
     const headers = new Headers();
     for (const [key, value] of Object.entries(incoming.headers)) {
+      if (UNFORWARDED_HEADERS.has(key.toLowerCase())) continue;
       const joined = headerValue(value);
       if (joined !== undefined) {
         try {
@@ -215,9 +235,7 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
     }
     const host = headerValue(incoming.headers["host"]) ?? "localhost";
     const method = incoming.method ?? "GET";
-    let bodyLength2 = 0;
-    for (const chunk of chunks) bodyLength2 += chunk.byteLength;
-    const body = new Uint8Array(bodyLength2);
+    const body = new Uint8Array(bodyLength);
     let offset = 0;
     for (const chunk of chunks) {
       body.set(chunk, offset);
@@ -248,7 +266,17 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
         signal: downstream.signal,
       } as unknown as RequestInit);
     } catch {
-      jsonBody(outgoing, 500, { error: { code: "E_RUNTIME_UNAVAILABLE" } });
+      // Unroutable request target: client error, never a server fault, and
+      // never a secret-bearing message.
+      try {
+        if (!outgoing.writableEnded) jsonBody(outgoing, 404, { error: { code: "E_NOT_FOUND" } });
+      } catch {
+        try {
+          outgoing.destroy();
+        } catch {
+          // Never let an error-response failure escape the adapter.
+        }
+      }
       return;
     }
 
@@ -260,8 +288,20 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
       // browser/network primitive.
       webResponse = await handler["fetch"](webRequest);
     } catch {
-      if (downstream.signal.aborted) jsonBody(outgoing, 504, { error: { code: "E_REQUEST_TIMEOUT" } });
-      else jsonBody(outgoing, 500, { error: { code: "E_RUNTIME_UNAVAILABLE" } });
+      // A dead socket (client disconnect while the handler ran) must not
+      // produce a second write-after-end fault.
+      try {
+        if (!outgoing.writableEnded) {
+          if (downstream.signal.aborted) jsonBody(outgoing, 504, { error: { code: "E_REQUEST_TIMEOUT" } });
+          else jsonBody(outgoing, 500, { error: { code: "E_RUNTIME_UNAVAILABLE" } });
+        }
+      } catch {
+        try {
+          outgoing.destroy();
+        } catch {
+          // Never let an error-response failure escape the adapter.
+        }
+      }
       return;
     }
     await bridgeResponse(webResponse, outgoing, state.maxResponseBytes, aborted);
