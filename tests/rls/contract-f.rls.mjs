@@ -121,22 +121,37 @@ test("RLS is enabled on every Contract F table", () => {
   }
 });
 
-test("privileged helpers are security definer, search_path safe, and closed to anon", () => {
-  const helpers = [
-    ["has_workspace_role", "uuid,text[]"],
-    ["is_active_member", "uuid"],
-    ["is_denied", "uuid,text,text"],
-    ["can_read_hub", "uuid"],
-    ["can_read_release", "uuid,text"],
-    ["can_read_artifact", "uuid,text,text"],
-    ["can_read_object", "text"],
-    ["can_read_project", "uuid"],
-    ["can_read_context", "uuid"],
-    ["can_manage_context_revocations", "uuid"],
-  ];
+function failsAs(subject, sql, pattern) {
+  let stderr = "";
+  try {
+    asSubject(subject, sql);
+  } catch (error) {
+    stderr = String(error?.stderr ?? error?.message ?? "");
+  }
+  assert.match(stderr, pattern, `expected ${subject} to be denied: ${sql}`);
+}
+
+const ENTRY_HELPERS = [
+  ["has_workspace_role", "uuid,text[]"],
+  ["can_read_hub", "uuid"],
+  ["can_read_release", "uuid,text"],
+  ["can_read_artifact", "uuid,text,text"],
+  ["can_read_object", "text"],
+  ["can_read_project", "uuid"],
+  ["can_read_context", "uuid"],
+  ["can_manage_context_revocations", "uuid"],
+];
+
+const INTERNAL_HELPERS = [
+  ["is_active_member", "uuid"],
+  ["has_inactive_membership", "uuid"],
+  ["is_denied", "uuid,text,text"],
+];
+
+test("RLS entry-point helpers are the only executable authorization surface", () => {
   const functions = psql(DB_URL, "select p.proname, p.prosecdef, coalesce(array_to_string(p.proconfig, ','), '') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'private' order by p.proname")
     .split("\n").map((line) => line.trim()).filter(Boolean).map((line) => line.split("|"));
-  for (const [name, args] of helpers) {
+  for (const [name, args] of ENTRY_HELPERS) {
     const row = functions.find(([proname]) => proname === name);
     assert.ok(row, `private.${name} must exist`);
     assert.equal(row[1], "t", `private.${name} must be security definer`);
@@ -146,9 +161,29 @@ test("privileged helpers are security definer, search_path safe, and closed to a
       "false",
       `anon must not execute private.${name}`,
     );
+    assert.equal(
+      scalar("user-a", `select has_function_privilege('authenticated', 'private.${name}(${args})', 'EXECUTE')::text`),
+      "true",
+      `authenticated must execute the RLS entry point private.${name}`,
+    );
+  }
+  for (const [name, args] of INTERNAL_HELPERS) {
+    const row = functions.find(([proname]) => proname === name);
+    assert.ok(row, `private.${name} must exist`);
+    assert.equal(row[1], "t", `private.${name} must be security definer`);
+    assert.match(row[2], /search_path=/, `private.${name} must pin search_path`);
+    assert.equal(
+      scalar("user-a", `select has_function_privilege('anon', 'private.${name}(${args})', 'EXECUTE')::text`),
+      "false",
+      `anon must not execute private.${name}`,
+    );
+    assert.equal(
+      scalar("user-a", `select has_function_privilege('authenticated', 'private.${name}(${args})', 'EXECUTE')::text`),
+      "false",
+      `implementation-only private.${name} must not be executable by authenticated`,
+    );
   }
   assert.equal(scalar("user-a", `select has_schema_privilege('anon', 'private', 'USAGE')::text`), "false");
-  assert.equal(scalar("user-a", `select has_function_privilege('authenticated', 'private.can_read_hub(uuid)', 'EXECUTE')::text`), "true");
   assert.equal(scalar("user-a", `select has_table_privilege('anon', 'public.hubs', 'SELECT')::text`), "false");
   assert.equal(scalar("user-a", `select has_table_privilege('authenticated', 'public.hubs', 'SELECT')::text`), "true");
   for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
@@ -158,6 +193,15 @@ test("privileged helpers are security definer, search_path safe, and closed to a
       `authenticated must not hold ${privilege} on public.hubs`,
     );
   }
+});
+
+test("internal authorization helpers are not directly callable by ordinary members", () => {
+  for (const subject of ["member-a", "viewer-a"]) {
+    failsAs(subject, `select private.is_denied('${WS_A}', 'hub', '${HUB_DENIED}')`, /permission denied/);
+    failsAs(subject, `select private.is_active_member('${WS_A}')`, /permission denied/);
+    failsAs(subject, `select private.has_inactive_membership('${WS_A}')`, /permission denied/);
+  }
+  assert.equal(scalar("member-a", `select private.can_read_hub('${HUB_WORKSPACE}')::text`), "true", "the RLS entry-point surface stays callable");
 });
 
 test("owner reads every own-workspace grant without cross-workspace leakage", () => {
