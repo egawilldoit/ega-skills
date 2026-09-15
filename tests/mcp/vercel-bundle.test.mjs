@@ -9,9 +9,9 @@ const MCP_ROOT = resolve(import.meta.dirname, "../../packages/mcp");
 
 test("vercel.json includeFiles globs match real bundled files", () => {
   const config = JSON.parse(readFileSync(join(MCP_ROOT, "vercel.json"), "utf8"));
-  const declared = config.functions?.["server.ts"]?.includeFiles;
+  const declared = config.functions?.["server.mts"]?.includeFiles;
   // Schema requires a single string (array form is rejected at deploy time).
-  assert.equal(typeof declared, "string", "server.ts includeFiles must be a string glob");
+  assert.equal(typeof declared, "string", "server.mts includeFiles must be a string glob");
   const patterns = [declared];
   for (const pattern of patterns) {
     assert.match(pattern, /^artifact\//, `includeFiles must stay inside the package root: ${pattern}`);
@@ -22,17 +22,16 @@ test("vercel.json includeFiles globs match real bundled files", () => {
   assert.ok(existsSync(join(MCP_ROOT, "artifact", "cache", "sha256")), "artifact cache must exist for bundling");
 });
 
-test("server.ts pins the native binding path that matches the installed version", () => {
-  const serverSource = readFileSync(join(MCP_ROOT, "server.ts"), "utf8");
-  const installed = JSON.parse(readFileSync(join(MCP_ROOT, "node_modules", "better-sqlite3", "package.json"), "utf8"));
-  const pinned = serverSource.match(/better-sqlite3@([0-9.]+)\/node_modules\/better-sqlite3\/prebuilds\/linux-x64\.node/);
-  assert.ok(pinned, "server.ts must statically reference the linux-x64 prebuild");
-  assert.equal(pinned[1], installed.version, "pinned prebuild version must match the installed better-sqlite3");
-  assert.ok(
-    existsSync(join(MCP_ROOT, "node_modules", "better-sqlite3", "prebuilds", "linux-x64.node")),
-    "pinned prebuild file must exist",
-  );
-  assert.match(serverSource, /process\.platform === "linux" && process\.arch === "x64"/, "prebuild require must be platform-guarded");
+test("server.mts never statically requires a native binding path", () => {
+  // A bundle-relative .node path cannot resolve reliably, and the require
+  // would throw at boot, failing every route. The binding resolves at
+  // runtime through the package's own relative path; when tracers omit it,
+  // the first Database construction fails inside the runtime try/catch and
+  // the server keeps serving fail-closed JSON instead of crashing.
+  const serverSource = readFileSync(join(MCP_ROOT, "server.mts"), "utf8");
+  assert.doesNotMatch(serverSource, /\.node["']/, "server entrypoint must not reference .node files");
+  assert.doesNotMatch(serverSource, /createRequire/, "server entrypoint must not use createRequire");
+  assert.match(serverSource, /server\.listen\(/, "server entrypoint must call listen for detection");
 });
 
 test("resolveArtifactDir prefers the configured directory and falls back deterministically", () => {
