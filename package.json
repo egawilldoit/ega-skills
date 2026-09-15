@@ -8,9 +8,6 @@
     "node": "24",
     "pnpm": "10.0.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
-  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false --force",
