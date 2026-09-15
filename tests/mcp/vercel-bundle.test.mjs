@@ -9,8 +9,10 @@ const MCP_ROOT = resolve(import.meta.dirname, "../../packages/mcp");
 
 test("vercel.json includeFiles globs match real bundled files", () => {
   const config = JSON.parse(readFileSync(join(MCP_ROOT, "vercel.json"), "utf8"));
-  const patterns = config.functions?.["server.ts"]?.includeFiles;
-  assert.ok(Array.isArray(patterns) && patterns.length > 0, "server.ts must declare includeFiles");
+  const declared = config.functions?.["server.ts"]?.includeFiles;
+  // Schema requires a single string (array form is rejected at deploy time).
+  assert.equal(typeof declared, "string", "server.ts includeFiles must be a string glob");
+  const patterns = [declared];
   for (const pattern of patterns) {
     assert.match(pattern, /^artifact\//, `includeFiles must stay inside the package root: ${pattern}`);
   }
