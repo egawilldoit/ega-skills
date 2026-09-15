@@ -20,6 +20,7 @@ export {
   createHostedRuntimeFromEnv,
   parseHostedAuthzPolicy,
   readHostedAuthzSource,
+  resolveArtifactDir,
   validateHostedAuthzPolicy,
   DEFAULT_HOSTED_MAX_BODY_BYTES,
   DEFAULT_HOSTED_MAX_CONCURRENT_REQUESTS,

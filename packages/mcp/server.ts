@@ -22,9 +22,27 @@
 // bundled. See `VERCEL.md`.
 
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { createHostedRuntimeFromEnv } from "./dist/hosted-runtime.js";
 import { createVercelRequestListener } from "./dist/vercel-adapter.js";
+
+// Pin the native SQLite binding into the function bundle. better-sqlite3
+// resolves its prebuilt binary through a runtime-computed path that file
+// tracers cannot follow, so reference it statically here. Without this, the
+// import inside ./dist/*.js throws at boot and every route fails with
+// FUNCTION_INVOCATION_FAILED. The require is Linux/x64-only (the deployment
+// target); other platforms skip it because the module is never executed
+// there. Version-pinned: tests/mcp/vercel-bundle.test.mjs fails loudly when
+// the better-sqlite3 version changes.
+const requireFromMcp = createRequire(import.meta.url);
+let sqliteNativeBinding: unknown;
+if (process.platform === "linux" && process.arch === "x64") {
+  sqliteNativeBinding = requireFromMcp(
+    "../../node_modules/.pnpm/better-sqlite3@13.0.3/node_modules/better-sqlite3/prebuilds/linux-x64.node",
+  );
+}
+void sqliteNativeBinding;
 
 // Atomic startup: a failure leaves the serving state unavailable and logs
 // one generic sanitized error (never policy contents, never secrets).

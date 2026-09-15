@@ -55,6 +55,23 @@ Step" so workspace dependencies resolve.
 
 No `vercel.json` rewrites are required.
 
+Bundle contract (why `vercel.json` + the `server.ts` pin exist):
+
+- `packages/mcp/vercel.json` declares `functions.server.ts.includeFiles`
+  (`artifact/**/*`) because the immutable release files are never imported
+  by code, so file tracing would otherwise omit them and every instance
+  would fail closed at `/readyz`.
+- `server.ts` statically references the Linux/x64 `better-sqlite3`
+  prebuilt binary because the package resolves it through a
+  runtime-computed path that tracers cannot follow; without the pin the
+  import throws at boot and every route fails. No install script is needed
+  (prebuilds ship in the package) and none is allowed —
+  `tests/mcp/vercel-bundle.test.mjs` pins the versioned path and fails
+  loudly on dependency bumps.
+- A relative `EGA_HOSTED_ARTIFACT_DIR` resolves against the process
+  working directory first, then against `dist/../artifact`, so both local
+  runs and function bundles find the same shipped files.
+
 ## Environment variables (NAMES only — never commit values)
 
 Required:
