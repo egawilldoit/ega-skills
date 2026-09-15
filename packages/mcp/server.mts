@@ -1,7 +1,10 @@
 // Vercel Node server entrypoint for the private hosted MCP runtime.
 //
-// Vercel detects this `server.ts` at the Project Root Directory
+// Vercel detects this `server.mts` at the Project Root Directory
 // (`packages/mcp`) and routes HTTPS requests to it through an internal port.
+// The `.mts` extension forces ES-module semantics no matter which module
+// system the platform infers from the surrounding package.json files, so the
+// `import` statements below cannot be miscompiled to `require`.
 // The `server.listen()` call below is required for detection; the PORT value
 // is only used for local runs.
 //
@@ -22,27 +25,17 @@
 // bundled. See `VERCEL.md`.
 
 import { createServer } from "node:http";
-import { createRequire } from "node:module";
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { createHostedRuntimeFromEnv } from "./dist/hosted-runtime.js";
 import { createVercelRequestListener } from "./dist/vercel-adapter.js";
 
-// Pin the native SQLite binding into the function bundle. better-sqlite3
-// resolves its prebuilt binary through a runtime-computed path that file
-// tracers cannot follow, so reference it statically here. Without this, the
-// import inside ./dist/*.js throws at boot and every route fails with
-// FUNCTION_INVOCATION_FAILED. The require is Linux/x64-only (the deployment
-// target); other platforms skip it because the module is never executed
-// there. Version-pinned: tests/mcp/vercel-bundle.test.mjs fails loudly when
-// the better-sqlite3 version changes.
-const requireFromMcp = createRequire(import.meta.url);
-let sqliteNativeBinding: unknown;
-if (process.platform === "linux" && process.arch === "x64") {
-  sqliteNativeBinding = requireFromMcp(
-    "../../node_modules/.pnpm/better-sqlite3@13.0.3/node_modules/better-sqlite3/prebuilds/linux-x64.node",
-  );
-}
-void sqliteNativeBinding;
+// NOTE: do NOT statically require the better-sqlite3 prebuilt binary here.
+// The binding resolves at runtime through the package's own relative path:
+// when file tracers ship it, it loads; when they do not, the first Database
+// construction fails inside the runtime's try/catch and the server keeps
+// serving fail-closed JSON (503s) instead of crashing. A static require of a
+// bundle-relative path cannot resolve reliably and would itself throw at
+// boot, failing every route.
 
 // Atomic startup: a failure leaves the serving state unavailable and logs
 // one generic sanitized error (never policy contents, never secrets).
@@ -50,11 +43,16 @@ let handler: McpHttpHandler | undefined;
 let maxBodyBytes = 1_048_576;
 let maxResponseBytes = 4 * 1_048_576;
 
-function positiveSocketEnv(raw: string | undefined, fallback: number, name: string): number {
-  const value = raw === undefined ? fallback : Number(raw);
+function socketEnv(raw: string | undefined, fallback: number, name: string): number {
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
   if (!Number.isSafeInteger(value) || value <= 0) {
-    process.stderr.write(`ega-mcp-vercel startup failed: ${name} must be a positive safe integer\n`);
-    process.exit(1);
+    // Platforms own the socket surface: warn loudly but stay alive serving
+    // fail-closed JSON instead of exiting and failing every route.
+    process.stderr.write(
+      `ega-mcp-vercel startup warning: ${name} is not a positive safe integer; using ${fallback}\n`,
+    );
+    return fallback;
   }
   return value;
 }
@@ -92,9 +90,9 @@ const server = createServer((incoming, outgoing) => {
   });
 });
 
-server.maxConnections = positiveSocketEnv(process.env.EGA_HOSTED_MAX_CONNECTIONS, 128, "EGA_HOSTED_MAX_CONNECTIONS");
+server.maxConnections = socketEnv(process.env.EGA_HOSTED_MAX_CONNECTIONS, 128, "EGA_HOSTED_MAX_CONNECTIONS");
 
-const port = positiveSocketEnv(process.env.PORT, 3000, "PORT");
+const port = socketEnv(process.env.PORT, 3000, "PORT");
 // No host pin: Vercel routes to the server through an internal port and the
 // documented Node-server form is listen(port). (The local smoke adapter in
 // bin/ keeps 127.0.0.1 deliberately.)

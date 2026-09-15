@@ -10,15 +10,18 @@ multiple instances). No request depends on durable local mutation.
 
 ## Entrypoint
 
-`packages/mcp/server.ts` is the Vercel Node server entrypoint. Vercel
+`packages/mcp/server.mts` is the Vercel Node server entrypoint. Vercel
 detects `server.{js,cjs,mjs,ts,cts,mts}` at the Project Root Directory and
-turns it into a Function via the `server.listen()` call. Do not confuse it
+turns it into a Function via the `server.listen()` call. The `.mts`
+extension forces ES-module semantics no matter which module system the
+platform infers, so the entrypoint's `import` statements cannot be
+miscompiled. Do not confuse it
 with `packages/mcp/src/server.ts` (the local stdio MCP server — not
-deployed). The Root Directory `server.ts` takes detector precedence; the
+deployed). The Root Directory `server.mts` takes detector precedence; the
 `src/server.ts` stdio module never calls `listen()` and is never deployed.
 
 Shared construction lives in `packages/mcp/src/hosted-runtime.ts` and is
-used by BOTH `bin/ega-mcp-hosted.mjs` (local smoke) and `server.ts`, so
+used by BOTH `bin/ega-mcp-hosted.mjs` (local smoke) and `server.mts`, so
 there is exactly one authorization implementation. HTTP plumbing is
 intentionally NOT shared: the local smoke adapter keeps its exact
 historical behavior (including `/healthz` returning 503 before readiness),
@@ -40,7 +43,7 @@ Production Branch: `release/2.0`
 
 Root Directory: `packages/mcp`
 
-Application Preset: `Node` (Node.js server detected via `server.ts` +
+Application Preset: `Node` (Node.js server detected via `server.mts` +
 `server.listen()`)
 
 Install Command: `pnpm install --frozen-lockfile`
@@ -55,22 +58,26 @@ Step" so workspace dependencies resolve.
 
 No `vercel.json` rewrites are required.
 
-Bundle contract (why `vercel.json` + the `server.ts` pin exist):
+Bundle contract (why `vercel.json` exists and what the entrypoint avoids):
 
-- `packages/mcp/vercel.json` declares `functions.server.ts.includeFiles`
+- `packages/mcp/vercel.json` declares `functions.server.mts.includeFiles`
   (`artifact/**/*`) because the immutable release files are never imported
   by code, so file tracing would otherwise omit them and every instance
   would fail closed at `/readyz`.
-- `server.ts` statically references the Linux/x64 `better-sqlite3`
-  prebuilt binary because the package resolves it through a
-  runtime-computed path that tracers cannot follow; without the pin the
-  import throws at boot and every route fails. No install script is needed
-  (prebuilds ship in the package) and none is allowed —
-  `tests/mcp/vercel-bundle.test.mjs` pins the versioned path and fails
-  loudly on dependency bumps.
+- `server.mts` deliberately contains NO static reference to the native
+  `.node` binary: a bundle-relative path cannot resolve reliably and the
+  require would throw at boot, failing every route. The binding resolves at
+  runtime through the package's own relative path; if tracers omit it, the
+  first Database construction fails inside the runtime try/catch and the
+  server keeps serving fail-closed JSON instead of crashing
+  (`tests/mcp/vercel-bundle.test.mjs` guards the absence).
+- No install script is needed or allowed (prebuilds ship in the package).
 - A relative `EGA_HOSTED_ARTIFACT_DIR` resolves against the process
   working directory first, then against `dist/../artifact`, so both local
   runs and function bundles find the same shipped files.
+- Platforms own the socket surface: an invalid `PORT` or
+  `EGA_HOSTED_MAX_CONNECTIONS` warns loudly and falls back instead of
+  exiting and failing every route.
 
 ## Environment variables (NAMES only — never commit values)
 
@@ -111,13 +118,13 @@ optional `authorized_subjects`/`denied_releases`/`denied_skills`/
 
 ## Deployment assumptions (verified against official Vercel docs)
 
-- Node server detection: `server.ts` at Root Directory + `server.listen()`
+- Node server detection: `server.mts` at Root Directory + `server.listen()`
   during module startup; the passed port is local-only.
 - Node 24 is GA for Vercel builds and functions; `engines.node` selects it.
 - pnpm is detected via repo-root `pnpm-lock.yaml`; `packageManager`
   `pnpm@10.0.0` is honored via corepack; the frozen lockfile is kept.
-- TypeScript: Vercel compiles `server.ts` itself; project references and
-  path mappings are NOT supported by that compiler, so `server.ts` imports
+- TypeScript: Vercel compiles `server.mts` itself; project references and
+  path mappings are NOT supported by that compiler, so `server.mts` imports
   only Node builtins plus the already-built `./dist/*.js` output. The
   workspace MUST be compiled first — hence Build Command `pnpm -w build`
   (root `tsc -b`), not Vercel's default.

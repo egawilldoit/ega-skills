@@ -29,7 +29,7 @@ async function waitForReady(port) {
   throw new Error("vercel server did not become ready");
 }
 
-test("vercel server.ts serves the verified release over real HTTP", async (t) => {
+test("vercel server.mts serves the verified release over real HTTP", async (t) => {
   const build = await buildHubRelease(makeHub());
   const policy = {
     workspace_id: "vercel-server-workspace",
@@ -39,7 +39,7 @@ test("vercel server.ts serves the verified release over real HTTP", async (t) =>
     denies: [],
   };
   const port = 18900 + Math.floor(Math.random() * 500);
-  const child = spawn(process.execPath, ["packages/mcp/server.ts"], {
+  const child = spawn(process.execPath, ["packages/mcp/server.mts"], {
     cwd: join(import.meta.dirname, "../.."),
     env: {
       ...process.env,
@@ -75,7 +75,7 @@ test("vercel server.ts serves the verified release over real HTTP", async (t) =>
   assert.doesNotMatch(stderr, /server-smoke-token/);
 });
 
-test("vercel server.ts rejects invalid socket configuration without leaking", async (t) => {
+test("vercel server.mts warns and falls back on invalid socket configuration", async (t) => {
   const build = await buildHubRelease(makeHub());
   const policy = {
     workspace_id: "vercel-server-workspace",
@@ -91,19 +91,27 @@ test("vercel server.ts rejects invalid socket configuration without leaking", as
     EGA_HOSTED_AUTHZ_JSON: JSON.stringify(policy),
     EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
   };
-  for (const extra of [{ PORT: "abc" }, { EGA_HOSTED_MAX_CONNECTIONS: "0" }]) {
-    const child = spawn(process.execPath, ["packages/mcp/server.ts"], {
-      cwd: join(import.meta.dirname, "../.."),
-      env: { ...baseEnv, ...extra },
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    let stderr = "";
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    const code = await new Promise((resolve) => child.on("exit", resolve));
-    t.after(() => child.kill());
-    assert.notEqual(code, 0, JSON.stringify(extra));
-    assert.match(stderr, /must be a positive safe integer/);
-    assert.doesNotMatch(stderr, /server-smoke-token/);
+  // Platforms own the socket surface: an invalid PORT/MAX_CONNECTIONS warns
+  // loudly and falls back instead of exiting and failing every route.
+  const child = spawn(process.execPath, ["packages/mcp/server.mts"], {
+    cwd: join(import.meta.dirname, "../.."),
+    env: { ...baseEnv, PORT: "abc", EGA_HOSTED_MAX_CONNECTIONS: "0" },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  t.after(() => child.kill());
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (stderr.includes("listening on 3000")) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.match(stderr, /PORT is not a positive safe integer; using 3000/);
+  assert.match(stderr, /EGA_HOSTED_MAX_CONNECTIONS is not a positive safe integer; using 128/);
+  assert.match(stderr, /listening on 3000/);
+  assert.doesNotMatch(stderr, /server-smoke-token/);
+  const health = await fetch("http://127.0.0.1:3000/healthz").catch(() => null);
+  if (health) {
+    assert.equal(health.status, 200);
   }
 });
