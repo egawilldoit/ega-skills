@@ -20,7 +20,8 @@
  * installation, no release generation.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import process from "node:process";
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
 import { InMemoryControlPlane, WORKSPACE_ROLES, type WorkspaceRole } from "@ega-skills/control-plane";
@@ -78,6 +79,30 @@ export interface HostedRuntimeHandle {
 function requiredEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+/** Resolve a configured artifact directory deterministically.
+ *
+ * As-given first (relative paths resolve against the process working
+ * directory, e.g. the package root locally). Function bundles may run with a
+ * different working directory, so a relative path that is missing under the
+ * cwd falls back to the artifact directory shipped alongside the built
+ * output (dist/../artifact). Absolute paths are used verbatim. When neither
+ * candidate exists the configured value is returned unchanged and the
+ * existing snapshot verification still fails closed.
+ */
+export function resolveArtifactDir(configured: string): string {
+  if (isAbsolutePath(configured) || existsSync(configured)) return configured;
+  const moduleBase = (import.meta as unknown as { dirname?: unknown }).dirname;
+  if (typeof moduleBase === "string") {
+    const sibling = join(moduleBase, "..", "artifact");
+    if (existsSync(sibling)) return sibling;
+  }
+  return configured;
 }
 
 function positiveInt(raw: string | undefined, fallback: number, name: string): number {
@@ -222,7 +247,7 @@ export function createHostedRuntimeFromEnv(
 
   // Immutable verified release first: a failed check never publishes a
   // partially verified snapshot.
-  const snapshot = loadHostedReleaseSnapshot(artifactDir);
+  const snapshot = loadHostedReleaseSnapshot(resolveArtifactDir(artifactDir));
   const policy = parseHostedAuthzPolicy(readHostedAuthzSource(env).raw);
 
   const controlPlane = new InMemoryControlPlane();
