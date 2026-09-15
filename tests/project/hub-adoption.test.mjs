@@ -735,6 +735,25 @@ test("crash after tree swap recovers exact previous state", async () => {
 test("requireCleanJournal refuses while recovery is incomplete", () => {
   const hubDir = mkdtempSync(join(tmpdir(), "ega-hub-"));
   requireCleanJournal(hubDir);
+  const treeDir = join(hubDir, "external", "plan", "repo");
+  mkdirSync(join(treeDir, "skills", "alpha"), { recursive: true });
+  writeFileSync(join(treeDir, "skills", "alpha", "SKILL.md"), skill("alpha", "Alpha body A."));
+  writeFileSync(join(treeDir, "LICENSE"), "License A.\n");
+  const tree = digestStagedTree(treeDir, ["skills/alpha"]);
+  writeFileSync(join(hubDir, "sources.lock.yaml"), lockTextForSources({
+    plan: {
+      source_config_digest: `sha256:${"c".repeat(64)}`,
+      repository: mkdtempSync(join(tmpdir(), "ega-repo-")),
+      requested_ref: "main",
+      namespace: "plan",
+      selection: { roots: ["skills/alpha"] },
+      provenance_files: ["LICENSE"],
+      resolved_commit: "a".repeat(40),
+      selected_skill_tree_digest: tree.treeDigest,
+      vendored_snapshot_digest: tree.snapshotDigest,
+      extraction_contract: 1,
+    },
+  }));
   writeJournal(hubDir, {
     backup: ".backup",
     expected_old_commit: "a".repeat(40),
@@ -768,6 +787,38 @@ test("journal-controlled paths are confined before recovery", () => {
   );
   assert.throws(() => recoverIfNeeded(hubDir), (e) => e instanceof HubError && e.code === "E_JOURNAL_SCHEMA");
   assert.equal(readFileSync(marker, "utf8"), "keep\n");
+});
+
+test("plan apply rejects an adopted tree modified after planning", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const target = join(hub.hubDir, "external", "plan", "repo", "skills", "beta", "SKILL.md");
+  const lockBytes = readFileSync(join(hub.hubDir, "sources.lock.yaml"));
+  const dirty = skill("beta", "Dirty edit after planning.");
+  writeFileSync(target, dirty);
+
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_PLAN_STALE");
+  assert.equal(readFileSync(target, "utf8"), dirty, "dirty adopted content must survive");
+  assert.deepEqual(readFileSync(join(hub.hubDir, "sources.lock.yaml")), lockBytes);
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
+  assert.equal(existsSync(join(hub.hubDir, ".backup")), false);
+});
+
+test("plan apply rejects an uncommitted lock edit after planning", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const hub = await setupHubAtA(repo, makeFixtureRepoShaA(repo));
+  const { plan, stageDir } = await freshPlanAndStage(repo, hub);
+  const lockFile = join(hub.hubDir, "sources.lock.yaml");
+  const edited = readFileSync(lockFile, "utf8").replace('requested_ref: "main"', 'requested_ref: "edited-after-planning"');
+  assert.notEqual(edited, readFileSync(lockFile, "utf8"));
+  writeFileSync(lockFile, edited);
+
+  assert.equal(await codeOf(() => applyUpdatePlan({ hubDir: hub.hubDir, plan, stageDir })), "E_LOCK_MISMATCH");
+  assert.equal(readFileSync(lockFile, "utf8"), edited, "lock edits must survive");
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".staging")), false);
 });
 
 test("plan for unadopted source rejected (E_LOCK_MISMATCH)", async () => {

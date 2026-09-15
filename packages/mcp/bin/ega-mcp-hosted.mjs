@@ -2,44 +2,31 @@
 // Minimal Node adapter for the read-only hosted MCP handler. Authentication is
 // intentionally supplied by an external verifier in production; this entry
 // point only provides a disposable local smoke adapter.
+//
+// Runtime construction (env validation, immutable release verification,
+// authorization policy, control plane) is shared with the Vercel server
+// entrypoint via `../dist/hosted-runtime.js`; only the HTTP plumbing below
+// is local to this adapter.
 import { createServer } from "node:http";
-import { loadHostedReleaseSnapshot, createHostedMcpHandler, createJwksBearerVerifier } from "../dist/index.js";
+import { createHostedRuntimeFromEnv } from "../dist/hosted-runtime.js";
 
-const artifactDir = process.env.EGA_HOSTED_ARTIFACT_DIR;
-const expectedToken = process.env.EGA_HOSTED_BEARER_TOKEN;
-const issuer = process.env.EGA_HOSTED_ISSUER;
-const audience = process.env.EGA_HOSTED_AUDIENCE;
-const jwksUrl = process.env.EGA_HOSTED_JWKS_URL;
-if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
-  throw new Error("EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required");
-}
-
-let snapshot;
-let startupError;
+// Startup is atomic: env validation, artifact verification, policy validation,
+// and control-plane construction all complete before `handler` is published.
+// A failure leaves the serving state unavailable and logs one generic error.
+let maxBodyBytes = 0;
+let handler;
 try {
-  snapshot = loadHostedReleaseSnapshot(artifactDir);
+  const runtime = createHostedRuntimeFromEnv(process.env);
+  handler = runtime.handler;
+  maxBodyBytes = runtime.maxBodyBytes;
 } catch (error) {
-  startupError = error;
+  handler = undefined;
+  process.stderr.write(`ega-mcp-hosted startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
 }
-const handler = snapshot && createHostedMcpHandler(snapshot, {
-  verifyBearer: issuer && audience && jwksUrl
-    ? createJwksBearerVerifier({
-      issuer,
-      audience,
-      jwksUrl,
-      requiredScope: process.env.EGA_HOSTED_REQUIRED_SCOPE ?? "ega:read",
-      jwksMaxAgeMs: process.env.EGA_HOSTED_JWKS_MAX_AGE_MS ? Number(process.env.EGA_HOSTED_JWKS_MAX_AGE_MS) : undefined,
-    })
-    : async (token) => {
-      if (token !== expectedToken) throw new Error("invalid token");
-      return { subject: "local-smoke", scopes: ["ega:read"] };
-    },
-  authorize: async () => true,
-});
 
 const server = createServer(async (incoming, outgoing) => {
   if (incoming.url === "/healthz" || incoming.url === "/readyz") {
-    const ready = !startupError && handler;
+    const ready = handler !== undefined;
     const status = ready ? 200 : 503;
     outgoing.writeHead(status, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ status: ready ? "ready" : "unavailable" }));
@@ -50,8 +37,25 @@ const server = createServer(async (incoming, outgoing) => {
     outgoing.end(JSON.stringify({ error: { code: "E_RUNTIME_UNAVAILABLE" } }));
     return;
   }
+  const declaredLength = Number(incoming.headers["content-length"] ?? 0);
+  if (declaredLength > maxBodyBytes) {
+    incoming.resume();
+    outgoing.writeHead(413);
+    outgoing.end("Request too large");
+    return;
+  }
   const chunks = [];
-  for await (const chunk of incoming) chunks.push(chunk);
+  let bodyLength = 0;
+  for await (const chunk of incoming) {
+    bodyLength += chunk.byteLength;
+    if (bodyLength > maxBodyBytes) {
+      incoming.destroy();
+      outgoing.writeHead(413);
+      outgoing.end("Request too large");
+      return;
+    }
+    chunks.push(chunk);
+  }
   const body = Buffer.concat(chunks);
   const headers = new Headers();
   for (const [key, value] of Object.entries(incoming.headers)) {
@@ -69,6 +73,15 @@ const server = createServer(async (incoming, outgoing) => {
   outgoing.end(Buffer.from(await response.arrayBuffer()));
 });
 
-const port = Number(process.env.PORT ?? 8787);
-server.maxConnections = Number(process.env.EGA_HOSTED_MAX_CONNECTIONS ?? 128);
+const port = positiveSocketEnv(process.env.PORT, 8787, "PORT");
+server.maxConnections = positiveSocketEnv(process.env.EGA_HOSTED_MAX_CONNECTIONS, 128, "EGA_HOSTED_MAX_CONNECTIONS");
 server.listen(port, "127.0.0.1", () => process.stderr.write(`ega-mcp-hosted listening on ${server.address().port}\n`));
+
+function positiveSocketEnv(raw, fallback, name) {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    process.stderr.write(`ega-mcp-hosted startup failed: ${name} must be a positive safe integer\n`);
+    process.exit(1);
+  }
+  return value;
+}

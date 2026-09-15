@@ -17,6 +17,8 @@ import { dirname, join, resolve, sep } from "node:path";
 import { HubError } from "./errors.js";
 import { COMMIT_RE, assertSourceId, isPlainObject } from "./guards.js";
 import { adoptedSourcePath } from "./paths.js";
+import { digestStagedTree } from "./quarantine.js";
+import { parseSourcesLockYaml } from "./sources-lock.js";
 
 export type JournalState = "PREPARED" | "TREE_SWAPPED" | "LOCK_SWAPPED" | "COMMITTED";
 
@@ -205,10 +207,61 @@ function removeIfPresent(path: string): void {
   if (existsSync(path)) removePathDurable(path);
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error && error.message.length > 0 ? error.message : String(error);
+}
+
+/**
+ * Lock/tree consistency check for recovery: the adopted lock must bind the
+ * journal's expected previous commit, and the restored tree must match BOTH
+ * identities the lock records — the selected skill tree digest AND the
+ * vendored snapshot digest (selected roots plus provenance files). A
+ * provenance-only edit changes the snapshot without moving the tree digest,
+ * so verifying either one alone would accept a backup that is not the exact
+ * previous adopted state. Any mismatch fails closed so recovery never
+ * reports success over content it could not verify.
+ */
+function verifyAdoptedState(tree: string, lockPath: string, journal: IncompleteJournal): void {
+  let record;
+  try {
+    const lock = parseSourcesLockYaml(readFileSync(lockPath, "utf8"));
+    record = lock.sources[journal.source_id];
+  } catch (error) {
+    throw new HubError("E_RECOVERY_REQUIRED", `recovery cannot read the adopted lock: ${messageOf(error)}`);
+  }
+  if (record === undefined || record.resolved_commit !== journal.expected_old_commit) {
+    throw new HubError(
+      "E_RECOVERY_REQUIRED",
+      "recovery lock does not bind the expected previous commit",
+    );
+  }
+  let state;
+  try {
+    state = digestStagedTree(tree, record.selection.roots);
+  } catch (error) {
+    throw new HubError("E_RECOVERY_REQUIRED", `recovery cannot verify the adopted tree: ${messageOf(error)}`);
+  }
+  if (state.treeDigest !== record.selected_skill_tree_digest) {
+    throw new HubError("E_RECOVERY_REQUIRED", "recovery tree digest does not match the adopted lock");
+  }
+  if (state.snapshotDigest !== record.vendored_snapshot_digest) {
+    throw new HubError("E_RECOVERY_REQUIRED", "recovery snapshot digest does not match the adopted lock");
+  }
+}
+
 /**
  * Recover an incomplete mutation: restore the exact previous adopted tree
  * and lock from backup when a backup exists, drop staging remnants, clear
  * the journal. COMMITTED journals only need remnant cleanup.
+ *
+ * Recovery is idempotent and fail-closed:
+ * - The live tree is removed only when a complete backup tree is present and
+ *   verified against the lock, so a restored tree is never deleted merely
+ *   because a backup lock or other remnant remains.
+ * - Backup material is removed only after the restored live tree and lock
+ *   are both present and verified against the journal's expected commit.
+ * - Missing or unverifiable adopted content raises E_RECOVERY_REQUIRED and
+ *   leaves all recovery material in place for a later attempt.
  */
 export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
   const journal = readJournal(hubDir);
@@ -220,13 +273,32 @@ export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
     clearJournal(hubDir);
     return { recovered: true };
   }
-  if (existsSync(paths.backupTree) || existsSync(paths.backupLock)) {
-    if (existsSync(paths.liveTree)) removePathDurable(paths.liveTree);
-    if (existsSync(paths.backupTree)) durableRename(paths.backupTree, paths.liveTree);
-    if (existsSync(paths.backupLock)) {
-      writeFileAtomic(paths.liveLock, readFileSync(paths.backupLock, "utf8"));
+  const hasBackupTree = existsSync(paths.backupTree);
+  const hasBackupLock = existsSync(paths.backupLock);
+  if (hasBackupTree) {
+    // Verify the backup before touching the live tree: once the backup is
+    // renamed into place it is the only copy of the old adopted content.
+    const referenceLock = hasBackupLock ? paths.backupLock : paths.liveLock;
+    if (!existsSync(referenceLock)) {
+      throw new HubError(
+        "E_RECOVERY_REQUIRED",
+        "recovery cannot verify the backup tree without an adopted lock",
+      );
     }
+    verifyAdoptedState(paths.backupTree, referenceLock, journal);
+    removeIfPresent(paths.liveTree);
+    durableRename(paths.backupTree, paths.liveTree);
   }
+  if (hasBackupLock) {
+    writeFileAtomic(paths.liveLock, readFileSync(paths.backupLock, "utf8"));
+  }
+  if (!existsSync(paths.liveTree) || !existsSync(paths.liveLock)) {
+    throw new HubError(
+      "E_RECOVERY_REQUIRED",
+      "recovery cannot find the adopted tree and lock; refusing to report success",
+    );
+  }
+  verifyAdoptedState(paths.liveTree, paths.liveLock, journal);
   removeIfPresent(paths.staging);
   removeIfPresent(paths.backup);
   clearJournal(hubDir);

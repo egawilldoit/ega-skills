@@ -39,7 +39,7 @@ export {
 export type { HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
-export { buildHub } from "./hub/builder.js";
+export { buildHub, discoverSkillDirs } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";
 export { buildHubRelease } from "./hub/release-build.js";
@@ -55,6 +55,7 @@ export {
   deriveTokenArtifact,
   queryReleaseFts,
   verifyReleaseCorpus,
+  verifyReleaseProjection,
 } from "./hub/release-state.js";
 export type {
   AliasMapDoc,

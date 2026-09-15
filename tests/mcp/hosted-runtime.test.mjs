@@ -94,6 +94,26 @@ test("hosted runtime rejects unauthenticated access before tool execution", asyn
   assert.match(await response.text(), /E_AUTH_REQUIRED/);
 });
 
+test("hosted runtime rejects missing and untrusted Origins when an allow-list is configured", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+  });
+  for (const origin of [undefined, "https://evil.example"]) {
+    const headers = { authorization: "Bearer test-token", "content-type": "application/json" };
+    if (origin) headers.origin = origin;
+    const response = await handler.fetch(new Request("http://localhost/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }));
+    assert.equal(response.status, 403);
+  }
+});
+
 test("hosted unpinned requests resolve the stable release once and report its digest", async () => {
   const build = await buildHubRelease(makeHub());
   const snapshot = loadHostedReleaseSnapshot(build.registryHome);

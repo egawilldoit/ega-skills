@@ -26,6 +26,7 @@ import type { CallToolResult, StandardSchemaWithJSON } from "@modelcontextprotoc
 import {
   resolveSkills,
   type ResolutionResult,
+  type ResolvePolicyInput,
 } from "@ega-skills/router";
 
 import {
@@ -51,6 +52,38 @@ export interface ResolveToolArgs {
 
 export interface ResolveToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Skills the caller's authorization boundary removed from visibility
+   * (hosted emergency deny / per-resource authorization). Excluded IDs and
+   * aliases never enter routing output; local callers omit this.
+   */
+  readonly excludedSkillIds?: readonly string[];
+}
+
+/**
+ * The effective resolve policy carried by the shared project context. The MCP
+ * boundary already resolved config/lock/policy once; the resolver must use
+ * those exact values instead of rediscovering them, so every tool agrees on
+ * authorization. For local contexts this equals `deriveProjectPolicy`.
+ */
+function effectivePolicy(ctx: McpProjectContext): ResolvePolicyInput {
+  return {
+    allowedNamespaces: ctx.config.namespaces.allow,
+    deniedNamespaces: ctx.config.namespaces.deny,
+    deniedSkills: ctx.config.skills.deny,
+    prefer: ctx.config.skills.prefer,
+    defaultMaxSkills: ctx.config.routing.max_skills,
+    defaultMaxTokens: ctx.config.routing.max_tokens,
+    lockedVersions:
+      ctx.lockMode === "LOCKED" && ctx.lock !== null
+        ? new Map(
+            Object.entries(ctx.lock.skills).map(([skillId, entry]) => [
+              skillId,
+              entry.version_hash,
+            ]),
+          )
+        : null,
+  };
 }
 
 function inputInvalid(message: string): never {
@@ -256,6 +289,10 @@ export async function runResolveTool(
     result = await resolveSkills({
       task,
       projectPath: ctx.projectPath,
+      policy: effectivePolicy(ctx),
+      ...(opts.excludedSkillIds !== undefined
+        ? { excludedSkillIds: opts.excludedSkillIds }
+        : {}),
       ...(explicitSkills !== undefined ? { explicitSkills } : {}),
       ...(maxSkills !== undefined || maxTokens !== undefined
         ? {

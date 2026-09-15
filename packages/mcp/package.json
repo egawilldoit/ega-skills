@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/control-plane": "workspace:*",
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",
