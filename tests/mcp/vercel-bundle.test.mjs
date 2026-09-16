@@ -7,15 +7,25 @@ import { resolveArtifactDir } from "../../packages/mcp/dist/index.js";
 
 const MCP_ROOT = resolve(import.meta.dirname, "../../packages/mcp");
 
-test("vercel.json includeFiles globs match real bundled files", () => {
+test("vercel.json selects and bundles the hosted server entrypoint", () => {
   const config = JSON.parse(readFileSync(join(MCP_ROOT, "vercel.json"), "utf8"));
-  const declared = config.functions?.["server.mts"]?.includeFiles;
+  assert.equal(Object.hasOwn(config, "functions"), false, "vercel.json must not use functions configuration");
+  assert.deepEqual(config.builds, [
+    {
+      src: "server.mts",
+      use: "@vercel/node",
+      config: { includeFiles: "artifact/**/*" },
+    },
+  ], "vercel.json must contain exactly the server.mts Node build");
+  const declared = config.builds[0].config.includeFiles;
   // Schema requires a single string (array form is rejected at deploy time).
   assert.equal(typeof declared, "string", "server.mts includeFiles must be a string glob");
+  assert.equal(declared, "artifact/**/*", "includeFiles must select the artifact tree");
   const patterns = [declared];
   for (const pattern of patterns) {
     assert.match(pattern, /^artifact\//, `includeFiles must stay inside the package root: ${pattern}`);
   }
+  assert.deepEqual(config.routes, [{ src: "/(.*)", dest: "server.mts" }], "all hosted requests must route to server.mts");
   for (const required of ["artifact/hub-release.json", "artifact/release-package.json", "artifact/registry.sqlite"]) {
     assert.ok(existsSync(join(MCP_ROOT, required)), `${required} must exist for bundling`);
   }
