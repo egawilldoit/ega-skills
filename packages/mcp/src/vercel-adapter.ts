@@ -24,6 +24,7 @@
  */
 
 import type { McpHttpHandler } from "@modelcontextprotocol/server";
+import { isProtectedResourceMetadataPath } from "./hosted-oauth.js";
 
 export interface VercelNodeRequest {
   readonly method?: string;
@@ -48,6 +49,8 @@ export interface VercelAdapterState {
   readonly getHandler: () => McpHttpHandler | undefined;
   readonly maxBodyBytes: number;
   readonly maxResponseBytes: number;
+  /** OAuth Protected Resource Metadata document; public, never Host-derived. */
+  readonly getProtectedResourceMetadata?: () => unknown;
 }
 
 function headerValue(value: string | readonly string[] | undefined): string | undefined {
@@ -168,6 +171,21 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
       const handler = state.getHandler();
       if (handler) jsonBody(outgoing, 200, { status: "ready" });
       else jsonBody(outgoing, 503, { status: "unavailable" });
+      return;
+    }
+    if (isProtectedResourceMetadataPath(pathname)) {
+      const metadata = state.getProtectedResourceMetadata?.();
+      if (incoming.method !== "GET") {
+        outgoing.writeHead(405, { "content-type": "application/json", allow: "GET" });
+        outgoing.end(JSON.stringify({ error: { code: "E_METHOD_NOT_ALLOWED" } }));
+        return;
+      }
+      if (!metadata) {
+        jsonBody(outgoing, 404, { error: { code: "E_NOT_FOUND" } });
+        return;
+      }
+      outgoing.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=3600" });
+      outgoing.end(JSON.stringify(metadata));
       return;
     }
     if (pathname !== "/mcp") {

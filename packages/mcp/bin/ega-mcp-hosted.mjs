@@ -15,10 +15,12 @@ import { createHostedRuntimeFromEnv } from "../dist/hosted-runtime.js";
 // A failure leaves the serving state unavailable and logs one generic error.
 let maxBodyBytes = 0;
 let handler;
+let protectedResourceMetadata;
 try {
   const runtime = createHostedRuntimeFromEnv(process.env);
   handler = runtime.handler;
   maxBodyBytes = runtime.maxBodyBytes;
+  protectedResourceMetadata = runtime.protectedResourceMetadata;
 } catch (error) {
   handler = undefined;
   process.stderr.write(`ega-mcp-hosted startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -30,6 +32,20 @@ const server = createServer(async (incoming, outgoing) => {
     const status = ready ? 200 : 503;
     outgoing.writeHead(status, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ status: ready ? "ready" : "unavailable" }));
+    return;
+  }
+  if (
+    (incoming.url === "/.well-known/oauth-protected-resource" ||
+      incoming.url === "/.well-known/oauth-protected-resource/mcp") &&
+    protectedResourceMetadata !== undefined
+  ) {
+    if (incoming.method !== "GET") {
+      outgoing.writeHead(405, { "content-type": "application/json", allow: "GET" });
+      outgoing.end(JSON.stringify({ error: { code: "E_METHOD_NOT_ALLOWED" } }));
+      return;
+    }
+    outgoing.writeHead(200, { "content-type": "application/json" });
+    outgoing.end(JSON.stringify(protectedResourceMetadata));
     return;
   }
   if (!handler) {

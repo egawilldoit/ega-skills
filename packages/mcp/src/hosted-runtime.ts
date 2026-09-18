@@ -32,6 +32,7 @@ import {
   type HostedReleaseSnapshot,
 } from "./hosted.js";
 import { createJwksBearerVerifier } from "./hosted-auth.js";
+import { buildProtectedResourceMetadata, parseHostedOAuthConfig, type HostedOAuthConfig } from "./hosted-oauth.js";
 import { createSupabaseContextResolver } from "./hosted-supabase.js";
 
 export const DEFAULT_HOSTED_MAX_BODY_BYTES = 1_048_576;
@@ -74,6 +75,8 @@ export interface HostedRuntimeHandle {
   readonly handler: McpHttpHandler;
   readonly maxBodyBytes: number;
   readonly maxResponseBytes: number;
+  /** Public OAuth Protected Resource Metadata (RFC 9728), when configured. */
+  readonly protectedResourceMetadata: unknown;
 }
 
 function requiredEnv(value: string | undefined): string | undefined {
@@ -83,6 +86,46 @@ function requiredEnv(value: string | undefined): string | undefined {
 
 function isAbsolutePath(value: string): boolean {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+/** Validate and normalize the trusted Origin allow-list once, at startup.
+ *
+ * Entries must be bare origins: scheme + host (+ optional port), HTTPS in
+ * production (loopback HTTP allowed for local development), no path, query,
+ * fragment, credentials, or wildcard. Invalid configuration fails startup.
+ */
+export function parseAllowedOrigins(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === "") {
+    throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
+  }
+  const origins: string[] = [];
+  for (const entry of raw.split(",")) {
+    const value = entry.trim();
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error("EGA_HOSTED_ALLOWED_ORIGINS contains a malformed origin");
+    }
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHostname(url.hostname))) {
+      throw new Error("EGA_HOSTED_ALLOWED_ORIGINS entries must use HTTPS");
+    }
+    if (url.username !== "" || url.password !== "") throw new Error("EGA_HOSTED_ALLOWED_ORIGINS entries must not contain credentials");
+    if (url.search !== "" || url.hash !== "") throw new Error("EGA_HOSTED_ALLOWED_ORIGINS entries must not contain a query or fragment");
+    if (url.pathname !== "" && url.pathname !== "/") throw new Error("EGA_HOSTED_ALLOWED_ORIGINS entries must not contain a path");
+    if (value.includes("*")) throw new Error("EGA_HOSTED_ALLOWED_ORIGINS must not contain wildcards");
+    origins.push(url.origin);
+  }
+  const unique = [...new Set(origins)];
+  if (unique.length === 0) {
+    throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
+  }
+  return unique;
 }
 
 /** Resolve a configured artifact directory deterministically.
@@ -206,27 +249,51 @@ export function createHostedRuntimeFromEnv(
 ): HostedRuntimeHandle {
   const artifactDir = requiredEnv(env["EGA_HOSTED_ARTIFACT_DIR"]);
   const expectedToken = requiredEnv(env["EGA_HOSTED_BEARER_TOKEN"]);
+  const allowStaticToken = env["EGA_HOSTED_ALLOW_STATIC_TOKEN"] === "true";
   const issuer = requiredEnv(env["EGA_HOSTED_ISSUER"]);
   const audience = requiredEnv(env["EGA_HOSTED_AUDIENCE"]);
   const jwksUrl = requiredEnv(env["EGA_HOSTED_JWKS_URL"]);
   const supabaseUrl = requiredEnv(env["EGA_HOSTED_SUPABASE_URL"]);
   const supabaseSecretKey = requiredEnv(env["EGA_HOSTED_SUPABASE_SECRET_KEY"]);
-  const allowedOrigins = env["EGA_HOSTED_ALLOWED_ORIGINS"]
-    ?.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const allowedOrigins = parseAllowedOrigins(env["EGA_HOSTED_ALLOWED_ORIGINS"]);
 
-  if (!artifactDir || (!expectedToken && !(issuer && audience && jwksUrl))) {
-    throw new Error(
-      "EGA_HOSTED_ARTIFACT_DIR and either EGA_HOSTED_BEARER_TOKEN or the hosted issuer/audience/JWKS configuration are required",
-    );
+  if (!artifactDir) {
+    throw new Error("EGA_HOSTED_ARTIFACT_DIR is required");
   }
-  if (!allowedOrigins?.length) {
-    throw new Error("EGA_HOSTED_ALLOWED_ORIGINS is required; hosted Origin policy must fail closed");
+  // Production authentication is JWKS/JWT only. Partial JWT configuration
+  // always fails closed; a shared literal token is allowed ONLY when the
+  // deployment explicitly opts in for local development, deterministic
+  // tests, or smoke fixtures.
+  const jwtParts = [issuer, audience, jwksUrl].filter((value) => value !== undefined);
+  if (jwtParts.length !== 0 && jwtParts.length !== 3) {
+    throw new Error("EGA_HOSTED_ISSUER, EGA_HOSTED_AUDIENCE, and EGA_HOSTED_JWKS_URL must be configured together");
+  }
+  const useJwt = jwtParts.length === 3;
+  if (!useJwt) {
+    if (!expectedToken) {
+      throw new Error("hosted JWT configuration (issuer/audience/JWKS) is required");
+    }
+    if (!allowStaticToken) {
+      throw new Error("EGA_HOSTED_BEARER_TOKEN requires EGA_HOSTED_ALLOW_STATIC_TOKEN=true; static tokens are not a production authentication mode");
+    }
   }
   if ((supabaseUrl && !supabaseSecretKey) || (!supabaseUrl && supabaseSecretKey)) {
     throw new Error("EGA_HOSTED_SUPABASE_URL and EGA_HOSTED_SUPABASE_SECRET_KEY must be configured together");
   }
+
+  // OAuth discovery is part of production authentication: it is validated
+  // once here, never derived from request headers. Local smoke mode may skip
+  // discovery entirely, or configure it explicitly for interop fixtures.
+  const resourceUrl = requiredEnv(env["EGA_HOSTED_RESOURCE_URL"]);
+  const oauth: HostedOAuthConfig | undefined =
+    useJwt || resourceUrl !== undefined
+      ? parseHostedOAuthConfig({
+          resourceUrl,
+          authorizationServers: env["EGA_HOSTED_AUTHORIZATION_SERVERS"],
+          scopesSupported: env["EGA_HOSTED_OAUTH_SCOPES_SUPPORTED"],
+          defaultAuthorizationServer: issuer,
+        })
+      : undefined;
 
   const maxBodyBytes = positiveInt(env["EGA_HOSTED_MAX_BODY_BYTES"], DEFAULT_HOSTED_MAX_BODY_BYTES, "EGA_HOSTED_MAX_BODY_BYTES");
   const maxResponseBytes = positiveInt(
@@ -286,28 +353,38 @@ export function createHostedRuntimeFromEnv(
 
   const requiredScope = requiredEnv(env["EGA_HOSTED_REQUIRED_SCOPE"]);
   const jwksMaxAgeRaw = requiredEnv(env["EGA_HOSTED_JWKS_MAX_AGE_MS"]);
+  const jwksRefreshCooldownRaw = requiredEnv(env["EGA_HOSTED_JWKS_REFRESH_COOLDOWN_MS"]);
   const handler = createHostedMcpHandler(snapshot, {
     allowedOrigins,
-    verifyBearer:
-      issuer && audience && jwksUrl
-        ? createJwksBearerVerifier({
-            issuer,
-            audience,
-            jwksUrl,
-            // Supabase user/OAuth access tokens may not contain an
-            // application-specific scope. Authorization is still enforced by
-            // the authenticated subject plus the control-plane/RLS graph.
-            // A whitespace-only scope is treated as unset (never a valid
-            // scope); deployments needing a scope set it explicitly.
-            ...(requiredScope ? { requiredScope } : {}),
-            ...(jwksMaxAgeRaw !== undefined
-              ? { jwksMaxAgeMs: positiveInt(jwksMaxAgeRaw, DEFAULT_HOSTED_REQUEST_TIMEOUT_MS, "EGA_HOSTED_JWKS_MAX_AGE_MS") }
-              : {}),
-          })
-        : async (token) => {
-            if (token !== expectedToken) throw new Error("invalid token");
-            return { subject: "local-smoke", scopes: ["ega:read"] };
-          },
+    ...(oauth ? { oauth } : {}),
+    verifyBearer: useJwt
+      ? createJwksBearerVerifier({
+          issuer: issuer as string,
+          audience: audience as string,
+          jwksUrl: jwksUrl as string,
+          // Supabase user/OAuth access tokens may not contain an
+          // application-specific scope. Authorization is still enforced by
+          // the authenticated subject plus the control-plane/RLS graph.
+          // A whitespace-only scope is treated as unset (never a valid
+          // scope); deployments needing a scope set it explicitly.
+          ...(requiredScope ? { requiredScope } : {}),
+          ...(jwksMaxAgeRaw !== undefined
+            ? { jwksMaxAgeMs: positiveInt(jwksMaxAgeRaw, DEFAULT_HOSTED_REQUEST_TIMEOUT_MS, "EGA_HOSTED_JWKS_MAX_AGE_MS") }
+            : {}),
+          ...(jwksRefreshCooldownRaw !== undefined
+            ? {
+                jwksRefreshCooldownMs: positiveInt(
+                  jwksRefreshCooldownRaw,
+                  DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
+                  "EGA_HOSTED_JWKS_REFRESH_COOLDOWN_MS",
+                ),
+              }
+            : {}),
+        })
+      : async (token) => {
+          if (token !== expectedToken) throw new Error("invalid token");
+          return { subject: "local-smoke", scopes: ["ega:read"] };
+        },
     authorize: async (principal) => controlPlane.authorize(hubId, principal.subject, "read_hub"),
     ...(resolveContext ? { resolveContext } : {}),
     deniedSkills,
@@ -319,5 +396,11 @@ export function createHostedRuntimeFromEnv(
     maxConcurrentRequests,
   });
 
-  return { snapshot, handler, maxBodyBytes, maxResponseBytes };
+  return {
+    snapshot,
+    handler,
+    maxBodyBytes,
+    maxResponseBytes,
+    protectedResourceMetadata: oauth ? buildProtectedResourceMetadata(oauth) : undefined,
+  };
 }
