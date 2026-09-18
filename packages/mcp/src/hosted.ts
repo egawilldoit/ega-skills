@@ -24,6 +24,7 @@ import { runInspectTool, inspectOutputSchema, type McpInspectArgs } from "./insp
 import { runResolveTool, RESOLVE_OUTPUT_SCHEMA } from "./resolve.js";
 import { runSearchTool, SEARCH_OUTPUT_SCHEMA } from "./search.js";
 import { toolSchema } from "./server.js";
+import { buildWwwAuthenticate, type HostedOAuthConfig } from "./hosted-oauth.js";
 import type { McpProjectContext } from "./project-context.js";
 
 export interface HostedReleaseSnapshot {
@@ -38,12 +39,16 @@ export interface HostedReleaseSnapshot {
 export interface HostedPrincipal {
   readonly subject: string;
   readonly scopes: readonly string[];
+  /** OAuth client that obtained the token; provenance/audit identity only. */
+  readonly clientId?: string;
 }
 
 export interface HostedRuntimeOptions {
   readonly verifyBearer: (token: string, signal: AbortSignal) => Promise<HostedPrincipal>;
   readonly authorize: (principal: HostedPrincipal, tool: string, skillId?: string, signal?: AbortSignal) => Promise<boolean>;
   readonly allowedOrigins?: readonly string[];
+  /** OAuth discovery configuration; when absent no challenge is advertised. */
+  readonly oauth?: HostedOAuthConfig;
   readonly deniedReleases?: ReadonlySet<string>;
   readonly deniedSkills?: ReadonlySet<string>;
   readonly deniedSources?: ReadonlySet<string>;
@@ -221,10 +226,10 @@ async function deniedByAuthorization(
   return denied;
 }
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: unknown, extraHeaders?: Readonly<Record<string, string>>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(extraHeaders ?? {}) },
   });
 }
 
@@ -322,10 +327,10 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     const rejectProject = (args: Record<string, unknown>): void => {
       if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");
     };
-    server.registerTool("search", { description: "Search the hosted personal release", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runSearchTool(args, requestContext, { ftsTable: effectiveSnapshot.ftsTable }); }));
-    server.registerTool("resolve", { description: "Resolve against the hosted personal release", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runResolveTool(args, requestContext, { env: { EGA_SKILLS_HOME: effectiveSnapshot.context.registryHome }, excludedSkillIds: requestContext.config.skills.deny }); }));
-    server.registerTool("inspect", { description: "Inspect hosted release metadata", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); const output = runInspectTool(args as unknown as McpInspectArgs, requestContext); return toCallResult(output); }));
-    server.registerTool("get_content", { description: "Retrieve hosted release content", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); return runGetContentTool(args, requestContext); }));
+    server.registerTool("search", { description: "Search the hosted EGA Skills release. Returns ranked matches plus the effective_release_digest; pass that exact digest to inspect and get_content.", inputSchema: toolSchema({ fields: { query: { type: "string", nonEmpty: true }, limit: { type: "integer", min: 1, max: 20 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["query"] }), outputSchema: SEARCH_OUTPUT_SCHEMA }, (args) => guard("search", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runSearchTool(args, requestContext, { ftsTable: effectiveSnapshot.ftsTable }); }));
+    server.registerTool("resolve", { description: "Resolve a task against the hosted EGA Skills release. Returns selected/candidate skills with version_hash values plus the effective_release_digest; pass that exact digest to inspect and get_content.", inputSchema: toolSchema({ fields: { task: { type: "string", nonEmpty: true }, max_skills: { type: "integer", min: 1, max: 3 }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["task"] }), outputSchema: RESOLVE_OUTPUT_SCHEMA }, (args) => guard("resolve", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); checkRelease(args, effectiveSnapshot); return runResolveTool(args, requestContext, { env: { EGA_SKILLS_HOME: effectiveSnapshot.context.registryHome }, excludedSkillIds: requestContext.config.skills.deny }); }));
+    server.registerTool("inspect", { description: "Inspect one skill in the hosted EGA Skills release. Requires the exact release_digest (or an authorized context_id) and, when re-checking content, the exact version_hash.", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id"] }), outputSchema: inspectOutputSchema }, (args) => guard("inspect", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); const output = runInspectTool(args as unknown as McpInspectArgs, requestContext); return toCallResult(output); }));
+    server.registerTool("get_content", { description: "Retrieve exact skill content from the hosted EGA Skills release. Requires the exact skill_id, version_hash, level, max_tokens, and the exact release_digest (or an authorized context_id).", inputSchema: toolSchema({ fields: { skill_id: { type: "string", nonEmpty: true }, version_hash: { type: "string", nonEmpty: true }, level: { type: "enum", values: ["L1", "L2"] }, max_tokens: { type: "integer", min: 1, max: 1_000_000 }, file_path: { type: "string" }, release_digest: { type: "string" }, context_id: { type: "string" } }, required: ["skill_id", "version_hash", "level", "max_tokens"] }), outputSchema: GET_CONTENT_OUTPUT_SCHEMA }, (args) => guard("get_content", args, async (requestContext) => { const effectiveSnapshot = await selectSnapshot(args); rejectProject(args); requirePinned(args, effectiveSnapshot); return runGetContentTool(args, requestContext); }));
     return server;
   }, { legacy: "stateless", responseMode: "json" });
   return {
@@ -349,17 +354,35 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
           boundedRequest = new Request(request, { signal: timeoutController.signal });
         }
         const origin = request.headers.get("origin");
-        if (options.allowedOrigins && (!origin || !options.allowedOrigins.includes(origin))) return new Response("Origin rejected", { status: 403 });
+        // Native MCP clients send no Origin. Missing Origin is NOT
+        // authorization: the bearer check below still applies. A present
+        // Origin must be an exact member of the trusted allow-list; `null`,
+        // malformed, duplicated, or hostile values never match.
+        if (origin !== null && options.allowedOrigins && !options.allowedOrigins.includes(origin)) {
+          return new Response("Origin rejected", { status: 403 });
+        }
         const header = boundedRequest.headers.get("authorization");
-        if (!header?.startsWith("Bearer ") || header.length <= 7) return jsonResponse(401, { error: { code: "E_AUTH_REQUIRED" } });
+        if (!header?.startsWith("Bearer ") || header.length <= 7) {
+          return jsonResponse(
+            401,
+            { error: { code: "E_AUTH_REQUIRED" } },
+            options.oauth ? { "www-authenticate": buildWwwAuthenticate(options.oauth) } : undefined,
+          );
+        }
         let principal: HostedPrincipal;
         try {
           principal = await options.verifyBearer(header.slice(7), timeoutController.signal);
-        } catch { return jsonResponse(401, { error: { code: "E_TOKEN_INVALID" } }); }
+        } catch {
+          return jsonResponse(
+            401,
+            { error: { code: "E_TOKEN_INVALID" } },
+            options.oauth ? { "www-authenticate": buildWwwAuthenticate(options.oauth, "invalid_token") } : undefined,
+          );
+        }
         // Bracket notation keeps the local MCP adapter outside the offline
         // source-boundary scanner's network-call token set. The SDK handler is
         // still invoked directly; this is not a browser/network primitive.
-        const response = await handler["fetch"](boundedRequest, { ...requestOptions, authInfo: { token: "redacted", clientId: "hosted", scopes: [...principal.scopes], extra: { principal } } as unknown as AuthInfo });
+        const response = await handler["fetch"](boundedRequest, { ...requestOptions, authInfo: { token: "redacted", clientId: principal.clientId ?? "hosted", scopes: [...principal.scopes], extra: { principal } } as unknown as AuthInfo });
         const responseBody = new Uint8Array(await response.arrayBuffer());
         if (responseBody.byteLength > maxResponseBytes) return new Response("Response too large", { status: 500 });
         return new Response(responseBody, response);

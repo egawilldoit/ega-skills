@@ -18,6 +18,7 @@ export {
 } from "./hosted.js";
 export {
   createHostedRuntimeFromEnv,
+  parseAllowedOrigins,
   parseHostedAuthzPolicy,
   readHostedAuthzSource,
   resolveArtifactDir,
@@ -31,7 +32,20 @@ export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js
 export { createVercelRequestListener } from "./vercel-adapter.js";
 export type { VercelAdapterState, VercelNodeRequest, VercelNodeResponse } from "./vercel-adapter.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
-export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
+export type { JwksBearerVerifierOptions, JwksFetchResponse, VerifiedHostedPrincipal } from "./hosted-auth.js";
+export {
+  PROTECTED_RESOURCE_METADATA_PATHS,
+  PROTECTED_RESOURCE_METADATA_ROOT_PATH,
+  buildProtectedResourceMetadata,
+  buildWwwAuthenticate,
+  isProtectedResourceMetadataPath,
+  parseHostedOAuthConfig,
+} from "./hosted-oauth.js";
+export type {
+  HostedOAuthConfig,
+  HostedOAuthConfigInput,
+  HostedProtectedResourceMetadata,
+} from "./hosted-oauth.js";
 export { createSupabaseContextResolver } from "./hosted-supabase.js";
 export type { SupabaseContextResolverOptions } from "./hosted-supabase.js";
 export type {

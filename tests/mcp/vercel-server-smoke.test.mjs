@@ -45,7 +45,7 @@ test("vercel server.mts serves the verified release over real HTTP", async (t) =
       ...process.env,
       PORT: String(port),
       EGA_HOSTED_ARTIFACT_DIR: build.registryHome,
-      EGA_HOSTED_BEARER_TOKEN: "server-smoke-token",
+      EGA_HOSTED_BEARER_TOKEN: "server-smoke-token", EGA_HOSTED_ALLOW_STATIC_TOKEN: "true",
       EGA_HOSTED_AUTHZ_JSON: JSON.stringify(policy),
       EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
     },
@@ -87,7 +87,7 @@ test("vercel server.mts warns and falls back on invalid socket configuration", a
   const baseEnv = {
     ...process.env,
     EGA_HOSTED_ARTIFACT_DIR: build.registryHome,
-    EGA_HOSTED_BEARER_TOKEN: "server-smoke-token",
+    EGA_HOSTED_BEARER_TOKEN: "server-smoke-token", EGA_HOSTED_ALLOW_STATIC_TOKEN: "true",
     EGA_HOSTED_AUTHZ_JSON: JSON.stringify(policy),
     EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
   };

@@ -48,6 +48,7 @@ function validEnv(artifactDir, overrides = {}) {
   return {
     EGA_HOSTED_ARTIFACT_DIR: artifactDir,
     EGA_HOSTED_BEARER_TOKEN: SECRET_TOKEN,
+    EGA_HOSTED_ALLOW_STATIC_TOKEN: "true",
     EGA_HOSTED_AUTHZ_JSON: policyJSON(),
     EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
     ...overrides,
@@ -331,13 +332,17 @@ test("vercel denied aliases cannot bypass policy", async (t) => {
   void digest;
 });
 
-// 20. Origin policy remains fail-closed
-test("vercel Origin policy remains fail-closed", async (t) => {
+// 20. Origin policy remains fail-closed for browsers, open for native clients
+test("vercel Origin policy rejects hostile Origins and admits missing Origin", async (t) => {
   const { base } = await startServer(t, validEnv(BUILD.registryHome));
-  for (const origin of [null, "https://evil.example"]) {
+  for (const origin of ["https://evil.example", "null", "http://localhost, https://evil.example"]) {
     const response = await mcpCall(base, 1, "tools/list", {}, { origin });
     assert.equal(response.status, 403, `origin ${origin} must be rejected`);
   }
+  const missing = await mcpCall(base, 1, "tools/list", {}, { origin: null });
+  assert.equal(missing.status, 200, "native clients without Origin must reach authentication");
+  const untokened = await mcpCall(base, 1, "tools/list", {}, { token: null });
+  assert.equal(untokened.status, 401);
   const allowed = await mcpCall(base, 1, "tools/list");
   assert.equal(allowed.status, 200);
 });
@@ -563,7 +568,7 @@ test("vercel JWKS configuration authenticates through the shared runtime", async
   });
   const { EGA_HOSTED_BEARER_TOKEN: _dropped, ...jwksEnv } = validEnv(BUILD.registryHome);
   void _dropped;
-  const env = { ...jwksEnv, EGA_HOSTED_ISSUER: issuer, EGA_HOSTED_AUDIENCE: audience, EGA_HOSTED_JWKS_URL: jwksUrl };
+  const env = { ...jwksEnv, EGA_HOSTED_ISSUER: issuer, EGA_HOSTED_AUDIENCE: audience, EGA_HOSTED_JWKS_URL: jwksUrl, EGA_HOSTED_RESOURCE_URL: "https://ega.example/mcp" };
   const { base } = await startServer(t, env);
   const claims = { iss: issuer, aud: audience, sub: "local-smoke", exp: Math.floor(Date.now() / 1000) + 60 };
   const ok = await mcpCall(base, 1, "tools/list", {}, { token: mint(claims) });

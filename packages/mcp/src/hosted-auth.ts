@@ -7,9 +7,20 @@ export interface JwksBearerVerifierOptions {
   readonly requiredScope?: string;
   readonly clockSkewSeconds?: number;
   readonly jwksMaxAgeMs?: number;
+  readonly jwksRefreshCooldownMs?: number;
   readonly requestTimeoutMs?: number;
   readonly maxBodyBytes?: number;
-  readonly fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
+  readonly fetchImpl?: (input: string, init?: { signal?: AbortSignal }) => Promise<JwksFetchResponse>;
+}
+export interface JwksFetchResponse {
+  readonly ok: boolean;
+  arrayBuffer(): Promise<ArrayBuffer>;
+  readonly body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } | null;
+}
+export interface VerifiedHostedPrincipal {
+  readonly subject: string;
+  readonly scopes: readonly string[];
+  readonly clientId?: string;
 }
 interface Jwk {
   kty: string;
@@ -25,6 +36,7 @@ interface Jwk {
 }
 interface JwksDocument { keys: Jwk[]; }
 const DEFAULT_MAX_AGE = 5 * 60 * 1000;
+const DEFAULT_REFRESH_COOLDOWN = 30_000;
 const DEFAULT_TIMEOUT = 5_000;
 const DEFAULT_MAX_BODY = 512 * 1024;
 const ALGORITHMS = {
@@ -102,8 +114,41 @@ function keyMatches(jwk: Jwk, algorithm: SupportedAlgorithm): boolean {
   return true;
 }
 
-export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (token: string, signal: AbortSignal) => Promise<{ subject: string; scopes: readonly string[] }> {
+async function readBoundedBody(response: JwksFetchResponse, maxBody: number): Promise<Uint8Array> {
+  const stream = response.body;
+  if (stream && typeof stream.getReader === "function") {
+    // Bounded streaming read: never buffer more than the configured limit,
+    // even when the response advertises a much larger body.
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        const value = next.value;
+        if (!value) continue;
+        total += value.byteLength;
+        if (total > maxBody) throw new Error("JWKS response too large");
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return bytes;
+  }
+  // Fallback for injectable fetchers that only expose arrayBuffer().
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBody) throw new Error("JWKS response too large");
+  return bytes;
+}
+
+export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (token: string, signal: AbortSignal) => Promise<VerifiedHostedPrincipal> {
   const maxAge = positive(options.jwksMaxAgeMs, DEFAULT_MAX_AGE, "jwksMaxAgeMs");
+  const refreshCooldownMs = positive(options.jwksRefreshCooldownMs, DEFAULT_REFRESH_COOLDOWN, "jwksRefreshCooldownMs");
   const timeoutMs = positive(options.requestTimeoutMs, DEFAULT_TIMEOUT, "requestTimeoutMs");
   const maxBody = positive(options.maxBodyBytes, DEFAULT_MAX_BODY, "maxBodyBytes");
   const skew = positive(options.clockSkewSeconds, 30, "clockSkewSeconds");
@@ -111,9 +156,15 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
   if (!fetcher) throw new Error("fetch is unavailable");
   let cached: { loadedAt: number; keys: Jwk[] } | undefined;
   let loading: Promise<Jwk[]> | undefined;
+  // Unknown `kid` values must not trigger uncontrolled refresh storms: one
+  // forced refresh is allowed per cooldown window and concurrent callers
+  // always share the in-flight load.
+  let lastRefreshStartedAt = 0;
   const load = async (signal: AbortSignal, force = false): Promise<Jwk[]> => {
     if (!force && cached && Date.now() - cached.loadedAt < maxAge) return cached.keys;
+    if (force && cached && Date.now() - lastRefreshStartedAt < refreshCooldownMs) return cached.keys;
     if (loading) return loading;
+    lastRefreshStartedAt = Date.now();
     loading = (async () => {
       const controller = new AbortController();
       const abort = () => controller.abort(signal.reason);
@@ -122,8 +173,7 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
       try {
         const response = await fetcher(options.jwksUrl, { signal: controller.signal });
         if (!response.ok) throw new Error("JWKS request failed");
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.length > maxBody) throw new Error("JWKS response too large");
+        const bytes = await readBoundedBody(response, maxBody);
         const document = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as JwksDocument;
         if (!Array.isArray(document.keys)) throw new Error("invalid JWKS document");
         const keys = document.keys.filter((key) => key && (key.kty === "RSA" || key.kty === "EC") && typeof key.kid === "string");
@@ -141,9 +191,15 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
     if (!supportedAlgorithm(algorithm) || !header.kid) throw new Error("unsupported token algorithm");
     const claims = decodeJson<Record<string, unknown>>(parts[1] as string);
     const now = Math.floor(Date.now() / 1000);
-    if (claims.iss !== options.issuer || !audience(claims.aud, options.audience) || typeof claims.sub !== "string") throw new Error("token claims rejected");
+    if (claims.iss !== options.issuer || !audience(claims.aud, options.audience)) throw new Error("token claims rejected");
+    if (typeof claims.sub !== "string" || claims.sub.trim() === "") throw new Error("token claims rejected");
     if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= now - skew) throw new Error("token expired");
-    if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || claims.nbf > now + skew)) throw new Error("token not active");
+    if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf > now + skew)) throw new Error("token not active");
+    let clientId: string | undefined;
+    if (claims.client_id !== undefined) {
+      if (typeof claims.client_id !== "string" || claims.client_id.trim() === "") throw new Error("token claims rejected");
+      clientId = claims.client_id;
+    }
     if (options.requiredScope && (typeof claims.scope !== "string" || !claims.scope.split(/\s+/).includes(options.requiredScope))) throw new Error("token scope rejected");
     let keys = await load(signal);
     let key = keys.find((candidate) => candidate.kid === header.kid && keyMatches(candidate, algorithm));
@@ -156,6 +212,6 @@ export function createJwksBearerVerifier(options: JwksBearerVerifierOptions): (t
     const verificationSignature = algorithm === "ES256" ? es256Signature(signature) : signature;
     if (!verifier.verify(publicKey, verificationSignature)) throw new Error("token signature rejected");
     const scopes = typeof claims.scope === "string" ? claims.scope.split(/\s+/).filter(Boolean) : [];
-    return { subject: claims.sub, scopes };
+    return { subject: claims.sub, scopes, ...(clientId !== undefined ? { clientId } : {}) };
   };
 }

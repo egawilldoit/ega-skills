@@ -94,7 +94,7 @@ test("hosted runtime rejects unauthenticated access before tool execution", asyn
   assert.match(await response.text(), /E_AUTH_REQUIRED/);
 });
 
-test("hosted runtime rejects missing and untrusted Origins when an allow-list is configured", async () => {
+test("hosted runtime allows missing Origin into authentication and rejects untrusted Origins", async () => {
   const build = await buildHubRelease(makeHub());
   const snapshot = loadHostedReleaseSnapshot(build.registryHome);
   const handler = createHostedMcpHandler(snapshot, {
@@ -102,16 +102,22 @@ test("hosted runtime rejects missing and untrusted Origins when an allow-list is
     verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
     authorize: async () => true,
   });
-  for (const origin of [undefined, "https://evil.example"]) {
-    const headers = { authorization: "Bearer test-token", "content-type": "application/json" };
+  for (const origin of [undefined, "http://localhost"]) {
+    const headers = { authorization: "Bearer test-token", "content-type": "application/json", accept: "application/json, text/event-stream" };
     if (origin) headers.origin = origin;
     const response = await handler.fetch(new Request("http://localhost/mcp", {
       method: "POST",
       headers,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
     }));
-    assert.equal(response.status, 403);
+    assert.equal(response.status, 200, `origin ${origin} must reach authentication`);
   }
+  const rejected = await handler.fetch(new Request("http://localhost/mcp", {
+    method: "POST",
+    headers: { authorization: "Bearer test-token", "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  }));
+  assert.equal(rejected.status, 403);
 });
 
 test("hosted unpinned requests resolve the stable release once and report its digest", async () => {

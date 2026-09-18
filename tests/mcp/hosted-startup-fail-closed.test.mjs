@@ -59,7 +59,7 @@ async function startHosted(t, policyJSON, artifactDir = BUILD.registryHome) {
       ...process.env,
       PORT: String(port),
       EGA_HOSTED_ARTIFACT_DIR: artifactDir,
-      EGA_HOSTED_BEARER_TOKEN: "startup-secret-token",
+      EGA_HOSTED_BEARER_TOKEN: "startup-secret-token", EGA_HOSTED_ALLOW_STATIC_TOKEN: "true",
       EGA_HOSTED_AUTHZ_FILE: authzPath,
       EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
     },
@@ -129,4 +129,42 @@ test("valid startup still serves search over HTTP", async (t) => {
   const response = await search(port);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /ega\/alpha/);
+});
+
+test("authentication configuration fails closed without an explicit static-token opt-in", async () => {
+  const { createHostedRuntimeFromEnv } = await import("../../packages/mcp/dist/index.js");
+  const base = {
+    EGA_HOSTED_ARTIFACT_DIR: BUILD.registryHome,
+    EGA_HOSTED_AUTHZ_JSON: JSON.stringify(validPolicy()),
+    EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
+  };
+  const jwt = {
+    EGA_HOSTED_ISSUER: "https://issuer.example",
+    EGA_HOSTED_AUDIENCE: "authenticated",
+    EGA_HOSTED_JWKS_URL: "https://issuer.example/.well-known/jwks.json",
+    EGA_HOSTED_RESOURCE_URL: "https://mcp.example/mcp",
+  };
+
+  // Static tokens require the explicit opt-in; production env has no flag.
+  assert.throws(() => createHostedRuntimeFromEnv({ ...base, EGA_HOSTED_BEARER_TOKEN: "static" }), /ALLOW_STATIC_TOKEN/);
+  assert.doesNotThrow(() =>
+    createHostedRuntimeFromEnv({ ...base, EGA_HOSTED_BEARER_TOKEN: "static", EGA_HOSTED_ALLOW_STATIC_TOKEN: "true" }),
+  );
+
+  // Partial JWT configuration always fails closed, flag or not.
+  assert.throws(
+    () => createHostedRuntimeFromEnv({ ...base, EGA_HOSTED_BEARER_TOKEN: "static", EGA_HOSTED_ALLOW_STATIC_TOKEN: "true", EGA_HOSTED_ISSUER: "https://issuer.example" }),
+    /configured together/,
+  );
+  // JWT mode requires the canonical resource URL.
+  assert.throws(() => createHostedRuntimeFromEnv({ ...base, ...jwt, EGA_HOSTED_RESOURCE_URL: undefined }), /EGA_HOSTED_RESOURCE_URL/);
+  // JWT mode must never fall back to a static token.
+  const runtime = createHostedRuntimeFromEnv({
+    ...base,
+    ...jwt,
+    EGA_HOSTED_BEARER_TOKEN: "static",
+    EGA_HOSTED_ALLOW_STATIC_TOKEN: "true",
+  });
+  assert.equal(runtime.protectedResourceMetadata.resource, "https://mcp.example/mcp");
+  assert.throws(() => createHostedRuntimeFromEnv({ ...base }), /JWT configuration/);
 });
