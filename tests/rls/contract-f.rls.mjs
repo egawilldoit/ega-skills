@@ -355,3 +355,90 @@ test("database and in-memory authorization agree for equivalent read scenarios",
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Delegated OAuth token containment (release gate)
+// ---------------------------------------------------------------------------
+
+const CONTROL_PLANE_TABLES = [
+  "personal_workspaces",
+  "hubs",
+  "hub_releases",
+  "hub_stable_pointers",
+  "security_denies",
+  "audit_events",
+  "workspace_memberships",
+  "projects",
+  "project_contexts",
+  "context_revocations",
+  "quota_policies",
+  "immutable_objects",
+  "hub_release_artifacts",
+  "source_credentials",
+  "quota_usage",
+  "public_hub_publications",
+];
+
+function asDelegated(subject, clientId, sql) {
+  const claims = JSON.stringify({ sub: subject, client_id: clientId, role: "authenticated" });
+  return psql(DB_URL, `begin; set local role authenticated; set local "request.jwt.claims" = '${claims}'; ${sql}; commit;`);
+}
+
+test("delegated OAuth tokens read zero control-plane rows even for workspace owners", () => {
+  const restrictive = scalar(
+    "user-a",
+    "select count(*) from pg_policies where schemaname = 'public' and policyname = 'delegated_oauth_containment' and permissive = 'RESTRICTIVE'",
+  );
+  assert.equal(Number(restrictive), CONTROL_PLANE_TABLES.length, "every control-plane table needs a restrictive policy");
+
+  // The owner sees rows through a first-party session...
+  assert.ok(count("user-a", "select count(*) from public.hubs") > 0, "fixture must be visible to the first-party owner");
+  assert.ok(
+    count("user-a", "select count(*) from public.workspace_memberships") > 0,
+    "fixture memberships must be visible to the first-party owner",
+  );
+
+  // ...and exactly zero rows through a delegated OAuth client token.
+  for (const table of CONTROL_PLANE_TABLES) {
+    const delegated = asDelegated("user-a", "delegated-client-1", `select count(*) from public.${table}`)
+      .trim();
+    assert.equal(delegated, "0", `delegated token must not read public.${table}`);
+  }
+  const otherClient = asDelegated("user-b", "another-client", "select count(*) from public.hubs").trim();
+  assert.equal(otherClient, "0", "containment is independent of subject or client id");
+});
+
+test("delegated OAuth tokens cannot mutate control-plane state", () => {
+  for (const privilege of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+    assert.equal(
+      scalar("user-a", `select has_table_privilege('authenticated', 'public.hubs', '${privilege}')::text`),
+      "false",
+      `authenticated must not hold ${privilege} on public.hubs`,
+    );
+  }
+  assert.throws(() =>
+    asDelegated(
+      "user-a",
+      "delegated-client-1",
+      `insert into public.hubs (workspace_id, visibility) values ('00000000-0000-4000-8000-0000000000a1', 'public')`,
+    ),
+  );
+  assert.throws(() =>
+    asDelegated("user-a", "delegated-client-1", `delete from public.workspace_memberships`),
+  );
+});
+
+test("first-party sessions keep their existing control-plane reads", () => {
+  assert.ok(count("user-a", "select count(*) from public.projects") > 0);
+  assert.ok(count("user-a", "select count(*) from public.project_contexts") > 0);
+  assert.ok(count("user-a", "select count(*) from public.immutable_objects") > 0);
+});
+
+test("platform RLS provisioning helpers are not callable by clients", () => {
+  const result = scalar(
+    "user-a",
+    "select case when to_regprocedure('public.rls_auto_enable()') is null then 'absent' "
+      + "else has_function_privilege('authenticated', 'public.rls_auto_enable()', 'EXECUTE')::text end",
+  );
+  assert.ok(result === "absent" || result === "false", `rls_auto_enable must not be executable, got ${result}`);
+});
