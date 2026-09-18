@@ -145,6 +145,12 @@ The MCP function is the OAuth **resource server**; Supabase Auth remains the
 authorization server. The server never stores OAuth refresh tokens and never
 runs a custom authorization endpoint.
 
+Status: the resource-server discovery surface is deployed, but **production
+OAuth login is gated** — see "Resource-binding gate" below. Until that gate is
+cleared, hosted MCP authentication remains the direct Bearer JWT contract.
+
+Target onboarding once the gate is cleared:
+
 ```bash
 codex mcp add ega-skills \
   --url "https://ega-skills-mcp.vercel.app/mcp" \
@@ -168,6 +174,35 @@ Invalid/expired tokens stay `401 E_TOKEN_INVALID` with
 ```text
 WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"
 ```
+
+### Resource-binding gate (production enablement stopped)
+
+The MCP authorization specification requires the resource server to reject
+tokens that were not intended for it (RFC 8707 resource indicators). The
+managed Supabase OAuth server accepts, validates, and stores the requested
+`resource` for the authorization code flow, but it does not forward that
+resource into the issued access token:
+
+- Pinned provider source: `supabase/auth` commit
+  `2e9ce6c8e46532879ced1c6f9a7acdcde3815ea6` (2026-09-18). `resource` is
+  stored on `auth.oauth_authorizations` and checked again at token exchange
+  (`handlers.go`), but token claims are always generated with
+  `aud: "authenticated"` and no resource claim (`internal/tokens/service.go`).
+- The upstream change that would bind the token, supabase/auth PR #2526
+  ("set JWT aud to resource URI when RFC 8707 resource parameter is used"),
+  was closed without merging; no replacement mechanism ships today.
+- Custom Access Token Hooks cannot close the gap: their input carries
+  `user_id`, `claims` (including `client_id` and `session_id`), and
+  `authentication_method` — never the requested resource. Writing a constant
+  resource into every token would not reflect the resource actually
+  authorized and is explicitly not done.
+
+Consequence: EGA cannot distinguish a token issued for this MCP resource from
+a token issued to any other OAuth client of the same Supabase project, so
+production OAuth enablement (Supabase OAuth server + Codex login docs) stays
+stopped until the provider exposes the authorized resource in the token (for
+example by merging #2526 or an equivalent claim). The MCP does not advertise
+`ega:read` or any custom scope: EGA permissions stay EGA permissions.
 
 Headless/CI use (supported, stable contract):
 
