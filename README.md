@@ -159,6 +159,26 @@ OpenCode/T3
 
 See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runtime-Contract.md).
 
+## Hosted MCP (remote, authenticated)
+
+The same four tools are served at `https://ega-skills-mcp.vercel.app/mcp`.
+Authentication accepts a direct Supabase user access JWT
+(`Authorization: Bearer <jwt>`) for headless/CI use, and — once the Supabase
+OAuth 2.1 server is enabled for the project — a standard MCP OAuth login:
+
+```bash
+codex mcp add ega-skills \
+  --url "https://ega-skills-mcp.vercel.app/mcp" \
+  --oauth-client-registration auto
+codex mcp login ega-skills
+```
+
+No `EGA_ACCESS_TOKEN`, manually copied JWT, manual `Authorization`/`Origin`
+header, or Supabase key is needed for the OAuth flow. The browser login and
+consent screens live in the separate `packages/oauth-ui` deployment. See
+[`packages/mcp/VERCEL.md`](packages/mcp/VERCEL.md) for the operator runbook,
+environment variables, and the OAuth resource-server contract.
+
 ## Frozen V1 technology
 
 Shipped implementation stack (pinned; install with `pnpm install --frozen-lockfile`):

@@ -34,6 +34,9 @@ HTTP routing/bridging lives in `packages/mcp/src/vercel-adapter.ts`:
   initialization succeeded, else `503`
 - `/mcp` → existing authenticated MCP Streamable HTTP behavior (exactly
   `resolve`, `search`, `inspect`, `get_content`)
+- `GET /.well-known/oauth-protected-resource` and
+  `GET /.well-known/oauth-protected-resource/mcp` → public OAuth Protected
+  Resource Metadata (RFC 9728); unsupported methods → `405`
 - unknown paths → controlled `404 {"error":{"code":"E_NOT_FOUND"}}`
 - no debugging/configuration endpoints
 
@@ -56,14 +59,15 @@ Node version: 24 (repo pins `engines.node = 24`, `.nvmrc = 24`,
 Tick "Include source files outside of the Root Directory in the Build
 Step" so workspace dependencies resolve.
 
-No `vercel.json` rewrites are required.
+Bundle contract (the actual committed `packages/mcp/vercel.json`):
 
-Bundle contract (why `vercel.json` exists and what the entrypoint avoids):
-
-- `packages/mcp/vercel.json` declares `functions.server.mts.includeFiles`
-  (`artifact/**/*`) because the immutable release files are never imported
-  by code, so file tracing would otherwise omit them and every instance
-  would fail closed at `/readyz`.
+- `builds` selects `server.mts` with `@vercel/node` and
+  `config.includeFiles: "artifact/**/*"` because the immutable release files
+  are never imported by code, so file tracing would otherwise omit them and
+  every instance would fail closed at `/readyz`.
+- `routes` sends every path to `server.mts`, which then applies the routing
+  above. This is the working production configuration; no separate
+  `functions` block or dashboard rewrite is used.
 - `server.mts` deliberately contains NO static reference to the native
   `.node` binary: a bundle-relative path cannot resolve reliably and the
   require would throw at boot, failing every route. The binding resolves at
@@ -88,8 +92,14 @@ Required:
 - `EGA_HOSTED_ISSUER`
 - `EGA_HOSTED_AUDIENCE`
 - `EGA_HOSTED_JWKS_URL`
-- `EGA_HOSTED_ALLOWED_ORIGINS` — comma-separated allow-list, non-empty
-  (Origin policy stays fail-closed; never `*`)
+- `EGA_HOSTED_RESOURCE_URL` — canonical MCP resource identifier
+  (`https://ega-skills-mcp.vercel.app/mcp`). Required whenever JWKS
+  authentication is configured; explicit trusted configuration, never
+  derived from `Host`/`X-Forwarded-Host`.
+- `EGA_HOSTED_ALLOWED_ORIGINS` — comma-separated allow-list of bare origins,
+  non-empty (never `*`, never a path/query/fragment/credentials). A missing
+  `Origin` (native MCP clients) proceeds to authentication; a present Origin
+  must match exactly or the request is `403`.
 - `EGA_HOSTED_AUTHZ_JSON` — authorization policy document as inline JSON
   (preferred on Vercel; deterministic precedence over FILE when both set)
 - `EGA_HOSTED_SUPABASE_URL`
@@ -97,12 +107,21 @@ Required:
 
 Optional:
 
+- `EGA_HOSTED_AUTHORIZATION_SERVERS` — comma-separated OAuth authorization
+  server issuers advertised in protected resource metadata; defaults to
+  `EGA_HOSTED_ISSUER` (Supabase Auth's AS URL is the project issuer).
+- `EGA_HOSTED_OAUTH_SCOPES_SUPPORTED` — optional advertised scopes
+  (comma/space separated); omit until the provider's discovery metadata
+  confirms the scopes it actually issues.
 - `EGA_HOSTED_AUTHZ_FILE` — file path alternative for local/VM usage
   (JSON env wins when both are configured)
-- `EGA_HOSTED_BEARER_TOKEN` — local smoke fallback ONLY; do NOT set in the
-  real Vercel setup when JWKS auth is configured
+- `EGA_HOSTED_BEARER_TOKEN` — local smoke fallback ONLY, and only together
+  with `EGA_HOSTED_ALLOW_STATIC_TOKEN=true`; never a production
+  authentication mode
 - `EGA_HOSTED_REQUIRED_SCOPE` — opt-in token scope check
 - `EGA_HOSTED_JWKS_MAX_AGE_MS` — JWKS cache age override
+- `EGA_HOSTED_JWKS_REFRESH_COOLDOWN_MS` — minimum interval between forced
+  JWKS refreshes triggered by unknown `kid` values (default `30000`)
 - `EGA_HOSTED_MAX_BODY_BYTES` (default `1048576`)
 - `EGA_HOSTED_MAX_RESPONSE_BYTES` (default `4194304`)
 - `EGA_HOSTED_REQUEST_TIMEOUT_MS` (default `30000`)
@@ -110,11 +129,56 @@ Optional:
 - `EGA_HOSTED_MAX_CONNECTIONS` (default `128`)
 - `PORT` (default `3000`; local only — Vercel routes via internal port)
 
+Partial JWT configuration (`EGA_HOSTED_ISSUER`/`AUDIENCE`/`JWKS_URL` set
+in any combination other than all three) fails startup closed. Production
+must never fall back to a static bearer token.
+
 The authorization policy uses the SAME schema validation as hosted startup
 (`workspace_id`, `visibility`, `owner_subject`, `memberships`, `denies`,
 optional `authorized_subjects`/`denied_releases`/`denied_skills`/
 `denied_sources`). Malformed JSON or an invalid policy fails startup
 (`503`); full policy contents and secrets are never logged.
+
+## OAuth 2.1 discovery and human onboarding
+
+The MCP function is the OAuth **resource server**; Supabase Auth remains the
+authorization server. The server never stores OAuth refresh tokens and never
+runs a custom authorization endpoint.
+
+```bash
+codex mcp add ega-skills \
+  --url "https://ega-skills-mcp.vercel.app/mcp" \
+  --oauth-client-registration auto
+codex mcp login ega-skills
+```
+
+No `EGA_ACCESS_TOKEN`, no manually copied JWT, no manual `Authorization` or
+`Origin` header, and no Supabase key in the Codex config. The browser login
+and consent UI is the separate `packages/oauth-ui` deployment; Supabase
+redirects there for `/oauth/consent`.
+
+Anonymous requests to `/mcp` stay `401 E_AUTH_REQUIRED` and now advertise:
+
+```text
+WWW-Authenticate: Bearer resource_metadata="https://ega-skills-mcp.vercel.app/.well-known/oauth-protected-resource"
+```
+
+Invalid/expired tokens stay `401 E_TOKEN_INVALID` with
+
+```text
+WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"
+```
+
+Headless/CI use (supported, stable contract):
+
+- A direct Supabase user access JWT in `Authorization: Bearer <jwt>` remains
+  valid for CI, diagnostics, headless clients, and automated acceptance.
+  Issuer, audience (`authenticated`), `exp`/`nbf`, signature (ES256 via
+  JWKS), and subject authorization are all enforced exactly as before.
+- The shared literal `EGA_HOSTED_BEARER_TOKEN` exists only for local
+  development and deterministic smoke fixtures (`EGA_HOSTED_ALLOW_STATIC_TOKEN`).
+  It is not a production authentication option and must never be configured
+  on the Vercel project.
 
 ## Deployment assumptions (verified against official Vercel docs)
 
@@ -140,12 +204,13 @@ optional `authorized_subjects`/`denied_releases`/`denied_skills`/
 - Request cancellation is bridged via AbortSignal (client disconnect aborts
   downstream work).
 - Limits preserved: max body, timeout, response size, max concurrency +
-  max connections, Origin allow-list (fail-closed), JWT/JWKS validation,
+  max connections, Origin allow-list (missing Origin proceeds to
+  authentication; present Origins must match exactly), JWT/JWKS validation,
   deny policy (release/skill/source), context/release mismatch protection,
   fail-closed startup, no anonymous MCP execution, no wildcard CORS.
   `PORT` and `EGA_HOSTED_MAX_CONNECTIONS` are validated as positive safe
-  integers; an invalid value logs one sanitized line and exits non-zero
-  instead of binding the wrong port or dropping the connection limit.
+  integers; an invalid value logs one sanitized line and falls back to the
+  platform-safe default instead of failing every route.
 
 ## Artifact provisioning
 
