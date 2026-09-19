@@ -12,9 +12,10 @@
  *   discovery          Fetch the authorization-server discovery document
  *   keys               Print the public client keys (publishable + legacy anon)
  *   apply-migration    Apply supabase/migrations/202609180001_delegated_oauth_containment.sql
+ *   apply-audience-hook Apply the dedicated MCP audience custom access-token hook
  *   containment-status Report the restrictive policy / grant state of the containment migration
  *   enable-oauth       Enable the OAuth 2.1 server, DCR, and set the authorization path
- *                      (--path=https://<auth-ui>/oauth/consent)
+ *                      (--path=https://<auth-ui>/oauth/consent --hook-enabled=true)
  *   disable-oauth      Disable the OAuth 2.1 server (fail-closed gate)
  *
  * Example:
@@ -94,6 +95,16 @@ async function applyMigration() {
   console.log(JSON.stringify({ applied: "202609180001_delegated_oauth_containment", result }, null, 2));
 }
 
+async function applyAudienceHook() {
+  const file = join(ROOT, "supabase", "migrations", "20260919090000_oauth_mcp_audience_hook.sql");
+  const sql = readFileSync(file, "utf8");
+  const result = await api(`/projects/${PROJECT_REF}/database/query`, {
+    method: "POST",
+    body: JSON.stringify({ query: sql }),
+  });
+  console.log(JSON.stringify({ applied: "20260919090000_oauth_mcp_audience_hook", result }, null, 2));
+}
+
 async function containmentStatus() {
   const query = `
     select
@@ -122,6 +133,9 @@ async function enableOAuth() {
   const authorizationPath = parseFlag("path");
   if (!authorizationPath || !authorizationPath.startsWith("https://")) {
     throw new Error("--path=https://<auth-ui>/oauth/consent is required");
+  }
+  if (parseFlag("hook-enabled") !== "true") {
+    throw new Error("--hook-enabled=true is required after the dedicated-resource hook is enabled and verified");
   }
   const config = await api(`/projects/${PROJECT_REF}/config/auth`);
   const result = await api(`/projects/${PROJECT_REF}/config/auth`, {
@@ -153,6 +167,7 @@ const COMMANDS = {
   discovery,
   keys,
   "apply-migration": applyMigration,
+  "apply-audience-hook": applyAudienceHook,
   "containment-status": containmentStatus,
   "enable-oauth": enableOAuth,
   "disable-oauth": disableOAuth,

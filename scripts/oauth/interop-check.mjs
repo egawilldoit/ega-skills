@@ -70,6 +70,10 @@ function decodeClaims(token) {
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 }
 
+function audienceContains(claims, expected) {
+  return claims?.aud === expected || (Array.isArray(claims?.aud) && claims.aud.includes(expected));
+}
+
 function claimSummary(token) {
   const claims = decodeClaims(token);
   if (!claims) return null;
@@ -81,8 +85,7 @@ function claimSummary(token) {
     scope: claims.scope ?? null,
     role: claims.role ?? null,
     exp: claims.exp ?? null,
-    resource_claim: "resource" in claims ? claims.resource : null,
-    has_resource_claim: "resource" in claims,
+    audience_matches_resource: audienceContains(claims, RESOURCE),
   };
 }
 
@@ -190,9 +193,9 @@ async function main() {
         check("access token subject preserved", summary?.sub === "present");
         check("access token client_id present", typeof summary?.client_id === "string");
         check(
-          "resource binding claim present in access token",
-          summary?.has_resource_claim === true,
-          summary?.has_resource_claim ? String(summary.resource_claim) : "no resource claim",
+          "access token audience is the canonical MCP resource",
+          summary?.audience_matches_resource === true,
+          summary?.aud ?? "missing audience",
         );
         if (tokens.refresh_token) {
           const refreshed = await exchange({
@@ -204,6 +207,11 @@ async function main() {
           if (refreshed.body?.access_token) {
             check("refreshed access token differs", refreshed.body.access_token !== tokens.access_token);
             check("refreshed subject preserved", claimSummary(refreshed.body.access_token)?.sub === "present");
+            check(
+              "refreshed audience is the canonical MCP resource",
+              claimSummary(refreshed.body.access_token)?.audience_matches_resource === true,
+              claimSummary(refreshed.body.access_token)?.aud ?? "missing audience",
+            );
           }
         } else {
           check("refresh token issued", false);

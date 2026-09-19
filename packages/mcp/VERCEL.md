@@ -146,8 +146,9 @@ authorization server. The server never stores OAuth refresh tokens and never
 runs a custom authorization endpoint.
 
 Status: the resource-server discovery surface is deployed, but **production
-OAuth login is gated** — see "Resource-binding gate" below. Until that gate is
-cleared, hosted MCP authentication remains the direct Bearer JWT contract.
+OAuth login is still gated** — see "Resource binding" below. The MCP will
+accept only the dedicated-resource JWT profile once that profile is enabled
+and verified in Supabase.
 
 Target onboarding once the gate is cleared:
 
@@ -175,41 +176,65 @@ Invalid/expired tokens stay `401 E_TOKEN_INVALID` with
 WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"
 ```
 
-### Resource-binding gate (production enablement stopped)
+### Resource binding (dedicated single-resource issuer)
 
 The MCP authorization specification requires the resource server to reject
 tokens that were not intended for it (RFC 8707 resource indicators). The
 managed Supabase OAuth server accepts, validates, and stores the requested
-`resource` for the authorization code flow, but it does not forward that
-resource into the issued access token:
+`resource` for the authorization-code flow, but the current provider does not
+forward that value into the signed access JWT:
 
 - Pinned provider source: `supabase/auth` commit
   `2e9ce6c8e46532879ced1c6f9a7acdcde3815ea6` (2026-09-18). `resource` is
   stored on `auth.oauth_authorizations` and checked again at token exchange
-  (`handlers.go`), but token claims are always generated with
-  `aud: "authenticated"` and no resource claim (`internal/tokens/service.go`).
-- The upstream change that would bind the token, supabase/auth PR #2526
-  ("set JWT aud to resource URI when RFC 8707 resource parameter is used"),
-  was closed without merging; no replacement mechanism ships today.
-- Custom Access Token Hooks cannot close the gap: their input carries
-  `user_id`, `claims` (including `client_id` and `session_id`), and
-  `authentication_method` — never the requested resource. Writing a constant
-  resource into every token would not reflect the resource actually
-  authorized and is explicitly not done.
+  (`handlers.go`), but token generation uses `aud: "authenticated"` and does
+  not add a resource claim (`internal/tokens/service.go`). Refresh carries the
+  OAuth client identity, not the requested resource.
+- The upstream change that would bind the token dynamically, supabase/auth PR
+  #2526 ("set JWT aud to resource URI when RFC 8707 resource parameter is
+  used"), was closed without merging. The current Custom Access Token Hook
+  input has `user_id`, `claims` (including provider-supplied `client_id`), and
+  `authentication_method`, but no authorized resource.
 
-Consequence: EGA cannot distinguish a token issued for this MCP resource from
-a token issued to any other OAuth client of the same Supabase project, so
-production OAuth enablement (Supabase OAuth server + Codex login docs) stays
-stopped until the provider exposes the authorized resource in the token (for
-example by merging #2526 or an equivalent claim). The MCP does not advertise
-`ega:read` or any custom scope: EGA permissions stay EGA permissions.
+The safe design for this deployment is a dedicated single-resource issuer
+profile, not a claim invented by the browser. The migration
+`20260919090000_oauth_mcp_audience_hook.sql` installs a server-side custom
+access-token hook that changes `aud` to the exact canonical resource
+`https://ega-skills-mcp.vercel.app/mcp` only when Supabase supplies a non-empty
+OAuth `client_id`. First-party sessions retain the provider's ordinary claims,
+including `aud: "authenticated"`. The MCP accepts only the exact resource as
+its configured JWT audience, while still enforcing issuer, signature, subject,
+expiry, and `nbf`.
+
+This is safe only as a dedicated-resource invariant: every delegated OAuth
+client in this Supabase project is an EGA Skills MCP client, and no other
+protected resource may trust these delegated tokens. DCR cannot choose a
+different resource because the hook ignores frontend values and writes one
+server-side audience. Refresh reuses the provider's OAuth client identity and
+therefore re-enters the same hook. Direct Supabase control-plane access remains
+blocked by the restrictive `delegated_oauth_containment` policies whenever
+`client_id` is present. A future second resource requires a separate issuer or
+a provider/broker that propagates and signs the requested resource.
+
+Enablement is a separate operator action in Supabase Dashboard:
+Authentication → Hooks → Custom Access Token → Postgres function,
+`public.custom_access_token_hook` (URI
+`pg-functions://postgres/public/custom_access_token_hook`). Verify the hook is
+enabled before enabling the OAuth server. The provider's current hosted Auth
+configuration has no Management API setting documented for this Postgres hook.
+
+The OAuth server remains disabled until the hook is installed, enabled in
+Supabase Auth, and verified with a real authorization-code + PKCE exchange and
+refresh. The MCP does not advertise `ega:read` or any custom scope: EGA
+permissions stay EGA permissions.
 
 Headless/CI use (supported, stable contract):
 
-- A direct Supabase user access JWT in `Authorization: Bearer <jwt>` remains
-  valid for CI, diagnostics, headless clients, and automated acceptance.
-  Issuer, audience (`authenticated`), `exp`/`nbf`, signature (ES256 via
-  JWKS), and subject authorization are all enforced exactly as before.
+- A direct first-party Supabase user access JWT retains `aud: "authenticated"`
+  for Supabase APIs and is not a production MCP credential. The hosted MCP
+  deliberately requires the exact dedicated resource audience, so headless
+  clients must use the same OAuth flow (or a separately authorized test
+  deployment) rather than bypassing resource binding with a copied JWT.
 - The shared literal `EGA_HOSTED_BEARER_TOKEN` exists only for local
   development and deterministic smoke fixtures (`EGA_HOSTED_ALLOW_STATIC_TOKEN`).
   It is not a production authentication option and must never be configured

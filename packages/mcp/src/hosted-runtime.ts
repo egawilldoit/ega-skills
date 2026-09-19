@@ -294,6 +294,9 @@ export function createHostedRuntimeFromEnv(
           defaultAuthorizationServer: issuer,
         })
       : undefined;
+  if (useJwt && oauth && audience !== oauth.resource) {
+    throw new Error("EGA_HOSTED_AUDIENCE must equal EGA_HOSTED_RESOURCE_URL for dedicated-resource JWT validation");
+  }
 
   const maxBodyBytes = positiveInt(env["EGA_HOSTED_MAX_BODY_BYTES"], DEFAULT_HOSTED_MAX_BODY_BYTES, "EGA_HOSTED_MAX_BODY_BYTES");
   const maxResponseBytes = positiveInt(

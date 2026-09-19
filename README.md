@@ -162,18 +162,18 @@ See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runt
 ## Hosted MCP (remote, authenticated)
 
 The same four tools are served at `https://ega-skills-mcp.vercel.app/mcp`.
-Authentication accepts a direct Supabase user access JWT
-(`Authorization: Bearer <jwt>`) for headless/CI use. The MCP also publishes
-OAuth 2.1 protected-resource metadata and `WWW-Authenticate` challenges, but
-MCP OAuth login is gated: the managed Supabase OAuth server does not bind the
-authorized resource into issued access tokens (see
-[`packages/mcp/VERCEL.md`](packages/mcp/VERCEL.md#resource-binding-gate-production-enablement-stopped)).
-Until the provider closes that gap, use the direct Bearer contract:
+The MCP publishes OAuth 2.1 protected-resource metadata and
+`WWW-Authenticate` challenges. Browser OAuth remains gated until the
+dedicated-resource hook is installed and verified; see
+[`packages/mcp/VERCEL.md`](packages/mcp/VERCEL.md#resource-binding-dedicated-single-resource-issuer).
+The production MCP requires an access token whose exact JWT audience is the
+canonical MCP resource; a normal first-party Supabase session with
+`aud: "authenticated"` is not sufficient:
 
 ```bash
 codex mcp add ega-skills \
   --url "https://ega-skills-mcp.vercel.app/mcp" \
-  --bearer-token-env-var EGA_ACCESS_TOKEN
+  --oauth-client-registration auto
 ```
 
 The browser login and consent screens live in the separate

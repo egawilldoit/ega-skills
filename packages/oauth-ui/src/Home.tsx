@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { classifyOAuthGrantError } from "./home-state";
 import { supabase, supabaseConfigured } from "./supabase";
 
 interface Grant {
@@ -9,6 +10,7 @@ interface Grant {
 
 export function Home() {
   const [state, setState] = useState<"loading" | "signed-out" | "ready">("loading");
+  const [grantState, setGrantState] = useState<"loading" | "disabled" | "ready" | "error">("loading");
   const [grants, setGrants] = useState<readonly Grant[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,9 +28,17 @@ export function Home() {
       const result = await supabase.auth.oauth.listGrants();
       if (!active) return;
       if (result.error) {
-        setError("Could not load authorized applications.");
+        if (classifyOAuthGrantError(result.error) === "disabled") {
+          setError(null);
+          setGrantState("disabled");
+        } else {
+          setError("Could not load authorized applications.");
+          setGrantState("error");
+        }
       } else {
+        setError(null);
         setGrants(result.data ?? []);
+        setGrantState("ready");
       }
       setState("ready");
     })();
@@ -58,13 +68,15 @@ export function Home() {
       <h1>EGA Skills</h1>
       {!supabaseConfigured || !supabase ? (
         <p className="error">This deployment is not configured.</p>
-      ) : state === "loading" ? (
+      ) : state === "loading" || grantState === "loading" ? (
         <p className="muted">Loading…</p>
       ) : (
         <>
           <p className="muted">Applications you have authorized to access EGA Skills.</p>
           {error ? <p className="error" role="alert">{error}</p> : null}
-          {grants.length === 0 ? (
+          {grantState === "disabled" ? (
+            <p className="muted">OAuth connections are not active.</p>
+          ) : grantState === "error" ? null : grants.length === 0 ? (
             <p className="muted">No connected applications.</p>
           ) : (
             <ul className="grants">
