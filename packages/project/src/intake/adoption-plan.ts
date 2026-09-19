@@ -77,6 +77,13 @@ function sorted(values: readonly string[]): string[] {
   return [...values].sort();
 }
 
+function stageDirectoryName(digest: string): string {
+  // The envelope digest includes `sha256:` for readability. The staging
+  // directory is also used on Windows, where `:` is not a legal filename
+  // character.
+  return digest.replace(/^sha256:/, "");
+}
+
 function contractFiles(hubDir: string): { readonly hub: string; readonly sources: string; readonly lock: string } | null {
   const paths = {
     hub: join(hubDir, "hub.yaml"),
@@ -323,7 +330,7 @@ export async function stageAdoptionPlan(plan: AdoptionPlanDocument, hubPath: str
     });
     if (targetPlan.digest !== verified.payload.import_plan.digest) throw new HubError("E_PLAN_DIGEST", "canonical import plan no longer matches adoption plan");
     const hubDir = resolve(hubPath);
-    const root = join(hubDir, ".intake-staging", verified.digest);
+    const root = join(hubDir, ".intake-staging", stageDirectoryName(verified.digest));
     if (existsSync(root)) {
       const existing = digestStagedTree(join(root, "source"), verified.payload.source.selected_roots);
       if (existing.treeDigest !== acquired.tree.treeDigest || existing.snapshotDigest !== acquired.tree.snapshotDigest) throw new HubError("E_PLAN_DIGEST", "existing operator stage does not match adoption plan");
