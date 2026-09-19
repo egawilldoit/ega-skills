@@ -18,8 +18,8 @@ It records implementation evidence, not deployment approval.
 | Slice | Branch / PR | Status | Evidence |
 | --- | --- | --- | --- |
 | P00 hygiene and contracts | Existing PR #99 | In progress outside this branch | Existing CI green; live OAuth remains unclaimed until staging credentials are authorized. |
-| P01 shared preparation boundary | `codex/intake-p01` | Implemented locally; PR pending | `pnpm build`; 4 preparation tests; existing importer/lifecycle tests remain green. |
-| P02 import planning CLI | Not started | Blocked on P01 review/CI | — |
+| P01 shared preparation boundary | `codex/intake-p01` / [PR #100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented; required CI green | Final HEAD `8effa85`; Linux [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936552), Windows [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936495), and Contract F [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936425) passed. |
+| P02 import planning CLI | Not started | Unblocked after P01 required CI | — |
 | P03–P12 | Not started | Dependency-ordered | — |
 
 ## P01 implementation
@@ -40,6 +40,12 @@ Acceptance evidence currently covered:
 - mutation of prepared canonical bytes rejected before persistence;
 - existing importer, alias, source-observation, token, lifecycle, CLI, and
   read-only registry behavior retained.
+
+Required P01 gates passed locally: `pnpm build`, `pnpm typecheck`,
+`pnpm specs:check`, `pnpm test:perf:registry`, `pnpm test`, targeted
+preparation tests, and `git diff --check`. The first Windows run exposed a
+fixture-teardown file-lock issue; commit `8effa85` closes the registry before
+removing its temporary directory, and the fresh Linux/Windows run passed.
 
 ## Required resume protocol
 
