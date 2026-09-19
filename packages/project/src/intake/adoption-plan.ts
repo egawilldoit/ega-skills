@@ -13,7 +13,7 @@ import { parseHubYaml } from "../hub/hub-config.js";
 import { requireReadableJournal } from "../hub/journal.js";
 import { adoptedSourcePath } from "../hub/paths.js";
 import { digestStagedTree } from "../hub/quarantine.js";
-import { parseSourcesLockYaml } from "../hub/sources-lock.js";
+import { parseSourcesLockYaml, verifySourcesLock } from "../hub/sources-lock.js";
 import { parseSourcesYaml } from "../hub/sources-config.js";
 import { assertSourceId, NAMESPACE_RE, SHA256_RE } from "../hub/guards.js";
 
@@ -97,20 +97,24 @@ function contractFiles(hubDir: string): { readonly hub: string; readonly sources
 }
 
 /** Read Hub identity without changing any Hub file or cleaning recovery remnants. */
-export function readHubIntakeState(hubPath: string): HubIntakeState {
+export function readHubIntakeStateUnchecked(hubPath: string): HubIntakeState {
   const hubDir = resolve(hubPath);
   const files = contractFiles(hubDir);
   if (files === null) {
     return { baselineDigest: hashBytes(canonicalizeJson({ state: "EMPTY" })), namespaces: [], sourceIds: [] };
   }
-  requireReadableJournal(hubDir);
   const hubText = readFileSync(files.hub, "utf8");
   const sourcesText = readFileSync(files.sources, "utf8");
   const lockText = readFileSync(files.lock, "utf8");
   const hub = parseHubYaml(hubText);
   const config = parseSourcesYaml(sourcesText);
   const lock = parseSourcesLockYaml(lockText);
-  const sourceIds = sorted(Object.keys(config.sources));
+  verifySourcesLock(config, lock);
+  const configuredSources = sorted(Object.keys(config.sources));
+  if (sameJson(configuredSources, sorted(hub.external)) === false) {
+    throw new HubError("E_HUB_SCHEMA", "Hub external source coverage does not match sources.yaml");
+  }
+  const sourceIds = configuredSources;
   const namespaces = sorted([
     ...Object.values(config.sources).map((source) => source.namespace),
     ...hub.owned.map((entry) => entry.namespace),
@@ -124,6 +128,25 @@ export function readHubIntakeState(hubPath: string): HubIntakeState {
     }
     return { source_id: sourceId, tree_digest: tree.treeDigest, snapshot_digest: tree.snapshotDigest };
   });
+  const ownedDigests = hub.owned.map((entry) => {
+    const ownedPath = resolve(hubDir, ...entry.path.split("/"));
+    if (!existsSync(ownedPath)) throw new HubError("E_HUB_SCHEMA", `owned Hub path is missing: ${entry.path}`);
+    return {
+      namespace: entry.namespace,
+      path: entry.path,
+      snapshot_digest: digestStagedTree(ownedPath, ["__owned_content_is_not_a_selected_root__"]).snapshotDigest,
+    };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  const receiptDir = join(hubDir, ".intake-provenance");
+  const receipts = existsSync(receiptDir)
+    ? readdirSync(receiptDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((entry) => ({
+          path: `.intake-provenance/${entry.name}`,
+          digest: hashBytes(readFileSync(join(receiptDir, entry.name))),
+        }))
+    : [];
   return {
     baselineDigest: hashBytes(canonicalizeJson({
       files: [
@@ -131,12 +154,22 @@ export function readHubIntakeState(hubPath: string): HubIntakeState {
         { path: "sources.lock.yaml", digest: hashBytes(new TextEncoder().encode(lockText)) },
         { path: "sources.yaml", digest: hashBytes(new TextEncoder().encode(sourcesText)) },
       ],
+      owned: ownedDigests,
+      receipts,
       source_ids: sourceIds,
       tree_digests: treeDigests,
     })),
     namespaces,
     sourceIds,
   };
+}
+
+/** Read the Hub baseline without changing state. Recovery calls this after
+ * it has validated the journal but before the journal is cleared. */
+export function readHubIntakeState(hubPath: string): HubIntakeState {
+  const hubDir = resolve(hubPath);
+  requireReadableJournal(hubDir);
+  return readHubIntakeStateUnchecked(hubDir);
 }
 
 function candidateList(importPlan: ImportPlanDocument): AdoptionCandidate[] {

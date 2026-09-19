@@ -29,15 +29,21 @@ export { checkForUpdates } from "./hub/planning.js";
 export { digestStagedTree } from "./hub/quarantine.js";
 export {
   clearJournal,
+  adoptionJournalPath,
+  clearAdoptionJournal,
+  digestAdoptionPath,
   journalPath,
+  readAdoptionJournal,
   readJournal,
+  recoverAdoptionIfNeeded,
   recoverIfNeeded,
   requireReadableJournal,
   requireCleanJournal,
   writeFileAtomic,
+  writeAdoptionJournal,
   writeJournal,
 } from "./hub/journal.js";
-export type { HubJournal, JournalState } from "./hub/journal.js";
+export type { AdoptionJournal, AdoptionJournalEntry, AdoptionJournalState, HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
@@ -51,6 +57,7 @@ export {
   ADOPTION_SCHEMA_VERSION,
   createAdoptionPlan,
   readHubIntakeState,
+  readHubIntakeStateUnchecked,
   stageAdoptionPlan,
   verifyAdoptionPlan,
 } from "./intake/adoption-plan.js";
@@ -61,6 +68,8 @@ export type {
   AdoptionPlanPayload,
   HubIntakeState,
 } from "./intake/adoption-plan.js";
+export { applyAdoptionPlan } from "./intake/adopt.js";
+export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {

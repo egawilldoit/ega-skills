@@ -62,8 +62,8 @@ The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `relea
 |---|---|---|---:|---|
 | P01 shared preparation | `codex/intake-p01` | `0490c2571be4ba9ca49c672a28cd72a4a35af764` | [#100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented. Linux, Windows, Contract F, and local gates passed. |
 | P02 zero-mutation import plan | `codex/intake-p02` | `3b5876cc626b243c0bab9325e49dbc7efc1ffa9` | [#101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented. Linux, Windows, Contract F run `35472166915` passed. Local full test passed with 974 tests, 969 passing, and 5 skipped. |
-| P03 exact acquisition and adoption staging | `codex/intake-p03` | `0154bc9` | [#102](https://github.com/egawilldoit/ega-skills/pull/102) | Implemented locally. Exact Git and local acquisition, A1 plans, CLI stage, stale-source checks, conflict checks, and idempotent staging tests pass. CI pending. |
-| P04 first adoption apply and recovery | `codex/intake-p04` | pending | pending | Next slice. |
+| P03 exact acquisition and adoption staging | `codex/intake-p03` | `f8c8db6` | [#102](https://github.com/egawilldoit/ega-skills/pull/102) | Implemented. Local targeted tests pass; Linux and Contract F passed in run `35473021586`. Windows failed because the digest label's `:` was used as a staging directory name; P04 contains the portable-name correction and must rerun the P03 gate. |
+| P04 first adoption apply and recovery | `codex/intake-p04` | working tree | pending | Implemented locally. Git/local first adoption, exact source identity, stale-plan rejection, crash recovery, path confinement, idempotent repeat, and actual CLI apply pass in 12 targeted tests. Required repository gates and CI are in progress. |
 | P05-P12 | pending | pending | pending | Blocked on the preceding slices. |
 
 P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
