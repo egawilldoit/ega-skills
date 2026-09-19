@@ -159,6 +159,29 @@ OpenCode/T3
 
 See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runtime-Contract.md).
 
+## Hosted MCP (remote, authenticated)
+
+The same four tools are served at `https://ega-skills-mcp.vercel.app/mcp`.
+The MCP publishes OAuth 2.1 protected-resource metadata and
+`WWW-Authenticate` challenges. Browser OAuth remains gated until the
+dedicated-resource hook is installed and verified; see
+[`packages/mcp/VERCEL.md`](packages/mcp/VERCEL.md#resource-binding-dedicated-single-resource-issuer).
+The production MCP requires an access token whose exact JWT audience is the
+canonical MCP resource; a normal first-party Supabase session with
+`aud: "authenticated"` is not sufficient:
+
+```bash
+codex mcp add ega-skills \
+  --url "https://ega-skills-mcp.vercel.app/mcp" \
+  --oauth-client-registration auto
+```
+
+The browser login and consent screens live in the separate
+`packages/oauth-ui` deployment and are ready for the day the provider gate is
+cleared. See [`packages/mcp/VERCEL.md`](packages/mcp/VERCEL.md) for the
+operator runbook, environment variables, and the OAuth resource-server
+contract.
+
 ## Frozen V1 technology
 
 Shipped implementation stack (pinned; install with `pnpm install --frozen-lockfile`):

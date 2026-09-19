@@ -1,0 +1,50 @@
+{
+  "digest": "sha256:70a37c28e767230e04e45e34a33689113870394cda88f017f2aac322aaeb3f66",
+  "object_type": "ega.hub-release",
+  "payload": {
+    "adopted_sources": [
+      {
+        "resolved_commit": "2b8ae2ee306f823d54879d3da7f8496b73c31d5d",
+        "selected_skill_tree_digest": "sha256:380c3c138f994c93a2cdc107471277985a0bf9e2854d252f82ad2a2be1ccf7b5",
+        "source_config_digest": "sha256:57298d4d3c5727c3846b4aef002f5132e0c9d56ab7c711dc9a0cb03a7a3e1ffa",
+        "source_id": "cursor-pstack",
+        "vendored_snapshot_digest": "sha256:1c196843be90b605daa100c743790cd8c9ffa87cff88eb31398e24cb558078b1"
+      },
+      {
+        "resolved_commit": "3cca18b368ae95cdbdebbff572ccafa662551015",
+        "selected_skill_tree_digest": "sha256:2f8d8f27d54c14002c4a58397fb358f3fe244a48a72fda983ab817d3dd4a2ba8",
+        "source_config_digest": "sha256:d8ed1c9a3d40681bbecf96def27ea3504adedc6a0dd6e5732a1348daf734f547",
+        "source_id": "mattpocock",
+        "vendored_snapshot_digest": "sha256:33b3f931ef8960b28f7efa3732cc593620df039a8433e81638e78c55c8996971"
+      }
+    ],
+    "alias_map_digest": "sha256:449c3111ba252a9bd57e92a85b3b05caf27069e80684139831628b0ddec5492b",
+    "build": {
+      "expected_catalog_match": true,
+      "fresh_registry": true,
+      "import_failures": 0
+    },
+    "contracts": {
+      "build_contract": "C1",
+      "hashing": 1,
+      "hub_contract": "A1",
+      "importer_build": 1,
+      "router": 1,
+      "schema": "v1.0.1",
+      "search": 1,
+      "token_estimator": "ega-o200k-v1",
+      "update_contract": "B1"
+    },
+    "hub_id": "personal",
+    "search_index_input_digest": "sha256:c1726c8b5d41d9095c4d38c0c2088a2ae815c2829da850e1620cab413ae1b1c2",
+    "skill_versions": {
+      "cursor/architect": "sha256:59b17ec966644abbd8754d5f0780e6fcb39ce95bb7c8e92461066681815b353e",
+      "cursor/setup-pstack": "sha256:969a351e0773c2779ac4c589e705aa1a1b028fbef8c4f06d5f09d6d50b755a4a",
+      "mattpocock/code-review": "sha256:a31138c9d823ef6c5ec7209e6fbb07f552630ede9670eabb53515673125e9635",
+      "mattpocock/grilling": "sha256:4fb83b5b91e81b51244fbb4a2f056ed6e64303e20080f2d67a1cf9ddc90403cd",
+      "mattpocock/tdd": "sha256:17b3e6d1c9f7a40a6a2f3d3ed14ca64bf9023cafd758bc25f7a1278894559ccb"
+    },
+    "token_artifact_digest": "sha256:966f704ddf8e325ce66a80bb99c432d8357043a8c3ba81bc74f44fe57d326bb6"
+  },
+  "schema_version": 1
+}

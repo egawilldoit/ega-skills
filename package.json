@@ -4,6 +4,9 @@
   "private": true,
   "description": "EGA Skills Hub V1 — local-first deterministic agent-skill registry and resolver",
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "engines": {
     "node": "24",
     "pnpm": "10.0.0"
