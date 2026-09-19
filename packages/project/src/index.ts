@@ -87,6 +87,23 @@ export type {
 } from "./intake/derivation.js";
 export { applyAdoptionPlan } from "./intake/adopt.js";
 export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.js";
+export {
+  REVIEW_OBJECT_TYPE,
+  REVIEW_SCHEMA_VERSION,
+  latestReviews,
+  readReviewRecords,
+  requireCandidateApproval,
+  writeCandidateReview,
+} from "./intake/review-store.js";
+export type { ReviewDecision, ReviewRecordDocument, ReviewRecordPayload, ReviewWriteResult } from "./intake/review-store.js";
+export { preflightPublication, PUBLICATION_OBJECT_TYPE, PUBLICATION_SCHEMA_VERSION } from "./intake/publication.js";
+export type {
+  PublicationBlocker,
+  PublicationPreflightDocument,
+  PublicationPreflightPayload,
+  PublicationReview,
+  PublicationStatus,
+} from "./intake/publication.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {
