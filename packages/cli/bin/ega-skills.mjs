@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -31,6 +31,7 @@ function printHelp() {
       "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
       "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
       "  ega-skills hub intake apply --plan <plan.json> [<hub-dir>]",
+      "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
@@ -445,6 +446,23 @@ async function main() {
         if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
         try {
           const result = await runHubIntakeApply({ plan, hub: positional[0] ?? "." });
+          process.stdout.write(`${JSON.stringify(result)}\n`);
+        } catch (error) {
+          failWithCode(error instanceof Error ? error.message : String(error), 4);
+        }
+        return;
+      }
+      if (intakeSubcommand === "derive") {
+        const candidate = readFlag(intakeRest, "candidate");
+        const patch = readFlag(intakeRest, "patch");
+        const ownedId = readFlag(intakeRest, "owned-id");
+        const positional = readHubPositionals(intakeRest, new Set(["candidate", "patch", "owned-id"]));
+        if (candidate === undefined) fail("Missing required --candidate <plan.json|digest>.");
+        if (patch === undefined) fail("Missing required --patch <patch.json>.");
+        if (ownedId === undefined) fail("Missing required --owned-id <namespace/name>.");
+        if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+        try {
+          const result = await runHubIntakeDerive({ candidate, hub: positional[0] ?? ".", ownedId, patch });
           process.stdout.write(`${JSON.stringify(result)}\n`);
         } catch (error) {
           failWithCode(error instanceof Error ? error.message : String(error), 4);

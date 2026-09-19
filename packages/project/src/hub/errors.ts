@@ -22,6 +22,7 @@ export type HubErrorCode =
   | "E_RECOVERY_REQUIRED"
   | "E_PLAN_RESOLVE"
   | "E_PLAN_FETCH"
+  | "E_DERIVATION"
   | "E_HUB_LOCKED"
   | "E_BUILD_ATTESTATION"
   | "E_ALIAS_SCOPE"

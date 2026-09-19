@@ -66,6 +66,7 @@ import {
 } from "./intake-plan.js";
 
 export { DEFAULT_DISCOVERY_DEPTH, DISCOVERY_EXCLUDED_DIRECTORIES } from "./discovery.js";
+export { parseCanonicalSkillId, SchemaValidationError } from "@ega-skills/schema";
 
 export {
   BLOB_HASH_PREFIX,

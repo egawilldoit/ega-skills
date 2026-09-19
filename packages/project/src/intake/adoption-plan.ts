@@ -350,7 +350,14 @@ function copyTree(source: string, destination: string): void {
 /** Reacquire and persist only operator staging; adopted Hub contracts remain untouched. */
 export async function stageAdoptionPlan(plan: AdoptionPlanDocument, hubPath: string): Promise<{ readonly path: string; readonly digest: string }> {
   const verified = verifyAdoptionPlan(plan);
-  if (verified.payload.status !== "READY") throw new HubError("E_PLAN_SCHEMA", "blocked adoption plan cannot be staged");
+  const importPlan = verified.payload.import_plan.payload;
+  const hasNonRepairBlock = verified.payload.diagnostics.length > 0
+    || importPlan.candidates.length === 0
+    || importPlan.discovery_diagnostics.some((diagnostic) => diagnostic.severity === "ERROR")
+    || importPlan.candidates.some((candidate) => candidate.validation === "VALID" && candidate.diagnostics.some((diagnostic) => diagnostic.severity === "ERROR"));
+  if (verified.payload.status === "BLOCKED" && hasNonRepairBlock) {
+    throw new HubError("E_PLAN_SCHEMA", "adoption plan with source or namespace conflicts cannot be staged");
+  }
   const acquired = acquireSource(sourceOptions(verified));
   try {
     if (acquired.tree.treeDigest !== verified.payload.source.selected_skill_tree_digest || acquired.tree.snapshotDigest !== verified.payload.source.vendored_snapshot_digest) {
