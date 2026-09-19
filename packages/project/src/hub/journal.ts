@@ -324,3 +324,17 @@ export function requireCleanJournal(hubDir: string): void {
   removeIfPresent(paths.backup);
   clearJournal(hubDir);
 }
+
+/**
+ * Read-only gate for builders and previews. A COMMITTED journal still owns
+ * cleanup authority, so inspection must report it instead of deleting its
+ * recovery remnants. Explicit recovery remains the only cleanup path.
+ */
+export function requireReadableJournal(hubDir: string): void {
+  const journal = readJournal(hubDir);
+  if (journal === null) return;
+  throw new HubError(
+    "E_RECOVERY_REQUIRED",
+    `journal (${journal.state}) requires explicit recovery before read-only inspection`,
+  );
+}

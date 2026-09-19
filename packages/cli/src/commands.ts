@@ -7,18 +7,23 @@
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
   RegistryError,
+  createImportPlan,
+  emptyRegistryTarget,
   importSkills,
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
   openRegistry,
+  registryTargetFromDatabase,
   resolveRegistryHome,
+  resolveRegistryPaths,
   type ImportSummary,
+  type ImportPlanDocument,
   type RegistryHandle,
 } from "@ega-skills/registry";
 import { resolveSkills, type ResolutionResult } from "@ega-skills/router";
@@ -426,6 +431,44 @@ export async function runImport(
     return await importSkills(registry, { path, namespace });
   } finally {
     registry.close();
+  }
+}
+
+export interface ImportPlanCommandOptions {
+  readonly sourcePath: string;
+  readonly namespace: string;
+  readonly output: string;
+  readonly env: Record<string, string | undefined>;
+}
+
+/** Build a zero-mutation Contract G import plan against an existing target. */
+export async function runImportPlan(options: ImportPlanCommandOptions): Promise<ImportPlanDocument> {
+  const sourcePath = resolve(options.sourcePath);
+  const outputPath = resolve(options.output);
+  const outputRelativeToSource = relative(sourcePath, outputPath);
+  if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+    const error = new Error("Import plan output must be outside the intake source tree.");
+    Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+    throw error;
+  }
+  const paths = resolveRegistryPaths(options.env);
+  let registry: RegistryHandle | undefined;
+  try {
+    const target = existsSync(paths.database)
+      ? (() => {
+          registry = openRegistry({ env: options.env, readonly: true });
+          return registryTargetFromDatabase(registry.db);
+        })()
+      : emptyRegistryTarget();
+    const plan = await createImportPlan({
+      sourcePath,
+      namespace: options.namespace,
+      target,
+    });
+    writeFileSync(outputPath, `${JSON.stringify(plan, null, 2)}\n`);
+    return plan;
+  } finally {
+    registry?.close();
   }
 }
 

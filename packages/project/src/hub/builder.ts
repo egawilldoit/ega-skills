@@ -17,7 +17,7 @@ import type { RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { parseHubYaml, verifyHubCoverage } from "./hub-config.js";
 import { digestStagedTree } from "./quarantine.js";
-import { requireCleanJournal } from "./journal.js";
+import { requireReadableJournal } from "./journal.js";
 import { parseSourcesLockYaml } from "./sources-lock.js";
 import type { SourcesLock } from "./sources-lock.js";
 import { parseSourcesYaml } from "./sources-config.js";
@@ -101,7 +101,7 @@ function readText(path: string, what: string, code: "E_HUB_SCHEMA" | "E_SOURCE_S
 
 export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   // A Hub with an incomplete mutation is not buildable until recovered.
-  requireCleanJournal(hubDir);
+  requireReadableJournal(hubDir);
   const hub = parseHubYaml(readText(join(hubDir, "hub.yaml"), "hub.yaml", "E_HUB_SCHEMA"));
   const config = parseSourcesYaml(readText(join(hubDir, "sources.yaml"), "sources.yaml", "E_SOURCE_SCHEMA"));
   const adopted = parseSourcesLockYaml(readText(join(hubDir, "sources.lock.yaml"), "sources.lock.yaml", "E_LOCK_MISMATCH"));
