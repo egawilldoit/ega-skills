@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,18 +92,20 @@ test("AD-03: stale adoption plan is rejected before any live mutation", async (t
   assert.equal(existsSync(join(hub, ".adoption-journal.json")), false);
 });
 
-test("AD-04: an interrupted adoption restores the exact empty baseline", async (t) => {
-  const base = mkdtempSync(join(tmpdir(), "ega-adopt-recovery-"));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
-  const { hub, plan } = await makeLocalPlan(base);
-  await assert.rejects(() => applyAdoptionPlan({ faultAfter: 1, hubDir: hub, plan }), /test fault/);
-  assert.ok(readAdoptionJournal(hub));
-  recoverAdoptionIfNeeded(hub);
-  assert.equal(readAdoptionJournal(hub), null);
-  assert.equal(existsSync(join(hub, "hub.yaml")), false);
-  assert.equal(existsSync(join(hub, "owned", "local")), false);
-  const result = await applyAdoptionPlan({ hubDir: hub, plan });
-  assert.equal(result.status, "COMMITTED");
+test("AD-04: faults at every transaction point restore the exact empty baseline", async (t) => {
+  for (const faultAfter of ["PREPARED", 0, 1, 2, 3, 4]) {
+    const base = mkdtempSync(join(tmpdir(), `ega-adopt-recovery-${String(faultAfter).toLowerCase()}-`));
+    t.after(() => rmSync(base, { recursive: true, force: true }));
+    const { hub, plan } = await makeLocalPlan(base);
+    await assert.rejects(() => applyAdoptionPlan({ faultAfter, hubDir: hub, plan }), /test fault/);
+    assert.ok(readAdoptionJournal(hub));
+    recoverAdoptionIfNeeded(hub);
+    assert.equal(readAdoptionJournal(hub), null);
+    assert.equal(existsSync(join(hub, "hub.yaml")), false);
+    assert.equal(existsSync(join(hub, "owned", "local")), false);
+    const result = await applyAdoptionPlan({ hubDir: hub, plan });
+    assert.equal(result.status, "COMMITTED");
+  }
 });
 
 test("AD-06: a journal path escape fails closed without touching the sentinel", async (t) => {
@@ -131,6 +133,34 @@ test("AD-05: two sequential contenders converge to one committed adoption", asyn
   assert.equal(first.applied, true);
   assert.equal(second.applied, false);
   assert.equal(readHubIntakeState(hub).namespaces.includes("intake"), true);
+});
+
+test("AD-05: two child processes share one mutation and leave a repeat idempotent", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "ega-adopt-concurrent-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const source = join(base, "source");
+  writeSkill(source, "skills/alpha", "alpha", "concurrent body");
+  writeFileSync(join(source, "LICENSE"), "License.\n");
+  const hub = join(base, "hub");
+  mkdirSync(hub);
+  const planPath = join(base, "plan.json");
+  const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
+  execFileSync(process.execPath, [cli, "hub", "intake", "plan", source, "--namespace", "concurrent", "--source-id", "local", "--root", "skills/alpha", "--provenance-file", "LICENSE", "--hub", hub, "--output", planPath]);
+  execFileSync(process.execPath, [cli, "hub", "intake", "stage", "--plan", planPath, hub]);
+  const invoke = () => new Promise((resolveResult) => {
+    const child = spawn(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status) => resolveResult({ status, stderr, stdout }));
+  });
+  const results = await Promise.all([invoke(), invoke()]);
+  const committed = results.filter((result) => result.status === 0 && result.stdout.includes("COMMITTED"));
+  assert.equal(committed.length, 1, JSON.stringify(results));
+  assert.equal(results.filter((result) => result.status === 0 && result.stdout.includes("ALREADY_APPLIED")).length + results.filter((result) => result.status === 4 && result.stderr.includes("hub mutation lock is held")).length, 1, JSON.stringify(results));
+  const repeat = execFileSync(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { encoding: "utf8" });
+  assert.match(repeat, /ALREADY_APPLIED/);
 });
 
 test("AD-01/AD-02: Git first adoption commits the exact planned commit after the ref advances", async (t) => {

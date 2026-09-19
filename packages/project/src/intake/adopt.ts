@@ -211,6 +211,8 @@ export async function applyAdoptionPlan(options: AdoptionApplyOptions): Promise<
   const lock = acquireHubLock(hubDir);
   let journalWritten = false;
   let temporary: string | undefined;
+  let transactionRoot: string | undefined;
+  let backupRoot: string | undefined;
   try {
     recoverAdoptionIfNeeded(hubDir);
     const currentState = readHubIntakeState(hubDir);
@@ -236,8 +238,9 @@ export async function applyAdoptionPlan(options: AdoptionApplyOptions): Promise<
     await buildHub(temporary);
     const targetState = readHubIntakeStateUnchecked(temporary);
     const targetPaths = ["hub.yaml", "sources.yaml", "sources.lock.yaml", contracts.targetPath, ...(contracts.receipt === undefined ? [] : [contracts.receipt])].sort();
-    const transactionRoot = `.adoption-staging/${plan.digest}`;
-    const backupRoot = `.adoption-backup/${plan.digest}`;
+    const transactionName = stageDirectoryName(plan.digest);
+    transactionRoot = `.adoption-staging/${transactionName}`;
+    backupRoot = `.adoption-backup/${transactionName}`;
     const entries: AdoptionJournalEntry[] = [];
     for (const path of targetPaths) {
       const source = join(temporary, path);
@@ -289,11 +292,12 @@ export async function applyAdoptionPlan(options: AdoptionApplyOptions): Promise<
     recoverAdoptionIfNeeded(hubDir);
     journalWritten = false;
     return { applied: true, operation_id: plan.digest, status: "COMMITTED", target_state_digest: targetState.baselineDigest };
-  } catch (error) {
-    if (!journalWritten && temporary === undefined) throw error;
-    throw error;
   } finally {
     if (temporary !== undefined) rmSync(temporary, { force: true, recursive: true });
+    if (!journalWritten) {
+      if (transactionRoot !== undefined) rmSync(join(hubDir, transactionRoot), { force: true, recursive: true });
+      if (backupRoot !== undefined) rmSync(join(hubDir, backupRoot), { force: true, recursive: true });
+    }
     lock.release();
   }
 }
