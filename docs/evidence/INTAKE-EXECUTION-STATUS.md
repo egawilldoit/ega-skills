@@ -19,7 +19,7 @@ It records implementation evidence, not deployment approval.
 | --- | --- | --- | --- |
 | P00 hygiene and contracts | Existing PR #99 | In progress outside this branch | Existing CI green; live OAuth remains unclaimed until staging credentials are authorized. |
 | P01 shared preparation boundary | `codex/intake-p01` / [PR #100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented; required CI green | Final HEAD `0490c2571be4ba9ca49c672a28cd72a4a35af764`; Linux [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298974), Windows [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298989), and Contract F [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298903) passed. |
-| P02 import planning CLI | `codex/intake-p02` / pending | Implemented locally; CI pending | Contract G v1 and actual CLI cover IP-01–09; the Hub builder now performs read-only journal inspection for IP-10, reporting COMMITTED cleanup remnants without deleting them. |
+| P02 import planning CLI | `codex/intake-p02` / [PR #101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented; required CI green | Implementation commit `ff3c4bf`; Contract G v1 and actual CLI cover IP-01–09; the Hub builder performs read-only journal inspection for IP-10, reporting COMMITTED cleanup remnants without deleting them. CI run [`35471709565`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565): Linux [`105973717037`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717037), Windows [`105973717068`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717068), and Contract F [`105973716921`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973716921) passed. Vercel auth/MCP checks passed; Macroscope and CodeSmith were skipped by configuration. |
 | P03–P12 | Not started | Dependency-ordered | — |
 
 ## P01 implementation
@@ -69,8 +69,12 @@ IP-10 in `tests/project/hub-builder.test.mjs`. Local evidence so far:
 `pnpm build`, `pnpm typecheck`, `pnpm specs:check`,
 `pnpm test:perf:registry`, `pnpm contracts:check-g`, the 8-case intake-plan
 CLI run, the 37-test intake/import/preparation/lifecycle/read-only regression
-run, and the 70-test Hub builder/adoption/recovery run all passed. Full
-repository test and final CI evidence are recorded after the slice is stable.
+CLI run, the 37-test intake/import/preparation/lifecycle/read-only regression
+run, and the 70-test Hub builder/adoption/recovery run all passed. The full
+repository test passed with 974 tests, 969 passed, 0 failed, and 5 skipped.
+The final required local gates also passed: frozen-lockfile install with no
+lockfile diff, typecheck, frozen specs, registry performance, Contract G, and
+diff checks.
 
 ## Required resume protocol
 
