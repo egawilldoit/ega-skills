@@ -57,6 +57,7 @@ import {
 } from "./search.js";
 import { discoverSkillRoots } from "./discovery.js";
 import { importSkills } from "./importer.js";
+import { commitPreparedSkill, prepareSkillRoot } from "./preparation.js";
 
 export { DEFAULT_DISCOVERY_DEPTH, DISCOVERY_EXCLUDED_DIRECTORIES } from "./discovery.js";
 
@@ -72,6 +73,7 @@ export {
   cacheBlobPath,
   cacheBlobPathForHash,
   discoverSkillRoots,
+  commitPreparedSkill,
   getAliasOwner,
   getCacheBlob,
   getCurrentVersion,
@@ -79,6 +81,7 @@ export {
   getSkillVersion,
   getTokenCount,
   importSkills,
+  prepareSkillRoot,
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
@@ -106,6 +109,11 @@ export type {
   ImportedSkill,
   SkillImportFailure,
 } from "./importer.js";
+export type {
+  CommittedPreparedSkill,
+  PreparedFile,
+  PreparedSkill,
+} from "./preparation.js";
 export type {
   ApplyVersionLifecycleResult,
   ImportOutcome,
