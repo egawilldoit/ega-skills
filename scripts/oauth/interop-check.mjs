@@ -8,6 +8,8 @@
  * Required environment:
  *   EGA_INTEROP_USER_TOKEN   an existing Supabase user access token (for the
  *                            consent step; obtain with an admin magic link)
+ *   EGA_INTEROP_API_KEY      Supabase publishable/anon API key used by the
+ *                            authenticated authorization-detail/consent APIs
  * Optional:
  *   EGA_INTEROP_SUPABASE_URL default https://divriwexbijtojjulqtu.supabase.co
  *   EGA_INTEROP_RESOURCE     default https://ega-skills-mcp.vercel.app/mcp
@@ -22,6 +24,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 const SUPABASE_URL = process.env.EGA_INTEROP_SUPABASE_URL ?? "https://divriwexbijtojjulqtu.supabase.co";
 const USER_TOKEN = process.env.EGA_INTEROP_USER_TOKEN;
+const API_KEY = process.env.EGA_INTEROP_API_KEY;
 const RESOURCE = process.env.EGA_INTEROP_RESOURCE ?? "https://ega-skills-mcp.vercel.app/mcp";
 const REDIRECT = process.env.EGA_INTEROP_REDIRECT ?? "http://127.0.0.1:8976/callback";
 const SCOPES = process.env.EGA_INTEROP_SCOPES ?? "openid offline_access";
@@ -29,6 +32,10 @@ const CLIENT_NAME = "EGA Skills interop check";
 
 if (!USER_TOKEN) {
   console.error("EGA_INTEROP_USER_TOKEN is required");
+  process.exit(2);
+}
+if (!API_KEY) {
+  console.error("EGA_INTEROP_API_KEY is required");
   process.exit(2);
 }
 
@@ -110,10 +117,23 @@ async function startAuthorization(client, { scope = SCOPES } = {}) {
   return { verifier, state, authorizationId, consentLocation: location };
 }
 
+async function authorizationDetails(authorizationId) {
+  return fetchJson(`${SUPABASE_URL}/auth/v1/oauth/authorizations/${authorizationId}`, {
+    headers: {
+      authorization: `Bearer ${USER_TOKEN}`,
+      apikey: API_KEY,
+    },
+  });
+}
+
 async function consent(authorizationId, action) {
   return fetchJson(`${SUPABASE_URL}/auth/v1/oauth/authorizations/${authorizationId}/consent`, {
     method: "POST",
-    headers: { authorization: `Bearer ${USER_TOKEN}`, "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${USER_TOKEN}`,
+      apikey: API_KEY,
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ action }),
   });
 }
@@ -161,9 +181,7 @@ async function main() {
   const flow = await startAuthorization(client);
   check("authorize redirects to consent", Boolean(flow.authorizationId), flow.consentLocation ?? JSON.stringify(flow.error));
   if (flow.authorizationId) {
-    const details = await fetchJson(`${SUPABASE_URL}/auth/v1/oauth/authorizations/${flow.authorizationId}`, {
-      headers: { authorization: `Bearer ${USER_TOKEN}` },
-    });
+    const details = await authorizationDetails(flow.authorizationId);
     check("authorization details 200", details.status === 200, JSON.stringify(details.body).slice(0, 160));
     check(
       "authorization details expose client and redirect",
@@ -233,6 +251,7 @@ async function main() {
   // 4. wrong verifier
   const wrongFlow = await startAuthorization(client);
   if (wrongFlow.authorizationId) {
+    await authorizationDetails(wrongFlow.authorizationId);
     const approved = await consent(wrongFlow.authorizationId, "approve");
     const code = approved.body?.redirect_url ? new URL(approved.body.redirect_url).searchParams.get("code") : null;
     if (code) {
@@ -250,6 +269,7 @@ async function main() {
   // 5. wrong redirect URI
   const redirectFlow = await startAuthorization(client);
   if (redirectFlow.authorizationId) {
+    await authorizationDetails(redirectFlow.authorizationId);
     const approved = await consent(redirectFlow.authorizationId, "approve");
     const code = approved.body?.redirect_url ? new URL(approved.body.redirect_url).searchParams.get("code") : null;
     if (code) {
@@ -267,6 +287,7 @@ async function main() {
   // 6. deny
   const denyFlow = await startAuthorization(client);
   if (denyFlow.authorizationId) {
+    await authorizationDetails(denyFlow.authorizationId);
     const denied = await consent(denyFlow.authorizationId, "deny");
     const redirectUrl = denied.body?.redirect_url;
     const error = redirectUrl ? new URL(redirectUrl).searchParams.get("error") : null;
