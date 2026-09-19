@@ -140,7 +140,7 @@ test("authentication configuration fails closed without an explicit static-token
   };
   const jwt = {
     EGA_HOSTED_ISSUER: "https://issuer.example",
-    EGA_HOSTED_AUDIENCE: "authenticated",
+    EGA_HOSTED_AUDIENCE: "https://mcp.example/mcp",
     EGA_HOSTED_JWKS_URL: "https://issuer.example/.well-known/jwks.json",
     EGA_HOSTED_RESOURCE_URL: "https://mcp.example/mcp",
   };

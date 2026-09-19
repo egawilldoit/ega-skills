@@ -77,7 +77,7 @@ function jwtEnv(artifactDir, overrides = {}) {
   return {
     ...base,
     EGA_HOSTED_ISSUER: AS,
-    EGA_HOSTED_AUDIENCE: "authenticated",
+    EGA_HOSTED_AUDIENCE: RESOURCE,
     EGA_HOSTED_JWKS_URL: `${AS}/.well-known/jwks.json`,
     ...overrides,
   };
@@ -371,7 +371,7 @@ test("JWT mode: missing Origin and delegated client_id work; invalid tokens fail
   const now = Math.floor(Date.now() / 1000);
   const claims = {
     iss: AS,
-    aud: "authenticated",
+    aud: RESOURCE,
     sub: "user-1",
     client_id: "delegated-client-abc",
     scope: "openid offline_access",
