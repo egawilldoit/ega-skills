@@ -52,6 +52,12 @@ import {
   digestProjectLock,
   hashNormalizedConfig,
   verifyHubRelease,
+  acquireSource,
+  createAdoptionPlan,
+  readHubIntakeState,
+  releaseAcquiredSource,
+  stageAdoptionPlan,
+  type AdoptionPlanDocument,
   type ProjectContextDocument,
   type HubRelease,
   type ProjectLockV1,
@@ -470,6 +476,71 @@ export async function runImportPlan(options: ImportPlanCommandOptions): Promise<
   } finally {
     registry?.close();
   }
+}
+
+export interface HubIntakePlanCommandOptions {
+  readonly source: string;
+  readonly sourceId: string;
+  readonly namespace: string;
+  readonly commit?: string;
+  readonly ref?: string;
+  readonly roots: readonly string[];
+  readonly provenanceFiles?: readonly string[];
+  readonly hub?: string;
+  readonly output: string;
+}
+
+/** Acquire an exact source snapshot and write a reviewable Contract A1 plan. */
+export async function runHubIntakePlan(options: HubIntakePlanCommandOptions): Promise<AdoptionPlanDocument> {
+  const hubDir = resolve(options.hub ?? ".");
+  const outputPath = resolve(options.output);
+  if (existsSync(options.source)) {
+    const sourcePath = resolve(options.source);
+    const outputRelativeToSource = relative(sourcePath, outputPath);
+    if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+      const error = new Error("Intake plan output must be outside the local source tree.");
+      Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+      throw error;
+    }
+  }
+  const acquireOptions = {
+    roots: options.roots,
+    source: options.source,
+    ...(options.commit === undefined ? {} : { commit: options.commit }),
+    ...(options.provenanceFiles === undefined ? {} : { provenanceFiles: options.provenanceFiles }),
+    ...(options.ref === undefined ? {} : { ref: options.ref }),
+  };
+  const acquired = acquireSource(acquireOptions);
+  try {
+    const importPlan = await createImportPlan({
+      sourcePath: acquired.snapshotDir,
+      namespace: options.namespace,
+      target: emptyRegistryTarget(),
+    });
+    const plan = createAdoptionPlan({
+      hub: readHubIntakeState(hubDir),
+      importPlan,
+      namespace: options.namespace,
+      source: acquired,
+      sourceId: options.sourceId,
+    });
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, `${JSON.stringify(plan, null, 2)}\n`);
+    return plan;
+  } finally {
+    releaseAcquiredSource(acquired);
+  }
+}
+
+export interface HubIntakeStageCommandOptions {
+  readonly plan: string;
+  readonly hub?: string;
+}
+
+/** Reacquire and persist only the immutable operator stage for an A1 plan. */
+export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
+  return stageAdoptionPlan(plan, resolve(options.hub ?? "."));
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */
