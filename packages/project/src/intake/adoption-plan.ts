@@ -96,6 +96,22 @@ function contractFiles(hubDir: string): { readonly hub: string; readonly sources
   return paths;
 }
 
+/** Verify every byte in an immutable A1 stage before a consumer uses it. */
+export function verifyAdoptionStage(hubPath: string, plan: AdoptionPlanDocument): string {
+  const hubDir = resolve(hubPath);
+  const root = resolve(hubDir, ".intake-staging", stageDirectoryName(plan.digest));
+  const planPath = join(root, "adoption-plan.json");
+  const sourceDir = join(root, "source");
+  if (!existsSync(planPath) || !existsSync(sourceDir)) throw new HubError("E_PLAN_STALE", "adoption stage is missing; run hub intake stage first");
+  let staged: unknown;
+  try { staged = JSON.parse(readFileSync(planPath, "utf8")); } catch { throw new HubError("E_PLAN_DIGEST", "adoption stage plan is not valid JSON"); }
+  const verified = verifyAdoptionPlan(staged);
+  if (verified.digest !== plan.digest) throw new HubError("E_PLAN_DIGEST", "adoption stage plan digest does not match the requested plan");
+  const tree = digestStagedTree(sourceDir, plan.payload.source.selected_roots);
+  if (tree.treeDigest !== plan.payload.source.selected_skill_tree_digest || tree.snapshotDigest !== plan.payload.source.vendored_snapshot_digest) throw new HubError("E_PLAN_DIGEST", "adoption stage no longer matches the reviewed plan");
+  return root;
+}
+
 /** Read Hub identity without changing any Hub file or cleaning recovery remnants. */
 export function readHubIntakeStateUnchecked(hubPath: string): HubIntakeState {
   const hubDir = resolve(hubPath);

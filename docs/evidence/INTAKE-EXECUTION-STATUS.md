@@ -9,7 +9,7 @@ It records implementation evidence, not deployment approval.
 
 - Handoff recorded SHA: `9622a6ac4d06f00da525046e5ebb29428dfb91ff`.
 - Baseline branch: `release/2.0`; baseline SHA matched the handoff SHA.
-- Existing hygiene/OAuth work: PR [#99](https://github.com/egawilldoit/ega-skills/pull/99), head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`; Linux, Windows, and Contract F checks were green when work began.
+- Existing hygiene/OAuth work: PR [#99](https://github.com/egawilldoit/ega-skills/pull/99), corrected head `7500c80ec31fc285e041608aa6ae6269dee49e1d` (original head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`); its final Linux, Windows, and Contract F checks passed in run `35538631111`.
 - Existing uncommitted user work was preserved: `scripts/oauth/interop-check.mjs`, `.vercel/`, and `packages/mcp/.gitignore`.
 - No production configuration or deployment was changed.
 
@@ -17,7 +17,7 @@ It records implementation evidence, not deployment approval.
 
 | Slice | Branch / PR | Status | Evidence |
 | --- | --- | --- | --- |
-| P00 hygiene and contracts | Existing PR #99 | In progress outside this branch | Existing CI green; live OAuth remains unclaimed until staging credentials are authorized. |
+| P00 hygiene and contracts | Existing PR #99 | Corrected; required CI green | PR #99 head `7500c80ec31fc285e041608aa6ae6269dee49e1d`; CI run [`35538631111`](https://github.com/egawilldoit/ega-skills/actions/runs/35538631111): Contract F [`106152118338`](https://github.com/egawilldoit/ega-skills/actions/runs/35538631111/job/106152118338), Linux [`106152118342`](https://github.com/egawilldoit/ega-skills/actions/runs/35538631111/job/106152118342), and Windows [`106152118311`](https://github.com/egawilldoit/ega-skills/actions/runs/35538631111/job/106152118311) passed. Live OAuth remains blocked until staging credentials are authorized. |
 | P01 shared preparation boundary | `codex/intake-p01` / [PR #100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented; required CI green | Final HEAD `0490c2571be4ba9ca49c672a28cd72a4a35af764`; Linux [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298974), Windows [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298989), and Contract F [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298903) passed. |
 | P02 import planning CLI | `codex/intake-p02` / [PR #101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented; required CI green | Implementation commit `ff3c4bf`; Contract G v1 and actual CLI cover IP-01–09; the Hub builder performs read-only journal inspection for IP-10, reporting COMMITTED cleanup remnants without deleting them. CI run [`35471709565`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565): Linux [`105973717037`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717037), Windows [`105973717068`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717068), and Contract F [`105973716921`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973716921) passed. Vercel auth/MCP checks passed; Macroscope and CodeSmith were skipped by configuration. |
 | P03 exact acquisition and adoption staging | `codex/intake-p03` / [PR #102](https://github.com/egawilldoit/ega-skills/pull/102) | Implemented; required CI green | Final HEAD `bf7af61`; Linux [`35473883544`](https://github.com/egawilldoit/ega-skills/actions/runs/35473883544/job/105979643911), Windows [`35473883544`](https://github.com/egawilldoit/ega-skills/actions/runs/35473883544/job/105979644060), and Contract F [`35473883544`](https://github.com/egawilldoit/ega-skills/actions/runs/35473883544/job/105979643979) passed. |
@@ -96,3 +96,30 @@ diff checks.
 4. Add exact commit SHA, PR URL, CI URLs, and any blocked/live evidence here
    after each slice.
 5. Never merge or deploy without explicit user approval.
+
+## Merge-readiness correction status
+
+The original P00–P12 stack is complete locally, but this correction pass is
+the authoritative resume record for the remaining integration work. It keeps
+the production baseline unchanged and separates offline proof from external
+acceptance.
+
+| Wave | Status | Evidence |
+| --- | --- | --- |
+| W0 baseline and defect audit | Complete | Production baseline `9622a6ac4d06f00da525046e5ebb29428dfb91ff`; P12 tip `40007ed4c14dcd9cf6c1a6c348818321993d274d`; OAuth source head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`. |
+| W1–W2 safety and review atomicity | Complete | Owner-token locks, process-death recovery, review CAS, and all-or-nothing review batches are implemented and covered by focused tests. |
+| W3–W4 adoption and derivatives | Complete | Approval precedes adoption; owned derivatives carry exact source identity, patch identity, provenance, and tamper-resistant staged bytes. |
+| W5 publication binding | Complete | Preview/export bind to exact approved content and reject stale or altered approval state. |
+| W6 retained serving | Complete | Governed candidates, owner replacement safety, promotion/rollback CAS, crash recovery, and idempotent retry are covered by 8 focused tests. |
+| W7 OAuth interop | Complete; PR #99 updated and CI green | Strict/redacted harness is `7500c80ec31fc285e041608aa6ae6269dee49e1d`, merged into the local integration branch; focused offline suite passes 9/9. PR #99 CI run `35538631111` passed. Authorized live non-production credentials are unavailable. |
+| W8 connected E2E | Complete | Actual CLI publication and derivative tests pass; exported artifact is exercised over the real local MCP stdio transport after source deletion. |
+| W9 integration and CI | Complete locally and remotely; awaiting review/approval | Final integration PR [#112](https://github.com/egawilldoit/ega-skills/pull/112) contains documentation-only evidence commits after code-equivalent head `de215aff16e2ccd152d326f9a73db0ec5db00be1`. That tested head passed CI run [`35539331956`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331956): Contract F [`106154019748`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331956/job/106154019748), Linux [`106154019931`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331956/job/106154019931), and Windows [`106154019876`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331956/job/106154019876). Hashing traversal run [`35539331986`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331986) passed on Linux [`106154019899`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331986/job/106154019899) and Windows [`106154019698`](https://github.com/egawilldoit/ega-skills/actions/runs/35539331986/job/106154019698). |
+
+### External evidence boundary
+
+The public pinned-upstream E2E was run during W9 against the test's immutable
+Git commits and passed. No authorized non-production OAuth endpoint, Codex
+client, or OpenCode client was used. Those live-client checks remain BLOCKED
+because the required credentials and acceptance flags are unavailable. A
+blocked live check is not treated as a pass, and no production credentials or
+configuration were changed.

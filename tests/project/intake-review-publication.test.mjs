@@ -36,6 +36,7 @@ async function makeAdoptedHub(base, body = "v1") {
   const planPath = join(base, "plan.json");
   writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
   await stageAdoptionPlan(plan, hub);
+  writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
   await applyAdoptionPlan({ hubDir: hub, plan });
   rmSync(acquired.workspace, { recursive: true, force: true });
   return { hub, plan, planPath };
@@ -50,16 +51,19 @@ test("RV-01/RV-04: review and publication preflight bind the exact adopted versi
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const { hub, plan, planPath } = await makeAdoptedHub(base);
 
+  writeCandidateReview({ candidate: plan, decision: "REJECTED", expectedRevision: 1, hubDir: hub });
   const blocked = runCli("hub", "release", "preflight", hub);
   assert.equal(blocked.status, 1);
   const blockedDoc = JSON.parse(blocked.stdout);
   assert.equal(blockedDoc.payload.status, "BLOCKED");
   assert.deepEqual(blockedDoc.payload.skill_versions, { "intake/alpha": JSON.parse(readFileSync(planPath, "utf8")).payload.candidates[0].version_hash });
-  assert.equal(blockedDoc.payload.blockers[0].code, "MISSING_APPROVAL");
+  const rejected = await preflightPublication(hub);
+  assert.equal(rejected.payload.status, "BLOCKED");
+  assert.equal(rejected.payload.blockers[0].code, "REJECTED");
 
-  const review = runCli("hub", "intake", "review", "--candidate", plan.digest, "--decision", "approve", "--expected-revision", "0", hub);
+  const review = runCli("hub", "intake", "review", "--candidate", plan.digest, "--decision", "approve", "--expected-revision", "2", hub);
   assert.equal(review.status, 0, review.stderr);
-  assert.equal(JSON.parse(review.stdout).revision, 1);
+  assert.equal(JSON.parse(review.stdout).revision, 3);
   const ready = await preflightPublication(hub);
   assert.equal(ready.payload.status, "READY");
   assert.equal(ready.payload.reviews[0].decision, "APPROVED");
@@ -79,10 +83,9 @@ test("RV-02: compare-and-swap review writes preserve history under competing wri
   const base = mkdtempSync(join(tmpdir(), "ega-intake-review-cas-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const { hub, plan } = await makeAdoptedHub(base);
-  writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
   const results = await Promise.allSettled([
     Promise.resolve().then(() => writeCandidateReview({ candidate: plan, decision: "REJECTED", expectedRevision: 1, hubDir: hub })),
-    Promise.resolve().then(() => writeCandidateReview({ candidate: plan, decision: "REJECTED", expectedRevision: 1, hubDir: hub })),
+    Promise.resolve().then(() => writeCandidateReview({ actor: "other-reviewer", candidate: plan, decision: "REJECTED", expectedRevision: 1, hubDir: hub })),
   ]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected" && /E_REVIEW_STALE/.test(String(result.reason?.message))).length, 1);
@@ -101,6 +104,6 @@ test("RV-03: candidate text cannot claim approval authority", async (t) => {
   const result = runCli("hub", "intake", "review", "--candidate", forgedPath, "--decision", "approve", "--expected-revision", "0", hub);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /adoption plan envelope|E_PLAN_SCHEMA|E_ARTIFACT/);
-  assert.equal(readReviewRecords(hub).length, 0);
+  assert.equal(readReviewRecords(hub).length, 1);
   assert.equal(existsSync(planPath), true);
 });

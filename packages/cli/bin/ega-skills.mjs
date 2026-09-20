@@ -31,12 +31,12 @@ function printHelp() {
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
       "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
       "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
-      "  ega-skills hub intake apply --plan <plan.json> [<hub-dir>]",
-      "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> --expected-revision <N> [<hub-dir>]",
+      "  ega-skills hub intake apply (--plan <plan.json>|--candidate <candidate.json|digest>) [<hub-dir>]",
+      "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> (--expected-revision <N>|--expected-revisions <json-file>) [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
       "  ega-skills hub release preview --hub <hub-dir> --against <release.json|artifact-dir> --output-dir <candidate-dir>",
-      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir>",
+      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir> [--legacy]",
       "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
@@ -463,11 +463,12 @@ async function main() {
       }
       if (intakeSubcommand === "apply") {
         const plan = readFlag(intakeRest, "plan");
-        const positional = readHubPositionals(intakeRest, new Set(["plan"]));
-        if (plan === undefined) fail("Missing required --plan <plan.json>.");
+        const candidate = readFlag(intakeRest, "candidate");
+        const positional = readHubPositionals(intakeRest, new Set(["plan", "candidate"]));
+        if ((plan === undefined) === (candidate === undefined)) fail("Provide exactly one of --plan <plan.json> or --candidate <candidate.json|digest>.");
         if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
         try {
-          const result = await runHubIntakeApply({ plan, hub: positional[0] ?? "." });
+          const result = await runHubIntakeApply({ plan, candidate, hub: positional[0] ?? "." });
           process.stdout.write(`${JSON.stringify(result)}\n`);
         } catch (error) {
           failWithCode(error instanceof Error ? error.message : String(error), 4);
@@ -495,15 +496,18 @@ async function main() {
         const candidate = readFlag(intakeRest, "candidate");
         const decision = readFlag(intakeRest, "decision");
         const expectedRevision = readFlag(intakeRest, "expected-revision");
+        const expectedRevisionsPath = readFlag(intakeRest, "expected-revisions");
         const actor = readFlag(intakeRest, "actor");
         const reason = readFlag(intakeRest, "reason");
-        const positional = readHubPositionals(intakeRest, new Set(["candidate", "decision", "expected-revision", "actor", "reason"]));
+        const positional = readHubPositionals(intakeRest, new Set(["candidate", "decision", "expected-revision", "expected-revisions", "actor", "reason"]));
         if (candidate === undefined) fail("Missing required --candidate <plan.json|digest>.");
         if (decision !== "approve" && decision !== "reject") fail("Missing required --decision <approve|reject>.");
-        if (expectedRevision === undefined || !/^[0-9]+$/.test(expectedRevision)) fail("Missing required --expected-revision <N>.");
+        if ((expectedRevision === undefined) === (expectedRevisionsPath === undefined)) fail("Provide exactly one of --expected-revision <N> or --expected-revisions <json-file>.");
+        if (expectedRevision !== undefined && !/^[0-9]+$/.test(expectedRevision)) fail("Invalid --expected-revision <N>.");
         if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
         try {
-          const result = runHubIntakeReview({ actor, candidate, decision: decision === "approve" ? "APPROVED" : "REJECTED", expectedRevision: Number(expectedRevision), hub: positional[0] ?? ".", reason });
+          const expectedRevisions = expectedRevisionsPath === undefined ? undefined : JSON.parse(readFileSync(expectedRevisionsPath, "utf8"));
+          const result = runHubIntakeReview({ actor, candidate, decision: decision === "approve" ? "APPROVED" : "REJECTED", ...(expectedRevision === undefined ? {} : { expectedRevision: Number(expectedRevision) }), ...(expectedRevisions === undefined ? {} : { expectedRevisions }), hub: positional[0] ?? ".", reason });
           process.stdout.write(`${JSON.stringify(result)}\n`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -534,14 +538,16 @@ async function main() {
         return;
       }
       if (releaseSubcommand === "export") {
-        const candidate = readFlag(releaseRest, "candidate");
-        const outputDirectory = readFlag(releaseRest, "out");
-        const positional = readHubPositionals(releaseRest, new Set(["candidate", "out"]));
+        const legacy = releaseRest.includes("--legacy");
+        const exportRest = releaseRest.filter((token) => token !== "--legacy");
+        const candidate = readFlag(exportRest, "candidate");
+        const outputDirectory = readFlag(exportRest, "out");
+        const positional = readHubPositionals(exportRest, new Set(["candidate", "out"]));
         if (candidate === undefined) fail("Missing required --candidate <candidate.json>.");
         if (outputDirectory === undefined) fail("Missing required --out <artifact-dir>.");
         if (positional.length > 0) fail(`Unknown command or option: ${positional[0]}`);
         try {
-          const result = runHubReleaseExport({ candidate, outputDirectory });
+          const result = runHubReleaseExport({ candidate, outputDirectory, ...(legacy ? { legacy: true } : {}) });
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
         } catch (error) {
           failWithCode(error instanceof Error ? error.message : String(error), 4);

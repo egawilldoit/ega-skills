@@ -31,15 +31,17 @@ node packages/cli/bin/ega-skills.mjs hub intake plan ./source \
 For a local folder, omit `--commit`. For Git acquisition, provide the exact
 commit and keep the source ref only as provenance.
 
-Stage and apply the exact plan:
+Stage the exact plan. Staging copies the selected source snapshot into the
+Hub-owned staging area; it does not adopt it:
 
 ```bash
 node packages/cli/bin/ega-skills.mjs hub intake stage \
   --plan ./plan.json ./hub
-
-node packages/cli/bin/ega-skills.mjs hub intake apply \
-  --plan ./plan.json ./hub
 ```
+
+The plan records the candidate Skill IDs and version hashes, selected-tree and
+snapshot digests, and provenance files. Keep those identities with the review
+record. Applying before approval is rejected and writes no owned skill.
 
 Run deterministic quality diagnostics against the staged or owned skill tree:
 
@@ -49,7 +51,7 @@ node packages/cli/bin/ega-skills.mjs intake quality ./hub/owned \
   --output ./quality.json
 ```
 
-Approve the exact candidate version, then preflight publication:
+Review the exact candidate version before applying it, then preflight:
 
 ```bash
 node packages/cli/bin/ega-skills.mjs hub intake review \
@@ -57,6 +59,9 @@ node packages/cli/bin/ega-skills.mjs hub intake review \
   --decision approve \
   --expected-revision 0 \
   ./hub
+
+node packages/cli/bin/ega-skills.mjs hub intake apply \
+  --plan ./plan.json ./hub
 
 node packages/cli/bin/ega-skills.mjs hub release preflight ./hub
 ```
@@ -78,8 +83,24 @@ node scripts/hosted/validate-artifact.mjs ./artifact
 ```
 
 The preview and export commands reject blocked approvals, stale identities,
-corrupt artifacts, and destination overlap. Keep the candidate, release,
-approval, and transport receipts together for the deployment system.
+corrupt artifacts, and destination overlap. Export is an immutable artifact
+build step; it does not publish production traffic. Keep the candidate,
+release, approval, provenance, and transport receipts together for the
+separate deployment system.
+
+After export, a local MCP smoke test can use the exported artifact as its
+read-only registry:
+
+```bash
+EGA_SKILLS_HOME=./artifact node packages/mcp/bin/ega-mcp.mjs
+```
+
+Use the four existing MCP tools over stdio (search, resolve, inspect, and
+get_content) with the exact Skill ID and version hash from
+artifact/hub-release.json. The server must be driven through its normal
+initialize/notification/tool-call protocol. Control-plane files such as
+hub-release.json are not skill content and are not fetchable through
+get_content.
 
 ## Evidence boundary
 

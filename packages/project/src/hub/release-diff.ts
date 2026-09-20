@@ -4,7 +4,7 @@
 // answers what changes in the immutable HubRelease identity, not how a build
 // happened to be serialized on disk.
 
-import { canonicalizeJson, createEnvelope, type ArtifactEnvelope } from "@ega-skills/hashing";
+import { canonicalizeJson, createEnvelope, verifyEnvelope, type ArtifactEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
 import { verifyHubRelease, type HubRelease } from "./release.js";
 
@@ -38,6 +38,36 @@ export type ReleaseDiffDocument = ArtifactEnvelope & {
   readonly schema_version: 1;
   readonly payload: ReleaseDiffPayload;
 };
+
+export function verifyReleaseDiff(value: unknown): ReleaseDiffDocument {
+  const envelope = verifyEnvelope(value);
+  if (!envelope.ok || value === null || typeof value !== "object" || Array.isArray(value) || (value as { object_type?: unknown }).object_type !== RELEASE_DIFF_OBJECT_TYPE || (value as { schema_version?: unknown }).schema_version !== RELEASE_DIFF_SCHEMA_VERSION) {
+    throw new HubError("E_RELEASE_SCHEMA", `release diff: envelope is invalid: ${envelope.ok ? "unexpected type or schema" : envelope.message}`);
+  }
+  const payload = (value as { payload?: unknown }).payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new HubError("E_RELEASE_SCHEMA", "release diff: payload is invalid");
+  const p = payload as Record<string, unknown>;
+  const expected = ["added_skill_ids", "artifact_changes", "base_release_digest", "candidate_release_digest", "hub_id", "removed_skill_ids", "status", "updated_skills"];
+  if (JSON.stringify(Object.keys(p).sort()) !== JSON.stringify(expected)) throw new HubError("E_RELEASE_SCHEMA", "release diff: payload fields are invalid");
+  for (const field of ["base_release_digest", "candidate_release_digest"]) if (typeof p[field] !== "string" || !/^sha256:[0-9a-f]{64}$/.test(p[field] as string)) throw new HubError("E_RELEASE_SCHEMA", `release diff: ${field} is invalid`);
+  if (typeof p.hub_id !== "string" || p.hub_id.length === 0 || (p.status !== "CHANGED" && p.status !== "UNCHANGED")) throw new HubError("E_RELEASE_SCHEMA", "release diff: identity is invalid");
+  for (const field of ["added_skill_ids", "removed_skill_ids"]) {
+    if (!Array.isArray(p[field]) || (p[field] as unknown[]).some((entry) => typeof entry !== "string")) throw new HubError("E_RELEASE_SCHEMA", `release diff: ${field} is invalid`);
+    const ids = p[field] as string[];
+    if (JSON.stringify(ids) !== JSON.stringify([...ids].sort()) || new Set(ids).size !== ids.length) throw new HubError("E_RELEASE_SCHEMA", `release diff: ${field} is not sorted and unique`);
+  }
+  if (!Array.isArray(p.updated_skills)) throw new HubError("E_RELEASE_SCHEMA", "release diff: updated_skills is invalid");
+  const updates = p.updated_skills as unknown[];
+  for (const [index, raw] of updates.entries()) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new HubError("E_RELEASE_SCHEMA", `release diff: updated_skills[${index}] is invalid`);
+    const update = raw as Record<string, unknown>;
+    if (JSON.stringify(Object.keys(update).sort()) !== JSON.stringify(["candidate_version_hash", "previous_version_hash", "skill_id"]) || typeof update.skill_id !== "string" || typeof update.previous_version_hash !== "string" || typeof update.candidate_version_hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(update.previous_version_hash) || !/^sha256:[0-9a-f]{64}$/.test(update.candidate_version_hash)) throw new HubError("E_RELEASE_SCHEMA", `release diff: updated_skills[${index}] is invalid`);
+  }
+  if (JSON.stringify(updates.map((entry) => (entry as { skill_id: string }).skill_id)) !== JSON.stringify([...updates].sort((left, right) => (left as { skill_id: string }).skill_id.localeCompare((right as { skill_id: string }).skill_id)).map((entry) => (entry as { skill_id: string }).skill_id))) throw new HubError("E_RELEASE_SCHEMA", "release diff: updated_skills is not sorted");
+  const changes = p.artifact_changes;
+  if (changes === null || typeof changes !== "object" || Array.isArray(changes) || JSON.stringify(Object.keys(changes).sort()) !== JSON.stringify(["adopted_sources", "alias_map", "search_index_input", "token_artifact"]) || Object.values(changes as Record<string, unknown>).some((entry) => typeof entry !== "boolean")) throw new HubError("E_RELEASE_SCHEMA", "release diff: artifact_changes is invalid");
+  return value as unknown as ReleaseDiffDocument;
+}
 
 function fail(message: string): never {
   throw new HubError("E_RELEASE_SCHEMA", `release diff: ${message}`);

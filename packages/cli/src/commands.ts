@@ -42,6 +42,7 @@ import {
   buildHubRelease,
   createReleaseCandidate,
   createReleaseDiff,
+  exportLegacyReleaseCandidate,
   exportReleaseCandidate,
   checkForUpdates,
   extractSelectedRootsFromGit,
@@ -59,8 +60,10 @@ import {
   acquireSource,
   applyAdoptionPlan,
   createAdoptionPlan,
+  createOwnedDerivativeCandidate,
   deriveCandidate,
   readHubIntakeState,
+  resolveCandidateDocument,
   releaseAcquiredSource,
   stageAdoptionPlan,
   preflightPublication,
@@ -69,7 +72,9 @@ import {
   writeCandidateReview,
   verifyDerivationPatch,
   verifyAdoptionPlan,
+  writeOwnedDerivativeCandidate,
   type AdoptionPlanDocument,
+  type IntakeCandidateDocument,
   type ProjectContextDocument,
   type HubRelease,
   type ReleaseCandidateDocument,
@@ -575,7 +580,8 @@ export interface HubIntakeStageCommandOptions {
 }
 
 export interface HubIntakeApplyCommandOptions {
-  readonly plan: string;
+  readonly plan?: string;
+  readonly candidate?: string;
   readonly hub?: string;
 }
 
@@ -589,7 +595,8 @@ export interface HubIntakeDeriveCommandOptions {
 export interface HubIntakeReviewCommandOptions {
   readonly candidate: string;
   readonly decision: ReviewDecision;
-  readonly expectedRevision: number;
+  readonly expectedRevision?: number;
+  readonly expectedRevisions?: Readonly<Record<string, number>>;
   readonly actor?: string;
   readonly reason?: string;
   readonly hub?: string;
@@ -605,6 +612,7 @@ export interface HubReleasePreviewCommandOptions extends HubCommandOptions {
 export interface HubReleaseExportCommandOptions {
   readonly candidate: string;
   readonly outputDirectory: string;
+  readonly legacy?: boolean;
 }
 
 export interface HubCollectionsValidateCommandOptions extends HubCommandOptions {}
@@ -617,8 +625,11 @@ export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): 
 
 /** Apply a staged, reviewed A1 plan to the Hub through the A2 transaction. */
 export async function runHubIntakeApply(options: HubIntakeApplyCommandOptions) {
-  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8"));
-  return applyAdoptionPlan({ hubDir: resolve(options.hub ?? "."), plan });
+  const hubDir = resolve(options.hub ?? ".");
+  const reference = options.candidate ?? options.plan;
+  if (reference === undefined) throw new Error("Missing required --plan or --candidate.");
+  const candidate = resolveCandidateDocument(reference, hubDir);
+  return applyAdoptionPlan({ hubDir, plan: candidate });
 }
 
 /** Apply one exact compatibility patch to an immutable staged candidate. */
@@ -629,17 +640,14 @@ export async function runHubIntakeDerive(options: HubIntakeDeriveCommandOptions)
     : join(hubDir, ".intake-staging", options.candidate.replace(/^sha256:/, ""), "adoption-plan.json");
   const candidate = verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
   const patch = verifyDerivationPatch(JSON.parse(readFileSync(resolve(options.patch), "utf8")));
-  return deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+  const result = await deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+  const ownedCandidate = createOwnedDerivativeCandidate({ hubDir, proposal: result.proposal });
+  const ownedCandidatePath = writeOwnedDerivativeCandidate(hubDir, ownedCandidate);
+  return { ...result, candidate: ownedCandidate, candidate_path: ownedCandidatePath };
 }
 
-function readStagedAdoptionCandidate(candidate: string, hubDir: string): AdoptionPlanDocument {
-  const explicit = resolve(candidate);
-  const candidatePath = existsSync(explicit)
-    ? explicit
-    : /^[0-9a-f]{64}$/.test(candidate.replace(/^sha256:/, ""))
-      ? join(hubDir, ".intake-staging", candidate.replace(/^sha256:/, ""), "adoption-plan.json")
-      : (() => { throw new Error("Review candidate must be an adoption plan path or sha256:<64hex> stage digest."); })();
-  return verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
+function readStagedAdoptionCandidate(candidate: string, hubDir: string): IntakeCandidateDocument {
+  return resolveCandidateDocument(candidate, hubDir);
 }
 
 /** Append a decision bound to the exact staged A1 candidate versions. */
@@ -649,7 +657,8 @@ export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
   return writeCandidateReview({
     candidate,
     decision: options.decision,
-    expectedRevision: options.expectedRevision,
+    ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
+    ...(options.expectedRevisions === undefined ? {} : { expectedRevisions: options.expectedRevisions }),
     hubDir,
     ...(options.actor === undefined ? {} : { actor: options.actor }),
     ...(options.reason === undefined ? {} : { reason: options.reason }),
@@ -669,6 +678,16 @@ function readReleaseReference(reference: string): HubRelease {
   return release;
 }
 
+function releasePreviewBarrier(name: string): void {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  if (env?.EGA_TEST_RELEASE_PREVIEW_BARRIER !== name) return;
+  const marker = env.EGA_TEST_RELEASE_PREVIEW_BARRIER_FILE;
+  const release = env.EGA_TEST_RELEASE_PREVIEW_BARRIER_RELEASE;
+  if (marker === undefined || release === undefined) throw new Error("release preview barrier requires marker and release files");
+  writeFileSync(marker, `${name}\n`);
+  while (!existsSync(release)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+
 /** Build and materialize one approved candidate, without publishing it. */
 export async function runHubReleasePreview(options: HubReleasePreviewCommandOptions): Promise<{
   readonly status: "READY" | "BLOCKED";
@@ -680,21 +699,23 @@ export async function runHubReleasePreview(options: HubReleasePreviewCommandOpti
   const preflight = await preflightPublication(hub);
   if (preflight.payload.status === "BLOCKED") return { preflight, status: "BLOCKED" };
   const build = await buildHubRelease(hub);
-  if (JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(preflight.payload.skill_versions)) {
+  releasePreviewBarrier("AFTER_BUILD_BEFORE_FINAL_PREFLIGHT");
+  const finalizedPreflight = await preflightPublication(hub, build);
+  if (finalizedPreflight.digest !== preflight.digest || JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(finalizedPreflight.payload.skill_versions)) {
     throw new Error("publication preflight became stale before release preview");
   }
   const base = readReleaseReference(options.against);
   const diff = createReleaseDiff(base, build.release);
-  const candidate = createReleaseCandidate(build);
-  writeReleaseCandidate(build, resolve(options.outputDirectory), candidate);
-  writeFileSync(join(resolve(options.outputDirectory), "release-diff.json"), `${JSON.stringify(diff, null, 2)}\n`);
-  writeFileSync(join(resolve(options.outputDirectory), "publication-preflight.json"), `${JSON.stringify(preflight, null, 2)}\n`);
-  return { candidate, diff, preflight, status: "READY" };
+  const candidate = createReleaseCandidate(build, { preflight: finalizedPreflight, previousReleaseDigest: base.digest, releaseDiff: diff });
+  writeReleaseCandidate(build, resolve(options.outputDirectory), candidate, { preflight: finalizedPreflight, releaseDiff: diff });
+  return { candidate, diff, preflight: finalizedPreflight, status: "READY" };
 }
 
 /** Export an already verified candidate; no Hub or upstream source is read. */
 export function runHubReleaseExport(options: HubReleaseExportCommandOptions) {
-  const verified = exportReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory));
+  const verified = options.legacy === true
+    ? exportLegacyReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory))
+    : exportReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory));
   return {
     candidate: verified.candidate,
     hub_id: verified.release.payload.hub_id,
