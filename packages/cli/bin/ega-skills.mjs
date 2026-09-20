@@ -36,7 +36,7 @@ function printHelp() {
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
       "  ega-skills hub release preview --hub <hub-dir> --against <release.json|artifact-dir> --output-dir <candidate-dir>",
-      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir>",
+      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir> [--legacy]",
       "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
@@ -538,14 +538,16 @@ async function main() {
         return;
       }
       if (releaseSubcommand === "export") {
-        const candidate = readFlag(releaseRest, "candidate");
-        const outputDirectory = readFlag(releaseRest, "out");
-        const positional = readHubPositionals(releaseRest, new Set(["candidate", "out"]));
+        const legacy = releaseRest.includes("--legacy");
+        const exportRest = releaseRest.filter((token) => token !== "--legacy");
+        const candidate = readFlag(exportRest, "candidate");
+        const outputDirectory = readFlag(exportRest, "out");
+        const positional = readHubPositionals(exportRest, new Set(["candidate", "out"]));
         if (candidate === undefined) fail("Missing required --candidate <candidate.json>.");
         if (outputDirectory === undefined) fail("Missing required --out <artifact-dir>.");
         if (positional.length > 0) fail(`Unknown command or option: ${positional[0]}`);
         try {
-          const result = runHubReleaseExport({ candidate, outputDirectory });
+          const result = runHubReleaseExport({ candidate, outputDirectory, ...(legacy ? { legacy: true } : {}) });
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
         } catch (error) {
           failWithCode(error instanceof Error ? error.message : String(error), 4);

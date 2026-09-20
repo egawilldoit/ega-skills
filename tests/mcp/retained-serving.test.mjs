@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sha256Hex } from "../../packages/hashing/dist/index.js";
-import { buildHubRelease, createReleaseCandidate, writeReleaseCandidate } from "../../packages/project/dist/index.js";
+import { buildHubRelease, createArtifactCandidate, writeArtifactCandidate } from "../../packages/project/dist/index.js";
 import {
   createHostedMcpHandler,
   createHostedRuntimeFromEnv,
@@ -35,8 +35,8 @@ const buildR2 = await buildHubRelease(makeHub("beta", "Use beta from retained R2
 const root = mkdtempSync(join(tmpdir(), "ega-retained-bundle-"));
 const r1Dir = join(root, "r1");
 const r2Dir = join(root, "r2");
-writeReleaseCandidate(buildR1, r1Dir, createReleaseCandidate(buildR1));
-writeReleaseCandidate(buildR2, r2Dir, createReleaseCandidate(buildR2));
+writeArtifactCandidate(buildR1, r1Dir, createArtifactCandidate(buildR1));
+writeArtifactCandidate(buildR2, r2Dir, createArtifactCandidate(buildR2));
 const manifestPath = join(root, "retained-manifest.json");
 const r1 = createHostedSnapshot(r1Dir);
 const r2 = createHostedSnapshot(r2Dir);

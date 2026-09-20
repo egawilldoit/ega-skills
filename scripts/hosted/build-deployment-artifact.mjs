@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Build the reviewed immutable deployment HubRelease for the Vercel hosted
-// MCP runtime using the EXISTING Contract C build (buildHubRelease).
+// Build an immutable deployment artifact for the Vercel hosted MCP runtime.
+// The --candidate mode accepts only an approval-bound Contract R1 candidate.
+// The --hub and --fixture modes remain low-level Contract C build modes.
 //
 // Content: ONLY real reviewed upstream skills at reviewed pinned commits
 // (see docs/evidence/1.1-REAL-UPSTREAM-E2E-2026-09-08.md). No test fixtures,
@@ -120,7 +121,7 @@ async function exportCandidate() {
   writeFileSync(join(OUT, "PROVENANCE.md"), [
     "# Deployment artifact provenance",
     "",
-    "Exported from an exact verified release candidate; no sources were fetched or rebuilt.",
+    "Exported from an exact verified approval-bound release candidate; no sources were fetched or rebuilt.",
     `Release digest: ${snapshot.releaseDigest}`,
     `Hub id: ${verified.release.payload.hub_id}`,
     "",
