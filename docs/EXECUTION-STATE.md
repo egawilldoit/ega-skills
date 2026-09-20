@@ -1,6 +1,6 @@
 # EGA Skills post-V1 release execution state
 
-Updated: 2026-09-09 (final non-production acceptance inventory)
+Updated: 2026-09-20 (intake workflow execution)
 
 ## Canonical authority
 
@@ -53,6 +53,27 @@ The clean 2.0 implementation at `e9d6920db4352eb75b43a637d78440a455797cab` diffe
 - 1.2 hosted personal implementation: present in clean review branch; local HTTP/snapshot/auth smoke exists, but staging deployment and real OAuth registration remain pending.
 - 1.3 remote projects: present in clean review branch; local project/context smoke exists, hosted acceptance remains pending.
 - 2.0 multi-user candidate: present in clean review branch; local control-plane/object-store/multi-user HTTP smoke exists, real cloud acceptance remains pending.
+
+## Intake workflow execution
+
+The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `release/2.0`. The current intake work started from that tree and preserved the pre-existing dirty files `scripts/oauth/interop-check.mjs`, `.vercel/`, and `packages/mcp/.gitignore`.
+
+| Slice | Branch | Head | PR | State and evidence |
+|---|---|---|---:|---|
+| P01 shared preparation | `codex/intake-p01` | `0490c2571be4ba9ca49c672a28cd72a4a35af764` | [#100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented. Linux, Windows, Contract F, and local gates passed. |
+| P02 zero-mutation import plan | `codex/intake-p02` | `3b5876cc626b243c0bab9325e49dbc7efc1ffa9` | [#101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented. Linux, Windows, Contract F run `35472166915` passed. Local full test passed with 974 tests, 969 passing, and 5 skipped. |
+| P03 exact acquisition and adoption staging | `codex/intake-p03` | `bf7af61` | [#102](https://github.com/egawilldoit/ega-skills/pull/102) | Implemented. P03 targeted tests pass. Linux, Windows, and Contract F passed in run `35473883544` after replacing the Windows-invalid `sha256:` staging directory label with the digest's hex component. |
+| P04 first adoption apply and recovery | `codex/intake-p04` | `c1bf2b0` | [#103](https://github.com/egawilldoit/ega-skills/pull/103) | Implemented. AD-01–AD-07 pass in the adoption apply suite; P03/P04 targeted suites pass, and the full suite passes: 987 tests, 982 pass, 0 fail, 5 skipped. Local build, typecheck, Contracts A/B/C, specs, performance, and diff checks pass. CI run `35474815346` passed on Linux, Windows, Contract F, and Vercel. |
+| P05 owned derivatives | `codex/intake-p05` | `09741f9689ec6d027d72bbd7d8b3948e3c90e120` | [#104](https://github.com/egawilldoit/ega-skills/pull/104) | Implemented. Contract D1 and CP-01–CP-04 pass; Linux, Windows, and Contract F passed in run `35475949174`. |
+| P06 review and publication preflight | `codex/intake-p06` | `c90ff9f` (evidence commits `74c484a`, `13fdee1`) | [#105](https://github.com/egawilldoit/ega-skills/pull/105) | Implemented. Contract E1/E2 and RV-01–RV-04 pass; Linux, Windows, Contract F, and Vercel checks passed in final-tip run `35477917860`. |
+| P07 collections | `codex/intake-p07` | `df19b59` | [#106](https://github.com/egawilldoit/ega-skills/pull/106) | Implemented. Contract E3 and CL-01–CL-02 pass; Linux, Windows, Contract F, and Vercel checks passed in run `35479067275`. |
+| P08 deterministic quality diagnostics and routing evaluation | `codex/intake-p08` | `06dfdb35a7a9943f4db35d985c6948de0bd0a9ee` | [#107](https://github.com/egawilldoit/ega-skills/pull/107) | Implemented. Contract Q1 and QL-01–QL-03 pass; local full suite 1000 tests, 995 pass, 0 fail, 5 skipped; routing corpus 30/30. CI run `35480739273` and hashing traversal run `35480739317` passed on Linux and Windows, with Contract F and Vercel checks green. |
+| P09 optional AI/L1 pilot | deferred | — | — | Optional after manual workflow; no code started. |
+| P10 immutable release preview/export | `codex/intake-p10` | `3ecd9f0` | [#108](https://github.com/egawilldoit/ega-skills/pull/108) | Implemented; Contract R1 and RL-01–RL-03 pass. Full local suite 1004 tests, 999 pass, 0 fail, 5 skipped. Required Linux/Windows/Contract F and hashing traversal CI runs `35482721365`/`35482721370` passed. |
+| P11 retained serving and deployment | `codex/intake-p11` | `0038995` | [#109](https://github.com/egawilldoit/ega-skills/pull/109) | Implemented. Contract R2 and RL-04–RL-07 pass; local full suite 1009 tests, 1004 pass, 0 fail, 5 skipped; Linux, Windows, Contract F, and Vercel passed in run `35484690057`. |
+| P12 spawned CLI and publication proof | `codex/intake-p12` | `f656870b57701d6fc857f3a373eb7d95881e5ae7` | [#110](https://github.com/egawilldoit/ega-skills/pull/110) | Local E2E proof implemented: actual CLI plan → stage → apply → review → preflight → preview → export; 21 targeted tests and full local 1010-test suite pass. CI run `35485693628` passed on Linux, Windows, Contract F, and Vercel. Authorized non-production upstream and remote Codex/OpenCode acceptance remain blocked. |
+
+P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
 - Supabase migrations: present; not applied. The only connected project,
   `ofpqkogwatceimtzvenh` (`Ega-House-Platform`, `eu-west-1`), is classified
   UNKNOWN rather than staging, so it was not mutated. Its read-only migration

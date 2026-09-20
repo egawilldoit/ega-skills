@@ -29,21 +29,153 @@ export { checkForUpdates } from "./hub/planning.js";
 export { digestStagedTree } from "./hub/quarantine.js";
 export {
   clearJournal,
+  adoptionJournalPath,
+  clearAdoptionJournal,
+  digestAdoptionPath,
   journalPath,
+  readAdoptionJournal,
   readJournal,
+  recoverAdoptionIfNeeded,
   recoverIfNeeded,
+  requireReadableJournal,
   requireCleanJournal,
   writeFileAtomic,
+  writeAdoptionJournal,
   writeJournal,
 } from "./hub/journal.js";
-export type { HubJournal, JournalState } from "./hub/journal.js";
+export type { AdoptionJournal, AdoptionJournalEntry, AdoptionJournalState, HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
+export { acquireOwnerTokenLock } from "./hub/mutation-lock.js";
+export type { MutationLock, MutationLockOptions } from "./hub/mutation-lock.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";
+export { acquireSource, releaseAcquiredSource } from "./intake/acquire.js";
+export type { AcquireSourceOptions, AcquiredSource, IntakeSourceType } from "./intake/acquire.js";
+export {
+  ADOPTION_CONTRACT,
+  ADOPTION_OBJECT_TYPE,
+  ADOPTION_SCHEMA_VERSION,
+  createAdoptionPlan,
+  readHubIntakeState,
+  readHubIntakeStateUnchecked,
+  stageAdoptionPlan,
+  verifyAdoptionStage,
+  verifyAdoptionPlan,
+} from "./intake/adoption-plan.js";
+export type {
+  AdoptionCandidate,
+  AdoptionDiagnostic,
+  AdoptionPlanDocument,
+  AdoptionPlanPayload,
+  HubIntakeState,
+} from "./intake/adoption-plan.js";
+export {
+  DERIVATION_OBJECT_TYPE,
+  DERIVATION_PATCH_OBJECT_TYPE,
+  DERIVATION_SCHEMA_VERSION,
+  applyDerivationProposal,
+  createDerivationProposal,
+  deriveCandidate,
+  verifyDerivationPatch,
+  verifyDerivationProposal,
+} from "./intake/derivation.js";
+export type {
+  DerivationApplyResult,
+  DerivationPatchDocument,
+  DerivationPatchPayload,
+  DerivationProposalDocument,
+  DerivationProposalPayload,
+} from "./intake/derivation.js";
+export {
+  OWNED_DERIVATIVE_CANDIDATE_OBJECT_TYPE,
+  OWNED_DERIVATIVE_CANDIDATE_SCHEMA_VERSION,
+  createOwnedDerivativeCandidate,
+  ownedDerivativeCandidatePath,
+  readReviewableCandidate,
+  resolveCandidateDocument,
+  verifyOwnedDerivativeCandidate,
+  verifyOwnedDerivativeStage,
+  writeOwnedDerivativeCandidate,
+} from "./intake/candidate.js";
+export type {
+  IntakeCandidateDocument,
+  OwnedDerivativeCandidateDocument,
+  OwnedDerivativeCandidatePayload,
+  OwnedDerivativeProvenanceFile,
+  VerifiedCandidateView,
+} from "./intake/candidate.js";
+export { applyAdoptionPlan } from "./intake/adopt.js";
+export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.js";
+export {
+  REVIEW_OBJECT_TYPE,
+  REVIEW_SCHEMA_VERSION,
+  REVIEW_BATCH_OBJECT_TYPE,
+  REVIEW_BATCH_SCHEMA_VERSION,
+  latestReviews,
+  readReviewRecords,
+  requireCandidateApproval,
+  writeCandidateReview,
+} from "./intake/review-store.js";
+export type { ReviewBatchDecision, ReviewBatchDocument, ReviewBatchPayload, ReviewDecision, ReviewRecordDocument, ReviewRecordPayload, ReviewWriteResult } from "./intake/review-store.js";
+export { approvalSetDigest, preflightPublication, PUBLICATION_OBJECT_TYPE, PUBLICATION_SCHEMA_VERSION, verifyPublicationPreflight } from "./intake/publication.js";
+export type {
+  PublicationBlocker,
+  PublicationPreflightDocument,
+  PublicationPreflightPayload,
+  PublicationReview,
+  PublicationStatus,
+} from "./intake/publication.js";
+export { validateCollections, COLLECTIONS_OBJECT_TYPE, COLLECTIONS_PATH, COLLECTIONS_SCHEMA_VERSION } from "./intake/collections.js";
+export type {
+  CollectionDefinition,
+  CollectionDiagnostic,
+  CollectionDiagnosticCode,
+  CollectionDiagnosticSeverity,
+  CollectionsConfig,
+  CollectionValidationDocument,
+  CollectionValidationPayload,
+} from "./intake/collections.js";
+export {
+  QUALITY_OBJECT_TYPE,
+  QUALITY_POLICY_REVISION,
+  QUALITY_SCHEMA_VERSION,
+  createQualityReport,
+} from "./intake/quality.js";
+export type {
+  QualityCandidate,
+  QualityDiagnostic,
+  QualityDiagnosticSeverity,
+  QualityReportDocument,
+  QualityReportPayload,
+  QualityOptions,
+  QualitySummary,
+} from "./intake/quality.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
+export {
+  RELEASE_DIFF_OBJECT_TYPE,
+  RELEASE_DIFF_SCHEMA_VERSION,
+  createReleaseDiff,
+  verifyReleaseDiff,
+} from "./hub/release-diff.js";
+export type { ReleaseDiffDocument, ReleaseDiffPayload, ReleaseSkillUpdate } from "./hub/release-diff.js";
+export {
+  CANDIDATE_FILES,
+  LEGACY_RELEASE_CANDIDATE_SCHEMA_VERSION,
+  PUBLICATION_POLICY_REVISION,
+  RELEASE_CANDIDATE_OBJECT_TYPE,
+  RELEASE_CANDIDATE_SCHEMA_VERSION,
+  createArtifactCandidate,
+  createReleaseCandidate,
+  exportLegacyReleaseCandidate,
+  exportReleaseCandidate,
+  verifyReleaseCandidate,
+  writeArtifactCandidate,
+  writeReleaseCandidate,
+} from "./hub/release-candidate.js";
+export type { AnyReleaseCandidateDocument, LegacyReleaseCandidateDocument, LegacyReleaseCandidatePayload, PublicationBindings, ReleaseCandidateDocument, ReleaseCandidatePayload, VerifiedReleaseCandidate } from "./hub/release-candidate.js";
 export {
   RELEASE_TOKEN_ESTIMATOR,
   checkAliasMap,

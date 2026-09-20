@@ -21,6 +21,7 @@
     "contracts:check-b": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-b.mjs",
     "contracts:test-b": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-b.test.mjs",
     "contracts:check-c": "pnpm exec tsc -b --force packages/hashing && node scripts/contracts/validate-contract-c.mjs",
+    "contracts:check-g": "pnpm exec tsc -b --force packages/registry && node scripts/contracts/validate-contract-g.mjs scripts/contracts/examples/contract-g/import-plan.json",
     "contracts:test-c": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-c.test.mjs",
     "specs:check": "node scripts/specs/check-specs.mjs"
   },

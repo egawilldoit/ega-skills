@@ -18,6 +18,8 @@
   "dependencies": {
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/registry": "workspace:*",
+    "@ega-skills/schema": "workspace:*",
+    "better-sqlite3": "13.0.3",
     "yaml": "2.9.0"
   }
 }

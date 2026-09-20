@@ -114,6 +114,12 @@ importers:
       '@ega-skills/registry':
         specifier: workspace:*
         version: link:../registry
+      '@ega-skills/schema':
+        specifier: workspace:*
+        version: link:../schema
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
       yaml:
         specifier: 2.9.0
         version: 2.9.0

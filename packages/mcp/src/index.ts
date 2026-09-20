@@ -53,6 +53,23 @@ export type {
   HostedReleaseSnapshot,
   HostedRuntimeOptions,
 } from "./hosted.js";
+export {
+  createRetainedManifest,
+  loadRetainedReleaseSet,
+  promoteRetainedRelease,
+  resolveRetainedRelease,
+  rollbackRetainedRelease,
+  verifyRetainedManifest,
+  RETAINED_MANIFEST_OBJECT_TYPE,
+  RETAINED_MANIFEST_SCHEMA_VERSION,
+} from "./retained.js";
+export type {
+  RetainedManifest,
+  RetainedManifestPayload,
+  RetainedReleaseEntry,
+  RetainedReleaseSet,
+  RetainedPromotionOptions,
+} from "./retained.js";
 export type { McpToolError, McpToolErrorEnvelope } from "./server.js";
 export {
   GET_CONTENT_LEVELS,
