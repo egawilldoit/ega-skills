@@ -90,12 +90,14 @@ export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.j
 export {
   REVIEW_OBJECT_TYPE,
   REVIEW_SCHEMA_VERSION,
+  REVIEW_BATCH_OBJECT_TYPE,
+  REVIEW_BATCH_SCHEMA_VERSION,
   latestReviews,
   readReviewRecords,
   requireCandidateApproval,
   writeCandidateReview,
 } from "./intake/review-store.js";
-export type { ReviewDecision, ReviewRecordDocument, ReviewRecordPayload, ReviewWriteResult } from "./intake/review-store.js";
+export type { ReviewBatchDecision, ReviewBatchDocument, ReviewBatchPayload, ReviewDecision, ReviewRecordDocument, ReviewRecordPayload, ReviewWriteResult } from "./intake/review-store.js";
 export { preflightPublication, PUBLICATION_OBJECT_TYPE, PUBLICATION_SCHEMA_VERSION } from "./intake/publication.js";
 export type {
   PublicationBlocker,

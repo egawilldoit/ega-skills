@@ -589,7 +589,8 @@ export interface HubIntakeDeriveCommandOptions {
 export interface HubIntakeReviewCommandOptions {
   readonly candidate: string;
   readonly decision: ReviewDecision;
-  readonly expectedRevision: number;
+  readonly expectedRevision?: number;
+  readonly expectedRevisions?: Readonly<Record<string, number>>;
   readonly actor?: string;
   readonly reason?: string;
   readonly hub?: string;
@@ -649,7 +650,8 @@ export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
   return writeCandidateReview({
     candidate,
     decision: options.decision,
-    expectedRevision: options.expectedRevision,
+    ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
+    ...(options.expectedRevisions === undefined ? {} : { expectedRevisions: options.expectedRevisions }),
     hubDir,
     ...(options.actor === undefined ? {} : { actor: options.actor }),
     ...(options.reason === undefined ? {} : { reason: options.reason }),

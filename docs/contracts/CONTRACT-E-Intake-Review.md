@@ -6,7 +6,7 @@ contracts.
 
 ## Review records
 
-Review records are append-only JSON artifact envelopes under:
+Legacy review records are append-only JSON artifact envelopes under:
 
 ```text
 intake/approvals/<namespace>/<name>/r000001.json
@@ -30,9 +30,35 @@ payload has exactly these fields:
 
 The envelope digest is the record identity. The candidate digest and version
 hash are both required; an approval never means “approve the current bytes.”
-Records form a contiguous per-Skill revision chain. Writes take the Hub
-mutation lock and require the caller's expected revision. A competing write
-therefore fails stale/conflicting instead of overwriting history.
+Records form a contiguous per-Skill revision chain. Existing E1 records remain
+readable. New decisions are committed as one immutable batch envelope under
+`intake/review-batches/b-<request-id>.json`; the per-Skill records exposed by
+the reader are committed projections whose identity includes the batch digest,
+not independently published files. A batch has exactly these payload fields:
+
+```json
+{
+  "candidate_digest": "sha256:<64 lowercase hex>",
+  "decisions": [{
+    "skill_id": "namespace/name",
+    "version_hash": "sha256:<64 lowercase hex>",
+    "expected_revision": 0,
+    "revision": 1,
+    "previous_review_digest": null,
+    "decision": "APPROVED|REJECTED"
+  }],
+  "actor": "local",
+  "reason": "human-readable reason",
+  "request_id": "sha256:<64 lowercase hex>"
+}
+```
+
+The complete batch is written to a temporary file and exposed by one atomic
+rename while holding the Hub mutation lock. `--expected-revision N` is a
+shorthand for every selected Skill ID; mixed histories use
+`--expected-revisions <json-file>` with exactly the candidate Skill IDs as
+keys. The deterministic request ID makes an exact retry converge after a lost
+response; a different request with an old revision fails stale/conflicting.
 
 `actor` and `reason` are audit metadata. They are not authentication or
 authorization claims, and text inside a candidate, upstream source, or AI
