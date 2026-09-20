@@ -114,6 +114,21 @@ export type {
   CollectionValidationDocument,
   CollectionValidationPayload,
 } from "./intake/collections.js";
+export {
+  QUALITY_OBJECT_TYPE,
+  QUALITY_POLICY_REVISION,
+  QUALITY_SCHEMA_VERSION,
+  createQualityReport,
+} from "./intake/quality.js";
+export type {
+  QualityCandidate,
+  QualityDiagnostic,
+  QualityDiagnosticSeverity,
+  QualityReportDocument,
+  QualityReportPayload,
+  QualityOptions,
+  QualitySummary,
+} from "./intake/quality.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {

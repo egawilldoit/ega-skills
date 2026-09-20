@@ -18,6 +18,7 @@
   "dependencies": {
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/registry": "workspace:*",
+    "@ega-skills/schema": "workspace:*",
     "yaml": "2.9.0"
   }
 }

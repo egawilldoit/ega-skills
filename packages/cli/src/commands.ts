@@ -61,6 +61,7 @@ import {
   stageAdoptionPlan,
   preflightPublication,
   validateCollections,
+  createQualityReport,
   writeCandidateReview,
   verifyDerivationPatch,
   verifyAdoptionPlan,
@@ -484,6 +485,28 @@ export async function runImportPlan(options: ImportPlanCommandOptions): Promise<
   } finally {
     registry?.close();
   }
+}
+
+export interface IntakeQualityCommandOptions {
+  readonly sourcePath: string;
+  readonly namespace: string;
+  readonly output: string;
+}
+
+/** Build a zero-mutation Contract Q1 quality report. */
+export async function runIntakeQuality(options: IntakeQualityCommandOptions) {
+  const sourcePath = resolve(options.sourcePath);
+  const outputPath = resolve(options.output);
+  const outputRelativeToSource = relative(sourcePath, outputPath);
+  if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+    const error = new Error("Quality report output must be outside the intake source tree.");
+    Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+    throw error;
+  }
+  const report = await createQualityReport({ sourcePath, namespace: options.namespace });
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
 }
 
 export interface HubIntakePlanCommandOptions {
