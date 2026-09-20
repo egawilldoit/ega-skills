@@ -1,6 +1,6 @@
 # Intake merge readiness
 
-Status: local correction implementation complete; review branches and remote CI pending.
+Status: correction implementation complete; final review branches are open and required CI is green.
 
 This record distinguishes local tests, CI evidence, upstream validation, and
 remote-client validation. It does not authorize a production merge or deploy.
@@ -12,6 +12,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 - OAuth branch / PR #99 corrected head: `7500c80ec31fc285e041608aa6ae6269dee49e1d` (original baseline head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`).
 - Correction branch: `fix/intake-merge-readiness`.
 - Local integration head before evidence-only updates: `121c9a7c789ef4ea4885d76827796d2f5d95288e`.
+- Final integration PR head: `2e227d685d38ff78124c65c6c22be6700aa4afab` on [PR #112](https://github.com/egawilldoit/ega-skills/pull/112), based on `release/2.0`.
 - Execution date: 2026-09-20 UTC.
 - Exact operator deadline: not supplied; do not infer one from “before mid.”
 
@@ -28,7 +29,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 | W6 | complete | `d6033ae21ca263babfae88f66e20cdc041f3b3b1` | retained promotion race safety and crash recovery |
 | W7 | complete | `7500c80ec31fc285e041608aa6ae6269dee49e1d` | strict/redacted OAuth harness, locally merged into the integration branch |
 | W8 | complete | `30ca8a99934c6d710a2d2d59a65b67b6ca862c8e` | connected CLI/MCP E2E |
-| W9 | local complete | `121c9a7c789ef4ea4885d76827796d2f5d95288e` | combined-head gates pass; PR/remote CI evidence pending |
+| W9 | complete; awaiting review/approval | `2e227d685d38ff78124c65c6c22be6700aa4afab` | combined-head gates and final PR #112 Linux/Windows/Contract F CI pass |
 
 ## Acceptance evidence
 
@@ -68,4 +69,4 @@ W9 local evidence:
 - At integration head `121c9a7c789ef4ea4885d76827796d2f5d95288e`, `corepack pnpm build`, `corepack pnpm typecheck`, `corepack pnpm specs:check`, `corepack pnpm test:perf:registry`, Contracts A/B/C/G, `git diff --check`, and `corepack pnpm test` passed.
 - Full suite result: 1,029 tests, 1,024 passed, 0 failed, 5 skipped. The five skips are the repository's opt-in Windows-path, real-client, and real-upstream-disabled cases; the pinned public upstream case was run separately below.
 - `EGA_REAL_UPSTREAM=1 node --test tests/project/real-upstream-e2e.test.mjs` passed against pinned public Git sources: cursor/pstack commit `6ed0f7a9504f577d7529064103cecce9be7dfc5e`, Matt Pocock commit `c55ee46073ed923f86ce59a5eb3b6d895095d1b7`, with lifecycle commits `5c89081d4bbeb3d039a42093653f90bb698d780e`, `6a34259e99bc5fed4f8fe5da61c273dad14edf67`, and `3cca18b368ae95cdbdebbff572ccafa662551015`.
-- Linux CI, Windows CI, and Contract F for the final combined head remain pending until the review branch is pushed. No production merge or deploy was performed.
+- Final integration PR #112 CI passed at head `2e227d685d38ff78124c65c6c22be6700aa4afab`: Contract F run [`35538676074`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676074), Linux job [`106152235047`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676074/job/106152235047), Windows job [`106152235092`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676074/job/106152235092); hashing traversal run [`35538676101`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676101) passed on Linux job [`106152235250`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676101/job/106152235250) and Windows job [`106152235101`](https://github.com/egawilldoit/ega-skills/actions/runs/35538676101/job/106152235101). No production merge or deploy was performed.
