@@ -1,6 +1,6 @@
 # EGA Skills post-V1 release execution state
 
-Updated: 2026-09-19 (intake workflow execution)
+Updated: 2026-09-20 (intake workflow execution)
 
 ## Canonical authority
 
@@ -66,7 +66,8 @@ The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `relea
 | P04 first adoption apply and recovery | `codex/intake-p04` | `c1bf2b0` | [#103](https://github.com/egawilldoit/ega-skills/pull/103) | Implemented. AD-01–AD-07 pass in the adoption apply suite; P03/P04 targeted suites pass, and the full suite passes: 987 tests, 982 pass, 0 fail, 5 skipped. Local build, typecheck, Contracts A/B/C, specs, performance, and diff checks pass. CI run `35474815346` passed on Linux, Windows, Contract F, and Vercel. |
 | P05 owned derivatives | `codex/intake-p05` | `09741f9689ec6d027d72bbd7d8b3948e3c90e120` | [#104](https://github.com/egawilldoit/ega-skills/pull/104) | Implemented. Contract D1 and CP-01–CP-04 pass; Linux, Windows, and Contract F passed in run `35475949174`. |
 | P06 review and publication preflight | `codex/intake-p06` | `c90ff9f` (evidence commits `74c484a`, `13fdee1`) | [#105](https://github.com/egawilldoit/ega-skills/pull/105) | Implemented. Contract E1/E2 and RV-01–RV-04 pass; Linux, Windows, Contract F, and Vercel checks passed in final-tip run `35477917860`. |
-| P07-P12 | pending | pending | pending | Dependency-ordered after P06. |
+| P07 collections | `codex/intake-p07` | `df19b59` | [#106](https://github.com/egawilldoit/ega-skills/pull/106) | Implemented. Contract E3 and CL-01–CL-02 pass; Linux, Windows, Contract F, and Vercel checks passed in run `35479067275`. |
+| P08-P12 | pending | pending | pending | Dependency-ordered after P07. |
 
 P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
 - Supabase migrations: present; not applied. The only connected project,

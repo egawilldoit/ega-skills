@@ -60,6 +60,7 @@ import {
   releaseAcquiredSource,
   stageAdoptionPlan,
   preflightPublication,
+  validateCollections,
   writeCandidateReview,
   verifyDerivationPatch,
   verifyAdoptionPlan,
@@ -567,6 +568,8 @@ export interface HubIntakeReviewCommandOptions {
 
 export interface HubReleasePreflightCommandOptions extends HubCommandOptions {}
 
+export interface HubCollectionsValidateCommandOptions extends HubCommandOptions {}
+
 /** Reacquire and persist only the immutable operator stage for an A1 plan. */
 export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
@@ -617,6 +620,11 @@ export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
 /** Read-only publication gate over the fresh exact Hub catalog. */
 export function runHubReleasePreflight(options: HubReleasePreflightCommandOptions) {
   return preflightPublication(resolve(options.hub ?? "."));
+}
+
+/** Read-only validation and browse projection for Hub-local collections. */
+export function runHubCollectionsValidate(options: HubCollectionsValidateCommandOptions) {
+  return validateCollections(resolve(options.hub ?? "."));
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */

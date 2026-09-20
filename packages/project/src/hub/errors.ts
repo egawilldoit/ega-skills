@@ -34,7 +34,8 @@ export type HubErrorCode =
   | "E_PACKAGE_BINDING"
   | "E_STABLE"
   | "E_REVIEW"
-  | "E_PUBLICATION";
+  | "E_PUBLICATION"
+  | "E_COLLECTION";
 
 export class HubError extends Error {
   readonly code: HubErrorCode;
