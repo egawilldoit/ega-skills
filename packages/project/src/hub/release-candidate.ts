@@ -72,12 +72,10 @@ function inside(root: string, path: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith("/"));
 }
 
-function ensureFreshDirectory(path: string): void {
-  if (!existsSync(path)) {
-    mkdirSync(path, { recursive: true });
-    return;
-  }
+function ensureFreshDestination(path: string): void {
+  if (!existsSync(path)) return;
   if (!lstatSync(path).isDirectory() || readdirSync(path).length > 0) fail(`destination must be a new empty directory: ${path}`);
+  fail(`destination must not already exist: ${path}`);
 }
 
 function copyDirectory(source: string, destination: string): void {
@@ -109,7 +107,8 @@ export function writeReleaseCandidate(
   candidate: ReleaseCandidateDocument,
 ): VerifiedReleaseCandidate {
   const root = resolve(destination);
-  ensureFreshDirectory(root);
+  mkdirSync(dirname(root), { recursive: true });
+  ensureFreshDestination(root);
   const temp = mkdtempSync(join(dirname(root), ".ega-release-candidate-"));
   try {
     copyCandidateFiles(build.registryHome, temp);
@@ -210,7 +209,8 @@ export function exportReleaseCandidate(candidatePath: string, outputDirectory: s
   const verified = verifyReleaseCandidate(sourceDirectory, candidateFile);
   const destination = resolve(outputDirectory);
   if (inside(sourceDirectory, destination) || inside(destination, sourceDirectory)) fail("export destination overlaps candidate source");
-  ensureFreshDirectory(destination);
+  mkdirSync(dirname(destination), { recursive: true });
+  ensureFreshDestination(destination);
   const temp = mkdtempSync(join(dirname(destination), ".ega-release-export-"));
   try {
     copyCandidateFiles(sourceDirectory, temp);
