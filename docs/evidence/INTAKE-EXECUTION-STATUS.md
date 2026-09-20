@@ -1,6 +1,6 @@
 # Intake-to-publication execution status
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 This is the resume record for the EGA-Skills-Intake-E2E-Implementation-Plan.
 It records implementation evidence, not deployment approval.
@@ -24,7 +24,8 @@ It records implementation evidence, not deployment approval.
 | P04 first adoption apply and recovery | `codex/intake-p04` / [PR #103](https://github.com/egawilldoit/ega-skills/pull/103) | Implemented; required CI green | Final HEAD `c1bf2b0`; local AD-01–AD-07 and full suite passed. CI run [`35474815346`](https://github.com/egawilldoit/ega-skills/actions/runs/35474815346): Linux [`105982134357`](https://github.com/egawilldoit/ega-skills/actions/runs/35474815346/job/105982134357), Windows [`105982134481`](https://github.com/egawilldoit/ega-skills/actions/runs/35474815346/job/105982134481), and Contract F [`105982134485`](https://github.com/egawilldoit/ega-skills/actions/runs/35474815346/job/105982134485) passed. |
 | P05 owned derivatives | `codex/intake-p05` / [PR #104](https://github.com/egawilldoit/ega-skills/pull/104) | Implemented; required CI green | Final HEAD `09741f9689ec6d027d72bbd7d8b3948e3c90e120`; CP-01–CP-04 pass in the real CLI-backed targeted suite. CI run [`35475949174`](https://github.com/egawilldoit/ega-skills/actions/runs/35475949174): Linux [`105985108029`](https://github.com/egawilldoit/ega-skills/actions/runs/35475949174/job/105985108029), Windows [`105985108075`](https://github.com/egawilldoit/ega-skills/actions/runs/35475949174/job/105985108075), and Contract F [`105985107823`](https://github.com/egawilldoit/ega-skills/actions/runs/35475949174/job/105985107823) passed. |
 | P06 review and publication preflight | `codex/intake-p06` / [PR #105](https://github.com/egawilldoit/ega-skills/pull/105) | Implemented; required CI green | Implementation commit `c90ff9f`; evidence commits `74c484a`, `13fdee1`; RV-01–RV-04 pass in the targeted suite and the actual CLI exposes exact review and preflight commands. Contract E1/E2 adds append-only CAS review records and a fresh-catalog approval gate. Final-tip CI run [`35477917860`](https://github.com/egawilldoit/ega-skills/actions/runs/35477917860): Linux [`105990282012`](https://github.com/egawilldoit/ega-skills/actions/runs/35477917860/job/105990282012), Windows [`105990282105`](https://github.com/egawilldoit/ega-skills/actions/runs/35477917860/job/105990282105), and Contract F [`105990282146`](https://github.com/egawilldoit/ega-skills/actions/runs/35477917860/job/105990282146) passed; Vercel auth/MCP and preview checks passed. |
-| P07–P12 | Not started | Dependency-ordered | — |
+| P07 collections | `codex/intake-p07` / [PR #106](https://github.com/egawilldoit/ega-skills/pull/106) | Implemented; required CI green | HEAD `df19b59`; Contract E3 and CL-01–CL-02 pass. Local full suite: 996 tests, 991 pass, 0 fail, 5 skipped. CI run [`35479067275`](https://github.com/egawilldoit/ega-skills/actions/runs/35479067275): Linux [`105993406827`](https://github.com/egawilldoit/ega-skills/actions/runs/35479067275/job/105993406827), Windows [`105993406817`](https://github.com/egawilldoit/ega-skills/actions/runs/35479067275/job/105993406817), and Contract F [`105993406731`](https://github.com/egawilldoit/ega-skills/actions/runs/35479067275/job/105993406731) passed; Vercel auth/MCP previews passed. |
+| P08–P12 | Not started | Dependency-ordered | — |
 
 ## P01 implementation
 
