@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubReleasePreview, runHubReleaseExport, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -35,6 +35,8 @@ function printHelp() {
       "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> --expected-revision <N> [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
+      "  ega-skills hub release preview --hub <hub-dir> --against <release.json|artifact-dir> --output-dir <candidate-dir>",
+      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir>",
       "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
@@ -513,6 +515,39 @@ async function main() {
     }
     if (subcommand === "release") {
       const [releaseSubcommand, ...releaseRest] = hubRest;
+      if (releaseSubcommand === "preview") {
+        const hubFlag = readFlag(releaseRest, "hub");
+        const against = readFlag(releaseRest, "against");
+        const outputDirectory = readFlag(releaseRest, "output-dir");
+        const positional = readHubPositionals(releaseRest, new Set(["hub", "against", "output-dir"]));
+        if (hubFlag === undefined) fail("Missing required --hub <hub-dir>.");
+        if (against === undefined) fail("Missing required --against <release.json|artifact-dir>.");
+        if (outputDirectory === undefined) fail("Missing required --output-dir <candidate-dir>.");
+        if (positional.length > 0) fail(`Unknown command or option: ${positional[0]}`);
+        try {
+          const result = await runHubReleasePreview({ against, hub: hubFlag, outputDirectory });
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          if (result.status === "BLOCKED") process.exitCode = 1;
+        } catch (error) {
+          failWithCode(error instanceof Error ? error.message : String(error), 4);
+        }
+        return;
+      }
+      if (releaseSubcommand === "export") {
+        const candidate = readFlag(releaseRest, "candidate");
+        const outputDirectory = readFlag(releaseRest, "out");
+        const positional = readHubPositionals(releaseRest, new Set(["candidate", "out"]));
+        if (candidate === undefined) fail("Missing required --candidate <candidate.json>.");
+        if (outputDirectory === undefined) fail("Missing required --out <artifact-dir>.");
+        if (positional.length > 0) fail(`Unknown command or option: ${positional[0]}`);
+        try {
+          const result = runHubReleaseExport({ candidate, outputDirectory });
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } catch (error) {
+          failWithCode(error instanceof Error ? error.message : String(error), 4);
+        }
+        return;
+      }
       if (releaseSubcommand !== "preflight") fail(`Unknown hub release command: ${releaseSubcommand ?? ""}`);
       if (releaseRest.length > 1 || releaseRest.some((token) => token.startsWith("-"))) fail(`Unknown command or option: ${releaseRest[1] ?? releaseRest[0]}`);
       try {

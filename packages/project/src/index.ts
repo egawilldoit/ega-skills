@@ -132,6 +132,22 @@ export type {
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {
+  RELEASE_DIFF_OBJECT_TYPE,
+  RELEASE_DIFF_SCHEMA_VERSION,
+  createReleaseDiff,
+} from "./hub/release-diff.js";
+export type { ReleaseDiffDocument, ReleaseDiffPayload, ReleaseSkillUpdate } from "./hub/release-diff.js";
+export {
+  CANDIDATE_FILES,
+  RELEASE_CANDIDATE_OBJECT_TYPE,
+  RELEASE_CANDIDATE_SCHEMA_VERSION,
+  createReleaseCandidate,
+  exportReleaseCandidate,
+  verifyReleaseCandidate,
+  writeReleaseCandidate,
+} from "./hub/release-candidate.js";
+export type { ReleaseCandidateDocument, ReleaseCandidatePayload, VerifiedReleaseCandidate } from "./hub/release-candidate.js";
+export {
   RELEASE_TOKEN_ESTIMATOR,
   checkAliasMap,
   checkSearchIndexInput,
