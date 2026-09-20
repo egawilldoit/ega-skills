@@ -519,6 +519,28 @@ test("apply recovers a dead owner from the current directory lock protocol", asy
   assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
 });
 
+test("public recovery reclaims a dead owner before repairing a valid journal", async () => {
+  const { dir: repo } = makeFixtureRepo();
+  const shaA = makeFixtureRepoShaA(repo);
+  const hub = await setupHubAtA(repo, shaA);
+  const stalePid = await exitedProcessPid();
+  mkdirSync(join(hub.hubDir, ".hub.lock"));
+  writeFileSync(join(hub.hubDir, ".hub.lock", `owner.${"e".repeat(64)}`), JSON.stringify({ pid: stalePid, token: "e".repeat(64) }));
+  writeJournal(hub.hubDir, {
+    backup: ".backup",
+    expected_old_commit: shaA,
+    journal_version: 1,
+    source_id: "plan",
+    staging: ".staging",
+    state: "PREPARED",
+    target_commit: "b".repeat(40),
+  });
+
+  assert.deepEqual(recoverIfNeeded(hub.hubDir), { recovered: true });
+  assert.equal(readJournal(hub.hubDir), null);
+  assert.equal(existsSync(join(hub.hubDir, ".hub.lock")), false);
+});
+
 function makeFixtureRepoShaA(repo) {
   return execFileSync("git", ["-C", repo, "rev-parse", "main~1"], { encoding: "utf8" }).trim();
 }

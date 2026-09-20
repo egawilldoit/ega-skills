@@ -20,6 +20,7 @@ import { COMMIT_RE, SHA256_RE, assertSourceId, isPlainObject } from "./guards.js
 import { adoptedSourcePath } from "./paths.js";
 import { digestStagedTree } from "./quarantine.js";
 import { parseSourcesLockYaml } from "./sources-lock.js";
+import { acquireOwnerTokenLock } from "./mutation-lock.js";
 
 export type JournalState = "PREPARED" | "TREE_SWAPPED" | "LOCK_SWAPPED" | "COMMITTED";
 
@@ -432,7 +433,8 @@ function verifyAdoptedState(tree: string, lockPath: string, journal: IncompleteJ
  * - Missing or unverifiable adopted content raises E_RECOVERY_REQUIRED and
  *   leaves all recovery material in place for a later attempt.
  */
-export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
+/** Internal recovery for callers that already own `.hub.lock`. */
+export function recoverIfNeededLocked(hubDir: string): { recovered: boolean } {
   const adoption = recoverAdoptionIfNeeded(hubDir);
   const journal = readJournal(hubDir);
   if (!journal) return { recovered: adoption.recovered };
@@ -473,6 +475,23 @@ export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
   removeIfPresent(paths.backup);
   clearJournal(hubDir);
   return { recovered: true };
+}
+
+/** Public recovery entry point. Recovery itself is a mutation and therefore
+ * must hold the same owner-bound lock as apply/update/review operations. */
+export function recoverIfNeeded(hubDir: string): { recovered: boolean } {
+  const lock = acquireOwnerTokenLock(join(resolve(hubDir), ".hub.lock"), {
+    beforeReclaim: () => {
+      readJournal(hubDir);
+      readAdoptionJournal(hubDir);
+    },
+    error: (message) => new HubError("E_HUB_LOCKED", message),
+  });
+  try {
+    return recoverIfNeededLocked(hubDir);
+  } finally {
+    lock.release();
+  }
 }
 
 /**
