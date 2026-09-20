@@ -6,9 +6,10 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createEnvelope, hashBytes } from "../../packages/hashing/dist/index.js";
-import { buildHubRelease } from "../../packages/project/dist/index.js";
+import { buildHubRelease, verifyReleaseCandidate } from "../../packages/project/dist/index.js";
 
 const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
+const validateArtifact = join(process.cwd(), "scripts", "hosted", "validate-artifact.mjs");
 
 function runCli(...args) {
   return spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), encoding: "utf8" });
@@ -77,6 +78,7 @@ test("W4: CLI derives, reviews, and publishes two owned skills under one declare
   const seedPlan = JSON.parse(readFileSync(seedPlanPath, "utf8"));
   runSuccessfulCli("hub", "intake", "review", "--candidate", seedPlan.digest, "--decision", "approve", "--expected-revision", "0", hub);
   runSuccessfulCli("hub", "intake", "apply", "--plan", seedPlanPath, hub);
+  const baseline = await buildHubRelease(hub);
 
   const source = makeSource(base, "alpha", skill("alpha").replace("description:", "version: 1\ndescription:"));
   const planPath = join(base, "alpha-plan.json");
@@ -104,10 +106,15 @@ test("W4: CLI derives, reviews, and publishes two owned skills under one declare
   const betaPlan = JSON.parse(readFileSync(betaPlanPath, "utf8"));
   runSuccessfulCli("hub", "intake", "stage", "--plan", betaPlanPath, hub);
   const betaStaged = join(hub, ".intake-staging", betaPlan.digest.slice("sha256:".length), "source", "skills", "beta", "SKILL.md");
+  const betaOriginalBytes = readFileSync(betaStaged);
   const betaPatchPath = join(base, "beta-patch.json");
-  writeFileSync(betaPatchPath, `${JSON.stringify(patchDocument("beta", "skills/beta/SKILL.md", readFileSync(betaStaged), skill("beta", "canonical beta")), null, 2)}\n`);
+  writeFileSync(betaPatchPath, `${JSON.stringify(patchDocument("beta", "skills/beta/SKILL.md", betaOriginalBytes, skill("beta", "canonical beta")), null, 2)}\n`);
   const betaDerived = runSuccessfulCli("hub", "intake", "derive", "--candidate", betaPlan.digest, "--patch", betaPatchPath, "--owned-id", "ega/beta", hub);
   const betaDigest = betaDerived.candidate.digest;
+  assert.equal(betaDerived.candidate.payload.original.skill_id, "intake/beta");
+  assert.equal(betaDerived.candidate.payload.original.input_file_digest, hashBytes(betaOriginalBytes));
+  assert.deepEqual(betaDerived.candidate.payload.provenance.provenance_files, ["LICENSE"]);
+  assert.equal(betaDerived.candidate.payload.target.skill_id, "ega/beta");
   runSuccessfulCli("hub", "intake", "review", "--candidate", betaDigest, "--decision", "approve", "--expected-revision", "0", hub);
 
   const betaStage = join(hub, ".intake-staging", betaDerived.proposal.digest.slice("sha256:".length), "source", "beta", "SKILL.md");
@@ -123,8 +130,21 @@ test("W4: CLI derives, reviews, and publishes two owned skills under one declare
   assert.equal(betaApplied.status, "COMMITTED");
   assert.equal(readFileSync(join(hub, "owned", "seed", "alpha", "SKILL.md"), "utf8"), skill("alpha", "canonical alpha"));
   assert.equal(readFileSync(join(hub, "owned", "seed", "beta", "SKILL.md"), "utf8"), skill("beta", "canonical beta"));
+  assert.deepEqual(readFileSync(join(betaSource, "skills", "beta", "SKILL.md")), betaOriginalBytes);
   const receipts = readdirSync(join(hub, ".intake-provenance")).filter((entry) => entry.startsWith("derivative-"));
   assert.equal(receipts.length, 2);
   assert.equal(JSON.parse(readFileSync(join(hub, ".intake-provenance", receipts[1]), "utf8")).provenance.files[0].path, "LICENSE");
-  await buildHubRelease(hub);
+
+  const candidateDir = join(base, "candidate");
+  const exportedDir = join(base, "exported");
+  const preview = runSuccessfulCli("hub", "release", "preview", "--hub", hub, "--against", baseline.artifactPaths.release, "--output-dir", candidateDir);
+  const exported = runSuccessfulCli("hub", "release", "export", "--candidate", join(candidateDir, "candidate.json"), "--out", exportedDir);
+  assert.equal(exported.release_digest, preview.candidate.payload.release_digest);
+  assert.equal(verifyReleaseCandidate(exportedDir).release.digest, preview.candidate.payload.release_digest);
+  const validate = spawnSync(process.execPath, [validateArtifact, exportedDir], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(validate.status, 0, `${validate.stderr}\n${validate.stdout}`);
+  const exportedRelease = JSON.parse(readFileSync(join(exportedDir, "hub-release.json"), "utf8"));
+  assert.equal(exportedRelease.payload.skill_versions["ega/beta"], betaDerived.candidate.payload.target.version_hash);
+  assert.ok(exportedRelease.payload.skill_versions["ega/alpha"]);
+  assert.ok(exportedRelease.payload.skill_versions["ega/beta"]);
 });

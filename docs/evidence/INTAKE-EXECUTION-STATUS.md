@@ -96,3 +96,29 @@ diff checks.
 4. Add exact commit SHA, PR URL, CI URLs, and any blocked/live evidence here
    after each slice.
 5. Never merge or deploy without explicit user approval.
+
+## Merge-readiness correction status
+
+The original P00–P12 stack is complete locally, but this correction pass is
+the authoritative resume record for the remaining integration work. It keeps
+the production baseline unchanged and separates offline proof from external
+acceptance.
+
+| Wave | Status | Evidence |
+| --- | --- | --- |
+| W0 baseline and defect audit | Complete | Production baseline `9622a6ac4d06f00da525046e5ebb29428dfb91ff`; P12 tip `40007ed4c14dcd9cf6c1a6c348818321993d274d`; OAuth source head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`. |
+| W1–W2 safety and review atomicity | Complete | Owner-token locks, process-death recovery, review CAS, and all-or-nothing review batches are implemented and covered by focused tests. |
+| W3–W4 adoption and derivatives | Complete | Approval precedes adoption; owned derivatives carry exact source identity, patch identity, provenance, and tamper-resistant staged bytes. |
+| W5 publication binding | Complete | Preview/export bind to exact approved content and reject stale or altered approval state. |
+| W6 retained serving | Complete | Governed candidates, owner replacement safety, promotion/rollback CAS, crash recovery, and idempotent retry are covered by 8 focused tests. |
+| W7 OAuth interop | Pending integration | Offline strict/redacted harness is complete on isolated branch `fix/oauth-interop-readiness`; authorized live non-production credentials are unavailable. |
+| W8 connected E2E | Complete | Actual CLI publication and derivative tests pass; exported artifact is exercised over the real local MCP stdio transport after source deletion. |
+| W9 integration and CI | Pending | Merge corrected OAuth work, run final Linux/Windows gates, create focused PRs, and record CI/real-client evidence. |
+
+### External evidence boundary
+
+No remote upstream fetch, authorized non-production OAuth endpoint, Codex
+client, or OpenCode client was used in W8. Those checks remain BLOCKED until
+the operator provides authorized non-production access. A blocked live check
+is not treated as a pass, and no production credentials or configuration were
+changed.

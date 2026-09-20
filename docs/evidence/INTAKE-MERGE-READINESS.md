@@ -26,7 +26,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 | W5 | complete | `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9` | approval-bound publication |
 | W6 | complete | `d6033ae21ca263babfae88f66e20cdc041f3b3b1` | retained promotion race safety and crash recovery |
 | W7 | pending | — | OAuth harness offline hardening |
-| W8 | pending | — | connected CLI/MCP E2E |
+| W8 | complete | correction branch worktree | connected CLI/MCP E2E |
 | W9 | pending | — | combined-head CI and merge preparation |
 
 ## Acceptance evidence
@@ -46,3 +46,11 @@ W6 local evidence:
 - `corepack pnpm build` passed at `d6033ae21ca263babfae88f66e20cdc041f3b3b1`.
 - `node --test tests/mcp/retained-serving.test.mjs` passed 8/8.
 - The retained tests covered default governed-candidate rejection, explicit legacy compatibility, owner-token replacement protection, concurrent promotion versus rollback with one revision winner, killed writes before and after the durable pointer, and same-deployment lost-response retry without a second transition.
+
+W8 local evidence:
+
+- `node --test tests/cli/intake-publication-e2e.test.mjs tests/cli/intake-derivative-publication-e2e.test.mjs` passed 2/2.
+- The publication E2E now proves plan identities and provenance, rejects apply before approval without creating owned bytes, preserves the upstream checkout bytes, exports and validates the exact release, then deletes the source checkout before driving the real stdio MCP server through `search → resolve → inspect → get_content`.
+- The same transport test rejects a control-plane file request with `E_CONTENT_FILE_UNKNOWN`.
+- The derivative E2E proves explicit original input digest, owned target identity, provenance/license lineage, tamper rejection, source-byte preservation, coexistence of seed/alpha/beta, and preview/export validation.
+- Retained release A/B promotion, default selection, pinned selection, rollback, stale-CAS rejection, and interrupted-write recovery remain covered by `tests/mcp/retained-serving.test.mjs`.
