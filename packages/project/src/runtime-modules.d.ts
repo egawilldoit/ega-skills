@@ -40,6 +40,25 @@ declare module "node:fs" {
   export function closeSync(fd: number): void;
 }
 
+declare module "better-sqlite3" {
+  export interface Statement {
+    get<T = unknown>(...params: unknown[]): T;
+    all<T = unknown>(...params: unknown[]): T[];
+    run(...params: unknown[]): unknown;
+  }
+  export interface DatabaseConnection {
+    exec(sql: string): void;
+    pragma<T = unknown>(source: string, options?: { simple?: boolean }): T;
+    prepare(sql: string): Statement;
+    close(): void;
+  }
+  interface DatabaseConstructor {
+    new (filename: string, options?: { readonly?: boolean; fileMustExist?: boolean }): DatabaseConnection;
+  }
+  const Database: DatabaseConstructor;
+  export default Database;
+}
+
 declare module "node:util" {
   export class TextDecoder {
     constructor(encoding?: string, options?: { fatal?: boolean });

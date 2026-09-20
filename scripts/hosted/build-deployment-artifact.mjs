@@ -20,15 +20,17 @@
 // plus a PROVENANCE.md record into the output directory.
 //
 // Usage:
-//   pnpm build
-//   node scripts/hosted/build-deployment-artifact.mjs [--out packages/mcp/artifact]
+//   node scripts/hosted/build-deployment-artifact.mjs --hub <hub-dir> --out <artifact-dir>
+//   node scripts/hosted/build-deployment-artifact.mjs --candidate <candidate.json> --out <artifact-dir>
+//   node scripts/hosted/build-deployment-artifact.mjs --fixture --out <artifact-dir>
 //
 // Exit 0: validated artifact written. Exit 1: anything failed.
-import { mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   buildHubRelease,
+  exportReleaseCandidate,
   extractSelectedRootsFromGit,
   fetchExactCommit,
   parseSourcesYaml,
@@ -36,7 +38,15 @@ import {
 } from "../../packages/project/dist/index.js";
 import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
 
-const OUT = resolve(process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : "packages/mcp/artifact");
+function flag(name) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+const OUT = resolve(flag("out") ?? "packages/mcp/artifact");
+const HUB = flag("hub");
+const CANDIDATE = flag("candidate");
+const FIXTURE = process.argv.includes("--fixture");
 
 const SOURCES = [
   {
@@ -72,6 +82,65 @@ const EXPECTED_SKILLS = [
 function fail(message) {
   process.stderr.write(`build-deployment-artifact: FAIL ${message}\n`);
   process.exit(1);
+}
+
+function requireFreshOutput(path) {
+  if (existsSync(path) && readdirSync(path).length > 0) fail(`output directory must be new and empty: ${path}`);
+  mkdirSync(path, { recursive: true });
+}
+
+function copyRuntimeFiles(source, destination) {
+  requireFreshOutput(destination);
+  for (const file of ["hub-release.json", "release-package.json", "registry.sqlite"]) {
+    cpSync(join(source, file), join(destination, file));
+  }
+  cpSync(join(source, "cache"), join(destination, "cache"), { recursive: true });
+}
+
+async function buildFromHub() {
+  const build = await buildHubRelease(resolve(HUB));
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  copyRuntimeFiles(build.registryHome, OUT);
+  writeFileSync(join(OUT, "PROVENANCE.md"), [
+    "# Deployment artifact provenance",
+    "",
+    "Built from an explicit Hub directory with the Contract C build.",
+    `Release digest: ${snapshot.releaseDigest}`,
+    `Hub id: ${snapshot.release.payload.hub_id}`,
+    `Skills: ${Object.keys(snapshot.release.payload.skill_versions).join(", ")}`,
+    "",
+  ].join("\n"));
+  loadHostedReleaseSnapshot(OUT);
+  process.stdout.write(`build-deployment-artifact: OK digest=${snapshot.releaseDigest} out=${OUT}\n`);
+}
+
+async function exportCandidate() {
+  const verified = exportReleaseCandidate(resolve(CANDIDATE), OUT);
+  const snapshot = loadHostedReleaseSnapshot(OUT);
+  writeFileSync(join(OUT, "PROVENANCE.md"), [
+    "# Deployment artifact provenance",
+    "",
+    "Exported from an exact verified release candidate; no sources were fetched or rebuilt.",
+    `Release digest: ${snapshot.releaseDigest}`,
+    `Hub id: ${verified.release.payload.hub_id}`,
+    "",
+  ].join("\n"));
+  loadHostedReleaseSnapshot(OUT);
+  process.stdout.write(`build-deployment-artifact: OK digest=${snapshot.releaseDigest} out=${OUT}\n`);
+}
+
+if ((HUB !== undefined ? 1 : 0) + (CANDIDATE !== undefined ? 1 : 0) + (FIXTURE ? 1 : 0) !== 1) {
+  fail("choose exactly one explicit input mode: --hub, --candidate, or --fixture");
+}
+
+if (HUB !== undefined) {
+  await buildFromHub();
+  process.exit(0);
+}
+
+if (CANDIDATE !== undefined) {
+  await exportCandidate();
+  process.exit(0);
 }
 
 const workspace = mkdtempSync(join(tmpdir(), "ega-deploy-artifact-"));
@@ -148,7 +217,7 @@ try {
   // Gate on the SAME verification the runtime performs at startup.
   const snapshot = loadHostedReleaseSnapshot(build.registryHome);
 
-  mkdirSync(OUT, { recursive: true });
+  requireFreshOutput(OUT);
   for (const file of ["hub-release.json", "release-package.json", "registry.sqlite"]) {
     cpSync(join(build.registryHome, file), join(OUT, file));
   }

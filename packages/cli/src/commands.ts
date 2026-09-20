@@ -40,6 +40,9 @@ import {
   discoverSkillDirs,
   digestStagedTree,
   buildHubRelease,
+  createReleaseCandidate,
+  createReleaseDiff,
+  exportReleaseCandidate,
   checkForUpdates,
   extractSelectedRootsFromGit,
   fetchExactCommit,
@@ -52,6 +55,7 @@ import {
   digestProjectLock,
   hashNormalizedConfig,
   verifyHubRelease,
+  writeReleaseCandidate,
   acquireSource,
   applyAdoptionPlan,
   createAdoptionPlan,
@@ -68,6 +72,8 @@ import {
   type AdoptionPlanDocument,
   type ProjectContextDocument,
   type HubRelease,
+  type ReleaseCandidateDocument,
+  type ReleaseDiffDocument,
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
@@ -591,6 +597,16 @@ export interface HubIntakeReviewCommandOptions {
 
 export interface HubReleasePreflightCommandOptions extends HubCommandOptions {}
 
+export interface HubReleasePreviewCommandOptions extends HubCommandOptions {
+  readonly against: string;
+  readonly outputDirectory: string;
+}
+
+export interface HubReleaseExportCommandOptions {
+  readonly candidate: string;
+  readonly outputDirectory: string;
+}
+
 export interface HubCollectionsValidateCommandOptions extends HubCommandOptions {}
 
 /** Reacquire and persist only the immutable operator stage for an A1 plan. */
@@ -643,6 +659,49 @@ export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
 /** Read-only publication gate over the fresh exact Hub catalog. */
 export function runHubReleasePreflight(options: HubReleasePreflightCommandOptions) {
   return preflightPublication(resolve(options.hub ?? "."));
+}
+
+function readReleaseReference(reference: string): HubRelease {
+  const path = resolve(reference);
+  const artifactPath = existsSync(path) && lstatSync(path).isDirectory() ? join(path, "hub-release.json") : path.endsWith("candidate.json") ? join(dirname(path), "hub-release.json") : path;
+  const release = JSON.parse(readFileSync(artifactPath, "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  return release;
+}
+
+/** Build and materialize one approved candidate, without publishing it. */
+export async function runHubReleasePreview(options: HubReleasePreviewCommandOptions): Promise<{
+  readonly status: "READY" | "BLOCKED";
+  readonly preflight: Awaited<ReturnType<typeof preflightPublication>>;
+  readonly candidate?: ReleaseCandidateDocument;
+  readonly diff?: ReleaseDiffDocument;
+}> {
+  const hub = resolve(options.hub ?? ".");
+  const preflight = await preflightPublication(hub);
+  if (preflight.payload.status === "BLOCKED") return { preflight, status: "BLOCKED" };
+  const build = await buildHubRelease(hub);
+  if (JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(preflight.payload.skill_versions)) {
+    throw new Error("publication preflight became stale before release preview");
+  }
+  const base = readReleaseReference(options.against);
+  const diff = createReleaseDiff(base, build.release);
+  const candidate = createReleaseCandidate(build);
+  writeReleaseCandidate(build, resolve(options.outputDirectory), candidate);
+  writeFileSync(join(resolve(options.outputDirectory), "release-diff.json"), `${JSON.stringify(diff, null, 2)}\n`);
+  writeFileSync(join(resolve(options.outputDirectory), "publication-preflight.json"), `${JSON.stringify(preflight, null, 2)}\n`);
+  return { candidate, diff, preflight, status: "READY" };
+}
+
+/** Export an already verified candidate; no Hub or upstream source is read. */
+export function runHubReleaseExport(options: HubReleaseExportCommandOptions) {
+  const verified = exportReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory));
+  return {
+    candidate: verified.candidate,
+    hub_id: verified.release.payload.hub_id,
+    release_digest: verified.release.digest,
+    status: "EXPORTED" as const,
+    output_directory: resolve(options.outputDirectory),
+  };
 }
 
 /** Read-only validation and browse projection for Hub-local collections. */
