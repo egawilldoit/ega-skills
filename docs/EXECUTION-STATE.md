@@ -1,6 +1,6 @@
 # EGA Skills post-V1 release execution state
 
-Updated: 2026-09-09 (final non-production acceptance inventory)
+Updated: 2026-09-19 (intake workflow execution)
 
 ## Canonical authority
 
@@ -53,6 +53,20 @@ The clean 2.0 implementation at `e9d6920db4352eb75b43a637d78440a455797cab` diffe
 - 1.2 hosted personal implementation: present in clean review branch; local HTTP/snapshot/auth smoke exists, but staging deployment and real OAuth registration remain pending.
 - 1.3 remote projects: present in clean review branch; local project/context smoke exists, hosted acceptance remains pending.
 - 2.0 multi-user candidate: present in clean review branch; local control-plane/object-store/multi-user HTTP smoke exists, real cloud acceptance remains pending.
+
+## Intake workflow execution
+
+The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `release/2.0`. The current intake work started from that tree and preserved the pre-existing dirty files `scripts/oauth/interop-check.mjs`, `.vercel/`, and `packages/mcp/.gitignore`.
+
+| Slice | Branch | Head | PR | State and evidence |
+|---|---|---|---:|---|
+| P01 shared preparation | `codex/intake-p01` | `0490c2571be4ba9ca49c672a28cd72a4a35af764` | [#100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented. Linux, Windows, Contract F, and local gates passed. |
+| P02 zero-mutation import plan | `codex/intake-p02` | `3b5876cc626b243c0bab9325e49dbc7efc1ffa9` | [#101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented. Linux, Windows, Contract F run `35472166915` passed. Local full test passed with 974 tests, 969 passing, and 5 skipped. |
+| P03 exact acquisition and adoption staging | `codex/intake-p03` | `0154bc9` | [#102](https://github.com/egawilldoit/ega-skills/pull/102) | Implemented locally. Exact Git and local acquisition, A1 plans, CLI stage, stale-source checks, conflict checks, and idempotent staging tests pass. CI pending. |
+| P04 first adoption apply and recovery | `codex/intake-p04` | pending | pending | Next slice. |
+| P05-P12 | pending | pending | pending | Blocked on the preceding slices. |
+
+P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
 - Supabase migrations: present; not applied. The only connected project,
   `ofpqkogwatceimtzvenh` (`Ega-House-Platform`, `eu-west-1`), is classified
   UNKNOWN rather than staging, so it was not mutated. Its read-only migration

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -28,6 +28,8 @@ function printHelp() {
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
+      "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
@@ -394,6 +396,49 @@ async function main() {
 
   if (command === "hub") {
     const [subcommand, ...hubRest] = rest;
+    if (subcommand === "intake") {
+      const [intakeSubcommand, ...intakeRest] = hubRest;
+      if (intakeSubcommand === "plan") {
+        const positional = readHubPositionals(intakeRest, new Set(["namespace", "source-id", "commit", "ref", "root", "provenance-file", "hub", "output"]));
+        const source = positional[0];
+        const sourceId = readFlag(intakeRest, "source-id");
+        const namespace = readFlag(intakeRest, "namespace");
+        const commit = readFlag(intakeRest, "commit");
+        const ref = readFlag(intakeRest, "ref");
+        const hub = readFlag(intakeRest, "hub");
+        const output = readFlag(intakeRest, "output");
+        const roots = readRepeatableFlag(intakeRest, "root");
+        const provenanceFiles = readRepeatableFlag(intakeRest, "provenance-file");
+        if (source === undefined || positional.length > 1) fail("Usage: ega-skills hub intake plan <repository-or-folder> ...");
+        if (sourceId === undefined) fail("Missing required --source-id <id>.");
+        if (namespace === undefined) fail("Missing required --namespace <namespace>.");
+        if (roots.length === 0 || roots.some((value) => typeof value !== "string" || value.length === 0)) fail("Missing required --root <path>.");
+        if (output === undefined) fail("Missing required --output <plan.json>.");
+        if (existsSync(source) === false && commit === undefined && ref === undefined) fail("Git intake requires --commit <sha> or --ref <ref>.");
+        try {
+          const plan = await runHubIntakePlan({ commit, hub, namespace, output, provenanceFiles, ref, roots, source, sourceId });
+          process.stdout.write(`${JSON.stringify({ output, digest: plan.digest, status: plan.payload.status, ...plan.payload.import_plan.payload.summary })}\n`);
+          if (plan.payload.status === "BLOCKED") process.exitCode = 1;
+        } catch (error) {
+          failWithCode(error instanceof Error ? error.message : String(error), 4);
+        }
+        return;
+      }
+      if (intakeSubcommand === "stage") {
+        const plan = readFlag(intakeRest, "plan");
+        const positional = readHubPositionals(intakeRest, new Set(["plan"]));
+        if (plan === undefined) fail("Missing required --plan <plan.json>.");
+        if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+        try {
+          const result = await runHubIntakeStage({ plan, hub: positional[0] ?? "." });
+          process.stdout.write(`${JSON.stringify(result)}\n`);
+        } catch (error) {
+          failWithCode(error instanceof Error ? error.message : String(error), 4);
+        }
+        return;
+      }
+      fail(`Unknown hub intake command: ${intakeSubcommand ?? ""}`);
+    }
     if (subcommand === "build") {
       if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {
         fail(`Unknown command or option: ${hubRest[1] ?? hubRest[0]}`);

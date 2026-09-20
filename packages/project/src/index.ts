@@ -43,6 +43,24 @@ export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";
+export { acquireSource, releaseAcquiredSource } from "./intake/acquire.js";
+export type { AcquireSourceOptions, AcquiredSource, IntakeSourceType } from "./intake/acquire.js";
+export {
+  ADOPTION_CONTRACT,
+  ADOPTION_OBJECT_TYPE,
+  ADOPTION_SCHEMA_VERSION,
+  createAdoptionPlan,
+  readHubIntakeState,
+  stageAdoptionPlan,
+  verifyAdoptionPlan,
+} from "./intake/adoption-plan.js";
+export type {
+  AdoptionCandidate,
+  AdoptionDiagnostic,
+  AdoptionPlanDocument,
+  AdoptionPlanPayload,
+  HubIntakeState,
+} from "./intake/adoption-plan.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {
