@@ -13,7 +13,7 @@ import { canonicalizeJson, createEnvelope, hashBytes, verifyEnvelope, type Artif
 import { HubError } from "../hub/errors.js";
 import { parseHubYaml } from "../hub/hub-config.js";
 import { SHA256_RE, assertRelativePosix } from "../hub/guards.js";
-import { verifyAdoptionPlan, type AdoptionPlanDocument } from "./adoption-plan.js";
+import { verifyAdoptionPlan, verifyAdoptionStage, type AdoptionPlanDocument } from "./adoption-plan.js";
 
 export const DERIVATION_OBJECT_TYPE = "ega.derivation-plan" as const;
 export const DERIVATION_PATCH_OBJECT_TYPE = "ega.derivation-patch" as const;
@@ -247,10 +247,9 @@ function copyTree(source: string, destination: string): void {
 }
 
 function sourceStage(hubDir: string, candidateDigest: string): { readonly plan: AdoptionPlanDocument; readonly root: string } {
-  const root = join(resolve(hubDir), ".intake-staging", stageName(candidateDigest));
-  const planPath = join(root, "adoption-plan.json");
-  const sourceRoot = join(root, "source");
-  if (!existsSync(planPath) || !existsSync(sourceRoot)) fail(`staged candidate is missing: ${candidateDigest}`);
+  const stageRoot = join(resolve(hubDir), ".intake-staging", stageName(candidateDigest));
+  const planPath = join(stageRoot, "adoption-plan.json");
+  if (!existsSync(planPath)) fail(`staged candidate is missing: ${candidateDigest}`);
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(planPath, "utf8"));
@@ -259,7 +258,12 @@ function sourceStage(hubDir: string, candidateDigest: string): { readonly plan: 
   }
   const plan = verifyAdoptionPlan(raw);
   if (plan.digest !== candidateDigest) fail("staged candidate plan digest does not match its requested identity");
-  return { plan, root: sourceRoot };
+  try {
+    return { plan, root: join(verifyAdoptionStage(hubDir, plan), "source") };
+  } catch (error) {
+    if (error instanceof HubError) fail(error.message);
+    throw error;
+  }
 }
 
 interface DerivationSourceCandidate {
@@ -443,6 +447,12 @@ export async function applyDerivationProposal(input: { readonly hubDir: string; 
     const temporary = mkdtempSync(join(parent, ".pending-"));
     try {
       copyTree(targetRoot.root, join(temporary, "source", ...proposal.payload.target.relative_root.split("/")));
+      for (const provenanceFile of staged.plan.payload.source.provenance_files) {
+        const source = pathWithin(staged.root, provenanceFile);
+        const destination = join(temporary, "provenance", ...provenanceFile.split("/"));
+        mkdirSync(resolve(destination, ".."), { recursive: true });
+        writeFileSync(destination, readFileSync(source));
+      }
       writeFileSync(join(temporary, "derivation-plan.json"), `${JSON.stringify(proposal, null, 2)}\n`);
       renameSync(temporary, stageRoot);
     } catch (error) {

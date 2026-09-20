@@ -15,6 +15,7 @@ import {
   deriveCandidate,
   readHubIntakeState,
   stageAdoptionPlan,
+  writeCandidateReview,
   verifyDerivationProposal,
 } from "../../packages/project/dist/index.js";
 import { createEnvelope, hashBytes } from "../../packages/hashing/dist/index.js";
@@ -43,6 +44,7 @@ async function makePlan(base, text, namespace = "intake", sourceId = "local") {
   mkdirSync(hub);
   const plan = createAdoptionPlan({ hub: readHubIntakeState(hub), importPlan, namespace, source: acquired, sourceId });
   await stageAdoptionPlan(plan, hub);
+  if (plan.payload.status === "READY") writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
   rmSync(acquired.workspace, { recursive: true, force: true });
   return { hub, plan, skillPath };
 }
@@ -101,7 +103,7 @@ test("CP-02: changing the staged input after proposal creation fails the exact p
   writeFileSync(stagedPath, skill("alpha", "tampered after proposal"));
   await assert.rejects(
     () => applyDerivationProposal({ hubDir: hub, proposal }),
-    (error) => error instanceof HubError && error.code === "E_DERIVATION" && /precondition failed/.test(error.message),
+    (error) => error instanceof HubError && error.code === "E_DERIVATION" && /precondition failed|stage no longer matches/.test(error.message),
   );
   assert.equal(readdirSync(join(hub, ".intake-staging")).filter((entry) => entry !== plan.digest.slice("sha256:".length)).length, 0);
 });

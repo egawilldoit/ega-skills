@@ -66,13 +66,9 @@ test("E2E-01: actual intake CLI publishes the exact approved candidate", async (
   assert.equal(plan.payload.candidates[0].skill_id, "intake/alpha");
 
   runSuccessfulCli("hub", "intake", "stage", "--plan", planPath, hub);
-  const applied = runSuccessfulCli("hub", "intake", "apply", "--plan", planPath, hub);
-  assert.equal(applied.status, "COMMITTED");
-  assert.equal(existsSync(join(hub, "owned", "local-alpha", "skills", "alpha", "SKILL.md")), true);
-
   const pending = runCli("hub", "release", "preflight", hub);
-  assert.equal(pending.status, 1);
-  assert.equal(jsonOutput(pending).payload.status, "BLOCKED");
+  assert.equal(pending.status, 0);
+  assert.equal(jsonOutput(pending).payload.status, "READY");
 
   const reviewed = runSuccessfulCli(
     "hub", "intake", "review",
@@ -82,6 +78,10 @@ test("E2E-01: actual intake CLI publishes the exact approved candidate", async (
     hub,
   );
   assert.equal(reviewed.revision, 1);
+
+  const applied = runSuccessfulCli("hub", "intake", "apply", "--plan", planPath, hub);
+  assert.equal(applied.status, "COMMITTED");
+  assert.equal(existsSync(join(hub, "owned", "local-alpha", "skills", "alpha", "SKILL.md")), true);
 
   const ready = runSuccessfulCli("hub", "release", "preflight", hub);
   assert.equal(ready.payload.status, "READY");

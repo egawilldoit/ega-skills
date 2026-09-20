@@ -193,7 +193,11 @@ export function adoptionJournalPath(hubDir: string): string {
 const ADOPTION_STATES: readonly string[] = ["PREPARED", "SWAPPING", "COMMITTED"];
 
 function checkAdoptionTarget(root: string, value: string, field: string): string {
-  const ownedPath = /^(?:hub\.yaml|sources\.yaml|sources\.lock\.yaml|external\/[a-z0-9][a-z0-9-]*\/repo|owned\/[a-z0-9][a-z0-9-]*|\.intake-provenance\/[a-z0-9][a-z0-9-]*\.json)$/;
+  // A source adoption swaps one complete owned root, while a derivative
+  // adoption swaps a validated child beneath an already declared root.
+  // Keep the root identifier constrained and let confinedJournalPath reject
+  // traversal/absolute forms for descendant segments.
+  const ownedPath = /^(?:hub\.yaml|sources\.yaml|sources\.lock\.yaml|external\/[a-z0-9][a-z0-9-]*\/repo|owned\/[a-z0-9][a-z0-9-]*(?:\/[^/\\]+)*|\.intake-provenance\/[a-z0-9][a-z0-9-]*\.json)$/;
   if (!ownedPath.test(value)) {
     throw new HubError("E_JOURNAL_SCHEMA", `adoption journal ${field} is not an owned Hub path`);
   }

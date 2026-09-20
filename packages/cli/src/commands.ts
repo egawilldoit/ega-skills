@@ -59,8 +59,10 @@ import {
   acquireSource,
   applyAdoptionPlan,
   createAdoptionPlan,
+  createOwnedDerivativeCandidate,
   deriveCandidate,
   readHubIntakeState,
+  resolveCandidateDocument,
   releaseAcquiredSource,
   stageAdoptionPlan,
   preflightPublication,
@@ -69,7 +71,9 @@ import {
   writeCandidateReview,
   verifyDerivationPatch,
   verifyAdoptionPlan,
+  writeOwnedDerivativeCandidate,
   type AdoptionPlanDocument,
+  type IntakeCandidateDocument,
   type ProjectContextDocument,
   type HubRelease,
   type ReleaseCandidateDocument,
@@ -575,7 +579,8 @@ export interface HubIntakeStageCommandOptions {
 }
 
 export interface HubIntakeApplyCommandOptions {
-  readonly plan: string;
+  readonly plan?: string;
+  readonly candidate?: string;
   readonly hub?: string;
 }
 
@@ -618,8 +623,11 @@ export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): 
 
 /** Apply a staged, reviewed A1 plan to the Hub through the A2 transaction. */
 export async function runHubIntakeApply(options: HubIntakeApplyCommandOptions) {
-  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8"));
-  return applyAdoptionPlan({ hubDir: resolve(options.hub ?? "."), plan });
+  const hubDir = resolve(options.hub ?? ".");
+  const reference = options.candidate ?? options.plan;
+  if (reference === undefined) throw new Error("Missing required --plan or --candidate.");
+  const candidate = resolveCandidateDocument(reference, hubDir);
+  return applyAdoptionPlan({ hubDir, plan: candidate });
 }
 
 /** Apply one exact compatibility patch to an immutable staged candidate. */
@@ -630,17 +638,14 @@ export async function runHubIntakeDerive(options: HubIntakeDeriveCommandOptions)
     : join(hubDir, ".intake-staging", options.candidate.replace(/^sha256:/, ""), "adoption-plan.json");
   const candidate = verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
   const patch = verifyDerivationPatch(JSON.parse(readFileSync(resolve(options.patch), "utf8")));
-  return deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+  const result = await deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+  const ownedCandidate = createOwnedDerivativeCandidate({ hubDir, proposal: result.proposal });
+  const ownedCandidatePath = writeOwnedDerivativeCandidate(hubDir, ownedCandidate);
+  return { ...result, candidate: ownedCandidate, candidate_path: ownedCandidatePath };
 }
 
-function readStagedAdoptionCandidate(candidate: string, hubDir: string): AdoptionPlanDocument {
-  const explicit = resolve(candidate);
-  const candidatePath = existsSync(explicit)
-    ? explicit
-    : /^[0-9a-f]{64}$/.test(candidate.replace(/^sha256:/, ""))
-      ? join(hubDir, ".intake-staging", candidate.replace(/^sha256:/, ""), "adoption-plan.json")
-      : (() => { throw new Error("Review candidate must be an adoption plan path or sha256:<64hex> stage digest."); })();
-  return verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
+function readStagedAdoptionCandidate(candidate: string, hubDir: string): IntakeCandidateDocument {
+  return resolveCandidateDocument(candidate, hubDir);
 }
 
 /** Append a decision bound to the exact staged A1 candidate versions. */

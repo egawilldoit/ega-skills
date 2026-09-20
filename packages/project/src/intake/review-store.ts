@@ -14,7 +14,8 @@ import { HubError } from "../hub/errors.js";
 import { acquireHubLock } from "../hub/apply.js";
 import { requireReadableJournal, writeFileAtomic } from "../hub/journal.js";
 import { SHA256_RE } from "../hub/guards.js";
-import { verifyAdoptionPlan, type AdoptionCandidate, type AdoptionPlanDocument } from "./adoption-plan.js";
+import { readHubIntakeState, verifyAdoptionPlan, type AdoptionCandidate } from "./adoption-plan.js";
+import { readReviewableCandidate, type IntakeCandidateDocument } from "./candidate.js";
 
 export const REVIEW_OBJECT_TYPE = "ega.intake-review" as const;
 export const REVIEW_SCHEMA_VERSION = 1 as const;
@@ -71,7 +72,7 @@ export type ReviewBatchDocument = ArtifactEnvelope & {
 
 interface ReviewCandidate {
   readonly candidate_digest: string;
-  readonly candidate: AdoptionCandidate;
+  readonly candidate: { readonly skill_id: string; readonly version_hash: string };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -266,11 +267,11 @@ export function latestReviews(hubPath: string): ReadonlyMap<string, ReviewRecord
   return latest;
 }
 
-function candidateEntries(candidate: AdoptionPlanDocument): ReviewCandidate[] {
-  const verified = verifyAdoptionPlan(candidate);
-  if (verified.payload.status !== "READY") fail("only READY adoption plans can be reviewed");
-  if (verified.payload.candidates.length === 0) fail("adoption plan contains no valid candidates");
-  const entries = verified.payload.candidates.map((entry) => ({ candidate: entry, candidate_digest: verified.digest }));
+function candidateEntries(hubDir: string, candidate: IntakeCandidateDocument): ReviewCandidate[] {
+  const view = readReviewableCandidate(candidate, hubDir);
+  if (view.kind === "SOURCE_ADOPTION" && verifyAdoptionPlan(candidate).payload.status !== "READY") fail("only READY adoption plans can be reviewed");
+  if (view.entries.length === 0) fail("candidate contains no valid entries");
+  const entries = view.entries.map((entry) => ({ candidate: entry, candidate_digest: view.digest }));
   entries.sort((left, right) => left.candidate.skill_id.localeCompare(right.candidate.skill_id));
   for (let index = 1; index < entries.length; index += 1) {
     if (entries[index - 1]?.candidate.skill_id === entries[index]?.candidate.skill_id) fail("candidate contains duplicate Skill IDs");
@@ -289,7 +290,7 @@ function currentRevision(latest: ReadonlyMap<string, ReviewRecordDocument>, skil
  */
 export function writeCandidateReview(input: {
   readonly hubDir: string;
-  readonly candidate: AdoptionPlanDocument;
+  readonly candidate: IntakeCandidateDocument;
   readonly decision: ReviewDecision;
   readonly expectedRevision?: number;
   readonly expectedRevisions?: Readonly<Record<string, number>>;
@@ -298,13 +299,16 @@ export function writeCandidateReview(input: {
   /** Test-only crash injection around the single batch rename. */
   readonly faultAfter?: "BEFORE_RENAME" | "AFTER_RENAME";
 }): ReviewWriteResult {
-  const entries = candidateEntries(input.candidate);
+  const hubDir = resolve(input.hubDir);
+  const entries = candidateEntries(hubDir, input.candidate);
   if (input.expectedRevision !== undefined && (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)) fail("expected revision must be a non-negative integer");
   if (input.expectedRevision !== undefined && input.expectedRevisions !== undefined) fail("expected-revision and expected-revisions are mutually exclusive");
-  const hubDir = resolve(input.hubDir);
   requireReadableJournal(hubDir);
   const lock = acquireHubLock(hubDir);
   try {
+    const currentState = readHubIntakeState(hubDir);
+    const candidateView = readReviewableCandidate(input.candidate, hubDir);
+    if (candidateView.kind === "OWNED_DERIVATIVE" && candidateView.baseline_digest !== currentState.baselineDigest) fail("candidate baseline is stale");
     const latest = latestReviews(hubDir);
     const expected = new Map<string, number>();
     if (input.expectedRevisions !== undefined) {
@@ -384,9 +388,9 @@ export function writeCandidateReview(input: {
 }
 
 /** Require every exact candidate in a plan to have the matching approval. */
-export function requireCandidateApproval(hubPath: string, candidate: AdoptionPlanDocument): void {
+export function requireCandidateApproval(hubPath: string, candidate: IntakeCandidateDocument): void {
   const latest = latestReviews(hubPath);
-  for (const entry of candidateEntries(candidate)) {
+  for (const entry of candidateEntries(resolve(hubPath), candidate)) {
     const review = latest.get(entry.candidate.skill_id);
     if (review === undefined || review.payload.decision !== "APPROVED" || review.payload.candidate_digest !== entry.candidate_digest || review.payload.version_hash !== entry.candidate.version_hash) {
       fail(`candidate ${entry.candidate.skill_id}@${entry.candidate.version_hash} is not approved for ${entry.candidate_digest}`);

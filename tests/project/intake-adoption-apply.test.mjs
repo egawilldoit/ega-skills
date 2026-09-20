@@ -16,6 +16,7 @@ import {
   readHubIntakeState,
   stageAdoptionPlan,
   parseSourcesLockYaml,
+  writeCandidateReview,
 } from "../../packages/project/dist/index.js";
 import { createImportPlan, emptyRegistryTarget } from "../../packages/registry/dist/index.js";
 
@@ -31,6 +32,15 @@ function writeSkill(root, relative, name, body) {
 
 function git(dir, ...args) {
   execFileSync("git", ["-C", dir, "-c", "user.name=intake-test", "-c", "user.email=intake-test@example.test", ...args], { stdio: "pipe" });
+}
+
+async function waitForMarker(path, child) {
+  for (let attempt = 0; attempt < 2_000; attempt += 1) {
+    if (existsSync(path)) return;
+    if (child.exitCode !== null) throw new Error(`barrier child exited before ${path}: ${child.exitCode}/${child.signalCode}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for adoption barrier ${path}`);
 }
 
 function makeGitFixture() {
@@ -52,7 +62,7 @@ function makeGitFixture() {
   return { commitA, commitB, commitC, repo };
 }
 
-async function makeLocalPlan(base) {
+async function makeLocalPlan(base, { review = true } = {}) {
   const source = join(base, "source");
   writeSkill(source, "skills/alpha", "alpha", "local body");
   writeFileSync(join(source, "LICENSE"), "License.\n");
@@ -62,9 +72,24 @@ async function makeLocalPlan(base) {
   mkdirSync(hub);
   const plan = createAdoptionPlan({ hub: readHubIntakeState(hub), importPlan, namespace: "intake", source: acquired, sourceId: "local" });
   await stageAdoptionPlan(plan, hub);
+  if (review) writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
   rmSync(acquired.workspace, { recursive: true, force: true });
   return { hub, plan };
 }
+
+test("AD-00: adoption rejects an exact but unreviewed candidate without mutation", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "ega-adopt-unreviewed-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const { hub, plan } = await makeLocalPlan(base, { review: false });
+  await assert.rejects(
+    () => applyAdoptionPlan({ hubDir: hub, plan }),
+    (error) => error instanceof HubError && error.code === "E_REVIEW" && /approved/.test(error.message),
+  );
+  assert.equal(existsSync(join(hub, "hub.yaml")), false);
+  assert.equal(existsSync(join(hub, "owned")), false);
+  writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
+  assert.equal((await applyAdoptionPlan({ hubDir: hub, plan })).status, "COMMITTED");
+});
 
 test("AD-01: local first adoption commits an owned tree and complete Hub state", async (t) => {
   const base = mkdtempSync(join(tmpdir(), "ega-adopt-local-"));
@@ -108,6 +133,49 @@ test("AD-04: faults at every transaction point restore the exact empty baseline"
   }
 });
 
+test("W1: a killed public apply is recovered at every durable adoption barrier", async (t) => {
+  const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
+  for (const barrier of ["PREPARED", "AFTER_OLD_TARGET_REMOVAL", "AFTER_REPLACEMENT_BEFORE_JOURNAL", "AFTER_FINAL_REPLACEMENT", "COMMITTED_BEFORE_CLEANUP"]) {
+    const base = mkdtempSync(join(tmpdir(), `ega-adopt-killed-${barrier.toLowerCase()}-`));
+    t.after(() => rmSync(base, { recursive: true, force: true }));
+    const { hub, plan } = await makeLocalPlan(base);
+    const planPath = join(base, "plan.json");
+    writeFileSync(planPath, `${JSON.stringify(plan)}\n`);
+    const marker = join(base, "barrier.marker");
+    const release = join(base, "barrier.release");
+    const child = spawn(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        EGA_TEST_ADOPTION_BARRIER: barrier,
+        EGA_TEST_ADOPTION_BARRIER_FILE: marker,
+        EGA_TEST_ADOPTION_BARRIER_RELEASE: release,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let childOutput = "";
+    child.stdout.on("data", (chunk) => { childOutput += chunk; });
+    child.stderr.on("data", (chunk) => { childOutput += chunk; });
+    const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+    try {
+      await waitForMarker(marker, child);
+    } catch (error) {
+      throw new Error(`${barrier}: ${error instanceof Error ? error.message : String(error)}\n${childOutput}`);
+    }
+    child.kill("SIGKILL");
+    const exit = await exited;
+    assert.equal(exit.signal, "SIGKILL", `${barrier}: ${JSON.stringify(exit)}`);
+    assert.equal(existsSync(join(hub, ".hub.lock")), true);
+    assert.equal(existsSync(join(hub, ".adoption-journal.json")), true);
+
+    const recovered = execFileSync(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { encoding: "utf8" });
+    assert.match(recovered, /COMMITTED|ALREADY_APPLIED/, barrier);
+    assert.equal(existsSync(join(hub, ".hub.lock")), false, barrier);
+    assert.equal(existsSync(join(hub, ".adoption-journal.json")), false, barrier);
+    assert.equal(existsSync(join(hub, "owned", "local", "skills", "alpha", "SKILL.md")), true, barrier);
+  }
+});
+
 test("AD-06: a journal path escape fails closed without touching the sentinel", async (t) => {
   const base = mkdtempSync(join(tmpdir(), "ega-adopt-journal-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
@@ -147,6 +215,7 @@ test("AD-05: two child processes share one mutation and leave a repeat idempoten
   const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
   execFileSync(process.execPath, [cli, "hub", "intake", "plan", source, "--namespace", "concurrent", "--source-id", "local", "--root", "skills/alpha", "--provenance-file", "LICENSE", "--hub", hub, "--output", planPath]);
   execFileSync(process.execPath, [cli, "hub", "intake", "stage", "--plan", planPath, hub]);
+  execFileSync(process.execPath, [cli, "hub", "intake", "review", "--candidate", planPath, "--decision", "approve", "--expected-revision", "0", hub]);
   const invoke = () => new Promise((resolveResult) => {
     const child = spawn(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
@@ -158,7 +227,7 @@ test("AD-05: two child processes share one mutation and leave a repeat idempoten
   const results = await Promise.all([invoke(), invoke()]);
   const committed = results.filter((result) => result.status === 0 && result.stdout.includes("COMMITTED"));
   assert.equal(committed.length, 1, JSON.stringify(results));
-  assert.equal(results.filter((result) => result.status === 0 && result.stdout.includes("ALREADY_APPLIED")).length + results.filter((result) => result.status === 4 && result.stderr.includes("hub mutation lock is held")).length, 1, JSON.stringify(results));
+  assert.equal(results.filter((result) => result.status === 0 && result.stdout.includes("ALREADY_APPLIED")).length + results.filter((result) => result.status === 4 && result.stderr.includes("mutation lock is held")).length, 1, JSON.stringify(results));
   const repeat = execFileSync(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { encoding: "utf8" });
   assert.match(repeat, /ALREADY_APPLIED/);
 });
@@ -175,6 +244,7 @@ test("AD-01/AD-02: Git first adoption commits the exact planned commit after the
   const plan = createAdoptionPlan({ hub: readHubIntakeState(hub), importPlan, namespace: "git", source: acquired, sourceId: "git-source" });
   rmSync(acquired.workspace, { recursive: true, force: true });
   await stageAdoptionPlan(plan, hub);
+  writeCandidateReview({ candidate: plan, decision: "APPROVED", expectedRevision: 0, hubDir: hub });
   const result = await applyAdoptionPlan({ hubDir: hub, plan });
   assert.equal(result.status, "COMMITTED");
   assert.equal(readFileSync(join(hub, "external", "git-source", "repo", "skills", "alpha", "SKILL.md"), "utf8"), skill("alpha", "B"));
@@ -195,6 +265,7 @@ test("AD-07: the actual CLI apply command publishes the staged plan", async (t) 
   const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
   execFileSync(process.execPath, [cli, "hub", "intake", "plan", source, "--namespace", "cli", "--source-id", "local", "--root", "skills/alpha", "--provenance-file", "LICENSE", "--hub", hub, "--output", planPath]);
   execFileSync(process.execPath, [cli, "hub", "intake", "stage", "--plan", planPath, hub]);
+  execFileSync(process.execPath, [cli, "hub", "intake", "review", "--candidate", planPath, "--decision", "approve", "--expected-revision", "0", hub]);
   const output = execFileSync(process.execPath, [cli, "hub", "intake", "apply", "--plan", planPath, hub], { encoding: "utf8" });
   assert.match(output, /COMMITTED/);
   assert.match(execFileSync(process.execPath, [cli, "hub", "validate", hub], { encoding: "utf8" }), /"valid": true/);

@@ -31,7 +31,7 @@ function printHelp() {
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
       "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
       "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
-      "  ega-skills hub intake apply --plan <plan.json> [<hub-dir>]",
+      "  ega-skills hub intake apply (--plan <plan.json>|--candidate <candidate.json|digest>) [<hub-dir>]",
       "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> (--expected-revision <N>|--expected-revisions <json-file>) [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
@@ -463,11 +463,12 @@ async function main() {
       }
       if (intakeSubcommand === "apply") {
         const plan = readFlag(intakeRest, "plan");
-        const positional = readHubPositionals(intakeRest, new Set(["plan"]));
-        if (plan === undefined) fail("Missing required --plan <plan.json>.");
+        const candidate = readFlag(intakeRest, "candidate");
+        const positional = readHubPositionals(intakeRest, new Set(["plan", "candidate"]));
+        if ((plan === undefined) === (candidate === undefined)) fail("Provide exactly one of --plan <plan.json> or --candidate <candidate.json|digest>.");
         if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
         try {
-          const result = await runHubIntakeApply({ plan, hub: positional[0] ?? "." });
+          const result = await runHubIntakeApply({ plan, candidate, hub: positional[0] ?? "." });
           process.stdout.write(`${JSON.stringify(result)}\n`);
         } catch (error) {
           failWithCode(error instanceof Error ? error.message : String(error), 4);

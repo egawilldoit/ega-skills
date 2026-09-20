@@ -59,6 +59,7 @@ export {
   readHubIntakeState,
   readHubIntakeStateUnchecked,
   stageAdoptionPlan,
+  verifyAdoptionStage,
   verifyAdoptionPlan,
 } from "./intake/adoption-plan.js";
 export type {
@@ -85,6 +86,24 @@ export type {
   DerivationProposalDocument,
   DerivationProposalPayload,
 } from "./intake/derivation.js";
+export {
+  OWNED_DERIVATIVE_CANDIDATE_OBJECT_TYPE,
+  OWNED_DERIVATIVE_CANDIDATE_SCHEMA_VERSION,
+  createOwnedDerivativeCandidate,
+  ownedDerivativeCandidatePath,
+  readReviewableCandidate,
+  resolveCandidateDocument,
+  verifyOwnedDerivativeCandidate,
+  verifyOwnedDerivativeStage,
+  writeOwnedDerivativeCandidate,
+} from "./intake/candidate.js";
+export type {
+  IntakeCandidateDocument,
+  OwnedDerivativeCandidateDocument,
+  OwnedDerivativeCandidatePayload,
+  OwnedDerivativeProvenanceFile,
+  VerifiedCandidateView,
+} from "./intake/candidate.js";
 export { applyAdoptionPlan } from "./intake/adopt.js";
 export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.js";
 export {
