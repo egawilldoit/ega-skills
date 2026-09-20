@@ -111,14 +111,15 @@ acceptance.
 | W3–W4 adoption and derivatives | Complete | Approval precedes adoption; owned derivatives carry exact source identity, patch identity, provenance, and tamper-resistant staged bytes. |
 | W5 publication binding | Complete | Preview/export bind to exact approved content and reject stale or altered approval state. |
 | W6 retained serving | Complete | Governed candidates, owner replacement safety, promotion/rollback CAS, crash recovery, and idempotent retry are covered by 8 focused tests. |
-| W7 OAuth interop | Pending integration | Offline strict/redacted harness is complete on isolated branch `fix/oauth-interop-readiness`; authorized live non-production credentials are unavailable. |
+| W7 OAuth interop | Implemented locally; PR #99 update pending | Strict/redacted harness is `7500c80ec31fc285e041608aa6ae6269dee49e1d`, merged into the local integration branch; focused offline suite passes 9/9. Authorized live non-production credentials are unavailable. |
 | W8 connected E2E | Complete | Actual CLI publication and derivative tests pass; exported artifact is exercised over the real local MCP stdio transport after source deletion. |
-| W9 integration and CI | Pending | Merge corrected OAuth work, run final Linux/Windows gates, create focused PRs, and record CI/real-client evidence. |
+| W9 integration and CI | Local gates complete; remote CI/PR pending | Integration head `121c9a7c789ef4ea4885d76827796d2f5d95288e`; full local suite is 1,024 pass, 0 fail, 5 skipped; public pinned-upstream E2E passes. Final review PR and Linux/Windows/Contract F CI remain pending. |
 
 ### External evidence boundary
 
-No remote upstream fetch, authorized non-production OAuth endpoint, Codex
-client, or OpenCode client was used in W8. Those checks remain BLOCKED until
-the operator provides authorized non-production access. A blocked live check
-is not treated as a pass, and no production credentials or configuration were
-changed.
+The public pinned-upstream E2E was run during W9 against the test's immutable
+Git commits and passed. No authorized non-production OAuth endpoint, Codex
+client, or OpenCode client was used. Those live-client checks remain BLOCKED
+because the required credentials and acceptance flags are unavailable. A
+blocked live check is not treated as a pass, and no production credentials or
+configuration were changed.

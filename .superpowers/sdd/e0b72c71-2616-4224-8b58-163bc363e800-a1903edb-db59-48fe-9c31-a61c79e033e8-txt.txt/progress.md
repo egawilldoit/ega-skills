@@ -49,3 +49,10 @@
 - W3 and W4 committed as `90fef3862003be3798761d938aceb8a8a9f81d0b`: exact approval before adoption plus verified derivative candidate staging and owned-namespace adoption.
 - W5 committed as `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9`: schema-2 approval-bound release candidates, strict governed export, explicit legacy export, atomic sidecars, tamper matrix, and stale-preview detection.
 - W6 committed as `d6033ae21ca263babfae88f66e20cdc041f3b3b1`: retained promotion/rollback now uses owner-token locks, holds selection through write, enforces governed candidates by default, and supports crash-safe same-request retry.
+
+## W7–W9 completion record
+
+- W7 committed on the isolated OAuth branch as `7500c80ec31fc285e041608aa6ae6269dee49e1d`: strict offline interop assertions, redacted diagnostics, provider-error/network handling, and mandatory-flow checks. The branch was merged normally into the integration branch at merge commit `121c9a7c789ef4ea4885d76827796d2f5d95288e`.
+- W8 committed as `30ca8a99934c6d710a2d2d59a65b67b6ca862c8e`: connected CLI publication and owned-derivative E2E, including source removal followed by real local MCP stdio search/resolve/inspect/get_content.
+- W9 local gates passed at integration head: build, typecheck, frozen specs, registry performance, Contracts A/B/C/G, full suite (1,029 total; 1,024 pass, 0 fail, 5 skip), and diff checks. The pinned public upstream E2E passed with the exact commits recorded in `docs/evidence/INTAKE-MERGE-READINESS.md`.
+- W9 external boundary: review branches and remote Linux/Windows/Contract F CI still need to be created/run; authorized live OAuth, Codex, and OpenCode acceptance remains blocked by unavailable non-production access. No merge or deploy was performed.

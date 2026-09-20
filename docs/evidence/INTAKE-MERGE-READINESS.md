@@ -1,6 +1,6 @@
 # Intake merge readiness
 
-Status: executing correction waves from the merge-readiness plan.
+Status: local correction implementation complete; review branches and remote CI pending.
 
 This record distinguishes local tests, CI evidence, upstream validation, and
 remote-client validation. It does not authorize a production merge or deploy.
@@ -11,6 +11,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 - Intake stack tip: `40007ed4c14dcd9cf6c1a6c348818321993d274d` (#110).
 - OAuth branch: `e5cdadf8986335d84df7aebd3c4fef98a2494d70` (#99).
 - Correction branch: `fix/intake-merge-readiness`.
+- Local integration head before evidence-only updates: `121c9a7c789ef4ea4885d76827796d2f5d95288e`.
 - Execution date: 2026-09-20 UTC.
 - Exact operator deadline: not supplied; do not infer one from “before mid.”
 
@@ -25,9 +26,9 @@ remote-client validation. It does not authorize a production merge or deploy.
 | W4 | complete | `90fef3862003be3798761d938aceb8a8a9f81d0b` | verified derivative adoption |
 | W5 | complete | `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9` | approval-bound publication |
 | W6 | complete | `d6033ae21ca263babfae88f66e20cdc041f3b3b1` | retained promotion race safety and crash recovery |
-| W7 | pending | — | OAuth harness offline hardening |
-| W8 | complete | correction branch worktree | connected CLI/MCP E2E |
-| W9 | pending | — | combined-head CI and merge preparation |
+| W7 | complete | `7500c80ec31fc285e041608aa6ae6269dee49e1d` | strict/redacted OAuth harness, locally merged into the integration branch |
+| W8 | complete | `30ca8a99934c6d710a2d2d59a65b67b6ca862c8e` | connected CLI/MCP E2E |
+| W9 | local complete | `121c9a7c789ef4ea4885d76827796d2f5d95288e` | combined-head gates pass; PR/remote CI evidence pending |
 
 ## Acceptance evidence
 
@@ -54,3 +55,17 @@ W8 local evidence:
 - The same transport test rejects a control-plane file request with `E_CONTENT_FILE_UNKNOWN`.
 - The derivative E2E proves explicit original input digest, owned target identity, provenance/license lineage, tamper rejection, source-byte preservation, coexistence of seed/alpha/beta, and preview/export validation.
 - Retained release A/B promotion, default selection, pinned selection, rollback, stale-CAS rejection, and interrupted-write recovery remain covered by `tests/mcp/retained-serving.test.mjs`.
+
+W7 local evidence:
+
+- `node --check scripts/oauth/interop-check.mjs && node --test tests/oauth/interop-check.test.mjs` passed 9/9.
+- The offline stub covered happy flow, changed subject, changed client, missing code, missing refresh token, setup failure, provider 500, and sentinel-secret redaction.
+- The harness preserves Supabase `apikey` and authorization-details association, compares registered client and independently known subject claims, enforces exact rejection status/error, and emits no token/code/password/auth-header or response-body credentials.
+- No live OAuth endpoint was exercised because `EGA_INTEROP_USER_TOKEN`, `EGA_INTEROP_API_KEY`, and `EGA_INTEROP_BASE_URL` are unset.
+
+W9 local evidence:
+
+- At integration head `121c9a7c789ef4ea4885d76827796d2f5d95288e`, `corepack pnpm build`, `corepack pnpm typecheck`, `corepack pnpm specs:check`, `corepack pnpm test:perf:registry`, Contracts A/B/C/G, `git diff --check`, and `corepack pnpm test` passed.
+- Full suite result: 1,029 tests, 1,024 passed, 0 failed, 5 skipped. The five skips are the repository's opt-in Windows-path, real-client, and real-upstream-disabled cases; the pinned public upstream case was run separately below.
+- `EGA_REAL_UPSTREAM=1 node --test tests/project/real-upstream-e2e.test.mjs` passed against pinned public Git sources: cursor/pstack commit `6ed0f7a9504f577d7529064103cecce9be7dfc5e`, Matt Pocock commit `c55ee46073ed923f86ce59a5eb3b6d895095d1b7`, with lifecycle commits `5c89081d4bbeb3d039a42093653f90bb698d780e`, `6a34259e99bc5fed4f8fe5da61c273dad14edf67`, and `3cca18b368ae95cdbdebbff572ccafa662551015`.
+- Linux CI, Windows CI, and Contract F for the final combined head remain pending until the review branch is pushed. No production merge or deploy was performed.
