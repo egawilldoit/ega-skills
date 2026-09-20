@@ -18,12 +18,12 @@ remote-client validation. It does not authorize a production merge or deploy.
 
 | Wave | Outcome | Commit | Focused evidence |
 |---|---|---|---|
-| W0 | in progress | — | baseline refresh and defect reproduction |
-| W1 | pending | — | owner-safe locks and process-death recovery |
-| W2 | pending | — | atomic review batches |
-| W3 | pending | — | approval before adoption |
-| W4 | pending | — | verified derivative adoption |
-| W5 | pending | — | approval-bound publication |
+| W0 | complete | `40007ed4c14dcd9cf6c1a6c348818321993d274d` | baseline refresh and defect reproduction |
+| W1 | complete | `5aa7160b9a95f659f8d0da4ae7a7ce197df2da8a` | owner-safe locks and process-death recovery |
+| W2 | complete | `761f356c1c88f52c50beff849e8fd9527568e6f` | atomic review batches |
+| W3 | complete | `90fef38e1de976572a17a9b278c91f0763b776d7` | approval before adoption |
+| W4 | complete | `90fef38e1de976572a17a9b278c91f0763b776d7` | verified derivative adoption |
+| W5 | complete | `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9` | approval-bound publication |
 | W6 | pending | — | retained promotion race safety |
 | W7 | pending | — | OAuth harness offline hardening |
 | W8 | pending | — | connected CLI/MCP E2E |
@@ -33,3 +33,10 @@ remote-client validation. It does not authorize a production merge or deploy.
 
 To be filled as each wave completes. `BLOCKED` and `SKIPPED` are not passes.
 
+W5 local evidence:
+
+- `corepack pnpm build` passed at `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9`.
+- The focused release, publication, adoption, derivative, CLI, and retained-runtime suite passed 42/42.
+- The governed candidate matrix rejected missing and altered receipts, blocked status, wrong approval-set digest, mismatched skill/version data, and swapped diffs.
+- The real CLI preview rejected a review change between its initial and final preflight snapshots. The old exported candidate remained verifiable.
+- Linux CI, Windows CI, real upstream validation, and remote-client validation remain unrecorded.

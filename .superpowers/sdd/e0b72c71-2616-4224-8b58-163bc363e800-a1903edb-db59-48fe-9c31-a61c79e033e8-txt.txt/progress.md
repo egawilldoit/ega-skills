@@ -40,3 +40,11 @@
 
 - No plan/spec conflict identified during pre-flight. The new merge-readiness plan is the binding correction scope; optional AI, ZIP, UI, additional clients, and broad redesign remain deferred.
 - The executing-plans skill references task-start/task-done helpers, but those scripts are absent from the installed skill; wave state is recorded manually in this ledger and the evidence document.
+
+## Completed waves
+
+- W0 baseline and repository/PR/CI inspection completed. Focused baseline tests passed 25/25 on `40007ed4c14dcd9cf6c1a6c348818321993d274d`.
+- W1 committed as `5aa716091bc1c2075b5e89375379b72807cafc7a`: owner-safe locks, public recovery locking, durable adoption writes, and process-death barriers.
+- W2 committed as `761f356c73b127d19e42e3c88a4bbd7cca8c63d1`: atomic review batches, deterministic retry IDs, mixed-revision CLI input, and legacy E1 reads.
+- W3 and W4 committed as `90fef3862003be3798761d938aceb8a8a9f81d0b`: exact approval before adoption plus verified derivative candidate staging and owned-namespace adoption.
+- W5 committed as `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9`: schema-2 approval-bound release candidates, strict governed export, explicit legacy export, atomic sidecars, tamper matrix, and stale-preview detection.
