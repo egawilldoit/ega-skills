@@ -1,8 +1,9 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { createEnvelope, sha256Hex } from "@ega-skills/hashing";
 import {
+  acquireOwnerTokenLock,
   casUpdateStable,
   createStablePointer,
   type StablePointer,
@@ -55,6 +56,8 @@ export interface RetainedPromotionOptions {
   readonly candidateDigest: string;
   readonly expectedRevision: number;
   readonly deploymentId: string;
+  /** Artifact-only candidates are accepted only for explicit legacy serving/migration. */
+  readonly legacy?: boolean;
 }
 
 function fail(message: string): never {
@@ -202,38 +205,10 @@ function relativeArtifactPath(manifestPath: string, artifactDir: string): string
   return value;
 }
 
-function acquireManifestLock(manifestPath: string): () => void {
-  const lockPath = `${manifestPath}.lock`;
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      mkdirSync(lockPath);
-      writeFileSync(resolve(lockPath, "owner"), `${process.pid}\n`);
-      return () => rmSync(lockPath, { force: true, recursive: true });
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== "EEXIST") throw error;
-      let owner: number | undefined;
-      try {
-        owner = Number.parseInt(readFileSync(resolve(lockPath, "owner"), "utf8").trim(), 10);
-      } catch {
-        throw new HostedRuntimeError("E_RETAINED_LOCKED", "retained manifest is being updated");
-      }
-      if (!Number.isInteger(owner) || owner <= 0) {
-        throw new HostedRuntimeError("E_RETAINED_LOCKED", "retained manifest is being updated");
-      }
-      if (owner !== undefined && Number.isInteger(owner) && owner > 0) {
-        try {
-          process.kill(owner, 0);
-          throw new HostedRuntimeError("E_RETAINED_LOCKED", "retained manifest is being updated");
-        } catch (probeError) {
-          if (probeError instanceof HostedRuntimeError) throw probeError;
-          if ((probeError as { code?: unknown }).code !== "ESRCH") throw new HostedRuntimeError("E_RETAINED_LOCKED", "retained manifest is being updated");
-        }
-      }
-      rmSync(lockPath, { force: true, recursive: true });
-    }
-  }
-  throw new HostedRuntimeError("E_RETAINED_LOCKED", "retained manifest is being updated");
+function acquireManifestLock(manifestPath: string) {
+  return acquireOwnerTokenLock(`${manifestPath}.lock`, {
+    error: (message) => new HostedRuntimeError("E_RETAINED_LOCKED", `retained manifest is being updated: ${message}`),
+  });
 }
 
 function writeManifest(manifestPath: string, manifest: RetainedManifest): void {
@@ -249,58 +224,89 @@ function currentPointer(manifest: RetainedManifest): StablePointer {
 export function promoteRetainedRelease(options: RetainedPromotionOptions): RetainedManifest {
   if (!Number.isSafeInteger(options.expectedRevision) || options.expectedRevision < 1) fail("expectedRevision must be a positive safe integer");
   if (options.deploymentId.length === 0) fail("deploymentId must be non-empty");
-  const unlock = acquireManifestLock(options.manifestPath);
+  const lock = acquireManifestLock(options.manifestPath);
   try {
-    const releaseSet = loadRetainedReleaseSet(options.manifestPath);
-    const candidatePath = resolve(options.candidatePath);
-    const candidateDirectory = dirname(candidatePath);
-    let verifiedCandidate;
-    try {
-      verifiedCandidate = verifyReleaseCandidate(candidateDirectory, candidatePath);
-    } catch (error) {
-      fail(`promotion candidate is invalid: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (verifiedCandidate.candidate.digest !== options.candidateDigest) fail("promotion candidate digest does not match candidate.json");
-    const candidate = loadHostedReleaseSnapshot(candidateDirectory);
-    if (candidate.release.payload.hub_id !== releaseSet.manifest.payload.hub_id) fail("candidate belongs to a different Hub");
-    const releaseEntry: RetainedReleaseEntry = {
-      artifact_path: relativeArtifactPath(options.manifestPath, candidateDirectory),
-      candidate_digest: verifiedCandidate.candidate.digest,
-      release_digest: candidate.releaseDigest,
-      release_package_digest: packageDigest(candidate.artifactDir),
-    };
-    const releaseMap = new Map(releaseSet.manifest.payload.releases.map((release) => [release.release_digest, release]));
-    releaseMap.set(releaseEntry.release_digest, releaseEntry);
-    const current = currentPointer(releaseSet.manifest);
-    if (current.cas_version !== options.expectedRevision) stale("retained manifest revision is stale");
-    const candidatePointer = createStablePointer(current.hub_id, candidate.release, current.cas_version + 1);
-    const nextPointer = casUpdateStable(current, candidatePointer, options.expectedRevision);
-    const next = createRetainedManifest({
-      ...releaseSet.manifest.payload,
-      default_release_digest: nextPointer.stable_release_digest,
-      deployment_id: options.deploymentId,
-      publication_revision: nextPointer.cas_version,
-      releases: [...releaseMap.values()],
-    });
-    const latest = readManifest(resolve(options.manifestPath));
-    if (latest.digest !== releaseSet.manifest.digest || latest.payload.publication_revision !== options.expectedRevision) stale("retained manifest changed during promotion");
-    writeManifest(resolve(options.manifestPath), next);
-    return next;
+    return promoteRetainedReleaseLocked(options);
   } finally {
-    unlock();
+    lock.release();
   }
 }
 
 export function rollbackRetainedRelease(options: RetainedPromotionOptions & { readonly releaseDigest: string }): RetainedManifest {
+  if (!Number.isSafeInteger(options.expectedRevision) || options.expectedRevision < 1) fail("expectedRevision must be a positive safe integer");
+  if (options.deploymentId.length === 0) fail("deploymentId must be non-empty");
+  const lock = acquireManifestLock(options.manifestPath);
+  try {
+    const releaseSet = loadRetainedReleaseSet(options.manifestPath);
+    const retained = resolveRetainedRelease(releaseSet, options.releaseDigest);
+    const retainedEntry = releaseSet.manifest.payload.releases.find((entry) => entry.release_digest === retained.releaseDigest);
+    if (!retainedEntry) fail("rollback release is not retained");
+    return promoteRetainedReleaseLocked({
+      ...options,
+      candidateDigest: retainedEntry.candidate_digest,
+      candidatePath: resolve(dirname(options.manifestPath), retainedEntry.artifact_path, "candidate.json"),
+    });
+  } finally {
+    lock.release();
+  }
+}
+
+function retainedBarrier(name: string): void {
+  if (process.env.EGA_TEST_RETAINED_BARRIER !== name) return;
+  const marker = process.env.EGA_TEST_RETAINED_BARRIER_MARKER;
+  const release = process.env.EGA_TEST_RETAINED_BARRIER_RELEASE;
+  if (!marker || !release) return;
+  writeFileSync(marker, "ready\n");
+  const deadline = Date.now() + 30_000;
+  while (!existsSync(release)) {
+    if (Date.now() >= deadline) throw new Error(`retained test barrier timed out: ${name}`);
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(wait, 0, 0, 25);
+  }
+}
+
+function promoteRetainedReleaseLocked(options: RetainedPromotionOptions): RetainedManifest {
   const releaseSet = loadRetainedReleaseSet(options.manifestPath);
-  const retained = resolveRetainedRelease(releaseSet, options.releaseDigest);
-  const retainedEntry = releaseSet.manifest.payload.releases.find((entry) => entry.release_digest === retained.releaseDigest);
-  if (!retainedEntry) fail("rollback release is not retained");
-  return promoteRetainedRelease({
-    candidateDigest: retainedEntry.candidate_digest,
-    candidatePath: resolve(dirname(options.manifestPath), retainedEntry.artifact_path, "candidate.json"),
-    deploymentId: options.deploymentId,
-    expectedRevision: options.expectedRevision,
-    manifestPath: options.manifestPath,
+  retainedBarrier("AFTER_LOCK");
+  const candidatePath = resolve(options.candidatePath);
+  const candidateDirectory = dirname(candidatePath);
+  let verifiedCandidate;
+  try {
+    verifiedCandidate = verifyReleaseCandidate(candidateDirectory, candidatePath);
+  } catch (error) {
+    fail(`promotion candidate is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!options.legacy && verifiedCandidate.candidate.schema_version !== 2) fail("new retained promotions require a governed release candidate; pass legacy: true for explicit legacy serving");
+  if (verifiedCandidate.candidate.digest !== options.candidateDigest) fail("promotion candidate digest does not match candidate.json");
+  const candidate = loadHostedReleaseSnapshot(candidateDirectory);
+  if (candidate.release.payload.hub_id !== releaseSet.manifest.payload.hub_id) fail("candidate belongs to a different Hub");
+  const releaseEntry: RetainedReleaseEntry = {
+    artifact_path: relativeArtifactPath(options.manifestPath, candidateDirectory),
+    candidate_digest: verifiedCandidate.candidate.digest,
+    release_digest: candidate.releaseDigest,
+    release_package_digest: packageDigest(candidate.artifactDir),
+  };
+  const releaseMap = new Map(releaseSet.manifest.payload.releases.map((release) => [release.release_digest, release]));
+  releaseMap.set(releaseEntry.release_digest, releaseEntry);
+  const current = currentPointer(releaseSet.manifest);
+  const currentEntry = releaseSet.manifest.payload.releases.find((release) => release.release_digest === releaseEntry.release_digest);
+  if (current.cas_version === options.expectedRevision + 1 && releaseSet.manifest.payload.default_release_digest === releaseEntry.release_digest && releaseSet.manifest.payload.deployment_id === options.deploymentId && currentEntry !== undefined && JSON.stringify(currentEntry) === JSON.stringify(releaseEntry)) {
+    return releaseSet.manifest;
+  }
+  if (current.cas_version !== options.expectedRevision) stale("retained manifest revision is stale");
+  const candidatePointer = createStablePointer(current.hub_id, candidate.release, current.cas_version + 1);
+  const nextPointer = casUpdateStable(current, candidatePointer, options.expectedRevision);
+  const next = createRetainedManifest({
+    ...releaseSet.manifest.payload,
+    default_release_digest: nextPointer.stable_release_digest,
+    deployment_id: options.deploymentId,
+    publication_revision: nextPointer.cas_version,
+    releases: [...releaseMap.values()],
   });
+  const latest = readManifest(resolve(options.manifestPath));
+  if (latest.digest !== releaseSet.manifest.digest || latest.payload.publication_revision !== options.expectedRevision) stale("retained manifest changed during promotion");
+  retainedBarrier("BEFORE_POINTER_WRITE");
+  writeManifest(resolve(options.manifestPath), next);
+  retainedBarrier("AFTER_POINTER_WRITE");
+  return next;
 }

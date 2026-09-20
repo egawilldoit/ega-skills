@@ -46,6 +46,8 @@ export {
 export type { AdoptionJournal, AdoptionJournalEntry, AdoptionJournalState, HubJournal, JournalState } from "./hub/journal.js";
 export { acquireHubLock, applyUpdatePlan } from "./hub/apply.js";
 export type { ApplyInput, HubLock } from "./hub/apply.js";
+export { acquireOwnerTokenLock } from "./hub/mutation-lock.js";
+export type { MutationLock, MutationLockOptions } from "./hub/mutation-lock.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";

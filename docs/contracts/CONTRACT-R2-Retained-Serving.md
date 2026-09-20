@@ -43,14 +43,22 @@ requests without closing a snapshot still in use.
 Promotion accepts an exact `candidate.json` path, its expected candidate
 digest, an expected manifest revision, and a deployment identity. The
 candidate digest must match the verified R1 envelope; the candidate's Hub and
-release package must match the retained entry. A directory lock plus the
-existing stable-pointer CAS helper protects the durable manifest update.
+release package must match the retained entry. New promotions require a
+Contract R1 governed candidate with its approval-bound publication sidecars.
+Artifact-only candidates are accepted only when the caller explicitly selects
+the legacy serving/migration option. An owner-token directory lock plus the
+existing stable-pointer CAS helper protects the durable manifest update. A
+dead owner may be reclaimed only when its exact observed owner marker is
+still present; release never recursively removes a replacement owner.
 An older job with a stale revision cannot replace a newer deployment.
 
 Rollback selects a retained candidate by exact release digest and performs
-the same monotonic revisioned promotion path. Manifest writes use the shared
-durable atomic-write helper. The retained bundle is deployment-immutable;
-there is no live cache eviction or unbounded lazy-loading path in R2.
+the same monotonic revisioned promotion path while holding the lock for
+selection, verification, and write. Manifest writes use the shared durable
+atomic-write helper. A retry of the same deployment identity after a response
+loss returns the already committed revision without creating another
+transition. The retained bundle is deployment-immutable; there is no live
+cache eviction or unbounded lazy-loading path in R2.
 
 ## Runtime configuration
 
@@ -66,5 +74,6 @@ origin, authorization, and release-verification configuration.
 - RL-05: default, pinned, and unknown-digest requests remain isolated;
 - RL-06: retained release denial is enforced for explicit pins;
 - RL-07: an in-flight request keeps one snapshot while the default changes;
-- candidate digest, package digest, path confinement, and complete artifact
-  verification are covered by the retained-serving tests.
+- candidate governance, digest/package/path confinement, complete artifact
+  verification, owner replacement races, concurrent transitions, and killed
+  promotion recovery are covered by the retained-serving tests.
