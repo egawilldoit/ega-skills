@@ -70,8 +70,8 @@ The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `relea
 | P08 deterministic quality diagnostics and routing evaluation | `codex/intake-p08` | `06dfdb35a7a9943f4db35d985c6948de0bd0a9ee` | [#107](https://github.com/egawilldoit/ega-skills/pull/107) | Implemented. Contract Q1 and QL-01–QL-03 pass; local full suite 1000 tests, 995 pass, 0 fail, 5 skipped; routing corpus 30/30. CI run `35480739273` and hashing traversal run `35480739317` passed on Linux and Windows, with Contract F and Vercel checks green. |
 | P09 optional AI/L1 pilot | deferred | — | — | Optional after manual workflow; no code started. |
 | P10 immutable release preview/export | `codex/intake-p10` | `3ecd9f0` | [#108](https://github.com/egawilldoit/ega-skills/pull/108) | Implemented; Contract R1 and RL-01–RL-03 pass. Full local suite 1004 tests, 999 pass, 0 fail, 5 skipped. Required Linux/Windows/Contract F and hashing traversal CI runs `35482721365`/`35482721370` passed. |
-| P11 retained serving and deployment | pending | pending | pending | Exact retained-release selection, concurrent publication/rollback, and deployment identity remain. |
-| P12 real upstream/client acceptance | pending | pending | pending | Local end-to-end proof and authorized non-production client acceptance remain. |
+| P11 retained serving and deployment | `codex/intake-p11` | `0038995` | [#109](https://github.com/egawilldoit/ega-skills/pull/109) | Implemented. Contract R2 and RL-04–RL-07 pass; local full suite 1009 tests, 1004 pass, 0 fail, 5 skipped; Linux, Windows, Contract F, and Vercel passed in run `35484690057`. |
+| P12 real upstream/client acceptance | pending | pending | pending | Spawned-CLI intake-to-export proof and authorized non-production client acceptance remain. |
 
 P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
 - Supabase migrations: present; not applied. The only connected project,
