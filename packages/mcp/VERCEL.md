@@ -85,10 +85,22 @@ Bundle contract (the actual committed `packages/mcp/vercel.json`):
 
 ## Environment variables (NAMES only — never commit values)
 
-Required:
+Release source (choose one):
 
 - `EGA_HOSTED_ARTIFACT_DIR` — bundled immutable release directory,
   e.g. `./artifact` (see `packages/mcp/artifact/README.md`)
+
+Retained mode may use `EGA_HOSTED_RETAINED_MANIFEST` instead of
+`EGA_HOSTED_ARTIFACT_DIR`. The manifest and every candidate directory it
+references must be deployed together under one confined root; the runtime
+verifies every retained candidate before readiness and selects the exact
+manifest default for unpinned traffic.
+
+- `EGA_HOSTED_RETAINED_MANIFEST` — retained manifest path, e.g.
+  `./retained/retained-manifest.json` (use this instead of the single
+  artifact variable)
+
+Authentication and policy (required in both modes):
 - `EGA_HOSTED_ISSUER`
 - `EGA_HOSTED_AUDIENCE`
 - `EGA_HOSTED_JWKS_URL`

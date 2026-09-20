@@ -34,6 +34,7 @@ import {
 import { createJwksBearerVerifier } from "./hosted-auth.js";
 import { buildProtectedResourceMetadata, parseHostedOAuthConfig, type HostedOAuthConfig } from "./hosted-oauth.js";
 import { createSupabaseContextResolver } from "./hosted-supabase.js";
+import { loadRetainedReleaseSet, resolveRetainedRelease, type RetainedReleaseSet } from "./retained.js";
 
 export const DEFAULT_HOSTED_MAX_BODY_BYTES = 1_048_576;
 export const DEFAULT_HOSTED_MAX_RESPONSE_BYTES = 4 * 1_048_576;
@@ -248,6 +249,7 @@ export function createHostedRuntimeFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env as Readonly<Record<string, string | undefined>>,
 ): HostedRuntimeHandle {
   const artifactDir = requiredEnv(env["EGA_HOSTED_ARTIFACT_DIR"]);
+  const retainedManifestPath = requiredEnv(env["EGA_HOSTED_RETAINED_MANIFEST"]);
   const expectedToken = requiredEnv(env["EGA_HOSTED_BEARER_TOKEN"]);
   const allowStaticToken = env["EGA_HOSTED_ALLOW_STATIC_TOKEN"] === "true";
   const issuer = requiredEnv(env["EGA_HOSTED_ISSUER"]);
@@ -257,8 +259,8 @@ export function createHostedRuntimeFromEnv(
   const supabaseSecretKey = requiredEnv(env["EGA_HOSTED_SUPABASE_SECRET_KEY"]);
   const allowedOrigins = parseAllowedOrigins(env["EGA_HOSTED_ALLOWED_ORIGINS"]);
 
-  if (!artifactDir) {
-    throw new Error("EGA_HOSTED_ARTIFACT_DIR is required");
+  if (!artifactDir && !retainedManifestPath) {
+    throw new Error("EGA_HOSTED_ARTIFACT_DIR or EGA_HOSTED_RETAINED_MANIFEST is required");
   }
   // Production authentication is JWKS/JWT only. Partial JWT configuration
   // always fails closed; a shared literal token is allowed ONLY when the
@@ -316,8 +318,12 @@ export function createHostedRuntimeFromEnv(
   );
 
   // Immutable verified release first: a failed check never publishes a
-  // partially verified snapshot.
-  const snapshot = loadHostedReleaseSnapshot(resolveArtifactDir(artifactDir));
+  // partially verified snapshot. A retained manifest is the source of truth
+  // when configured; the legacy single-artifact path remains supported.
+  const retained: RetainedReleaseSet | undefined = retainedManifestPath
+    ? loadRetainedReleaseSet(retainedManifestPath)
+    : undefined;
+  const snapshot = retained?.defaultSnapshot ?? loadHostedReleaseSnapshot(resolveArtifactDir(artifactDir as string));
   const policy = parseHostedAuthzPolicy(readHostedAuthzSource(env).raw);
 
   const controlPlane = new InMemoryControlPlane();
@@ -342,12 +348,16 @@ export function createHostedRuntimeFromEnv(
   const deniedSources = new Set(policy.denied_sources ?? []);
   const deniedReleases = new Set(policy.denied_releases ?? []);
 
+  const resolveRetained = retained
+    ? async (releaseDigest: string): Promise<HostedReleaseSnapshot> => resolveRetainedRelease(loadRetainedReleaseSet(retained.manifestPath), releaseDigest)
+    : undefined;
   let resolveContext: ((contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>) | undefined;
   if (supabaseUrl && supabaseSecretKey) {
     resolveContext = createSupabaseContextResolver({
       supabaseUrl,
       secretKey: supabaseSecretKey,
       resolveRelease: async (releaseDigest) => {
+        if (resolveRetained) return resolveRetained(releaseDigest);
         if (releaseDigest !== snapshot.releaseDigest) throw new Error("release unavailable");
         return snapshot;
       },
@@ -390,6 +400,12 @@ export function createHostedRuntimeFromEnv(
         },
     authorize: async (principal) => controlPlane.authorize(hubId, principal.subject, "read_hub"),
     ...(resolveContext ? { resolveContext } : {}),
+    ...(retained
+      ? {
+          resolveStableRelease: async () => loadRetainedReleaseSet(retained.manifestPath).defaultSnapshot,
+          resolveRelease: async (releaseDigest: string) => resolveRetainedRelease(loadRetainedReleaseSet(retained.manifestPath), releaseDigest),
+        }
+      : {}),
     deniedSkills,
     deniedSources,
     deniedReleases,
