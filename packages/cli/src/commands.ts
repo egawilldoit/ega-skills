@@ -55,9 +55,12 @@ import {
   acquireSource,
   applyAdoptionPlan,
   createAdoptionPlan,
+  deriveCandidate,
   readHubIntakeState,
   releaseAcquiredSource,
   stageAdoptionPlan,
+  verifyDerivationPatch,
+  verifyAdoptionPlan,
   type AdoptionPlanDocument,
   type ProjectContextDocument,
   type HubRelease,
@@ -543,6 +546,13 @@ export interface HubIntakeApplyCommandOptions {
   readonly hub?: string;
 }
 
+export interface HubIntakeDeriveCommandOptions {
+  readonly candidate: string;
+  readonly patch: string;
+  readonly ownedId: string;
+  readonly hub?: string;
+}
+
 /** Reacquire and persist only the immutable operator stage for an A1 plan. */
 export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
@@ -553,6 +563,17 @@ export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): 
 export async function runHubIntakeApply(options: HubIntakeApplyCommandOptions) {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8"));
   return applyAdoptionPlan({ hubDir: resolve(options.hub ?? "."), plan });
+}
+
+/** Apply one exact compatibility patch to an immutable staged candidate. */
+export async function runHubIntakeDerive(options: HubIntakeDeriveCommandOptions) {
+  const hubDir = resolve(options.hub ?? ".");
+  const candidatePath = existsSync(resolve(options.candidate))
+    ? resolve(options.candidate)
+    : join(hubDir, ".intake-staging", options.candidate.replace(/^sha256:/, ""), "adoption-plan.json");
+  const candidate = verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
+  const patch = verifyDerivationPatch(JSON.parse(readFileSync(resolve(options.patch), "utf8")));
+  return deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */

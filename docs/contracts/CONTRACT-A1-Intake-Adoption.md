@@ -35,6 +35,10 @@ On success, the command writes:
 
 The staging directory is written through a temporary sibling and an atomic rename. Repeating the command with the same plan returns the existing matching stage. A different source snapshot at the same plan identity fails.
 
+An otherwise valid source plan with invalid candidates may be staged as an
+immutable repair input for Contract D1. Plans with source-ID or namespace
+conflicts remain unstageable. Contract A2 rejects every `BLOCKED` plan.
+
 P03 does not write `hub.yaml`, `sources.yaml`, `sources.lock.yaml`, an adopted source tree, or registry state. P04 owns the first adoption apply and its recovery journal.
 
 ## Errors

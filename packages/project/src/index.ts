@@ -68,6 +68,23 @@ export type {
   AdoptionPlanPayload,
   HubIntakeState,
 } from "./intake/adoption-plan.js";
+export {
+  DERIVATION_OBJECT_TYPE,
+  DERIVATION_PATCH_OBJECT_TYPE,
+  DERIVATION_SCHEMA_VERSION,
+  applyDerivationProposal,
+  createDerivationProposal,
+  deriveCandidate,
+  verifyDerivationPatch,
+  verifyDerivationProposal,
+} from "./intake/derivation.js";
+export type {
+  DerivationApplyResult,
+  DerivationPatchDocument,
+  DerivationPatchPayload,
+  DerivationProposalDocument,
+  DerivationProposalPayload,
+} from "./intake/derivation.js";
 export { applyAdoptionPlan } from "./intake/adopt.js";
 export type { AdoptionApplyOptions, AdoptionApplyResult } from "./intake/adopt.js";
 export { buildHubRelease } from "./hub/release-build.js";
