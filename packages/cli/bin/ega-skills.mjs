@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -31,7 +31,9 @@ function printHelp() {
       "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
       "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
       "  ega-skills hub intake apply --plan <plan.json> [<hub-dir>]",
+      "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> --expected-revision <N> [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
+      "  ega-skills hub release preflight [<hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
@@ -469,7 +471,40 @@ async function main() {
         }
         return;
       }
+      if (intakeSubcommand === "review") {
+        const candidate = readFlag(intakeRest, "candidate");
+        const decision = readFlag(intakeRest, "decision");
+        const expectedRevision = readFlag(intakeRest, "expected-revision");
+        const actor = readFlag(intakeRest, "actor");
+        const reason = readFlag(intakeRest, "reason");
+        const positional = readHubPositionals(intakeRest, new Set(["candidate", "decision", "expected-revision", "actor", "reason"]));
+        if (candidate === undefined) fail("Missing required --candidate <plan.json|digest>.");
+        if (decision !== "approve" && decision !== "reject") fail("Missing required --decision <approve|reject>.");
+        if (expectedRevision === undefined || !/^[0-9]+$/.test(expectedRevision)) fail("Missing required --expected-revision <N>.");
+        if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+        try {
+          const result = runHubIntakeReview({ actor, candidate, decision: decision === "approve" ? "APPROVED" : "REJECTED", expectedRevision: Number(expectedRevision), hub: positional[0] ?? ".", reason });
+          process.stdout.write(`${JSON.stringify(result)}\n`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failWithCode(message, message.includes("E_REVIEW_STALE") || message.includes("E_REVIEW_CONFLICT") ? 3 : 4);
+        }
+        return;
+      }
       fail(`Unknown hub intake command: ${intakeSubcommand ?? ""}`);
+    }
+    if (subcommand === "release") {
+      const [releaseSubcommand, ...releaseRest] = hubRest;
+      if (releaseSubcommand !== "preflight") fail(`Unknown hub release command: ${releaseSubcommand ?? ""}`);
+      if (releaseRest.length > 1 || releaseRest.some((token) => token.startsWith("-"))) fail(`Unknown command or option: ${releaseRest[1] ?? releaseRest[0]}`);
+      try {
+        const result = await runHubReleasePreflight({ hub: releaseRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        if (result.payload.status === "BLOCKED") process.exitCode = 1;
+      } catch (error) {
+        failWithCode(error instanceof Error ? error.message : String(error), 4);
+      }
+      return;
     }
     if (subcommand === "build") {
       if (hubRest.length > 1 || hubRest.some((token) => token.startsWith("-"))) {

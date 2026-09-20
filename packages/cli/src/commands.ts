@@ -59,6 +59,8 @@ import {
   readHubIntakeState,
   releaseAcquiredSource,
   stageAdoptionPlan,
+  preflightPublication,
+  writeCandidateReview,
   verifyDerivationPatch,
   verifyAdoptionPlan,
   type AdoptionPlanDocument,
@@ -68,6 +70,7 @@ import {
   type RefreshLockDiff,
   type UpdatePlanDocument,
   type RemoteLockPlan,
+  type ReviewDecision,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
 import { validatePortableSkillName } from "@ega-skills/schema";
@@ -553,6 +556,17 @@ export interface HubIntakeDeriveCommandOptions {
   readonly hub?: string;
 }
 
+export interface HubIntakeReviewCommandOptions {
+  readonly candidate: string;
+  readonly decision: ReviewDecision;
+  readonly expectedRevision: number;
+  readonly actor?: string;
+  readonly reason?: string;
+  readonly hub?: string;
+}
+
+export interface HubReleasePreflightCommandOptions extends HubCommandOptions {}
+
 /** Reacquire and persist only the immutable operator stage for an A1 plan. */
 export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
@@ -574,6 +588,35 @@ export async function runHubIntakeDerive(options: HubIntakeDeriveCommandOptions)
   const candidate = verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
   const patch = verifyDerivationPatch(JSON.parse(readFileSync(resolve(options.patch), "utf8")));
   return deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+}
+
+function readStagedAdoptionCandidate(candidate: string, hubDir: string): AdoptionPlanDocument {
+  const explicit = resolve(candidate);
+  const candidatePath = existsSync(explicit)
+    ? explicit
+    : /^[0-9a-f]{64}$/.test(candidate.replace(/^sha256:/, ""))
+      ? join(hubDir, ".intake-staging", candidate.replace(/^sha256:/, ""), "adoption-plan.json")
+      : (() => { throw new Error("Review candidate must be an adoption plan path or sha256:<64hex> stage digest."); })();
+  return verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
+}
+
+/** Append a decision bound to the exact staged A1 candidate versions. */
+export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
+  const hubDir = resolve(options.hub ?? ".");
+  const candidate = readStagedAdoptionCandidate(options.candidate, hubDir);
+  return writeCandidateReview({
+    candidate,
+    decision: options.decision,
+    expectedRevision: options.expectedRevision,
+    hubDir,
+    ...(options.actor === undefined ? {} : { actor: options.actor }),
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  });
+}
+
+/** Read-only publication gate over the fresh exact Hub catalog. */
+export function runHubReleasePreflight(options: HubReleasePreflightCommandOptions) {
+  return preflightPublication(resolve(options.hub ?? "."));
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */

@@ -32,7 +32,9 @@ export type HubErrorCode =
   | "E_RELEASE_SCHEMA"
   | "E_RELEASE_DIGEST"
   | "E_PACKAGE_BINDING"
-  | "E_STABLE";
+  | "E_STABLE"
+  | "E_REVIEW"
+  | "E_PUBLICATION";
 
 export class HubError extends Error {
   readonly code: HubErrorCode;
