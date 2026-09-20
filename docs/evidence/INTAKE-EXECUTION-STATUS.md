@@ -9,7 +9,7 @@ It records implementation evidence, not deployment approval.
 
 - Handoff recorded SHA: `9622a6ac4d06f00da525046e5ebb29428dfb91ff`.
 - Baseline branch: `release/2.0`; baseline SHA matched the handoff SHA.
-- Existing hygiene/OAuth work: PR [#99](https://github.com/egawilldoit/ega-skills/pull/99), head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`; Linux, Windows, and Contract F checks were green when work began.
+- Existing hygiene/OAuth work: PR [#99](https://github.com/egawilldoit/ega-skills/pull/99), corrected head `7500c80ec31fc285e041608aa6ae6269dee49e1d` (original head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`); Linux, Windows, and Contract F checks were green when work began.
 - Existing uncommitted user work was preserved: `scripts/oauth/interop-check.mjs`, `.vercel/`, and `packages/mcp/.gitignore`.
 - No production configuration or deployment was changed.
 

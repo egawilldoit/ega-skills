@@ -9,7 +9,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 
 - Production baseline: `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `release/2.0`.
 - Intake stack tip: `40007ed4c14dcd9cf6c1a6c348818321993d274d` (#110).
-- OAuth branch: `e5cdadf8986335d84df7aebd3c4fef98a2494d70` (#99).
+- OAuth branch / PR #99 corrected head: `7500c80ec31fc285e041608aa6ae6269dee49e1d` (original baseline head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`).
 - Correction branch: `fix/intake-merge-readiness`.
 - Local integration head before evidence-only updates: `121c9a7c789ef4ea4885d76827796d2f5d95288e`.
 - Execution date: 2026-09-20 UTC.
