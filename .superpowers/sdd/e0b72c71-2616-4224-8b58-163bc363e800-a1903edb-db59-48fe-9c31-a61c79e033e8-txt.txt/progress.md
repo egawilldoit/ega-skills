@@ -48,3 +48,4 @@
 - W2 committed as `761f356c73b127d19e42e3c88a4bbd7cca8c63d1`: atomic review batches, deterministic retry IDs, mixed-revision CLI input, and legacy E1 reads.
 - W3 and W4 committed as `90fef3862003be3798761d938aceb8a8a9f81d0b`: exact approval before adoption plus verified derivative candidate staging and owned-namespace adoption.
 - W5 committed as `453f1e9dcd6a6bb6f47ba41814a99b2c5c405ff9`: schema-2 approval-bound release candidates, strict governed export, explicit legacy export, atomic sidecars, tamper matrix, and stale-preview detection.
+- W6 committed as `d6033ae21ca263babfae88f66e20cdc041f3b3b1`: retained promotion/rollback now uses owner-token locks, holds selection through write, enforces governed candidates by default, and supports crash-safe same-request retry.
