@@ -69,7 +69,9 @@ The intake handoff recorded `9622a6ac4d06f00da525046e5ebb29428dfb91ff` on `relea
 | P07 collections | `codex/intake-p07` | `df19b59` | [#106](https://github.com/egawilldoit/ega-skills/pull/106) | Implemented. Contract E3 and CL-01–CL-02 pass; Linux, Windows, Contract F, and Vercel checks passed in run `35479067275`. |
 | P08 deterministic quality diagnostics and routing evaluation | `codex/intake-p08` | `06dfdb35a7a9943f4db35d985c6948de0bd0a9ee` | [#107](https://github.com/egawilldoit/ega-skills/pull/107) | Implemented. Contract Q1 and QL-01–QL-03 pass; local full suite 1000 tests, 995 pass, 0 fail, 5 skipped; routing corpus 30/30. CI run `35480739273` and hashing traversal run `35480739317` passed on Linux and Windows, with Contract F and Vercel checks green. |
 | P09 optional AI/L1 pilot | deferred | — | — | Optional after manual workflow; no code started. |
-| P10–P12 | pending | pending | pending | Release/export, retained serving/deployment, and real upstream/client acceptance remain. |
+| P10 immutable release preview/export | `codex/intake-p10` | `c37489b5b93999fadcc10205edb403a62ba4ef97` | [#108](https://github.com/egawilldoit/ega-skills/pull/108) | Implemented locally; Contract R1 and RL-01–RL-03 pass. Required CI pending. |
+| P11 retained serving and deployment | pending | pending | pending | Exact retained-release selection, concurrent publication/rollback, and deployment identity remain. |
+| P12 real upstream/client acceptance | pending | pending | pending | Local end-to-end proof and authorized non-production client acceptance remain. |
 
 P03 writes only `.intake-staging/<plan-digest>`. It does not write live Hub contracts, adopted source trees, or registry state. P04 must add the first adoption transaction and recovery journal before any live Hub state changes.
 - Supabase migrations: present; not applied. The only connected project,
