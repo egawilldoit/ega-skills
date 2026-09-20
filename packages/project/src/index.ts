@@ -104,6 +104,16 @@ export type {
   PublicationReview,
   PublicationStatus,
 } from "./intake/publication.js";
+export { validateCollections, COLLECTIONS_OBJECT_TYPE, COLLECTIONS_PATH, COLLECTIONS_SCHEMA_VERSION } from "./intake/collections.js";
+export type {
+  CollectionDefinition,
+  CollectionDiagnostic,
+  CollectionDiagnosticCode,
+  CollectionDiagnosticSeverity,
+  CollectionsConfig,
+  CollectionValidationDocument,
+  CollectionValidationPayload,
+} from "./intake/collections.js";
 export { buildHubRelease } from "./hub/release-build.js";
 export type { HubReleaseBuildResult } from "./hub/release-build.js";
 export {

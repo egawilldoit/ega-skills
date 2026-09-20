@@ -70,6 +70,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
       "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> --expected-revision <N> [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
+      "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",

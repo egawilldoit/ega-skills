@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -34,6 +34,7 @@ function printHelp() {
       "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> --expected-revision <N> [<hub-dir>]",
       "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
       "  ega-skills hub release preflight [<hub-dir>]",
+      "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
       "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
       "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
       "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
@@ -499,6 +500,22 @@ async function main() {
       if (releaseRest.length > 1 || releaseRest.some((token) => token.startsWith("-"))) fail(`Unknown command or option: ${releaseRest[1] ?? releaseRest[0]}`);
       try {
         const result = await runHubReleasePreflight({ hub: releaseRest[0] ?? "." });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        if (result.payload.status === "BLOCKED") process.exitCode = 1;
+      } catch (error) {
+        failWithCode(error instanceof Error ? error.message : String(error), 4);
+      }
+      return;
+    }
+    if (subcommand === "collections") {
+      const [collectionsSubcommand, ...collectionsRest] = hubRest;
+      if (collectionsSubcommand !== "validate") fail(`Unknown hub collections command: ${collectionsSubcommand ?? ""}`);
+      const hubFlag = readFlag(collectionsRest, "hub");
+      const positional = readHubPositionals(collectionsRest, new Set(["hub"]));
+      if (positional.length > 1) fail(`Unknown command or option: ${positional[1]}`);
+      if (hubFlag !== undefined && positional.length > 0) fail("Use either a positional Hub path or --hub, not both.");
+      try {
+        const result = await runHubCollectionsValidate({ hub: hubFlag ?? positional[0] ?? "." });
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
         if (result.payload.status === "BLOCKED") process.exitCode = 1;
       } catch (error) {
