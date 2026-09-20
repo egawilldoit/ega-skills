@@ -53,6 +53,7 @@ import {
   hashNormalizedConfig,
   verifyHubRelease,
   acquireSource,
+  applyAdoptionPlan,
   createAdoptionPlan,
   readHubIntakeState,
   releaseAcquiredSource,
@@ -537,10 +538,21 @@ export interface HubIntakeStageCommandOptions {
   readonly hub?: string;
 }
 
+export interface HubIntakeApplyCommandOptions {
+  readonly plan: string;
+  readonly hub?: string;
+}
+
 /** Reacquire and persist only the immutable operator stage for an A1 plan. */
 export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
   const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
   return stageAdoptionPlan(plan, resolve(options.hub ?? "."));
+}
+
+/** Apply a staged, reviewed A1 plan to the Hub through the A2 transaction. */
+export async function runHubIntakeApply(options: HubIntakeApplyCommandOptions) {
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8"));
+  return applyAdoptionPlan({ hubDir: resolve(options.hub ?? "."), plan });
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */
