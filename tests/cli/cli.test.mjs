@@ -54,6 +54,7 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills --version",
     "  ega-skills import <path> --namespace <namespace>",
     "  ega-skills import-plan <path> --namespace <namespace> --output <plan.json>",
+    "  ega-skills intake quality <path> --namespace <namespace> --output <report.json>",
     "  ega-skills list",
     "  ega-skills inspect <skill-id>",
     "  ega-skills init [<project-dir>] [--force]",

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -18,6 +18,7 @@ function printHelp() {
       "  ega-skills --version",
       "  ega-skills import <path> --namespace <namespace>",
       "  ega-skills import-plan <path> --namespace <namespace> --output <plan.json>",
+      "  ega-skills intake quality <path> --namespace <namespace> --output <report.json>",
       "  ega-skills list",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
@@ -227,6 +228,22 @@ async function main() {
         ...plan.payload.summary,
       })}\n`);
       if (plan.payload.summary.blocked_count > 0) process.exitCode = 1;
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error && error.code === "E_NAMESPACE_INVALID" ? 2 : 4;
+      failWithCode(error instanceof Error ? error.message : String(error), code);
+    }
+    return;
+  }
+
+  if (command === "intake") {
+    const [subcommand, ...intakeRest] = rest;
+    if (subcommand !== "quality") fail(`Unknown intake command: ${subcommand ?? ""}`);
+    const parsed = readImportPlanArgs(intakeRest);
+    if (parsed === null) return;
+    try {
+      const report = await runIntakeQuality({ sourcePath: parsed.path, namespace: parsed.namespace, output: parsed.output });
+      process.stdout.write(`${JSON.stringify({ output: parsed.output, digest: report.digest, ...report.payload.summary })}\n`);
+      if (report.payload.summary.blocked_count > 0) process.exitCode = 1;
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error && error.code === "E_NAMESPACE_INVALID" ? 2 : 4;
       failWithCode(error instanceof Error ? error.message : String(error), code);

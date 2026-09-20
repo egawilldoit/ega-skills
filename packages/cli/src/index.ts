@@ -1,8 +1,9 @@
-export { runImport, runImportPlan, runInit, runInitSkill, runValidate, runInspect, runList, runLock, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "./commands.js";
+export { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runValidate, runInspect, runList, runLock, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "./commands.js";
 export { runResolve } from "./commands.js";
 export type {
   ImportSummary,
   ImportPlanCommandOptions,
+  IntakeQualityCommandOptions,
   InitOptions,
   InitResult,
   InitSkillOptions,
