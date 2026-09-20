@@ -12,7 +12,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 - OAuth branch / PR #99 corrected head: `7500c80ec31fc285e041608aa6ae6269dee49e1d` (original baseline head `e5cdadf8986335d84df7aebd3c4fef98a2494d70`).
 - Correction branch: `fix/intake-merge-readiness`.
 - Local integration head before evidence-only updates: `121c9a7c789ef4ea4885d76827796d2f5d95288e`.
-- Final integration PR head: `2e227d685d38ff78124c65c6c22be6700aa4afab` on [PR #112](https://github.com/egawilldoit/ega-skills/pull/112), based on `release/2.0`.
+- Final integration PR tip: `62d0b3f16250c8b58f4680282b5242319cd293f5` on [PR #112](https://github.com/egawilldoit/ega-skills/pull/112), based on `release/2.0`; the tip contains documentation-only evidence updates. Code-equivalent tested head: `de215aff16e2ccd152d326f9a73db0ec5db00be1`.
 - Execution date: 2026-09-20 UTC.
 - Exact operator deadline: not supplied; do not infer one from “before mid.”
 
@@ -29,7 +29,7 @@ remote-client validation. It does not authorize a production merge or deploy.
 | W6 | complete | `d6033ae21ca263babfae88f66e20cdc041f3b3b1` | retained promotion race safety and crash recovery |
 | W7 | complete | `7500c80ec31fc285e041608aa6ae6269dee49e1d` | strict/redacted OAuth harness, locally merged into the integration branch |
 | W8 | complete | `30ca8a99934c6d710a2d2d59a65b67b6ca862c8e` | connected CLI/MCP E2E |
-| W9 | complete; awaiting review/approval | `2e227d685d38ff78124c65c6c22be6700aa4afab` | combined-head gates and final PR #112 Linux/Windows/Contract F CI pass |
+| W9 | complete; awaiting review/approval | `62d0b3f16250c8b58f4680282b5242319cd293f5` | code-equivalent head `de215aff16e2ccd152d326f9a73db0ec5db00be1` passes final PR #112 Linux/Windows/Contract F CI; tip is documentation-only |
 
 ## Acceptance evidence
 
