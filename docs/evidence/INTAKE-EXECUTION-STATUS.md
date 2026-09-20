@@ -18,8 +18,8 @@ It records implementation evidence, not deployment approval.
 | Slice | Branch / PR | Status | Evidence |
 | --- | --- | --- | --- |
 | P00 hygiene and contracts | Existing PR #99 | In progress outside this branch | Existing CI green; live OAuth remains unclaimed until staging credentials are authorized. |
-| P01 shared preparation boundary | `codex/intake-p01` / [PR #100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented; required CI green | Final HEAD `8effa85`; Linux [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936552), Windows [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936495), and Contract F [`35469194843`](https://github.com/egawilldoit/ega-skills/actions/runs/35469194843/job/105966936425) passed. |
-| P02 import planning CLI | Not started | Unblocked after P01 required CI | — |
+| P01 shared preparation boundary | `codex/intake-p01` / [PR #100](https://github.com/egawilldoit/ega-skills/pull/100) | Implemented; required CI green | Final HEAD `0490c2571be4ba9ca49c672a28cd72a4a35af764`; Linux [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298974), Windows [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298989), and Contract F [`35469702213`](https://github.com/egawilldoit/ega-skills/actions/runs/35469702213/job/105968298903) passed. |
+| P02 import planning CLI | `codex/intake-p02` / [PR #101](https://github.com/egawilldoit/ega-skills/pull/101) | Implemented; required CI green | Implementation commit `ff3c4bf`; Contract G v1 and actual CLI cover IP-01–09; the Hub builder performs read-only journal inspection for IP-10, reporting COMMITTED cleanup remnants without deleting them. CI run [`35471709565`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565): Linux [`105973717037`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717037), Windows [`105973717068`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973717068), and Contract F [`105973716921`](https://github.com/egawilldoit/ega-skills/actions/runs/35471709565/job/105973716921) passed. Vercel auth/MCP checks passed; Macroscope and CodeSmith were skipped by configuration. |
 | P03–P12 | Not started | Dependency-ordered | — |
 
 ## P01 implementation
@@ -47,12 +47,43 @@ preparation tests, and `git diff --check`. The first Windows run exposed a
 fixture-teardown file-lock issue; commit `8effa85` closes the registry before
 removing its temporary directory, and the fresh Linux/Windows run passed.
 
+## P02 implementation and local evidence
+
+`ega-skills import-plan <folder> --namespace <namespace> --output <plan.json>`
+now creates a deterministic, zero-mutation Contract G envelope. It reuses the
+P01 preparation boundary, reads an existing registry with SQLite read-only
+access, records raw source snapshot identity separately from canonical version
+identity, predicts new/unchanged/update/reactivation outcomes, and emits
+structured candidate and discovery diagnostics. The command writes a plan even
+when blocked and uses exit status 1 for those plan diagnostics. It does not
+create an absent registry home.
+
+The Contract G validator rejects unknown fields, malformed identities, invalid
+namespaces, and inconsistent summary counts. Hub builds use a new read-only
+journal gate: a COMMITTED journal is reported as recovery-required and its
+staging/backup remnants remain untouched; explicit recovery retains cleanup
+authority.
+
+Acceptance coverage: IP-01–IP-09 in `tests/cli/import-plan.test.mjs`, and
+IP-10 in `tests/project/hub-builder.test.mjs`. Local evidence so far:
+`pnpm build`, `pnpm typecheck`, `pnpm specs:check`,
+`pnpm test:perf:registry`, `pnpm contracts:check-g`, the 8-case intake-plan
+CLI run, the 37-test intake/import/preparation/lifecycle/read-only regression
+CLI run, the 37-test intake/import/preparation/lifecycle/read-only regression
+run, and the 70-test Hub builder/adoption/recovery run all passed. The full
+repository test passed with 974 tests, 969 passed, 0 failed, and 5 skipped.
+The final required local gates also passed: frozen-lockfile install with no
+lockfile diff, typecheck, frozen specs, registry performance, Contract G, and
+diff checks.
+
 ## Required resume protocol
 
 1. Verify the current branch and worktree before editing; preserve the three
    unrelated user changes listed above.
-2. Run the P01 targeted tests and repository gates before opening its PR.
-3. Do not start P02 until P01 has a green required CI result.
+2. Run the targeted tests and repository gates for the active slice before
+   opening its PR.
+3. Do not start a dependent slice until its predecessor has a green required
+   CI result.
 4. Add exact commit SHA, PR URL, CI URLs, and any blocked/live evidence here
    after each slice.
 5. Never merge or deploy without explicit user approval.

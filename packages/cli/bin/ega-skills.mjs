@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -17,6 +17,7 @@ function printHelp() {
       "  ega-skills --help",
       "  ega-skills --version",
       "  ega-skills import <path> --namespace <namespace>",
+      "  ega-skills import-plan <path> --namespace <namespace> --output <plan.json>",
       "  ega-skills list",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
@@ -43,6 +44,60 @@ function printHelp() {
 function fail(message) {
   process.stderr.write(`${message}\nRun "ega-skills --help" for usage.\n`);
   process.exit(1);
+}
+
+function failWithCode(message, code) {
+  process.stderr.write(`${message}\nRun "ega-skills --help" for usage.\n`);
+  process.exitCode = code;
+}
+
+function readImportPlanArgs(rest) {
+  const positional = [];
+  let namespace;
+  let output;
+  for (let i = 0; i < rest.length; i += 1) {
+    const token = rest[i];
+    if (token === "--namespace" || token === "--output") {
+      const value = rest[i + 1];
+      if (typeof value !== "string" || value.startsWith("--") || value.length === 0) {
+        failWithCode(`Missing value for ${token}.`, 2);
+        return null;
+      }
+      if (token === "--namespace") namespace = value;
+      else output = value;
+      i += 1;
+    } else if (typeof token === "string" && token.startsWith("--namespace=")) {
+      namespace = token.slice("--namespace=".length);
+      if (namespace.length === 0) {
+        failWithCode("Missing value for --namespace.", 2);
+        return null;
+      }
+    } else if (typeof token === "string" && token.startsWith("--output=")) {
+      output = token.slice("--output=".length);
+      if (output.length === 0) {
+        failWithCode("Missing value for --output.", 2);
+        return null;
+      }
+    } else if (typeof token === "string" && token.startsWith("--")) {
+      failWithCode(`Unknown command or option: ${token}`, 2);
+      return null;
+    } else {
+      positional.push(token);
+    }
+  }
+  if (positional.length !== 1) {
+    failWithCode("Usage: ega-skills import-plan <path> --namespace <namespace> --output <plan.json>", 2);
+    return null;
+  }
+  if (namespace === undefined) {
+    failWithCode("Missing required --namespace <namespace>.", 2);
+    return null;
+  }
+  if (output === undefined) {
+    failWithCode("Missing required --output <plan.json>.", 2);
+    return null;
+  }
+  return { path: positional[0], namespace, output };
 }
 
 function readNamespace(rest) {
@@ -145,6 +200,29 @@ async function main() {
       process.stdout.write(`${JSON.stringify(summary)}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "import-plan") {
+    const parsed = readImportPlanArgs(rest);
+    if (parsed === null) return;
+    try {
+      const plan = await runImportPlan({
+        sourcePath: parsed.path,
+        namespace: parsed.namespace,
+        output: parsed.output,
+        env: process.env,
+      });
+      process.stdout.write(`${JSON.stringify({
+        output: parsed.output,
+        digest: plan.digest,
+        ...plan.payload.summary,
+      })}\n`);
+      if (plan.payload.summary.blocked_count > 0) process.exitCode = 1;
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error && error.code === "E_NAMESPACE_INVALID" ? 2 : 4;
+      failWithCode(error instanceof Error ? error.message : String(error), code);
     }
     return;
   }

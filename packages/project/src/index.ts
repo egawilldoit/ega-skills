@@ -32,6 +32,7 @@ export {
   journalPath,
   readJournal,
   recoverIfNeeded,
+  requireReadableJournal,
   requireCleanJournal,
   writeFileAtomic,
   writeJournal,
