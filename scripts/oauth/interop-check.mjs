@@ -190,6 +190,32 @@ async function consent(authorizationId, action) {
   });
 }
 
+// Supabase's OAuth consent store permits only one live authorization per
+// (user, client) pair: once a client has an approved authorization, later
+// consent attempts for the same client fail (400). Negative-path flows
+// therefore register their own client so each authorization starts on a
+// clean consent record. This changes the harness, never the asserted
+// security property.
+async function registerClient(label) {
+  const registration = await fetchJson(
+    `${SUPABASE_URL}/auth/v1/oauth/clients/register`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: [REDIRECT],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        client_name: label,
+      }),
+    },
+  );
+  return registration.status === 201 && registration.body?.client_id
+    ? { client: registration.body, registration }
+    : undefined;
+}
+
 async function exchange(fields) {
   return fetchJson(`${SUPABASE_URL}/auth/v1/oauth/token`, {
     method: "POST",
@@ -338,8 +364,9 @@ async function main() {
     check("authorization code replay rejected", false, "status=0 error=missing_authorization_id");
   }
 
-  // 4. wrong verifier
-  const wrongFlow = await startAuthorization(client);
+  // 4. wrong verifier (fresh client: see registerClient comment)
+  const wrongVerifierClient = (await registerClient(`${CLIENT_NAME} (wrong verifier)`))?.client;
+  const wrongFlow = await startAuthorization(wrongVerifierClient ?? client);
   check("wrong verifier authorization setup", Boolean(wrongFlow.authorizationId), flowDetail(wrongFlow));
   if (wrongFlow.authorizationId) {
     const wrongDetails = await authorizationDetails(wrongFlow.authorizationId);
@@ -352,7 +379,7 @@ async function main() {
       const wrong = await exchange({
         grant_type: "authorization_code",
         code,
-        client_id: client.client_id,
+        client_id: (wrongVerifierClient ?? client).client_id,
         redirect_uri: REDIRECT,
         code_verifier: pkce().verifier,
       });
@@ -367,8 +394,9 @@ async function main() {
     check("wrong PKCE verifier rejected", false, "status=0 error=missing_authorization_id");
   }
 
-  // 5. wrong redirect URI
-  const redirectFlow = await startAuthorization(client);
+  // 5. wrong redirect URI (fresh client: see registerClient comment)
+  const wrongRedirectClient = (await registerClient(`${CLIENT_NAME} (wrong redirect)`))?.client;
+  const redirectFlow = await startAuthorization(wrongRedirectClient ?? client);
   check("wrong redirect authorization setup", Boolean(redirectFlow.authorizationId), flowDetail(redirectFlow));
   if (redirectFlow.authorizationId) {
     const redirectDetails = await authorizationDetails(redirectFlow.authorizationId);
@@ -381,7 +409,7 @@ async function main() {
       const wrongRedirect = await exchange({
         grant_type: "authorization_code",
         code,
-        client_id: client.client_id,
+        client_id: (wrongRedirectClient ?? client).client_id,
         redirect_uri: "http://127.0.0.1:9999/callback",
         code_verifier: redirectFlow.verifier,
       });
@@ -396,8 +424,9 @@ async function main() {
     check("wrong redirect_uri rejected", false, "status=0 error=missing_authorization_id");
   }
 
-  // 6. deny
-  const denyFlow = await startAuthorization(client);
+  // 6. deny (fresh client: see registerClient comment)
+  const denyClient = (await registerClient(`${CLIENT_NAME} (deny)`))?.client;
+  const denyFlow = await startAuthorization(denyClient ?? client);
   check("deny authorization setup", Boolean(denyFlow.authorizationId), flowDetail(denyFlow));
   if (denyFlow.authorizationId) {
     const denyDetails = await authorizationDetails(denyFlow.authorizationId);
