@@ -25,7 +25,7 @@ import { runResolveTool, RESOLVE_OUTPUT_SCHEMA } from "./resolve.js";
 import { runSearchTool, SEARCH_OUTPUT_SCHEMA } from "./search.js";
 import { toolSchema } from "./server.js";
 import { buildWwwAuthenticate, type HostedOAuthConfig } from "./hosted-oauth.js";
-import type { McpProjectContext } from "./project-context.js";
+import { McpContextError, type McpProjectContext } from "./project-context.js";
 
 export interface HostedReleaseSnapshot {
   readonly artifactDir: string;
@@ -174,7 +174,12 @@ export function loadHostedReleaseSnapshot(artifactDir: string): HostedReleaseSna
 }
 
 function errorResult(tool: string, error: unknown): CallToolResult {
-  const code = error instanceof HostedRuntimeError ? error.code : "E_RUNTIME_UNAVAILABLE";
+  const code =
+    error instanceof HostedRuntimeError
+      ? error.code
+      : error instanceof McpContextError
+        ? error.code
+        : "E_RUNTIME_UNAVAILABLE";
   const message = error instanceof Error ? error.message : "Hosted request failed";
   return { content: [{ type: "text", text: JSON.stringify({ error: { code, message, tool } }) }], isError: true };
 }
@@ -309,9 +314,12 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
         const effectiveSnapshot = await selectSnapshot(args);
         if (!principal || deniedReleases.has(effectiveSnapshot.releaseDigest)) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
         const skillId = typeof args.skill_id === "string" ? args.skill_id : undefined;
+        // Authorization precedes deny classification: an authenticated but
+        // unauthorized principal must not be able to distinguish a denied
+        // skill from a nonexistent one (both answer E_UNAUTHORIZED).
+        if (!(await authorizeResource(tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
         if (skillId && deniedSkills.has(skillId)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
         if (releaseSourceDenied(effectiveSnapshot.release, deniedSources)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested source is unavailable");
-        if (!(await authorizeResource(tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
         let requestContext = withDeniedSkills(effectiveSnapshot.context, deniedSkills);
         if (skillId === undefined && (tool === "search" || tool === "resolve")) {
           const resourceDenied = await deniedByAuthorization(principal, tool, Object.keys(effectiveSnapshot.release.payload.skill_versions), requestSignal, options.authorize);

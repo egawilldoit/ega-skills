@@ -113,7 +113,19 @@ test("hosted runtime rejects every bad JWT shape and accepts one valid delegated
   assert.match(searched.body, /cursor\/architect/);
 
   const { parts } = sign({ alg: "ES256", kid: "containment-k1", typ: "JWT" }, validClaims);
-  const tamper = (value, index) => value.slice(0, index) + (value[index] === "A" ? "B" : "A") + value.slice(index + 1);
+  // Flip a bit in a real signature byte, not a trailing base64url character:
+  // the last character of a 64-byte ES256 signature carries only 2 data bits,
+  // so a text-level flip can decode to the identical byte and silently leave
+  // the token valid (observed ~24% no-op rate in CI run 35782175610).
+  const tamperSignature = (signature) => {
+    const original = Buffer.from(signature, "base64url");
+    const tampered = Buffer.from(original);
+    tampered[0] ^= 0x01;
+    assert.notDeepEqual(tampered, original, "tampered signature bytes must differ from the original");
+    return tampered.toString("base64url");
+  };
+  const tamperedSignature = tamperSignature(parts[2]);
+  assert.notEqual(tamperedSignature, parts[2], "tampered signature encoding must differ from the original");
   const unknownKid = es256(validClaims, { alg: "ES256", kid: "rotated-but-unknown", typ: "JWT" });
   const firstParty = es256({ iss: ISSUER, aud: "authenticated", sub: SUBJECT, role: "authenticated", exp: now + 300 });
 
@@ -127,7 +139,7 @@ test("hosted runtime rejects every bad JWT shape and accepts one valid delegated
     ["missing subject", es256({ ...validClaims, sub: "" })],
     ["blank client_id", es256({ ...validClaims, client_id: "   " })],
     ["malformed", "not-a-jwt"],
-    ["tampered signature", `${parts[0]}.${parts[1]}.${tamper(parts[2], parts[2].length - 1)}`],
+    ["tampered signature", `${parts[0]}.${parts[1]}.${tamperedSignature}`],
     ["tampered claims", `${parts[0]}.${encode({ ...validClaims, sub: "attacker" })}.${parts[2]}`],
     ["unknown kid", unknownKid],
     ["alg none", sign({ alg: "none", kid: "containment-k1", typ: "JWT" }, validClaims).token.replace(/\.[^.]+$/, ".")],
