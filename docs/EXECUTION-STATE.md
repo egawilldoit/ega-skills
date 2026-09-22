@@ -1,5 +1,11 @@
 # EGA Skills post-V1 release execution state
 
+> HISTORICAL RECORD (2026-09-20, intake workflow execution). Superseded by the
+> 2.0 release window: the PRs referenced as open have merged into
+> `release/2.0`, and staging/OAuth/client acceptance evidence now lives in
+> `docs/evidence/2.0-C-STAGING.md` and `docs/evidence/RELEASE-2.0-FINAL.md`.
+> Statements below are preserved as the state at the time of writing.
+
 Updated: 2026-09-20 (intake workflow execution)
 
 ## Canonical authority
