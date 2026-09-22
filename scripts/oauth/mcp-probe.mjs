@@ -23,6 +23,7 @@ import { readFileSync } from "node:fs";
 
 const URL_ = process.env.EGA_MCP_URL ?? "https://ega-skills-mcp.vercel.app/mcp";
 const TOKEN_FILE = process.env.EGA_MCP_TOKEN_FILE;
+const BYPASS = process.env.EGA_MCP_PROTECTION_BYPASS;
 const EXPECT_SKILL = process.env.EGA_MCP_EXPECT_SKILL ?? "cursor/architect";
 const EXPECT_VERSION = process.env.EGA_MCP_EXPECT_VERSION;
 const EXPECT_DIGEST = process.env.EGA_MCP_EXPECT_DIGEST;
@@ -47,6 +48,7 @@ async function rpc(method, params) {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
+      ...(BYPASS ? { "x-vercel-protection-bypass": BYPASS } : {}),
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: sequence, method, params }),
   });
