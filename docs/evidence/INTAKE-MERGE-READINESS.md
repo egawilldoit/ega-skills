@@ -1,5 +1,10 @@
 # Intake merge readiness
 
+> HISTORICAL RECORD (2026-09-20). Superseded by the 2.0 release window in
+> `docs/evidence/RELEASE-2.0-FINAL.md`. The PRs referenced below have since
+> merged into `release/2.0`; statements here are preserved as the state at the
+> time of writing and are not current release status.
+
 Status: correction implementation complete; final review branches are open and required CI is green.
 
 This record distinguishes local tests, CI evidence, upstream validation, and

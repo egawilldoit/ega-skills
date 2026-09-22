@@ -7,7 +7,12 @@ local MCP for Codex and OpenCode/T3.
 
 Current state:
 
-- **Shipped:** V1.0.0 + patch V1.0.1 (`v1.0.1`, `1.0.1` across root + packages).
+- **2.0 candidate:** EGA Skills 2.0 (`2.0.0` across root + packages) adds
+  governed intake, immutable releases with retained serving and rollback,
+  hosted OAuth access, and modern MCP (`2026-07-28`) support alongside legacy
+  MCP. See [`docs/RELEASE-NOTES-2.0.0.md`](docs/RELEASE-NOTES-2.0.0.md).
+- **Previously shipped:** V1.0.0 + patch V1.0.1 (`v1.0.1`, `1.0.1` across
+  root + packages).
 - **Implemented:** schema validation, canonical hashing, SQLite registry/cache,
   FTS5 search, deterministic router, project config/locks, four-tool MCP,
   `init` → `lock` → `resolve` CLI workflow, Codex + OpenCode E2E.
@@ -232,9 +237,9 @@ scripts/specs/  spec-drift checker
 .github/      issue/PR templates with mandatory spec-contract sections
 ```
 
-`packages/` contains shipped V1.0.1 product behavior behind strict composite
+`packages/` contains the 2.0 candidate product behavior behind strict composite
 project references and real root `build` / `typecheck` / `test` /
-`specs:check` scripts.
+`specs:check` / `release:verify` scripts.
 
 ## Specification authority
 
@@ -269,6 +274,11 @@ silently become the new contract.
   routing, source-removal persistence, OpenCode MCP session).
 - Corpus basis: [`docs/V1-CORPUS.md`](docs/V1-CORPUS.md) plus
   [`docs/V1-CORPUS.manifest.json`](docs/V1-CORPUS.manifest.json).
+- 2.0 candidate: [`docs/RELEASE-NOTES-2.0.0.md`](docs/RELEASE-NOTES-2.0.0.md),
+  operator runbook
+  [`docs/operations/RELEASE-2.0-RUNBOOK.md`](docs/operations/RELEASE-2.0-RUNBOOK.md),
+  and the aggregate evidence ledger
+  [`docs/evidence/RELEASE-2.0-FINAL.md`](docs/evidence/RELEASE-2.0-FINAL.md).
 
 ## Current status
 
@@ -279,10 +289,10 @@ silently become the new contract.
 | Amendment review (AMEND-01–10) | complete |
 | TEST-001 42-case corpus (G001–G042) | frozen |
 | TEST-002 token vectors (T001–T009, `ega-o200k-v1`) | frozen |
-| Product implementation (schema/hashing/registry/router/project/mcp/cli) | shipped in V1.0.0, patched in V1.0.1 |
+| Product implementation (schema/hashing/registry/router/project/mcp/cli) | shipped in V1.0.0, patched in V1.0.1, extended in 2.0 candidate |
 | Real corpus + hardening + acceptance (W8–W9, EGA-598–604) | complete |
 | V1.0.1 release (`v1.0.1`) + operator docs + post-release E2E (EGA-614–618) | complete |
-| Final Post-V1 Release Specification (1.1 → 1.2 → 1.3 → 2.0) | merged for review; implementation not started |
+| Final Post-V1 Release Specification (1.1 → 1.2 → 1.3 → 2.0) | implemented through 2.0 (candidate); see release notes |
 
 ## Post-V1 direction
 
