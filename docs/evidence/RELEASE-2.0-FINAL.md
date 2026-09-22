@@ -1,9 +1,9 @@
 # EGA Skills 2.0 — Final release evidence
 
-Status: final integration candidate assembled; independent review round 1
-completed (both reviewers BLOCK); all P1 software fixes applied and awaiting
-round-2 verification. Every PASS below carries observable evidence. `BLOCKED`
-and `SKIPPED` are not passes.
+Status: FINAL integration candidate merged to `release/2.0`; independent
+review round 2 complete (R2 PASS, R1 BLOCK on one external client-capability
+gate only); exact-SHA CI green. Every PASS below carries observable evidence.
+`BLOCKED` and `SKIPPED` are not passes.
 
 ## Identity
 
@@ -19,8 +19,11 @@ and `SKIPPED` are not passes.
     package version (resolved A's 2.0.0 bump vs B's 1.0.1 pin)
   - `1e5e87b` — release notes, runbook, doc reconciliation (**review round 1
     target**)
-  - `7aec2f8` — review fix round (C): deterministic signature tamper, frozen
-    hosted error codes, authorize-before-deny (**review round 2 target**)
+  - `7aec2f8` — review fix round (C cherry-picked from `0744b33`): deterministic
+    signature tamper, frozen hosted error codes, authorize-before-deny
+  - `7de5e16` — completed ledger (**review round 2 target**)
+- FINAL_RELEASE_SHA (merged, fast-forward): `7de5e164d94818e854e666fdd7fbea5946a847ea`
+  — PR #113 merged into `release/2.0` at 2026-09-22T22:28:27Z
 - Product version: `2.0.0` (root + 10 workspace packages + both MCP
   serverInfo identities)
 - Execution date: 2026-09-22 UTC
@@ -111,16 +114,27 @@ and `SKIPPED` are not passes.
   after 762.1 s; log
   `/tmp/opencode/release/integration-verify3.log` (`integration-verify3`
   wrapper timestamps 2026-09-22T20:44:34Z → 20:58:19Z).
-- The same gate on `7aec2f8` (round 2 target) is recorded in the post-merge
-  evidence update; the round-1 run failed once on an unrelated environmental
-  perf flake (registry cold import 6375 ms > 5000 ms budget while an unrelated
-  `next-server` saturated the 2-core box; passed on re-run at 3.1 s, and CI
-  passes this step on both OSes).
-- PR #113 CI on `1e5e87b`: run `35782175610` — foundation windows PASS,
+- `pnpm release:verify` on `7de5e16` (final review SHA): **20/20 stages PASS**,
+  full suite 1061 tests / 1054 pass / 0 fail / 7 skipped, natural exit after
+  833.0 s; log `/tmp/opencode/release/integration-verify4.log`
+  (2026-09-22T21:44:06Z → 21:59:01Z). An earlier round-1 run failed once on an
+  unrelated environmental perf flake (registry cold import 6375 ms > 5000 ms
+  budget while an unrelated `next-server` saturated the 2-core box; re-run
+  3.1 s; CI passes this step on both OSes).
+- PR CI on `1e5e87b` (round 1): run `35782175610` — foundation windows PASS,
   contract-f rls PASS; foundation ubuntu **FAIL** on the flaky tampered-signature
   test (fixed in `7aec2f8`); hashing traversal run `35782175511` PASS on both
-  OSes. The exact-SHA run on the merged `release/2.0` commit is recorded in the
-  post-merge evidence update.
+  OSes.
+- PR CI on `7de5e16` (round 2): run `35791795410` — foundation ubuntu PASS
+  (job `106961780006`, 3m16s), foundation windows PASS (job `106961779921`,
+  7m34s), contract-f rls PASS (job `106961779673`); hashing traversal run
+  `35791795351` PASS both OSes.
+- **Exact-SHA CI on the merged `release/2.0` (G71)**: push-triggered run
+  `35792565286` on `7de5e164d94818e854e666fdd7fbea5946a847ea` — foundation
+  ubuntu PASS (job `106964273259`, 22:28:30Z → 22:31:58Z, 3m28s), foundation
+  windows PASS (job `106964273526`), contract-f rls PASS (job `106964273548`);
+  hashing traversal run `35792565224` on the same SHA — ubuntu PASS (job
+  `106964273216`), windows PASS (job `106964272980`).
 
 ## Independent review round 1 (SHA `1e5e87b`)
 
@@ -129,12 +143,12 @@ conclusions. Raw reviews are held by the main agent; findings register:
 
 | ID | Reviewer | Sev | Area | Finding | Status |
 |---|---|---|---|---|---|
-| R1-F1 = R2-P1-01 | R1, R2 | P1 | OAuth test/CI | Tampered-signature negative was ~24% no-op (last base64url char is padding-only), causing the red exact-SHA CI (`35782175610` job `106930103001`) | **FIXED** `0744b33`; 20/20 deterministic runs |
+| R1-F1 = R2-P1-01 | R1, R2 | P1 | OAuth test/CI | Tampered-signature negative was ~24% no-op (last base64url char is padding-only), causing the red exact-SHA CI (`35782175610` job `106930103001`) | **FIXED** `7aec2f8` (from `0744b33`); 20/20 + 24/24 deterministic runs, 200/200 crypto check |
 | R1-F2 = R2-P2-03 | R1 | P1 / R2 P2 | Client interop | G58 strict `protocol=2026-07-28` on OpenCode not executable: `McpRemoteConfig` has no protocol field (1.18.32 and today's dev build); observed negotiation `2025-11-25` | **BLOCKED** (external client capability); modern proven at SDK/live layer |
-| R1-F3 = R2-P2-04 | R1 | P1 / R2 P2 | Process | Merging to `release/2.0` auto-deploys production (Vercel production branch) | Mitigation applied at merge time (production build suppressed); production untouched |
-| R1-F4 | R1 | P2 | Artifact/staging | Staging previews built from `f84f32be` (not an ancestor of integration); product delta is two version strings | Accepted deviation; artifact bytes identical; post-merge preview re-check planned |
-| R1-F5 = R2-P2-01 | R1, R2 | P2 | Hosted error contract | `errorResult` collapsed frozen `McpContextError` codes to `E_RUNTIME_UNAVAILABLE` | **FIXED** `0744b33` + regression `tests/mcp/hosted-content-codes.test.mjs` |
-| R2-P2-02 | R2 | P2 | Hosted authz order | Deny classification preceded authorization (latent deny/nonexistent oracle for unauthorized principals) | **FIXED** `0744b33` + regression test |
+| R1-F3 = R2-P2-04 | R1 | P1 / R2 P2 | Process | Merging to `release/2.0` auto-deploys production (Vercel production branch) | **CLOSED** — ignore-build-step control applied during merge; production deployment canceled; prior production untouched |
+| R1-F4 | R1 | P2 | Artifact/staging | Staging previews built from `f84f32be` (not an ancestor of integration); product delta is two version strings | Accepted deviation; artifact bytes identical; preview re-check against FINAL_RELEASE_SHA recommended post-ship |
+| R1-F5 = R2-P2-01 | R1, R2 | P2 | Hosted error contract | `errorResult` collapsed frozen `McpContextError` codes to `E_RUNTIME_UNAVAILABLE` | **FIXED** `7aec2f8` + regression `tests/mcp/hosted-content-codes.test.mjs`; independently verified round 2 |
+| R2-P2-02 | R2 | P2 | Hosted authz order | Deny classification preceded authorization (latent deny/nonexistent oracle for unauthorized principals) | **FIXED** `7aec2f8` + regression test; independently verified round 2 |
 | R1-F6 | R1 | P2 | Docs | `docs/EXECUTION-STATE.md` stale ("NOT MERGED") | **FIXED** historical banner |
 | R1-F7 = R2-P2-06 | R1, R2 | P2 | Docs | Aggregate ledger incomplete | **FIXED** by this record |
 | R1-F8 = R2-P2-05 | R1, R2 | P2 | Governance | `release/2.0` has no branch protection/ruleset | Recorded; recommendation below |
@@ -144,8 +158,30 @@ conclusions. Raw reviews are held by the main agent; findings register:
 | R2-P3-03 | R2 | P3 | OAuth provider | Supabase advertises `plain` PKCE; hook binds all project OAuth clients to the MCP audience | Accepted; dedicated-issuer invariant documented in `packages/mcp/VERCEL.md` |
 
 Round-1 verdicts: R1 **BLOCK**, R2 **BLOCK** — both driven by the same P1
-(test/CI nondeterminism); no P0 found by either reviewer. Round-2 verdicts are
-recorded in the post-merge evidence update.
+(test/CI nondeterminism); no P0 found by either reviewer.
+
+## Independent review round 2 (SHA `7de5e16`)
+
+- **R2 — SECURITY + INTEROPERABILITY REVIEW: PASS.** P0 = 0, P1 = 0. P1-01
+  independently reproduced as deterministic (20/20 runs, plus a 200-signature
+  crypto check with 200/200 rejections); P2-01 and P2-02 verified fixed by
+  independent probes (frozen codes on the hosted surface; identical
+  `E_UNAUTHORIZED` for denied and nonexistent skills to an unauthorized
+  principal, 0 bytes served); no security regression in the fix diff. Residual
+  P3s (ledger hash traceability, accepted nits) recorded.
+- **R1 — RELEASE CORRECTNESS REVIEW: BLOCK, narrowed to one external item.**
+  All round-1 software findings verified fixed (24/24 deterministic tamper loop,
+  no assertion weakened, no regression, independent full suite 1061/1054/0/7
+  with natural termination). Remaining block: **G58 is BLOCKED** — no available
+  OpenCode build (1.18.32 or `0.0.0-dev-202609221946`) exposes a protocol pin,
+  so the strict `2026-07-28` client acceptance cannot be executed; per §40
+  `BLOCKED != PASS` and §46 Outcome B applies until a pinning client exists or
+  the release authority formally accepts the equivalent proof (server modern
+  era proven live via `server/discover` with byte-identical results). R1 also
+  required the exact-SHA CI and the production-suppression control to be
+  executed with evidence — both are now complete (above and below).
+- Round-1 P3s fixed in the final merge: ledger provenance hashes now cite the
+  integrated commits (`7aec2f8` / `7de5e16`).
 
 ## Gate ledger (specification G01–G75)
 
@@ -225,11 +261,11 @@ verification/merge cycle.
 | G68 version consistency | PASS | version test 4/4; CLI and both MCP identities 2.0.0 |
 | G69 release notes | PASS | `docs/RELEASE-NOTES-2.0.0.md` |
 | G70 operator runbook | PASS | `docs/operations/RELEASE-2.0-RUNBOOK.md` |
-| G71 exact-SHA CI | PENDING (round 1 FAIL) | round 1 red on the flaky test; post-fix exact-SHA run recorded post-merge |
-| G72 reviewer R1 PASS | PENDING | round 1 BLOCK; round-2 verdict recorded post-merge |
-| G73 reviewer R2 PASS | PENDING | round 1 BLOCK; round-2 verdict recorded post-merge |
-| G74 zero P0 | PASS | no P0 found by either reviewer; boundary attacks all failed closed |
-| G75 zero P1 | PENDING | P1 test defect fixed and awaiting round-2 confirmation; G58 BLOCKED |
+| G71 exact-SHA CI | PASS | push run `35792565286` + hashing run `35792565224` green on `7de5e16` |
+| G72 reviewer R1 PASS | **BLOCK** | round 2: all software items closed; block rests on G58 only |
+| G73 reviewer R2 PASS | PASS | round 2 security/interop review: P0 = 0, P1 = 0 |
+| G74 zero P0 | PASS | no P0 found by either reviewer in either round; boundary attacks all failed closed |
+| G75 zero P1 | **BLOCK** | the P1 test defect is fixed and verified; the open P1 is the external G58 client-capability gap |
 
 ## Governance and authorization
 
@@ -237,11 +273,24 @@ verification/merge cycle.
   `main`). Recommended: required CI status checks, no force pushes, no branch
   deletion. Not applied silently.
 - Vercel production branch is `release/2.0`; production deployment is NOT
-  authorized by the execution brief. The merge that produces the exact-SHA CI
-  evidence therefore suppresses the Vercel production build for its duration
-  (project ignore command), and production is restored to its prior state
-  immediately after. Production remains the pre-candidate deployment
-  (`dpl_7sZekMx6LV1iDc3qcXU9TxddxyiL`, digest `70a37c28…`).
+  authorized by the execution brief. Executed control (recorded in
+  `/tmp/opencode/release/f3-control.txt`):
+  1. 2026-09-22T22:20:08Z-ish: project `commandForIgnoringBuildStep` was `null`
+     before the control; set to `exit 0` (skip Git-triggered builds).
+  2. Fast-forward merge push `2259364..7de5e16` to `release/2.0` at
+     2026-09-22T22:28:27Z (PR #113 shows as merged with merge commit
+     `7de5e16`).
+  3. The merge-triggered production build appeared as deployment
+     `ega-skills-kce04f0sm-egas-projects-4fb87621.vercel.app` with status
+     **Canceled** (Environment: Production) — no production deployment was
+     created.
+  4. Production alias still points at `dpl_7sZekMx6LV1iDc3qcXU9TxddxyiL`
+     (`target: production`, `Ready`, digest `70a37c28…`); `/healthz` 200 and
+     `/readyz {"status":"ready"}` 200 after the merge.
+  5. Exact-SHA CI captured (G71 above).
+  6. `commandForIgnoringBuildStep` restored to `null` immediately after the
+     post-merge evidence push; preview deployments resume on subsequent pushes.
+- Production was not deployed, promoted, or rolled back at any point.
 
 ## Production
 
