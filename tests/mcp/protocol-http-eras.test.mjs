@@ -13,7 +13,7 @@
 //   eras, with no hidden/deprecated/admin tool and no resources/prompts.
 
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import test from "node:test";
 
 import { createMcpServer } from "../../packages/mcp/dist/index.js";
@@ -167,7 +167,7 @@ test("B3 modern HTTP: server/discover without initialize, modern identity, four 
   assert.ok(discovered.capabilities?.tools, "modern discovery advertises tools");
   assert.deepEqual(discovered._meta?.[SERVER_INFO_META_KEY], {
     name: "ega-skills-hosted",
-    version: "1.0.1",
+    version: JSON.parse(readFileSync(new URL("../../packages/mcp/package.json", import.meta.url), "utf8")).version,
   });
   assert.equal(client.protocolEra, "modern");
 
