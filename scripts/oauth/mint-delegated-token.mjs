@@ -77,18 +77,22 @@ function assertIdentity(summary, label) {
   console.log(`${label}: iss=supabase aud=resource subject=present client_id=present scope=${summary.scope ?? "none"} exp=${summary.exp}`);
 }
 
-function writeTokens(body) {
-  writeFileSync(OUT, JSON.stringify({ access_token: body.access_token, refresh_token: body.refresh_token }, null, 2), { mode: 0o600 });
+function writeTokens(body, clientId) {
+  writeFileSync(OUT, JSON.stringify({ access_token: body.access_token, refresh_token: body.refresh_token, client_id: clientId }, null, 2), { mode: 0o600 });
 }
 
 async function refresh() {
   const stored = JSON.parse(readFileSync(OUT, "utf8"));
+  if (typeof stored.client_id !== "string" || stored.client_id === "") {
+    throw new Error("stored token file has no client_id; re-mint with EGA_INTEROP_MODE=authorize first");
+  }
   const refreshed = await fetchJson(`${SUPABASE_URL}/auth/v1/oauth/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: stored.refresh_token,
+      client_id: stored.client_id,
     }).toString(),
   });
   if (refreshed.status !== 200 || !refreshed.body?.access_token) {
@@ -97,7 +101,7 @@ async function refresh() {
   const summary = claimSummary(refreshed.body.access_token);
   assertIdentity(summary, "refresh");
   if (refreshed.body.access_token === stored.access_token) throw new Error("refresh returned the same access token");
-  writeTokens(refreshed.body);
+  writeTokens(refreshed.body, stored.client_id);
   console.log("refresh: rotated access token written");
 }
 
@@ -169,7 +173,7 @@ async function authorize() {
     const claims = JSON.parse(Buffer.from(exchange.body.access_token.split(".")[1], "base64url").toString("utf8"));
     if (claims.sub !== EXPECTED_SUBJECT) throw new Error("minted subject mismatch");
   }
-  writeTokens(exchange.body);
+  writeTokens(exchange.body, clientId);
   console.log(`mint: refresh_token=${exchange.body.refresh_token ? "issued" : "absent"} written=0600`);
 }
 
