@@ -58,7 +58,13 @@ function spawnLockContender(hubDir, resultPath, releasePath) {
     try {
       const lock = acquireHubLock(hubDir);
       writeFileSync(resultPath, "acquired");
-      while (!existsSync(releasePath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      const deadline = Date.now() + 120_000;
+      while (!existsSync(releasePath) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      if (!existsSync(releasePath)) {
+        const error = new Error("contender barrier timed out");
+        error.code = "E_TEST_BARRIER_TIMEOUT";
+        throw error;
+      }
       lock.release();
     } catch (error) {
       writeFileSync(resultPath, "error:" + (error?.code ?? "UNKNOWN"));

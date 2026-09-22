@@ -303,7 +303,7 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       })();
       return selectionPromise;
     };
-    const server = new McpServer({ name: "ega-skills-hosted", version: "1.0.1" }, { capabilities: { tools: {} } });
+    const server = new McpServer({ name: "ega-skills-hosted", version: "2.0.0" }, { capabilities: { tools: {} } });
     const guard = async (tool: string, args: Record<string, unknown>, body: (context: McpProjectContext) => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
       try {
         const effectiveSnapshot = await selectSnapshot(args);

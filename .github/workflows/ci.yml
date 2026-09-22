@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - release/2.0
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +15,7 @@ jobs:
   foundation:
     name: foundation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +59,7 @@ jobs:
         run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
 
       - name: Test
-        run: pnpm test
+        run: pnpm test:ci
 
       - name: Check frozen specs
         run: pnpm specs:check
@@ -64,6 +67,7 @@ jobs:
   rls:
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16
