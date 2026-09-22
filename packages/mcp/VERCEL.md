@@ -301,3 +301,32 @@ Provisioned and verified in this branch (`sha256:70a37c28…eb3f66`, hub
 
 `/readyz` returns `200` only after this exact verification passes at
 instance startup.
+
+## Rollback (immutable deployments)
+
+Every Vercel deployment is immutable: it keeps its own deployment ID and URL,
+and a redeploy creates a new deployment from the same built output. Rollback
+never mutates an existing deployment, it only selects or re-creates one.
+
+Verified on preview targets (evidence:
+`docs/evidence/2.0-C-STAGING.md`, gate G65): deploy candidate A → deploy
+candidate B → `vercel redeploy <A-url>` → `vercel redeploy <B-url>`; each step
+passed the hosted smoke and the four-tool identity probe, and the original A/B
+URLs kept serving afterwards.
+
+Production rollback (release owner action; intentionally not executed by the
+acceptance agent):
+
+1. Identify the last known-good production deployment:
+   `vercel ls ega-skills-mcp --scope <team>` or the Vercel dashboard.
+2. Either re-point the production alias with
+   `vercel rollback <deployment-url-or-id> --scope <team>` (or
+   `vercel promote <url>`), or rebuild it with
+   `vercel redeploy <deployment-url> --scope <team>`.
+3. Re-run `scripts/oauth/hosted-smoke.mjs` against
+   `https://ega-skills-mcp.vercel.app` and confirm `/readyz` is 200 and the
+   effective release digest is the expected one before restoring traffic.
+
+Preview/staging deployments can be exercised the same way without touching the
+production alias; they additionally require the project's automation
+protection-bypass header for HTTP checks.
