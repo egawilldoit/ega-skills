@@ -83,7 +83,7 @@ async function waitForFile(path) {
 
 function spawnRetainedChild({ manifest, action = "promote", deploymentId, expectedRevision = 1, barrier, marker, release, result }) {
   const script = `
-    import { writeFileSync } from "node:fs";
+    import { renameSync, writeFileSync } from "node:fs";
     import { promoteRetainedRelease, rollbackRetainedRelease } from "./packages/mcp/dist/index.js";
     const options = {
       manifestPath: process.env.EGA_TEST_MANIFEST,
@@ -93,13 +93,18 @@ function spawnRetainedChild({ manifest, action = "promote", deploymentId, expect
       deploymentId: process.env.EGA_TEST_DEPLOYMENT,
       legacy: true,
     };
+    const writeResult = (value) => {
+      const temporary = process.env.EGA_TEST_RESULT + ".tmp";
+      writeFileSync(temporary, JSON.stringify(value));
+      renameSync(temporary, process.env.EGA_TEST_RESULT);
+    };
     try {
       const value = process.env.EGA_TEST_ACTION === "rollback"
         ? rollbackRetainedRelease({ ...options, releaseDigest: process.env.EGA_TEST_RELEASE_DIGEST })
         : promoteRetainedRelease(options);
-      writeFileSync(process.env.EGA_TEST_RESULT, JSON.stringify({ ok: true, revision: value.payload.publication_revision, defaultRelease: value.payload.default_release_digest }));
+      writeResult({ ok: true, revision: value.payload.publication_revision, defaultRelease: value.payload.default_release_digest });
     } catch (error) {
-      writeFileSync(process.env.EGA_TEST_RESULT, JSON.stringify({ ok: false, code: error?.code, message: String(error?.message ?? error) }));
+      writeResult({ ok: false, code: error?.code, message: String(error?.message ?? error) });
       process.exitCode = 1;
     }
   `;
@@ -123,6 +128,9 @@ function spawnRetainedChild({ manifest, action = "promote", deploymentId, expect
 }
 
 function waitForChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
   return new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
 }
 

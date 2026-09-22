@@ -156,6 +156,9 @@ test("W1: a killed public apply is recovered at every durable adoption barrier",
     let childOutput = "";
     child.stdout.on("data", (chunk) => { childOutput += chunk; });
     child.stderr.on("data", (chunk) => { childOutput += chunk; });
+    t.after(() => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    });
     const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
     try {
       await waitForMarker(marker, child);

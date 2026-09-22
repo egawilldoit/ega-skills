@@ -273,6 +273,9 @@ test("E2E-01: actual intake CLI publishes the exact approved candidate", async (
   });
   let previewStdout = "";
   let previewStderr = "";
+  t.after(() => {
+    if (previewProcess.exitCode === null) previewProcess.kill("SIGKILL");
+  });
   previewProcess.stdout.on("data", (chunk) => { previewStdout += chunk; });
   previewProcess.stderr.on("data", (chunk) => { previewStderr += chunk; });
   await waitForFile(marker);
