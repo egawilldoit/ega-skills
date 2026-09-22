@@ -159,6 +159,30 @@ test("a missing content blob is rejected", async () => {
   expectSnapshotRejected(artifactDir, "missing blob");
 });
 
+test("tampered content bytes are rejected even with a valid package checksum", async () => {
+  const artifactDir = await freshRelease();
+  const snapshot = loadHostedReleaseSnapshot(artifactDir);
+  const db = new Database(join(artifactDir, "registry.sqlite"), { readonly: true });
+  let blobHash;
+  try {
+    const row = db.prepare("SELECT blob_hash FROM skill_files WHERE skill_id = 'ega/alpha' AND path = 'SKILL.md'").get();
+    blobHash = row.blob_hash;
+  } finally {
+    db.close();
+  }
+  const digest = blobHash.slice("sha256:".length);
+  const blobPath = join(artifactDir, "cache", "sha256", digest.slice(0, 2), digest.slice(2));
+  const original = readFileSync(blobPath);
+  assert.equal(original.byteLength > 0, true);
+  writeFileSync(blobPath, Buffer.from("tampered bytes that no longer match the manifest hash\n"));
+  try {
+    assert.equal(snapshot.releaseDigest.length > 0, true);
+    expectSnapshotRejected(artifactDir, "tampered content blob");
+  } finally {
+    writeFileSync(blobPath, original);
+  }
+});
+
 test("a semantically identical SQLite rebuild with different bytes still loads", async () => {
   const artifactDir = await freshRelease();
   const dbPath = join(artifactDir, "registry.sqlite");
