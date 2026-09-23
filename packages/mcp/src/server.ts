@@ -293,8 +293,24 @@ const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEn
       return { value: envelope };
     },
     jsonSchema: {
-      input: () => TOOL_ERROR_ENVELOPE_JSON_SCHEMA,
-      output: () => ({ $ref: "#/$defs/toolErrorEnvelope", $defs: { toolErrorEnvelope: TOOL_ERROR_ENVELOPE_JSON_SCHEMA } }),
+      input: () => ({
+        type: "object",
+        properties: {
+          error: {
+            type: "object",
+            properties: {
+              code: { type: "string" },
+              message: { type: "string" },
+              tool: { type: "string" },
+            },
+            required: ["code", "message", "tool"],
+            additionalProperties: false,
+          },
+        },
+        required: ["error"],
+        additionalProperties: false,
+      }),
+      output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
     },
   },
 };

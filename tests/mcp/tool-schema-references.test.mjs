@@ -110,21 +110,45 @@ test("stdio tool schemas are self-contained in both protocol eras", async (t) =>
 // Strict clients validate `structuredContent` against the advertised
 // `outputSchema`. Every top-level key of a real payload must therefore be
 // declared, including the hosted `effective_release_digest` envelope field.
+function resolveLocalReference(schema, node) {
+  let current = node;
+  const seen = new Set();
+  while (
+    current !== null &&
+    typeof current === "object" &&
+    typeof current.$ref === "string" &&
+    current.$ref.startsWith("#/")
+  ) {
+    if (seen.has(current.$ref)) break;
+    seen.add(current.$ref);
+    let target = schema;
+    for (const segment of pointerSegments(current.$ref)) target = target?.[segment];
+    current = target;
+  }
+  return current;
+}
+
 function assertPayloadKeysDeclared(schema, payload, label) {
-  const declared = schema?.properties;
-  if (declared !== undefined && schema?.additionalProperties === false) {
+  const resolved = resolveLocalReference(schema, schema) ?? schema;
+  for (const key of resolved.required ?? []) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(payload, key),
+      `${label}: required key "${key}" missing from the payload`,
+    );
+  }
+  let declared;
+  if (resolved.properties !== undefined) {
+    declared = resolved.properties;
+  } else if (resolved.additionalProperties !== undefined && resolved.additionalProperties !== true) {
+    declared = resolved.additionalProperties;
+  }
+  if (declared !== undefined) {
     for (const key of Object.keys(payload)) {
       assert.ok(
         Object.prototype.hasOwnProperty.call(declared, key),
         `${label}: payload key "${key}" is not declared in the advertised output schema`,
       );
     }
-  }
-  for (const key of schema?.required ?? []) {
-    assert.ok(
-      Object.prototype.hasOwnProperty.call(payload, key),
-      `${label}: required key "${key}" missing from the payload`,
-    );
   }
 }
 

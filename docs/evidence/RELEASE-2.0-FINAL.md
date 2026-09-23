@@ -107,17 +107,25 @@ G58 evidence after the fix (`@opencode/cli` v2.0.15, isolated XDG dirs):
   `opencode mcp list` → `connected`; no fallback.
 - Wire: `server/discover` with `mcp-protocol-version: 2026-07-28`;
   `tools/list` returns exactly `search`, `resolve`, `inspect`, `get_content`.
-- All four tools execute against the fixed candidate runtime: `search`
-  returns `cursor/architect` with version hash `sha256:59b17ec9…353e`,
-  `resolve` returns a full resolution payload, `inspect` returns the same
-  version hash, `get_content` returns the exact accepted L2 content
-  (5383 bytes). This four-tool run was observed with the intermediate schema
-  iteration (resolvable `$defs`, compact definitions); the final iteration
-  changes only the anchor name and anchor content while preserving the same
-  container structure, and is covered by the deterministic reference/contract
-  tests above. (The free model provider rate-limited further model runs before
-  the final iteration could be re-driven end-to-end; recorded as a tooling
-  limitation, not a product result.)
+- Schema-interoperability history: the unresolvable `$ref` shape was fixed in
+  the intermediate commit `4745f43` (direct compact projections), on which the
+  first four-tool OpenCode run was observed. That shape changed the SDK's
+  `structuredContent` envelope and failed the hosted runtime contract, so the
+  final candidate `7ad5a42` restored the frozen `$ref` container and added the
+  permissive `$defs` anchors instead. One later attempt to re-drive the model
+  was blocked by provider quota (HTTP 429), and one session started before the
+  MCP server was visible to the client — both recorded as tooling limitations,
+  not product results.
+- **Final-candidate strict execution (independent, reviewer R2):** against
+  this exact candidate tip, OpenCode v2.0.15 with
+  `mcp.servers.ega-skills.protocol = "2026-07-28"` negotiated modern via
+  `server/discover` with no `initialize` frame, listed exactly the four tools,
+  and executed `ega-skills.search` (`cursor/architect`,
+  `sha256:59b17ec9…353e`) and `ega-skills.get_content` (L2, release
+  `sha256:70a37c28…eb3f66`) returning **5383 bytes** whose recomputed sha256
+  equals `sha256:897a59be…fea5`. Exact v2 config shape (the flat `mcp.<name>`
+  shape silently ignores `protocol`):
+  `{"mcp":{"servers":{"ega-skills":{"type":"remote","url":"https://ega-skills-mcp.vercel.app/mcp","protocol":"2026-07-28"}}}}`.
 - Identity matches the direct probe, SDK clients, and Codex:
   `sha256:59b17ec9…353e` / `sha256:897a59be…fea5` / release
   `sha256:70a37c28…eb3f66`.
@@ -338,7 +346,7 @@ verification/merge cycle.
 | G37 modern stdio | PASS | protocol-stdio-eras |
 | G38 exactly four tools | PASS | B8 both eras/transports |
 | G39 semantic parity | PASS | B7 parity 2/2 |
-| G40 protected content rejection | PASS | artifact-only frozen codes; hosted now preserves them (`0744b33`) |
+| G40 protected content rejection | PASS | artifact-only frozen codes; hosted now preserves them (`7aec2f8`, cherry-picked from `0744b33`) |
 | G41 OAuth discovery | PASS | live curl + C evidence; canonical resource |
 | G42 anonymous challenge | PASS | `/mcp` 401 + canonical `resource_metadata` |
 | G43 PKCE authorization code | PASS | live interop 33/33 + offline stub |
