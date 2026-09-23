@@ -324,6 +324,19 @@ export async function runResolveTool(
  * `structuredContent` is the snake_case resolution container and advertises
  * the same shape over `tools/list`.
  */
+// Resolvable, budget-bounded advertised projection; the `~standard` validator
+// below remains the authoritative contract for the payload.
+const RESOLVE_OUTPUT_JSON_SCHEMA = {
+  type: "object",
+  required: [
+    "resolution_id",
+    "confidence",
+    "selected",
+    "lock_status",
+    "budget_status",
+  ],
+} as const;
+
 export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>> = {
   "~standard": {
     version: 1,
@@ -370,36 +383,8 @@ export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknow
       return { value: output };
     },
     jsonSchema: {
-      input: () => ({
-        type: "object",
-        properties: {
-          resolution_id: { type: "string" },
-          router_contract_version: { type: "integer" },
-          router_implementation_version: { type: "string" },
-          mode: { type: "string", enum: ["suggest"] },
-          confidence: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] },
-          project_fingerprint: { type: "object" },
-          explicit: { type: "array" },
-          selected: { type: "array" },
-          candidates: { type: "array" },
-          rejected: { type: "array" },
-          automatic_selected_tokens: { type: "integer" },
-          explicit_selected_tokens: { type: "integer" },
-          max_tokens: { type: "integer" },
-          max_skills: { type: "integer" },
-          lock_status: { type: "string", enum: ["LOCKED", "UNLOCKED"] },
-          budget_status: { type: "string" },
-        },
-        required: [
-          "resolution_id",
-          "confidence",
-          "selected",
-          "lock_status",
-          "budget_status",
-        ],
-        additionalProperties: true,
-      }),
-      output: () => ({ $ref: "#/$defs/resolveOutput" }),
+      input: () => RESOLVE_OUTPUT_JSON_SCHEMA,
+      output: () => RESOLVE_OUTPUT_JSON_SCHEMA,
     },
   },
 };

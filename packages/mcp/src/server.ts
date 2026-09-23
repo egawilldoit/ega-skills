@@ -238,13 +238,35 @@ export function toolSchema(spec: {
           properties: jsonProperties,
           required: [...spec.required],
         }),
-        output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
+        output: () => ({
+          type: "object",
+          properties: jsonProperties,
+          required: [...spec.required],
+        }),
       },
     },
   };
 }
 
 /** Shared output schema: `structuredContent` is the frozen error envelope. */
+const TOOL_ERROR_ENVELOPE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    error: {
+      type: "object",
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        tool: { type: "string" },
+      },
+      required: ["code", "message", "tool"],
+      additionalProperties: false,
+    },
+  },
+  required: ["error"],
+  additionalProperties: false,
+} as const;
+
 const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEnvelope> = {
   "~standard": {
     version: 1,
@@ -275,24 +297,8 @@ const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEn
       return { value: envelope };
     },
     jsonSchema: {
-      input: () => ({
-        type: "object",
-        properties: {
-          error: {
-            type: "object",
-            properties: {
-              code: { type: "string" },
-              message: { type: "string" },
-              tool: { type: "string" },
-            },
-            required: ["code", "message", "tool"],
-            additionalProperties: false,
-          },
-        },
-        required: ["error"],
-        additionalProperties: false,
-      }),
-      output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
+      input: () => TOOL_ERROR_ENVELOPE_JSON_SCHEMA,
+      output: () => TOOL_ERROR_ENVELOPE_JSON_SCHEMA,
     },
   },
 };

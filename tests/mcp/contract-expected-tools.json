@@ -34,13 +34,12 @@
     },
     "outputSchema": {
       "type": "object",
-      "properties": {
-        "result": {
-          "$ref": "#/properties/result/$defs/resolveOutput"
-        }
-      },
       "required": [
-        "result"
+        "resolution_id",
+        "confidence",
+        "selected",
+        "lock_status",
+        "budget_status"
       ]
     }
   },
@@ -69,12 +68,15 @@
     "outputSchema": {
       "type": "object",
       "properties": {
-        "result": {
-          "$ref": "#/properties/result/$defs/searchOutput"
+        "results": {
+          "type": "array"
+        },
+        "effective_release_digest": {
+          "type": "string"
         }
       },
       "required": [
-        "result"
+        "results"
       ]
     }
   },
@@ -363,15 +365,15 @@
           ]
         },
         "max_tokens": {
-         "type": "integer",
-         "minimum": 1,
-         "maximum": 1000000
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
         },
         "file_path": {
-         "type": "string"
+          "type": "string"
         },
         "project_path": {
-         "type": "string"
+          "type": "string"
         }
       },
       "required": [
@@ -383,13 +385,12 @@
     },
     "outputSchema": {
       "type": "object",
-      "properties": {
-        "result": {
-          "$ref": "#/properties/result/$defs/getContentOutput"
-        }
-      },
       "required": [
-        "result"
+        "skill_id",
+        "version_hash",
+        "level",
+        "token_count",
+        "content"
       ]
     }
   }

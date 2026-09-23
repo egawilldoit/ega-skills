@@ -369,6 +369,20 @@ export function runSearchTool(
  * `structuredContent` is EXACTLY the frozen `McpSearchOutput` container
  * (SPEC-006 §5.1.6 rule 4) and advertises the same shape over `tools/list`.
  */
+// Advertised `tools/list` projection. It must be a *resolvable* JSON Schema
+// (strict clients validate `structuredContent` against it) and it must stay
+// inside the frozen `ega-o200k-v1` metadata budget, so it is intentionally
+// compact: the exact per-row validation lives in the `~standard` validator
+// below and in the runtime's structured error contract.
+const SEARCH_OUTPUT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    results: { type: "array" },
+    effective_release_digest: { type: "string" },
+  },
+  required: ["results"],
+} as const;
+
 export const SEARCH_OUTPUT_SCHEMA: StandardSchemaWithJSON<
   McpSearchOutput,
   McpSearchOutput
@@ -454,53 +468,8 @@ export const SEARCH_OUTPUT_SCHEMA: StandardSchemaWithJSON<
       return { value: value as McpSearchOutput };
     },
     jsonSchema: {
-      input: () => ({
-        type: "object",
-        properties: {
-          results: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                skill_id: { type: "string" },
-                version_hash: { type: "string" },
-                namespace: { type: "string" },
-                name: { type: "string" },
-                description: { type: "string" },
-                domains: { type: "array", items: { type: "string" } },
-                platforms: { type: "array", items: { type: "string" } },
-                frameworks: { type: "array", items: { type: "string" } },
-                triggers: { type: "array", items: { type: "string" } },
-                anti_triggers: { type: "array", items: { type: "string" } },
-                aliases: { type: "array", items: { type: "string" } },
-                l1_status: { type: "string", enum: ["AUTHORED", "MISSING"] },
-                l1_tokens: { type: ["integer", "null"] },
-                l2_tokens: { type: "integer" },
-              },
-              required: [
-                "skill_id",
-                "version_hash",
-                "namespace",
-                "name",
-                "description",
-                "domains",
-                "platforms",
-                "frameworks",
-                "triggers",
-                "anti_triggers",
-                "aliases",
-                "l1_status",
-                "l1_tokens",
-                "l2_tokens",
-              ],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ["results"],
-        additionalProperties: false,
-      }),
-      output: () => ({ $ref: "#/$defs/searchOutput" }),
+      input: () => SEARCH_OUTPUT_JSON_SCHEMA,
+      output: () => SEARCH_OUTPUT_JSON_SCHEMA,
     },
   },
 };
