@@ -29,9 +29,9 @@ is recorded below. Every PASS carries observable evidence. `BLOCKED` and
 - Closure cycle identity (2026-09-23):
   - IMPLEMENTATION_SHA = `7de5e164d94818e854e666fdd7fbea5946a847ea` (merged
     implementation under closure review)
-  - CANDIDATE_SHA = `4745f43a66d2719ae9b6003efe67e3b539720148` (tool-schema
+  - CANDIDATE_SHA = `7ad5a42b16a337220c792cfc7c8863a0d3c561e8` (tool-schema
     interoperability fix + regression tests; closure branch
-    `release/2.0-final-closure`)
+    `release/2.0-final-closure`; supersedes interim `4745f43`)
   - This document commit is the reviewed closure candidate tip; the eventual
     merged tip becomes FINAL_RELEASE_SHA.
 
@@ -75,22 +75,31 @@ Validation results:
   `sha256:70a37c28…eb3f66`, branch protection absent (non-blocking governance
   risk).
 
-Defect fixed in CANDIDATE_SHA `4745f43`:
+Defect fixed in CANDIDATE_SHA `7ad5a42`:
 
-- `search`, `resolve`, and `get_content` now advertise compact, fully
-  resolvable object projections (`type: object` with `required` keys; the
-  search projection also declares the hosted `effective_release_digest`
-  envelope field). No `$ref` remains anywhere in the emitted tool schemas.
+- The advertised shape must stay the frozen `$ref` container: the SDK ties the
+  `structuredContent` `{result: …}` envelope to a `$ref` root, so inlining
+  projections changed the wire payload shape and broke the hosted runtime
+  contract, and the frozen `ega-o200k-v1` four-tool metadata budget (995/1000
+  measured) leaves no room for full projections.
+- The minimal correct fix is therefore the missing `$defs` section: each of
+  `search`, `resolve`, and `get_content` now emits a permissive resolution
+  anchor next to its `$ref`, so the SDK's re-rooted reference
+  (`#/properties/result/$defs/<anchor>`) resolves inside the emitted document.
+  The container shape, payload envelope, descriptions, input schemas, `inspect`
+  projection, and the authoritative `~standard` validators are unchanged.
 - The frozen descriptor fixture `tests/mcp/contract-expected-tools.json` was
-  corrected for those three projections only; `inspect`, all `inputSchema`
-  entries, descriptions, and the frozen `ega-o200k-v1` metadata budget are
-  unchanged (budget test still passes).
-- The authoritative `~standard` validators, error codes, routing, auth, and
-  content behavior are untouched.
+  corrected for those three projections only (the fixture had captured the
+  unresolvable shape).
 - New regression `tests/mcp/tool-schema-references.test.mjs` (4 tests): every
   emitted input/output schema reference resolves over stdio and hosted HTTP in
   both protocol eras; stdio payloads satisfy their advertised required keys;
   the hosted search envelope field stays declared.
+- Closure candidate verification: `pnpm release:verify` 20/20 stages on
+  `7ad5a42`, full suite 1065 tests / 1058 pass / 0 fail / 7 skipped, natural
+  exit after 633.5 s; artifact validation unchanged
+  (`sha256:70a37c28…eb3f66`); contract descriptor, budget, hosted-runtime, and
+  boundary suites green.
 
 G58 evidence after the fix (`@opencode/cli` v2.0.15, isolated XDG dirs):
 
@@ -102,7 +111,13 @@ G58 evidence after the fix (`@opencode/cli` v2.0.15, isolated XDG dirs):
   returns `cursor/architect` with version hash `sha256:59b17ec9…353e`,
   `resolve` returns a full resolution payload, `inspect` returns the same
   version hash, `get_content` returns the exact accepted L2 content
-  (5383 bytes).
+  (5383 bytes). This four-tool run was observed with the intermediate schema
+  iteration (resolvable `$defs`, compact definitions); the final iteration
+  changes only the anchor name and anchor content while preserving the same
+  container structure, and is covered by the deterministic reference/contract
+  tests above. (The free model provider rate-limited further model runs before
+  the final iteration could be re-driven end-to-end; recorded as a tooling
+  limitation, not a product result.)
 - Identity matches the direct probe, SDK clients, and Codex:
   `sha256:59b17ec9…353e` / `sha256:897a59be…fea5` / release
   `sha256:70a37c28…eb3f66`.
