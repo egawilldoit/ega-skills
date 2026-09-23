@@ -34,12 +34,16 @@
     },
     "outputSchema": {
       "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/properties/result/$defs/r",
+          "$defs": {
+            "r": {}
+          }
+        }
+      },
       "required": [
-        "resolution_id",
-        "confidence",
-        "selected",
-        "lock_status",
-        "budget_status"
+        "result"
       ]
     }
   },
@@ -68,15 +72,15 @@
     "outputSchema": {
       "type": "object",
       "properties": {
-        "results": {
-          "type": "array"
-        },
-        "effective_release_digest": {
-          "type": "string"
+        "result": {
+          "$ref": "#/properties/result/$defs/s",
+          "$defs": {
+            "s": {}
+          }
         }
       },
       "required": [
-        "results"
+        "result"
       ]
     }
   },
@@ -385,12 +389,16 @@
     },
     "outputSchema": {
       "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/properties/result/$defs/g",
+          "$defs": {
+            "g": {}
+          }
+        }
+      },
       "required": [
-        "skill_id",
-        "version_hash",
-        "level",
-        "token_count",
-        "content"
+        "result"
       ]
     }
   }

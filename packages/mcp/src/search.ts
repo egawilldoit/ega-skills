@@ -369,19 +369,14 @@ export function runSearchTool(
  * `structuredContent` is EXACTLY the frozen `McpSearchOutput` container
  * (SPEC-006 §5.1.6 rule 4) and advertises the same shape over `tools/list`.
  */
-// Advertised `tools/list` projection. It must be a *resolvable* JSON Schema
-// (strict clients validate `structuredContent` against it) and it must stay
-// inside the frozen `ega-o200k-v1` metadata budget, so it is intentionally
-// compact: the exact per-row validation lives in the `~standard` validator
-// below and in the runtime's structured error contract.
-const SEARCH_OUTPUT_JSON_SCHEMA = {
-  type: "object",
-  properties: {
-    results: { type: "array" },
-    effective_release_digest: { type: "string" },
-  },
-  required: ["results"],
-} as const;
+// Resolution anchor for the frozen `$ref` tool-output container. The SDK
+// re-roots the reference under `#/properties/result/$defs/<name>`, so the
+// definition must exist inside the emitted document or strict clients refuse
+// to execute the tool. It is intentionally permissive (accepts any value)
+// because the frozen `ega-o200k-v1` metadata budget does not admit a full
+// projection here; the `~standard` validator below and the runtime's
+// structured contract remain authoritative.
+const SEARCH_OUTPUT_JSON_SCHEMA = {} as const;
 
 export const SEARCH_OUTPUT_SCHEMA: StandardSchemaWithJSON<
   McpSearchOutput,
@@ -469,7 +464,7 @@ export const SEARCH_OUTPUT_SCHEMA: StandardSchemaWithJSON<
     },
     jsonSchema: {
       input: () => SEARCH_OUTPUT_JSON_SCHEMA,
-      output: () => SEARCH_OUTPUT_JSON_SCHEMA,
+      output: () => ({ $ref: "#/$defs/s", $defs: { s: SEARCH_OUTPUT_JSON_SCHEMA } }),
     },
   },
 };

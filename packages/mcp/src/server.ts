@@ -238,11 +238,7 @@ export function toolSchema(spec: {
           properties: jsonProperties,
           required: [...spec.required],
         }),
-        output: () => ({
-          type: "object",
-          properties: jsonProperties,
-          required: [...spec.required],
-        }),
+        output: () => ({ $ref: "#/$defs/toolErrorEnvelope", $defs: { toolErrorEnvelope: TOOL_ERROR_ENVELOPE_JSON_SCHEMA } }),
       },
     },
   };
@@ -298,7 +294,7 @@ const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEn
     },
     jsonSchema: {
       input: () => TOOL_ERROR_ENVELOPE_JSON_SCHEMA,
-      output: () => TOOL_ERROR_ENVELOPE_JSON_SCHEMA,
+      output: () => ({ $ref: "#/$defs/toolErrorEnvelope", $defs: { toolErrorEnvelope: TOOL_ERROR_ENVELOPE_JSON_SCHEMA } }),
     },
   },
 };

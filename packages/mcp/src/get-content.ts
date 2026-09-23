@@ -480,12 +480,10 @@ function cacheDirOf(ctx: McpProjectContext): string {
  * `structuredContent` is EXACTLY the frozen output container and advertises
  * the same shape over `tools/list`.
  */
-// Resolvable, budget-bounded advertised projection; the `~standard` validator
-// (and the runtime's exact content contract) remain authoritative.
-const GET_CONTENT_OUTPUT_JSON_SCHEMA = {
-  type: "object",
-  required: ["skill_id", "version_hash", "level", "token_count", "content"],
-} as const;
+// Resolution anchor for the frozen `$ref` tool-output container (see
+// search.ts): must exist so strict clients can resolve the re-rooted
+// reference, and must stay inside the frozen metadata budget.
+const GET_CONTENT_OUTPUT_JSON_SCHEMA = {} as const;
 
 export const GET_CONTENT_OUTPUT_SCHEMA: StandardSchemaWithJSON<
   McpGetContentOutput,
@@ -522,7 +520,7 @@ export const GET_CONTENT_OUTPUT_SCHEMA: StandardSchemaWithJSON<
     },
     jsonSchema: {
       input: () => GET_CONTENT_OUTPUT_JSON_SCHEMA,
-      output: () => GET_CONTENT_OUTPUT_JSON_SCHEMA,
+      output: () => ({ $ref: "#/$defs/g", $defs: { g: GET_CONTENT_OUTPUT_JSON_SCHEMA } }),
     },
   },
 };

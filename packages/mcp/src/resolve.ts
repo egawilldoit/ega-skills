@@ -324,18 +324,10 @@ export async function runResolveTool(
  * `structuredContent` is the snake_case resolution container and advertises
  * the same shape over `tools/list`.
  */
-// Resolvable, budget-bounded advertised projection; the `~standard` validator
-// below remains the authoritative contract for the payload.
-const RESOLVE_OUTPUT_JSON_SCHEMA = {
-  type: "object",
-  required: [
-    "resolution_id",
-    "confidence",
-    "selected",
-    "lock_status",
-    "budget_status",
-  ],
-} as const;
+// Resolution anchor for the frozen `$ref` tool-output container (see
+// search.ts): must exist so strict clients can resolve the re-rooted
+// reference, and must stay inside the frozen metadata budget.
+const RESOLVE_OUTPUT_JSON_SCHEMA = {} as const;
 
 export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>> = {
   "~standard": {
@@ -384,7 +376,7 @@ export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknow
     },
     jsonSchema: {
       input: () => RESOLVE_OUTPUT_JSON_SCHEMA,
-      output: () => RESOLVE_OUTPUT_JSON_SCHEMA,
+      output: () => ({ $ref: "#/$defs/r", $defs: { r: RESOLVE_OUTPUT_JSON_SCHEMA } }),
     },
   },
 };
