@@ -1,9 +1,11 @@
 # EGA Skills 2.0 — Final release evidence
 
-Status: FINAL integration candidate merged to `release/2.0`; independent
-review round 2 complete (R2 PASS, R1 BLOCK on one external client-capability
-gate only); exact-SHA CI green. Every PASS below carries observable evidence.
-`BLOCKED` and `SKIPPED` are not passes.
+Status: CLOSURE CYCLE (2026-09-23) in progress. The previously blocked gate
+G58 is now executable: an official OpenCode v2 build accepts
+`protocol: "2026-07-28"`, and the strict OpenCode acceptance passes all four
+tools after the tool-schema fix in `CANDIDATE_SHA`. Independent review round 3
+is recorded below. Every PASS carries observable evidence. `BLOCKED` and
+`SKIPPED` are not passes.
 
 ## Identity
 
@@ -24,6 +26,96 @@ gate only); exact-SHA CI green. Every PASS below carries observable evidence.
   - `7de5e16` — completed ledger (**review round 2 target**)
 - FINAL_RELEASE_SHA (merged, fast-forward): `7de5e164d94818e854e666fdd7fbea5946a847ea`
   — PR #113 merged into `release/2.0` at 2026-09-22T22:28:27Z
+- Closure cycle identity (2026-09-23):
+  - IMPLEMENTATION_SHA = `7de5e164d94818e854e666fdd7fbea5946a847ea` (merged
+    implementation under closure review)
+  - CANDIDATE_SHA = `4745f43a66d2719ae9b6003efe67e3b539720148` (tool-schema
+    interoperability fix + regression tests; closure branch
+    `release/2.0-final-closure`)
+  - This document commit is the reviewed closure candidate tip; the eventual
+    merged tip becomes FINAL_RELEASE_SHA.
+
+## Closure cycle (2026-09-23)
+
+Three parallel validation agents re-audited the repository at BASE_SHA
+`8eb56004eba1b568f0dfeae6d87f349d64f30c99` (A: release/CI integrity,
+B: MCP/OpenCode/G58 interoperability, C: deployment/evidence safety), followed
+by independent reviews.
+
+Validation results:
+
+- **A — PASS** on versions (11 × 2.0.0, CLI + stdio/hosted identities,
+  version-consistency 4/4), exact-SHA CI (runs `35793962949`/`35793962950`,
+  all five required jobs success), fresh deterministic verification
+  (`release:verify` 20/20; suite 1061/1054/0/7, natural exit 849 s), hang
+  regression 3/3 with no leftover suite processes, artifact digest
+  `sha256:70a37c28…eb3f66`, `pnpm audit --prod` clean, documentation and
+  secret scans clean. P2: branch protection still absent; P3: stale
+  `docs/evidence/INTAKE-EXECUTION-STATUS.md` banner; committed artifact not
+  covered by a CI stage.
+- **B — found the release-blocking interoperability defect.** `@opencode/cli`
+  v2 (2.0.15, published 2026-09-23, and dev-20040) exposes
+  `McpRemoteConfig.protocol = legacy | auto | 2026-07-28`; the older
+  `opencode-ai` v1 line (1.18.32, beta, dev) does not. Strict OpenCode
+  v2.0.15 accepted `protocol: "2026-07-28"`, negotiated it via
+  `server/discover` (no initialize), completed OAuth (DCR + PKCE S256), and
+  listed exactly four tools — but `search`, `resolve`, and `get_content` were
+  refused client-side: `Tool '<name>' has an invalid outputSchema: can't
+  resolve reference …`. Root cause: `jsonSchema.output()` returned
+  `{ $ref: "#/$defs/<name>Output" }` with no `$defs` section ever emitted (and
+  the SDK re-roots such refs under `#/properties/result/…`); the frozen
+  contract fixture captured that invalid shape. `inspect` (inline schema) was
+  unaffected.
+- **C — PASS** on all deployment/evidence gates: production unchanged
+  (`dpl_7sZekMx6LV1iDc3qcXU9TxddxyiL`, both merge-window production builds
+  Canceled, `commandForIgnoringBuildStep` restored to `null`), preview smoke
+  16/16, production-branch merge guard reconfirmed (required before merge),
+  rollback evidence immutable (A/B/A2/B2 all Ready), identity chain revalidated
+  from the pinned upstream commits to the release digest
+  `sha256:70a37c28…eb3f66`, branch protection absent (non-blocking governance
+  risk).
+
+Defect fixed in CANDIDATE_SHA `4745f43`:
+
+- `search`, `resolve`, and `get_content` now advertise compact, fully
+  resolvable object projections (`type: object` with `required` keys; the
+  search projection also declares the hosted `effective_release_digest`
+  envelope field). No `$ref` remains anywhere in the emitted tool schemas.
+- The frozen descriptor fixture `tests/mcp/contract-expected-tools.json` was
+  corrected for those three projections only; `inspect`, all `inputSchema`
+  entries, descriptions, and the frozen `ega-o200k-v1` metadata budget are
+  unchanged (budget test still passes).
+- The authoritative `~standard` validators, error codes, routing, auth, and
+  content behavior are untouched.
+- New regression `tests/mcp/tool-schema-references.test.mjs` (4 tests): every
+  emitted input/output schema reference resolves over stdio and hosted HTTP in
+  both protocol eras; stdio payloads satisfy their advertised required keys;
+  the hosted search envelope field stays declared.
+
+G58 evidence after the fix (`@opencode/cli` v2.0.15, isolated XDG dirs):
+
+- Strict config `{ type: "remote", protocol: "2026-07-28" }` accepted;
+  `opencode mcp list` → `connected`; no fallback.
+- Wire: `server/discover` with `mcp-protocol-version: 2026-07-28`;
+  `tools/list` returns exactly `search`, `resolve`, `inspect`, `get_content`.
+- All four tools execute against the fixed candidate runtime: `search`
+  returns `cursor/architect` with version hash `sha256:59b17ec9…353e`,
+  `resolve` returns a full resolution payload, `inspect` returns the same
+  version hash, `get_content` returns the exact accepted L2 content
+  (5383 bytes).
+- Identity matches the direct probe, SDK clients, and Codex:
+  `sha256:59b17ec9…353e` / `sha256:897a59be…fea5` / release
+  `sha256:70a37c28…eb3f66`.
+- Note: OpenCode v2 refuses OAuth metadata whose resource does not cover the
+  connected URL (`Protected resource … does not cover http://127.0.0.1:…/mcp`),
+  so the strict tool-execution run above used an OAuth-minted delegated access
+  token as a bearer header against the fixed runtime; OpenCode's own OAuth
+  flow with the same pin was executed successfully against the live resource
+  (validation agent B). OAuth is orthogonal to the fixed schema projection.
+  Production deployment remains unauthorized, so the fixed candidate could not
+  be exercised at the production resource URL.
+- Per the release brief §32, this is **G58 executed as originally intended**
+  with a supported client; no acceptance-boundary waiver is used.
 - Product version: `2.0.0` (root + 10 workspace packages + both MCP
   serverInfo identities)
 - Execution date: 2026-09-22 UTC
@@ -156,6 +248,7 @@ conclusions. Raw reviews are held by the main agent; findings register:
 | R2-P3-01 | R2 | P3 | Interop | Case-sensitive `Bearer ` scheme check | Accepted (RFC nit; no observed client affected) |
 | R2-P3-02 | R2 | P3 | Diagnostics | Absolute artifact path can appear in a corrupted-blob error message | Accepted for 2.0 |
 | R2-P3-03 | R2 | P3 | OAuth provider | Supabase advertises `plain` PKCE; hook binds all project OAuth clients to the MCP audience | Accepted; dedicated-issuer invariant documented in `packages/mcp/VERCEL.md` |
+| B-P1-01 (closure) | Validation B | P1 | MCP interoperability | Dangling `$ref` tool output schemas made strict clients refuse `search`/`resolve`/`get_content`; frozen fixture had captured the invalid shape | **FIXED** `4745f43` + `tests/mcp/tool-schema-references.test.mjs`; OpenCode v2.0.15 executes all four tools |
 
 Round-1 verdicts: R1 **BLOCK**, R2 **BLOCK** — both driven by the same P1
 (test/CI nondeterminism); no P0 found by either reviewer.
@@ -248,7 +341,7 @@ verification/merge cycle.
 | G55 Codex OAuth | PASS | DCR + PKCE S256, resource pinned |
 | G56 Codex four-tool proof | PASS | per-tool JSONL, exactly four tools, identity match |
 | G57 Codex restart proof | PASS | fresh process, persisted OAuth |
-| G58 OpenCode strict 2026-07-28 | **BLOCKED** | client 1.18.32 (and today's dev build) has no protocol pin; observed `2025-11-25` |
+| G58 OpenCode strict 2026-07-28 | PASS | `@opencode/cli` 2.0.15 pins `2026-07-28`, negotiates via `server/discover`, four tools execute after `4745f43`; see Closure cycle |
 | G59 OpenCode OAuth | PASS | headless login, `connected (OAuth)` |
 | G60 OpenCode four-tool proof | PASS | same identity as Codex/probe |
 | G61 OpenCode auto mode | PASS (discrepancy recorded) | auto negotiated `2025-11-25` |
@@ -261,11 +354,11 @@ verification/merge cycle.
 | G68 version consistency | PASS | version test 4/4; CLI and both MCP identities 2.0.0 |
 | G69 release notes | PASS | `docs/RELEASE-NOTES-2.0.0.md` |
 | G70 operator runbook | PASS | `docs/operations/RELEASE-2.0-RUNBOOK.md` |
-| G71 exact-SHA CI | PASS | push run `35792565286` + hashing run `35792565224` green on `7de5e16` |
-| G72 reviewer R1 PASS | **BLOCK** | round 2: all software items closed; block rests on G58 only |
-| G73 reviewer R2 PASS | PASS | round 2 security/interop review: P0 = 0, P1 = 0 |
-| G74 zero P0 | PASS | no P0 found by either reviewer in either round; boundary attacks all failed closed |
-| G75 zero P1 | **BLOCK** | the P1 test defect is fixed and verified; the open P1 is the external G58 client-capability gap |
+| G71 exact-SHA CI | PASS | push run `35792565286` + hashing run `35792565224` green on `7de5e16`; closure-tip run recorded post-merge |
+| G72 reviewer R1 PASS | PENDING | round-3 review of the closure candidate (round 2: BLOCK restricted to G58) |
+| G73 reviewer R2 PASS | PENDING | round-3 review of the closure candidate (round 2: PASS, P0 = 0, P1 = 0) |
+| G74 zero P0 | PASS | no P0 found by any reviewer; boundary attacks all failed closed |
+| G75 zero P1 | PENDING | round-2 P1 test defect fixed and verified; closure P1 (schemas) fixed in `4745f43`; round 3 to confirm |
 
 ## Governance and authorization
 
