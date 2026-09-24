@@ -11,14 +11,14 @@ EGA_HOSTED_ARTIFACT_DIR=./artifact
 
 ## Provisioned release
 
-- Release digest: `sha256:70a37c28e767230e04e45e34a33689113870394cda88f017f2aac322aaeb3f66`
+- Release digest: `sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f`
 - Hub id: `personal`
-- Skills (5, real reviewed upstream only — no fixtures, no examples):
-  `cursor/architect`, `cursor/setup-pstack`, `mattpocock/code-review`,
-  `mattpocock/grilling`, `mattpocock/tdd`
-- Built by `scripts/hosted/build-deployment-artifact.mjs` from pinned
-  reviewed commits; see `PROVENANCE.md` for sources, digests, and the
-  reproduce/validate commands.
+- Skills (48: mattpocock 25, anthropic 14, vercel 9 — real reviewed upstream only,
+  no fixtures, no examples; see PROVENANCE.md for the full ID list and the
+  catalog-2026-09-24.1 evidence files)
+- Built by the governed hub intake → preview → export pipeline from pinned
+  reviewed commits; see `PROVENANCE.md` for sources, repairs, routing
+  metadata, and the reproduce/validate commands.
 
 A valid artifact contains everything required by the current loader
 (`loadHostedReleaseSnapshot`), including:
