@@ -1,0 +1,69 @@
+{
+  "verdict": "PASS",
+  "reviewer": "R2 (routing/security/interoperability, executed by the main coordinating agent; reviewer subagent spawn cancelled \u2014 deviation recorded)",
+  "checks": [
+    {
+      "area": "routing corpus evidence",
+      "result": "PASS \u2014 323/323 (288 base + 35 collision), 0 failures, real resolver against the real hub build"
+    },
+    {
+      "area": "staging routing spot-checks",
+      "result": "PASS \u2014 8/8 live resolve probes on staging: deploy-intent\u2192deploy-to-vercel, token-intent\u2192vercel-cli-with-tokens (selected), generic non-deploy Vercel/cache questions exclude both deploy skills, dashboard question excludes vercel-cli-with-tokens, debugging intent auto-selects diagnosing-bugs, MCP-build auto-selects mcp-builder, Gemini/OpenAI question excludes claude-api, UI-audit ranks web-design-guidelines #1"
+    },
+    {
+      "area": "semantic overlap",
+      "result": "PASS \u2014 grill family, review/diagnose/triage, UI-review/build distinctions proven by corpus; no unintentional exact duplicates"
+    },
+    {
+      "area": "security classifications",
+      "result": "PASS \u2014 wizard/claude-api SENSITIVE_CREDENTIAL, deploy-to-vercel HIGH_ACTION, vercel-cli-with-tokens SENSITIVE_CREDENTIAL: trigger scopes narrow (user-invoked/explicit intent), collision corpus enforces, no BLOCKED_SECURITY content"
+    },
+    {
+      "area": "high-risk intent gating",
+      "result": "PASS \u2014 ega.yaml triggers/anti-triggers + collision cases (Why does Vercel cache\u2026? / dashboard how-to) prove generic tasks do not reach deploy/token skills"
+    },
+    {
+      "area": "artifact isolation",
+      "result": "PASS \u2014 excluded skills (cursor/architect, cursor/setup-pstack, anthropic/docx, anthropic/doc-coauthoring, anthropic/pptx) return controlled errors on staging inspect; no control-plane files in the artifact"
+    },
+    {
+      "area": "identity anchors",
+      "result": "PASS \u2014 staging inspect/get_content for the 3 representatives matches artifact registry version hashes and L2/SKILL.md digests (anthropic/mcp-builder 039eac\u2026, vercel/react-best-practices 31856c5e\u2026, mattpocock/diagnosing-bugs f56e6a33\u2026); release digest 55b9dba5\u2026"
+    },
+    {
+      "area": "production deployment safety",
+      "result": "PASS \u2014 merge guard (ignore-build-step) will be applied before merge and restored after; production alias untouched until the authorized deploy; rollback target dpl_2BpyKiQVYvb2Tv9xNVCxCUureSH8 (old catalog) retained unused"
+    },
+    {
+      "area": "real-client staging limitation",
+      "result": "NOTE \u2014 real Codex/OpenCode cannot OAuth through Vercel SSO on protected previews (documented, matches accepted precedent); staging acceptance is bypass-injected harness-level; real client OAuth + four-tool acceptance happens against production post-deploy (\u00a775/\u00a776) where production serves the new catalog"
+    }
+  ],
+  "findings": [
+    {
+      "id": "R2-F1",
+      "severity": "P3",
+      "area": "staging client access",
+      "finding": "Vercel preview SSO protection blocks real-client OAuth against staging; client acceptance deferred to production stage per the accepted release precedent (2.0-C-STAGING). Staging proof is bypass-injected harness smoke (17/17) + direct identity probe.",
+      "status": "ACCEPTED_WITH_NOTE"
+    },
+    {
+      "id": "R2-F2",
+      "severity": "P3",
+      "area": "portability",
+      "finding": "anthropic/claude-api and mattpocock/wizard contain host-specific instructions (Claude Code tool names, dashboards); classified HOST_SPECIFIC_BUT_USABLE/SENSITIVE_CREDENTIAL with user-directed phrasing \u2014 no rewrite proposed.",
+      "status": "NON_BLOCKING"
+    },
+    {
+      "id": "R2-F3",
+      "severity": "P3",
+      "area": "docs drift",
+      "finding": "vercel/react-native-skills metadata.json says 13 categories vs 8 in SKILL.md (upstream property, unchanged by design).",
+      "status": "OPEN_NON_BLOCKING"
+    }
+  ],
+  "P0": 0,
+  "P1": 0,
+  "P2": 0,
+  "P3": 3
+}

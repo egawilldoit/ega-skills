@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "mattpocock",
+      "namespace": "mattpocock",
+      "type": "local-owned",
+      "repository": "https://github.com/mattpocock/skills",
+      "commit": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "roots": "skills/engineering/* (18) + skills/productivity/* (7)",
+      "provenance_files": [
+        "LICENSE"
+      ],
+      "repairs": [],
+      "tree_dir": "/home/ubuntu/ega-catalog-intake/mattpocock-tree",
+      "note": "adopted as local-owned EGA tree because ega.yaml routing metadata is required inside the namespace and the platform namespace model forbids mixing adopted-git sources with owned routing metadata in one namespace; every unpatched file is byte-identical to the pinned commit (audited)."
+    },
+    {
+      "source_id": "anthropic-owned",
+      "type": "local-owned",
+      "repository": "https://github.com/anthropics/skills",
+      "commit": "34040c9c568585f6929bedeaad110ad08f079624",
+      "upstream_root": "skills",
+      "tree_dir": "/home/ubuntu/ega-catalog-intake/anthropic-tree",
+      "provenance_files": [
+        "README.md"
+      ],
+      "repairs": [
+        {
+          "skill_id": "anthropic/claude-api",
+          "file": "skills/claude-api/SKILL.md",
+          "original_sha256": "sha256:8227f0d1192594bfea04df6c9f1d9d727dd300c3f4b2c42d315dd9fe58b1a421",
+          "repaired_sha256": "sha256:3e85b0cc9cc35ba167a18544766fc930f0841f6e151a7c0b708ad3f5936baabd",
+          "original_frontmatter_name": "claude-api",
+          "ega_logical_id": "anthropic/claude-api",
+          "field": "description",
+          "reason": "SPEC-001 description limit: parsed 1071 code points > 1024. Meaning-preserving compression of the TRIGGER clause (scaffolding words removed; every trigger condition, provider list, and SKIP clause preserved verbatim). Sanctioned D1 repair class: reviewed description rewrite.",
+          "license": "Apache-2.0 (per-skill LICENSE.txt)",
+          "license_evidence": "skills/claude-api/LICENSE.txt @ 34040c9c568585f6929bedeaad110ad08f079624",
+          "source_commit": "34040c9c568585f6929bedeaad110ad08f079624"
+        }
+      ]
+    },
+    {
+      "source_id": "vercel-owned",
+      "type": "local-owned",
+      "repository": "https://github.com/vercel-labs/agent-skills",
+      "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "upstream_root": "skills",
+      "tree_dir": "/home/ubuntu/ega-catalog-intake/vercel-tree",
+      "provenance_files": [
+        "README.md"
+      ],
+      "repairs": [
+        {
+          "skill_id": "vercel/composition-patterns",
+          "file": "skills/composition-patterns/SKILL.md",
+          "original_sha256": "e38e0eaa609316b10423a9a138ed95e35099accd3f735585295c8a8f165c28a3",
+          "repaired_sha256": "4867652abc03e7a9e12aeafaf4e20933d667877d654042a85fa104aa1c1c1ab6",
+          "original_frontmatter_name": "vercel-composition-patterns",
+          "ega_logical_id": "vercel/composition-patterns",
+          "field": "name",
+          "reason": "SPEC-001 requires frontmatter name == directory name; upstream frontmatter \"vercel-composition-patterns\" prefixes the directory name \"composition-patterns\" with the redundant namespace token, making import impossible. Trimmed to the brief-mandated EGA logical ID (catalog-reset brief sections 7 and 11). Reviewed, documented repair \u2014 not a silent rename.",
+          "license": "MIT (README.md ## License, repository-scoped)",
+          "license_evidence": "README.md ## License at 063bee94c3f4df8453406c830b0a7df0f2860278",
+          "source_commit": "063bee94c3f4df8453406c830b0a7df0f2860278"
+        },
+        {
+          "skill_id": "vercel/react-best-practices",
+          "file": "skills/react-best-practices/SKILL.md",
+          "original_sha256": "71ed7794962fa6e803ee83030517b5b93a9f70fbfeb431ec4535c5480a8d8355",
+          "repaired_sha256": "74e45648634f8bc59ac21ffb1de71095dc53d15667344084c89315b7834710ab",
+          "original_frontmatter_name": "vercel-react-best-practices",
+          "ega_logical_id": "vercel/react-best-practices",
+          "field": "name",
+          "reason": "SPEC-001 requires frontmatter name == directory name; upstream frontmatter \"vercel-react-best-practices\" prefixes the directory name \"react-best-practices\" with the redundant namespace token, making import impossible. Trimmed to the brief-mandated EGA logical ID (catalog-reset brief sections 7 and 11). Reviewed, documented repair \u2014 not a silent rename.",
+          "license": "MIT (README.md ## License, repository-scoped)",
+          "license_evidence": "README.md ## License at 063bee94c3f4df8453406c830b0a7df0f2860278",
+          "source_commit": "063bee94c3f4df8453406c830b0a7df0f2860278"
+        },
+        {
+          "skill_id": "vercel/react-native-skills",
+          "file": "skills/react-native-skills/SKILL.md",
+          "original_sha256": "4012750a5ccbe064ca04af3835d5d1b011979d2d09d9b6df1c8128fac58e0a66",
+          "repaired_sha256": "6d4133d2c2e80642e1f08bacb53e884fe1d9bf52c35d6cd557dd730e81d7391b",
+          "original_frontmatter_name": "vercel-react-native-skills",
+          "ega_logical_id": "vercel/react-native-skills",
+          "field": "name",
+          "reason": "SPEC-001 requires frontmatter name == directory name; upstream frontmatter \"vercel-react-native-skills\" prefixes the directory name \"react-native-skills\" with the redundant namespace token, making import impossible. Trimmed to the brief-mandated EGA logical ID (catalog-reset brief sections 7 and 11). Reviewed, documented repair \u2014 not a silent rename.",
+          "license": "MIT (README.md ## License, repository-scoped)",
+          "license_evidence": "README.md ## License at 063bee94c3f4df8453406c830b0a7df0f2860278",
+          "source_commit": "063bee94c3f4df8453406c830b0a7df0f2860278"
+        },
+        {
+          "skill_id": "vercel/react-view-transitions",
+          "file": "skills/react-view-transitions/SKILL.md",
+          "original_sha256": "1520343c8814c972fee001cac6d6185976d6eb3f4edcac33afe95c10f3b3228b",
+          "repaired_sha256": "bdb77732d3efdc901883329a2c2e6a0d8313301ef10571bd25df765d084ad6c7",
+          "original_frontmatter_name": "vercel-react-view-transitions",
+          "ega_logical_id": "vercel/react-view-transitions",
+          "field": "name",
+          "reason": "SPEC-001 requires frontmatter name == directory name; upstream frontmatter \"vercel-react-view-transitions\" prefixes the directory name \"react-view-transitions\" with the redundant namespace token, making import impossible. Trimmed to the brief-mandated EGA logical ID (catalog-reset brief sections 7 and 11). Reviewed, documented repair \u2014 not a silent rename.",
+          "license": "MIT (README.md ## License, repository-scoped)",
+          "license_evidence": "README.md ## License at 063bee94c3f4df8453406c830b0a7df0f2860278",
+          "source_commit": "063bee94c3f4df8453406c830b0a7df0f2860278"
+        }
+      ]
+    }
+  ],
+  "byte_identity": "every unpatched file verified byte-identical to its pinned upstream blob (sha256)",
+  "routing_metadata": [
+    {
+      "skill_id": "mattpocock/diagnosing-bugs",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "triggers": [
+          "never exits",
+          "hangs",
+          "root cause"
+        ]
+      },
+      "reason": "brief-mandated collision prompt has zero lexical overlap with the natural description; trigger evidence required."
+    },
+    {
+      "skill_id": "mattpocock/tdd",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "triggers": [
+          "test-first",
+          "red green refactor",
+          "red-green-refactor"
+        ]
+      },
+      "reason": "test-first build prompts must outrank planning/wayfinder vocabulary."
+    },
+    {
+      "skill_id": "anthropic/claude-api",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "anti_triggers": [
+          "gemini",
+          "openai",
+          "gpt",
+          "langchain",
+          "langchain_openai",
+          "ollama",
+          "mistral",
+          "cohere",
+          "llama"
+        ]
+      },
+      "reason": "encodes the description's own SKIP rule; competitor migration/debugging tasks must not select it."
+    },
+    {
+      "skill_id": "anthropic/mcp-builder",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "triggers": [
+          "build an mcp server",
+          "implement an mcp server",
+          "mcp server exposing"
+        ],
+        "anti_triggers": [
+          "diagnose",
+          "fails at startup",
+          "crash",
+          "existing mcp server"
+        ]
+      },
+      "reason": "build-intent triggers; runtime-crash debugging and client-side connection config must not select it."
+    },
+    {
+      "skill_id": "vercel/react-best-practices",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "triggers": [
+          "unnecessary rerenders",
+          "render waterfall",
+          "slow page"
+        ]
+      },
+      "reason": "collision cluster: render-performance prompts must rank react-best-practices above composition-patterns/react-view-transitions."
+    },
+    {
+      "skill_id": "vercel/deploy-to-vercel",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "triggers": [
+          "deploy my app",
+          "give me the link",
+          "push this live",
+          "create a preview deployment"
+        ],
+        "anti_triggers": [
+          "access token",
+          "cache"
+        ]
+      },
+      "reason": "explicit deploy intent beats vercel-cli-with-tokens; token-context and cache-behavior questions are not deployment intents."
+    },
+    {
+      "skill_id": "vercel/vercel-cli-with-tokens",
+      "file": "ega.yaml (in owned tree)",
+      "fields": {
+        "anti_triggers": [
+          "dashboard"
+        ]
+      },
+      "reason": "dashboard questions are not token-based CLI usage."
+    }
+  ]
+}
