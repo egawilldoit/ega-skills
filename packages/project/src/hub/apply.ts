@@ -7,20 +7,20 @@
 // The server (and this function) NEVER mutates the caller's project files;
 // it mutates only the Hub directory it owns.
 
-import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, rmdirSync, writeSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import type { Dirent } from "node:fs";
-import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { stringify as stringifyYaml } from "yaml";
 import { verifyEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
 import { COMMIT_RE, SHA256_RE, assertRelativePosix, assertSortedUnique, assertSourceId, isPlainObject } from "./guards.js";
+import { acquireOwnerTokenLock } from "./mutation-lock.js";
 import {
   clearJournal,
   durableRename,
   readJournal,
-  recoverIfNeeded,
+  recoverIfNeededLocked,
   removePathDurable,
   requireCleanJournal,
   syncDirectory,
@@ -28,6 +28,7 @@ import {
   writeFileDurable,
   writeJournal,
 } from "./journal.js";
+import { readAdoptionJournal } from "./journal.js";
 import type { HubJournal } from "./journal.js";
 import { digestStagedTree } from "./quarantine.js";
 import { parseSourcesLockYaml, type SourceLockRecord } from "./sources-lock.js";
@@ -45,117 +46,6 @@ function lockPath(hubDir: string): string {
   return join(hubDir, ".hub.lock");
 }
 
-interface HubLockOwner {
-  readonly pid: number;
-  readonly token: string;
-}
-
-let lockGeneration = 0;
-
-function uniqueLockToken(): string {
-  lockGeneration += 1;
-  const nodeProcess = (globalThis as { process?: { pid?: number } }).process;
-  return createHash("sha256")
-    .update(new TextEncoder().encode(`${nodeProcess?.pid ?? 0}:${Date.now()}:${lockGeneration}:${Math.random()}`))
-    .digest("hex");
-}
-
-function readLockOwner(path: string): HubLockOwner | undefined {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8").trim();
-  } catch {
-    return undefined;
-  }
-  try {
-    const value: unknown = JSON.parse(text);
-    if (!isPlainObject(value) || typeof value["pid"] !== "number" || !Number.isInteger(value["pid"]) || value["pid"] < 1 || typeof value["token"] !== "string" || value["token"].length === 0) {
-      return undefined;
-    }
-    return { pid: value["pid"], token: value["token"] };
-  } catch {
-    return undefined;
-  }
-}
-
-function readLockMarker(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8").trim();
-  } catch {
-    return undefined;
-  }
-}
-
-interface LockSnapshot {
-  readonly kind: "file" | "directory" | "invalid";
-  readonly marker: string | undefined;
-  readonly ownerPath: string | undefined;
-}
-
-function readLockSnapshot(path: string): LockSnapshot | undefined {
-  let stat;
-  try {
-    stat = lstatSync(path);
-  } catch {
-    return undefined;
-  }
-  if (stat.isFile()) return { kind: "file", marker: readLockMarker(path), ownerPath: undefined };
-  if (!stat.isDirectory()) return { kind: "invalid", marker: undefined, ownerPath: undefined };
-  let entries;
-  try {
-    entries = readdirSync(path, { withFileTypes: true });
-  } catch {
-    return { kind: "invalid", marker: undefined, ownerPath: undefined };
-  }
-  const owners = entries.filter((entry) => entry.name.startsWith("owner."));
-  if (owners.length !== 1 || !owners[0]?.isFile()) return { kind: "directory", marker: undefined, ownerPath: undefined };
-  const ownerPath = join(path, owners[0].name);
-  return { kind: "directory", marker: readLockMarker(ownerPath), ownerPath };
-}
-
-function lockOwnerIsAlive(path: string): boolean {
-  const snapshot = readLockSnapshot(path);
-  const owner = snapshot?.marker;
-  if (owner === undefined) return true;
-  // Empty or malformed markers fail closed. Numeric markers remain readable
-  // for recovery of hubs written by the previous implementation.
-  const parsed = readLockOwner(snapshot?.ownerPath ?? path);
-  const pid = parsed?.pid ?? (/^\d+$/.test(owner) ? Number(owner) : undefined);
-  if (pid === undefined) return true;
-  try {
-    const nodeProcess = (globalThis as { process?: { kill(pid: number, signal: number): void } }).process;
-    if (nodeProcess === undefined) return true;
-    nodeProcess.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as { code?: unknown }).code !== "ESRCH";
-  }
-}
-
-function createLockOwner(path: string): { owner: HubLockOwner; marker: string; ownerPath: string } {
-  const nodeProcess = (globalThis as { process?: { pid?: number } }).process;
-  const owner: HubLockOwner = {
-    pid: typeof nodeProcess?.pid === "number" ? nodeProcess.pid : 0,
-    token: uniqueLockToken(),
-  };
-  mkdirSync(path);
-  const ownerPath = join(path, `owner.${owner.token}`);
-  const marker = JSON.stringify(owner);
-  try {
-    const fd = openSync(ownerPath, "wx");
-    try {
-      writeSync(fd, marker);
-    } finally {
-      closeSync(fd);
-    }
-  } catch (error) {
-    rmSync(ownerPath, { force: true });
-    try { rmdirSync(path); } catch { /* another contender may be recovering it */ }
-    throw error;
-  }
-  return { marker, owner, ownerPath };
-}
-
 /** Exclusive Hub mutation lock (create-exclusive; held locks fail closed).
  *
  *  Crash-kill escape hatch (deliberate, documented): this lock is a
@@ -169,63 +59,41 @@ function createLockOwner(path: string): { owner: HubLockOwner; marker: string; o
 export function acquireHubLock(hubDir: string): HubLock {
   mkdirSync(hubDir, { recursive: true });
   const path = lockPath(hubDir);
-  let created: { owner: HubLockOwner; marker: string; ownerPath: string };
+  // Compatibility for the pre-token file lock. A regular file can only be
+  // removed after its numeric owner is proven dead; a replacement directory
+  // makes this exact file removal fail closed.
   try {
-    created = createLockOwner(path);
-  } catch (error) {
-    if ((error as { code?: unknown }).code !== "EEXIST" || readJournal(hubDir) === null || lockOwnerIsAlive(path)) {
-      throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+    let existing;
+    try { existing = lstatSync(path); } catch (error) {
+      if ((error as { code?: unknown }).code !== "ENOENT") throw error;
     }
-    const snapshot = readLockSnapshot(path);
-    if (snapshot?.kind === "directory") {
-      if (snapshot.ownerPath !== undefined && snapshot.marker !== undefined) {
-        if (lockOwnerIsAlive(path)) throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
-        // Remove only the exact stale owner's token. A replacement lock has a
-        // different owner filename, so it cannot be affected by this unlink.
-        try {
-          rmSync(snapshot.ownerPath, { force: false });
-        } catch {
-          throw new HubError("E_HUB_LOCKED", "hub mutation lock owner changed during reclamation");
-        }
-      }
-      // rmdir succeeds only for the empty directory just reclaimed. A new
-      // owner directory (which contains its own tokenized marker) survives.
+    if (existing?.isFile()) {
+      const marker = readFileSync(path, "utf8").trim();
+      const pid = /^\d+$/.test(marker) ? Number(marker) : undefined;
+      if (pid === undefined) throw new HubError("E_HUB_LOCKED", "hub mutation lock owner cannot be read");
       try {
-        rmdirSync(path);
-      } catch {
+        const nodeProcess = (globalThis as { process?: { kill(ownerPid: number, signal: number): void } }).process;
+        if (nodeProcess === undefined) throw new HubError("E_HUB_LOCKED", "hub mutation lock owner cannot be checked");
+        nodeProcess.kill(pid, 0);
         throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
+      } catch (error) {
+        if (error instanceof HubError || (error as { code?: unknown }).code !== "ESRCH") throw error;
       }
-    } else if (snapshot?.kind === "file" && snapshot.marker !== undefined) {
-      // Compatibility for a stale file lock written by the previous binary.
-      // A directory replacement cannot be unlinked by this file-only removal.
-      try {
-        rmSync(path, { force: false });
-      } catch {
-        throw new HubError("E_HUB_LOCKED", "hub mutation lock owner changed during reclamation");
-      }
-    } else {
-      throw new HubError("E_HUB_LOCKED", "hub mutation lock owner cannot be read");
+      readJournal(hubDir);
+      readAdoptionJournal(hubDir);
+      rmSync(path, { force: false });
     }
-    try {
-      created = createLockOwner(path);
-    } catch {
-      throw new HubError("E_HUB_LOCKED", "hub mutation lock is held by another process");
-    }
+  } catch (error) {
+    if (error instanceof HubError) throw error;
+    throw new HubError("E_HUB_LOCKED", "hub mutation lock owner changed during reclamation");
   }
-  const { owner, marker, ownerPath } = created;
-  let released = false;
-  return {
-    release() {
-      if (!released) {
-        released = true;
-        const current = readLockSnapshot(path);
-        if (current?.kind === "directory" && current.ownerPath === ownerPath && current.marker === marker) {
-          rmSync(ownerPath, { force: false });
-          try { rmdirSync(path); } catch { /* a replacement owner now holds the directory */ }
-        }
-      }
+  return acquireOwnerTokenLock(path, {
+    beforeReclaim: () => {
+      readJournal(hubDir);
+      readAdoptionJournal(hubDir);
     },
-  };
+    error: (message) => new HubError("E_HUB_LOCKED", message),
+  });
 }
 
 export interface ApplyInput {
@@ -528,7 +396,7 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
   try {
     // Recovery mutates Hub state, so it must happen under the same exclusive
     // lock as the update itself. Contract B still requires stage -> PREPARED.
-    recoverIfNeeded(hubDir);
+    recoverIfNeededLocked(hubDir);
     requireCleanJournal(hubDir);
     const lockFile = join(hubDir, "sources.lock.yaml");
     let lockText: string;
@@ -613,6 +481,24 @@ export async function applyUpdatePlan(input: ApplyInput): Promise<{ record: Sour
     // real adopted tree and lock remain untouched if any global invariant
     // fails, including duplicate IDs or malformed imported skills.
     await validateProspectiveHub(hubDir, verified.sourceId, stageDir, newLockText);
+    // Contract B §5/§7 freshness: the early check bound the plan to the lock
+    // record; here, under the mutation lock and immediately before any
+    // mutation, recompute the live adopted identities and re-check the
+    // destination. A tree or lock edited after planning must never be
+    // silently overwritten, and uncommitted lock edits refuse the apply.
+    if (readFileSync(lockFile, "utf8") !== lockText) {
+      throw new HubError("E_PLAN_STALE", "adopted lock changed after planning");
+    }
+    if (existsSync(staging) || existsSync(backup) || readJournal(hubDir)) {
+      throw new HubError("E_LOCK_MISMATCH", "hub destination became dirty before install");
+    }
+    const liveIdentity = digestStagedTree(liveTree, current.selection.roots);
+    if (
+      liveIdentity.treeDigest !== verified.expectedTreeDigest ||
+      liveIdentity.snapshotDigest !== current.vendored_snapshot_digest
+    ) {
+      throw new HubError("E_PLAN_STALE", "adopted tree no longer matches the plan's expected state");
+    }
     // Build + validate the staged tree, then open the journal.
     busyGuard(() => copyDirTree(stageDir, join(staging, verified.sourceId)));
     const journal: HubJournal = {

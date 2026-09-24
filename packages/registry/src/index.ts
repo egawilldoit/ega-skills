@@ -57,8 +57,16 @@ import {
 } from "./search.js";
 import { discoverSkillRoots } from "./discovery.js";
 import { importSkills } from "./importer.js";
+import { commitPreparedSkill, prepareSkillRoot } from "./preparation.js";
+import {
+  createImportPlan,
+  emptyRegistryTarget,
+  registryTargetFromDatabase,
+  verifyImportPlan,
+} from "./intake-plan.js";
 
 export { DEFAULT_DISCOVERY_DEPTH, DISCOVERY_EXCLUDED_DIRECTORIES } from "./discovery.js";
+export { parseCanonicalSkillId, SchemaValidationError } from "@ega-skills/schema";
 
 export {
   BLOB_HASH_PREFIX,
@@ -72,6 +80,9 @@ export {
   cacheBlobPath,
   cacheBlobPathForHash,
   discoverSkillRoots,
+  commitPreparedSkill,
+  createImportPlan,
+  emptyRegistryTarget,
   getAliasOwner,
   getCacheBlob,
   getCurrentVersion,
@@ -79,6 +90,8 @@ export {
   getSkillVersion,
   getTokenCount,
   importSkills,
+  prepareSkillRoot,
+  registryTargetFromDatabase,
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
@@ -94,6 +107,7 @@ export {
   searchSkills,
   serializeFtsArray,
   sha256DigestHex,
+  verifyImportPlan,
   upsertVersionFts,
 };
 export type { RegistryErrorCode, RegistryPaths };
@@ -106,6 +120,25 @@ export type {
   ImportedSkill,
   SkillImportFailure,
 } from "./importer.js";
+export type {
+  CommittedPreparedSkill,
+  PreparedFile,
+  PreparedSkill,
+} from "./preparation.js";
+export type {
+  CreateImportPlanOptions,
+  ImportPlanDocument,
+  ImportPlanPayload,
+  IntakeCandidate,
+  IntakeChange,
+  IntakeDiagnostic,
+  IntakeDiagnosticSeverity,
+  IntakeSource,
+  IntakeSummary,
+  IntakeTarget,
+  IntakeCandidateValidation,
+  RegistryTargetView,
+} from "./intake-plan.js";
 export type {
   ApplyVersionLifecycleResult,
   ImportOutcome,

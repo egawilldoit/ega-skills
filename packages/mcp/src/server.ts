@@ -238,13 +238,31 @@ export function toolSchema(spec: {
           properties: jsonProperties,
           required: [...spec.required],
         }),
-        output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
+        output: () => ({ $ref: "#/$defs/toolErrorEnvelope", $defs: { toolErrorEnvelope: TOOL_ERROR_ENVELOPE_JSON_SCHEMA } }),
       },
     },
   };
 }
 
 /** Shared output schema: `structuredContent` is the frozen error envelope. */
+const TOOL_ERROR_ENVELOPE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    error: {
+      type: "object",
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        tool: { type: "string" },
+      },
+      required: ["code", "message", "tool"],
+      additionalProperties: false,
+    },
+  },
+  required: ["error"],
+  additionalProperties: false,
+} as const;
+
 const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEnvelope> = {
   "~standard": {
     version: 1,
@@ -527,7 +545,7 @@ const BOUND_HANDLERS: Readonly<
  */
 export function createMcpServer(): McpServer {
   const server = new McpServer(
-    { name: "ega-skills", version: "1.0.1" },
+    { name: "ega-skills", version: "2.0.0" },
     { capabilities: { tools: {} } },
   );
 

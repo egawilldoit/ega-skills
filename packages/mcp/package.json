@@ -1,6 +1,6 @@
 {
   "name": "@ega-skills/mcp",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,9 +17,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "vercel-build": "pnpm -w build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ega-skills/control-plane": "workspace:*",
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",

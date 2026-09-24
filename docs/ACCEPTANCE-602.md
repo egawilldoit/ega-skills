@@ -1,5 +1,8 @@
 # EGA-602 frozen V1 acceptance matrix
 
+> HISTORICAL RECORD (V1 cycle). This matrix covers V1.0.x only; V2/2.0
+> acceptance lives in `docs/evidence/RELEASE-2.0-FINAL.md`. Preserved as-is.
+
 Every frozen release checkbox with direct evidence. Anything without a PASS
 below blocks the release. No new product code in this issue; evidence
 collection only.

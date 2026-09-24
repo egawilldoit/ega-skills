@@ -16,6 +16,7 @@
 // rules so 1.1[G] can verify artifacts before emitting a HubRelease.
 
 import { tmpdir } from "node:os";
+import { canonicalizeJson, hashCanonicalManifest, sha256Hex } from "@ega-skills/hashing";
 import { getSkillVersion, getTokenCount, openRegistry } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import type { HubBuildResult } from "./builder.js";
@@ -71,10 +72,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function sortedIds(build: HubBuildResult): string[] {
-  return build.skills.map((s) => s.skillId).sort((a, b) => (a < b ? -1 : 1));
-}
-
 function isBuildResult(value: HubBuildResult | readonly string[]): value is HubBuildResult {
   return isPlainObject(value) && typeof value["registryHome"] === "string" && Array.isArray(value["skills"]);
 }
@@ -87,11 +84,15 @@ function openBuildRegistry(registryHome: string) {
   }
 }
 
-function selectedManifest(registry: ReturnType<typeof openRegistry>, build: HubBuildResult, skillId: string): Record<string, unknown> {
-  const selected = build.skills.find((skill) => skill.skillId === skillId);
-  if (!selected) throw new HubError("E_BUILD_ATTESTATION", `release catalog is missing ${skillId}`);
+type ProjectionDb = Parameters<typeof getSkillVersion>[0];
+
+function versionsOf(build: HubBuildResult): Record<string, string> {
+  return Object.fromEntries(build.skills.map((skill) => [skill.skillId, skill.versionHash]));
+}
+
+function manifestFor(db: ProjectionDb, skillId: string, versionHash: string): Record<string, unknown> {
   try {
-    const manifest: unknown = JSON.parse(getSkillVersion(registry.db, skillId, selected.versionHash).manifestJson);
+    const manifest: unknown = JSON.parse(getSkillVersion(db, skillId, versionHash).manifestJson);
     if (!isPlainObject(manifest)) throw new Error("manifest is not an object");
     return manifest;
   } catch (error) {
@@ -100,8 +101,8 @@ function selectedManifest(registry: ReturnType<typeof openRegistry>, build: HubB
   }
 }
 
-function selectedAliases(registry: ReturnType<typeof openRegistry>, build: HubBuildResult, skillId: string): string[] {
-  const manifest = selectedManifest(registry, build, skillId);
+function aliasesFor(db: ProjectionDb, skillId: string, versionHash: string): string[] {
+  const manifest = manifestFor(db, skillId, versionHash);
   const routing = manifest["routing"];
   const aliases = isPlainObject(routing) ? routing["aliases"] : undefined;
   if (!Array.isArray(aliases) || aliases.some((alias) => typeof alias !== "string")) {
@@ -114,24 +115,28 @@ function selectedAliases(registry: ReturnType<typeof openRegistry>, build: HubBu
  * Derive the release alias map exclusively from the selected SkillVersions.
  * Keys are stored sorted (Contract C section 4).
  */
+export function deriveAliasMapFrom(db: ProjectionDb, versions: Readonly<Record<string, string>>): AliasMapDoc {
+  const owned = new Map<string, string>();
+  for (const skillId of Object.keys(versions).sort((a, b) => (a < b ? -1 : 1))) {
+    for (const alias of aliasesFor(db, skillId, versions[skillId] as string)) {
+      const prior = owned.get(alias);
+      if (prior !== undefined && prior !== skillId) {
+        throw new HubError("E_ALIAS_SCOPE", `alias ${JSON.stringify(alias)} claimed by ${prior} and ${skillId}`);
+      }
+      owned.set(alias, skillId);
+    }
+  }
+  const aliases: Record<string, string> = {};
+  for (const key of [...owned.keys()].sort((a, b) => (a < b ? -1 : 1))) {
+    aliases[key] = owned.get(key) as string;
+  }
+  return { aliases };
+}
+
 export function deriveAliasMap(build: HubBuildResult): AliasMapDoc {
   const registry = openBuildRegistry(build.registryHome);
   try {
-    const owned = new Map<string, string>();
-    for (const skillId of sortedIds(build)) {
-      for (const alias of selectedAliases(registry, build, skillId)) {
-        const prior = owned.get(alias);
-        if (prior !== undefined && prior !== skillId) {
-          throw new HubError("E_ALIAS_SCOPE", `alias ${JSON.stringify(alias)} claimed by ${prior} and ${skillId}`);
-        }
-        owned.set(alias, skillId);
-      }
-    }
-    const aliases: Record<string, string> = {};
-    for (const key of [...owned.keys()].sort((a, b) => (a < b ? -1 : 1))) {
-      aliases[key] = owned.get(key) as string;
-    }
-    return { aliases };
+    return deriveAliasMapFrom(registry.db, versionsOf(build));
   } catch (error) {
     if (error instanceof HubError) throw error;
     throw new HubError("E_BUILD_ATTESTATION", `alias derivation failed: ${String((error as Error)?.message ?? error)}`);
@@ -144,34 +149,37 @@ export function deriveAliasMap(build: HubBuildResult): AliasMapDoc {
  * Derive the token artifact: one L2 row per selected SkillVersion, bound to
  * the exact release catalog (Contract C section 6).
  */
+export function deriveTokenArtifactFrom(db: ProjectionDb, versions: Readonly<Record<string, string>>): TokenArtifactDoc {
+  const counts: TokenCountRow[] = [];
+  for (const skillId of Object.keys(versions).sort((a, b) => (a < b ? -1 : 1))) {
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(getSkillVersion(db, skillId, versions[skillId] as string).manifestJson);
+    } catch (error) {
+      if (error instanceof HubError) throw error;
+      throw new HubError("E_BUILD_ATTESTATION", `cannot read built version for ${skillId}`);
+    }
+    const files = (isPlainObject(manifest) ? (manifest["files"] as unknown) : undefined) as
+      | Array<{ path?: unknown; blob_hash?: unknown }>
+      | undefined;
+    const skillMd = Array.isArray(files) ? files.find((f) => isPlainObject(f) && f["path"] === "SKILL.md") : undefined;
+    const blobHash = skillMd !== undefined && isPlainObject(skillMd) ? skillMd["blob_hash"] : undefined;
+    if (typeof blobHash !== "string" || blobHash.length === 0) {
+      throw new HubError("E_TOKEN_ARTIFACT", `built version for ${skillId} has no SKILL.md blob`);
+    }
+    const tokens = getTokenCount(db, blobHash, RELEASE_TOKEN_ESTIMATOR);
+    if (tokens === null || !Number.isInteger(tokens) || tokens < 0) {
+      throw new HubError("E_TOKEN_ARTIFACT", `missing ${RELEASE_TOKEN_ESTIMATOR} count for ${skillId}`);
+    }
+    counts.push({ skill_id: skillId, version_hash: versions[skillId] as string, level: "L2", tokens });
+  }
+  return { estimator: RELEASE_TOKEN_ESTIMATOR, counts };
+}
+
 export function deriveTokenArtifact(build: HubBuildResult): TokenArtifactDoc {
   const registry = openBuildRegistry(build.registryHome);
   try {
-    const versions = new Map(build.skills.map((s) => [s.skillId, s.versionHash]));
-    const counts: TokenCountRow[] = [];
-    for (const skillId of sortedIds(build)) {
-      let manifest: unknown;
-      try {
-        manifest = JSON.parse(getSkillVersion(registry.db, skillId, versions.get(skillId) as string).manifestJson);
-      } catch (error) {
-        if (error instanceof HubError) throw error;
-        throw new HubError("E_BUILD_ATTESTATION", `cannot read built version for ${skillId}`);
-      }
-      const files = (isPlainObject(manifest) ? (manifest["files"] as unknown) : undefined) as
-        | Array<{ path?: unknown; blob_hash?: unknown }>
-        | undefined;
-      const skillMd = Array.isArray(files) ? files.find((f) => isPlainObject(f) && f["path"] === "SKILL.md") : undefined;
-      const blobHash = skillMd !== undefined && isPlainObject(skillMd) ? skillMd["blob_hash"] : undefined;
-      if (typeof blobHash !== "string" || blobHash.length === 0) {
-        throw new HubError("E_TOKEN_ARTIFACT", `built version for ${skillId} has no SKILL.md blob`);
-      }
-      const tokens = getTokenCount(registry.db, blobHash, RELEASE_TOKEN_ESTIMATOR);
-      if (tokens === null || !Number.isInteger(tokens) || tokens < 0) {
-        throw new HubError("E_TOKEN_ARTIFACT", `missing ${RELEASE_TOKEN_ESTIMATOR} count for ${skillId}`);
-      }
-      counts.push({ skill_id: skillId, version_hash: versions.get(skillId) as string, level: "L2", tokens });
-    }
-    return { estimator: RELEASE_TOKEN_ESTIMATOR, counts };
+    return deriveTokenArtifactFrom(registry.db, versionsOf(build));
   } catch (error) {
     if (error instanceof HubError) throw error;
     throw new HubError("E_BUILD_ATTESTATION", `token derivation failed: ${String((error as Error)?.message ?? error)}`);
@@ -184,48 +192,51 @@ export function deriveTokenArtifact(build: HubBuildResult): TokenArtifactDoc {
  * Derive the SearchIndexInput: exact normalized rows for the release catalog,
  * sorted by skill_id (Contract C section 6).
  */
+export function deriveSearchIndexInputFrom(db: ProjectionDb, versions: Readonly<Record<string, string>>): SearchIndexInputDoc {
+  const rows: SearchIndexRow[] = [];
+  for (const skillId of Object.keys(versions).sort((a, b) => (a < b ? -1 : 1))) {
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(getSkillVersion(db, skillId, versions[skillId] as string).manifestJson);
+    } catch (error) {
+      if (error instanceof HubError) throw error;
+      throw new HubError("E_BUILD_ATTESTATION", `cannot read built version for ${skillId}`);
+    }
+    if (!isPlainObject(manifest) || !isPlainObject(manifest["portable"]) || !isPlainObject(manifest["routing"])) {
+      throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId} has no portable/routing section`);
+    }
+    const portable = manifest["portable"] as Record<string, unknown>;
+    const routing = manifest["routing"] as Record<string, unknown>;
+    if (typeof portable["name"] !== "string" || typeof portable["description"] !== "string") {
+      throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId} needs name/description strings`);
+    }
+    const arrays: Record<string, readonly string[]> = {};
+    for (const field of ["domains", "platforms", "frameworks", "triggers"] as const) {
+      const value = routing[field];
+      if (!Array.isArray(value) || value.some((e) => typeof e !== "string")) {
+        throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId}.${field} must be a string list`);
+      }
+      arrays[field] = value as string[];
+    }
+    rows.push({
+      skill_id: skillId,
+      version_hash: versions[skillId] as string,
+      name: portable["name"] as string,
+      description: portable["description"] as string,
+      domains: arrays["domains"] as string[],
+      platforms: arrays["platforms"] as string[],
+      frameworks: arrays["frameworks"] as string[],
+      triggers: arrays["triggers"] as string[],
+      aliases: aliasesFor(db, skillId, versions[skillId] as string),
+    });
+  }
+  return { rows };
+}
+
 export function deriveSearchIndexInput(build: HubBuildResult): SearchIndexInputDoc {
   const registry = openBuildRegistry(build.registryHome);
   try {
-    const versions = new Map(build.skills.map((s) => [s.skillId, s.versionHash]));
-    const rows: SearchIndexRow[] = [];
-    for (const skillId of sortedIds(build)) {
-      let manifest: unknown;
-      try {
-        manifest = JSON.parse(getSkillVersion(registry.db, skillId, versions.get(skillId) as string).manifestJson);
-      } catch (error) {
-        if (error instanceof HubError) throw error;
-        throw new HubError("E_BUILD_ATTESTATION", `cannot read built version for ${skillId}`);
-      }
-      if (!isPlainObject(manifest) || !isPlainObject(manifest["portable"]) || !isPlainObject(manifest["routing"])) {
-        throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId} has no portable/routing section`);
-      }
-      const portable = manifest["portable"] as Record<string, unknown>;
-      const routing = manifest["routing"] as Record<string, unknown>;
-      if (typeof portable["name"] !== "string" || typeof portable["description"] !== "string") {
-        throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId} needs name/description strings`);
-      }
-      const arrays: Record<string, readonly string[]> = {};
-      for (const field of ["domains", "platforms", "frameworks", "triggers"] as const) {
-        const value = routing[field];
-        if (!Array.isArray(value) || value.some((e) => typeof e !== "string")) {
-          throw new HubError("E_SEARCH_INPUT", `built manifest for ${skillId}.${field} must be a string list`);
-        }
-        arrays[field] = value as string[];
-      }
-      rows.push({
-        skill_id: skillId,
-        version_hash: versions.get(skillId) as string,
-        name: portable["name"] as string,
-        description: portable["description"] as string,
-        domains: arrays["domains"] as string[],
-        platforms: arrays["platforms"] as string[],
-        frameworks: arrays["frameworks"] as string[],
-        triggers: arrays["triggers"] as string[],
-        aliases: selectedAliases(registry, build, skillId),
-      });
-    }
-    return { rows };
+    return deriveSearchIndexInputFrom(registry.db, versionsOf(build));
   } catch (error) {
     if (error instanceof HubError) throw error;
     throw new HubError("E_BUILD_ATTESTATION", `search-input derivation failed: ${String((error as Error)?.message ?? error)}`);
@@ -408,4 +419,215 @@ export function verifyReleaseCorpus(db: ReleaseFtsDb, table: string, expectedRow
   if (!row || row.n !== expectedRows) {
     throw new HubError("E_SEARCH_ISOLATION", `release corpus holds ${row?.n ?? "unknown"} rows, release catalog has ${expectedRows}`);
   }
+}
+
+function projectionFail(message: string): never {
+  throw new HubError("E_RELEASE_DIGEST", `release projection mismatch: ${message}`);
+}
+
+function projectionMessage(error: unknown): string {
+  return error instanceof Error && error.message.length > 0 ? error.message : String(error);
+}
+
+function projectionDigest(value: unknown): string {
+  return `sha256:${sha256Hex(canonicalizeJson(value))}`;
+}
+
+interface CatalogRow {
+  readonly skill_id: string;
+  readonly current_version_hash: string;
+}
+
+interface VersionRow {
+  readonly skill_id: string;
+  readonly version_hash: string;
+}
+
+/**
+ * The runtime catalog must be EXACTLY the release catalog: the declared
+ * skills with the declared current versions and no extra or missing version
+ * rows. Historical versions would otherwise stay reachable through exact
+ * inspect/get_content requests.
+ */
+function checkRuntimeCatalog(db: ProjectionDb, versions: Readonly<Record<string, string>>): void {
+  const declared = Object.keys(versions);
+  const skillRows = db.prepare("SELECT skill_id, current_version_hash FROM skills").all<CatalogRow>();
+  if (skillRows.length !== declared.length) {
+    projectionFail(`runtime skills table holds ${skillRows.length} rows, release declares ${declared.length}`);
+  }
+  for (const row of skillRows) {
+    if (versions[row.skill_id] !== row.current_version_hash) {
+      projectionFail(`runtime current version for ${row.skill_id} is not the release version`);
+    }
+  }
+  const expectedPairs = new Set(declared.map((skillId) => `${skillId}\u0000${versions[skillId]}`));
+  const versionRows = db.prepare("SELECT skill_id, version_hash FROM skill_versions").all<VersionRow>();
+  if (versionRows.length !== expectedPairs.size) {
+    projectionFail(`runtime skill_versions holds ${versionRows.length} rows, release declares ${expectedPairs.size}`);
+  }
+  for (const row of versionRows) {
+    if (!expectedPairs.has(`${row.skill_id}\u0000${row.version_hash}`)) {
+      projectionFail(`runtime version ${row.skill_id}@${row.version_hash} is not part of the release`);
+    }
+  }
+}
+
+interface AliasRow {
+  readonly alias: string;
+  readonly skill_id: string;
+}
+
+function checkRuntimeAliases(db: ProjectionDb, aliasMap: AliasMapDoc): void {
+  const rows = db.prepare("SELECT alias, skill_id FROM skill_aliases").all<AliasRow>();
+  const expected = Object.entries(aliasMap.aliases);
+  if (rows.length !== expected.length) {
+    projectionFail(`runtime alias table holds ${rows.length} rows, release declares ${expected.length}`);
+  }
+  const runtime = new Map(rows.map((row: AliasRow) => [row.alias, row.skill_id]));
+  for (const [alias, skillId] of expected) {
+    if (runtime.get(alias) !== skillId) projectionFail(`runtime alias ${JSON.stringify(alias)} does not match the release`);
+  }
+}
+
+interface FtsRow {
+  readonly skill_id: string;
+  readonly version_hash: string;
+  readonly name: string;
+  readonly description: string;
+  readonly domains: string;
+  readonly platforms: string;
+  readonly frameworks: string;
+  readonly triggers: string;
+  readonly aliases: string;
+}
+
+/** The stored FTS projection must equal the release-bound search rows exactly. */
+function checkRuntimeFts(db: ProjectionDb, table: string, rows: readonly SearchIndexRow[]): void {
+  const name = releaseTable(db, table);
+  const actual = db
+    .prepare(`SELECT skill_id, version_hash, name, description, domains, platforms, frameworks, triggers, aliases FROM ${name} ORDER BY skill_id`)
+    .all<FtsRow>();
+  if (actual.length !== rows.length) {
+    projectionFail(`runtime FTS table ${table} holds ${actual.length} rows, release declares ${rows.length}`);
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    const expected = rows[index] as SearchIndexRow;
+    const got = actual[index] as FtsRow;
+    if (
+      got.skill_id !== expected.skill_id ||
+      got.version_hash !== expected.version_hash ||
+      got.name !== expected.name ||
+      got.description !== expected.description ||
+      got.domains !== serializeFtsArray(expected.domains) ||
+      got.platforms !== serializeFtsArray(expected.platforms) ||
+      got.frameworks !== serializeFtsArray(expected.frameworks) ||
+      got.triggers !== serializeFtsArray(expected.triggers) ||
+      got.aliases !== serializeFtsArray(expected.aliases)
+    ) {
+      projectionFail(`runtime FTS row for ${got.skill_id} does not match the release`);
+    }
+  }
+}
+
+interface FileRow {
+  readonly path: string;
+  readonly blob_hash: string;
+}
+
+/**
+ * Manifest file identities must match the runtime file table: every manifest
+ * file needs its exact runtime row. Extra runtime rows (for example the
+ * routing config recorded for provenance) are not semantic content and stay
+ * allowed.
+ */
+function checkRuntimeFiles(db: ProjectionDb, versions: Readonly<Record<string, string>>): void {
+  for (const [skillId, versionHash] of Object.entries(versions)) {
+    const manifest = manifestFor(db, skillId, versionHash);
+    const files = manifest["files"];
+    if (!Array.isArray(files)) {
+      projectionFail(`manifest for ${skillId} has no files`);
+    }
+    const expected = new Map<string, string>();
+    for (const entry of files) {
+      if (!isPlainObject(entry) || typeof entry["path"] !== "string" || typeof entry["blob_hash"] !== "string") {
+        projectionFail(`manifest for ${skillId} has a malformed file entry`);
+      }
+      expected.set(entry["path"] as string, entry["blob_hash"] as string);
+    }
+    const rows = db
+      .prepare("SELECT path, blob_hash FROM skill_files WHERE skill_id = ? AND version_hash = ?")
+      .all<FileRow>(skillId, versionHash);
+    const runtime = new Map(rows.map((row: FileRow) => [row.path, row.blob_hash]));
+    for (const [path, blobHash] of expected) {
+      if (runtime.get(path) !== blobHash) {
+        projectionFail(`runtime file ${skillId}:${path} does not match the release manifest`);
+      }
+    }
+  }
+}
+
+/**
+ * The SkillVersion identity is SHA256(JCS(canonical manifest)). The stored
+ * manifest must recompute to exactly the release-declared version hash, so a
+ * modified identity-bearing field (license, allowed tools, anti-triggers,
+ * file role/size/kind) cannot survive a projection that otherwise stays
+ * consistent. Reuses the canonical hashing implementation — never a copy.
+ */
+function checkRuntimeManifestIdentities(db: ProjectionDb, versions: Readonly<Record<string, string>>): void {
+  for (const [skillId, versionHash] of Object.entries(versions)) {
+    const manifest = manifestFor(db, skillId, versionHash);
+    let recomputed: string;
+    try {
+      recomputed = hashCanonicalManifest(manifest);
+    } catch (error) {
+      throw new HubError(
+        "E_RELEASE_DIGEST",
+        `release projection mismatch: stored manifest for ${skillId} is not a canonical SkillVersion manifest: ${projectionMessage(error)}`,
+      );
+    }
+    if (recomputed !== versionHash) {
+      projectionFail(`stored manifest for ${skillId} does not hash to the declared SkillVersion identity`);
+    }
+  }
+}
+
+/**
+ * Verify that the runtime registry projection equals the semantic artifacts
+ * bound by the HubRelease: exact catalog, aliases, search rows (both the
+ * registry and release FTS tables), token metadata, manifests, and file
+ * identities. SQLite bytes themselves stay outside HubRelease identity, so a
+ * semantically identical rebuild passes; any semantic divergence fails.
+ */
+export function verifyReleaseProjection(
+  db: ProjectionDb,
+  payload: {
+    readonly skill_versions: Readonly<Record<string, string>>;
+    readonly alias_map_digest: string;
+    readonly search_index_input_digest: string;
+    readonly token_artifact_digest: string;
+  },
+  ftsTable: string,
+): void {
+  const versions = payload.skill_versions;
+  checkRuntimeCatalog(db, versions);
+  checkRuntimeManifestIdentities(db, versions);
+  const aliasMap = deriveAliasMapFrom(db, versions);
+  const searchIndexInput = deriveSearchIndexInputFrom(db, versions);
+  const tokenArtifact = deriveTokenArtifactFrom(db, versions);
+  if (projectionDigest(aliasMap) !== payload.alias_map_digest) {
+    projectionFail("runtime alias map digest does not match the release");
+  }
+  if (projectionDigest(searchIndexInput) !== payload.search_index_input_digest) {
+    projectionFail("runtime search rows digest does not match the release");
+  }
+  if (projectionDigest(tokenArtifact) !== payload.token_artifact_digest) {
+    projectionFail("runtime token metadata digest does not match the release");
+  }
+  checkAliasMap(aliasMap, Object.keys(versions));
+  checkTokenArtifact(tokenArtifact, versions);
+  checkSearchIndexInput(searchIndexInput);
+  checkRuntimeAliases(db, aliasMap);
+  checkRuntimeFiles(db, versions);
+  checkRuntimeFts(db, "skill_fts", searchIndexInput.rows);
+  checkRuntimeFts(db, ftsTable, searchIndexInput.rows);
 }

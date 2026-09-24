@@ -26,6 +26,7 @@ import type { CallToolResult, StandardSchemaWithJSON } from "@modelcontextprotoc
 import {
   resolveSkills,
   type ResolutionResult,
+  type ResolvePolicyInput,
 } from "@ega-skills/router";
 
 import {
@@ -51,6 +52,38 @@ export interface ResolveToolArgs {
 
 export interface ResolveToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Skills the caller's authorization boundary removed from visibility
+   * (hosted emergency deny / per-resource authorization). Excluded IDs and
+   * aliases never enter routing output; local callers omit this.
+   */
+  readonly excludedSkillIds?: readonly string[];
+}
+
+/**
+ * The effective resolve policy carried by the shared project context. The MCP
+ * boundary already resolved config/lock/policy once; the resolver must use
+ * those exact values instead of rediscovering them, so every tool agrees on
+ * authorization. For local contexts this equals `deriveProjectPolicy`.
+ */
+function effectivePolicy(ctx: McpProjectContext): ResolvePolicyInput {
+  return {
+    allowedNamespaces: ctx.config.namespaces.allow,
+    deniedNamespaces: ctx.config.namespaces.deny,
+    deniedSkills: ctx.config.skills.deny,
+    prefer: ctx.config.skills.prefer,
+    defaultMaxSkills: ctx.config.routing.max_skills,
+    defaultMaxTokens: ctx.config.routing.max_tokens,
+    lockedVersions:
+      ctx.lockMode === "LOCKED" && ctx.lock !== null
+        ? new Map(
+            Object.entries(ctx.lock.skills).map(([skillId, entry]) => [
+              skillId,
+              entry.version_hash,
+            ]),
+          )
+        : null,
+  };
 }
 
 function inputInvalid(message: string): never {
@@ -256,6 +289,10 @@ export async function runResolveTool(
     result = await resolveSkills({
       task,
       projectPath: ctx.projectPath,
+      policy: effectivePolicy(ctx),
+      ...(opts.excludedSkillIds !== undefined
+        ? { excludedSkillIds: opts.excludedSkillIds }
+        : {}),
       ...(explicitSkills !== undefined ? { explicitSkills } : {}),
       ...(maxSkills !== undefined || maxTokens !== undefined
         ? {
@@ -287,6 +324,11 @@ export async function runResolveTool(
  * `structuredContent` is the snake_case resolution container and advertises
  * the same shape over `tools/list`.
  */
+// Resolution anchor for the frozen `$ref` tool-output container (see
+// search.ts): must exist so strict clients can resolve the re-rooted
+// reference, and must stay inside the frozen metadata budget.
+const RESOLVE_OUTPUT_JSON_SCHEMA = {} as const;
+
 export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>> = {
   "~standard": {
     version: 1,
@@ -333,36 +375,8 @@ export const RESOLVE_OUTPUT_SCHEMA: StandardSchemaWithJSON<Record<string, unknow
       return { value: output };
     },
     jsonSchema: {
-      input: () => ({
-        type: "object",
-        properties: {
-          resolution_id: { type: "string" },
-          router_contract_version: { type: "integer" },
-          router_implementation_version: { type: "string" },
-          mode: { type: "string", enum: ["suggest"] },
-          confidence: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] },
-          project_fingerprint: { type: "object" },
-          explicit: { type: "array" },
-          selected: { type: "array" },
-          candidates: { type: "array" },
-          rejected: { type: "array" },
-          automatic_selected_tokens: { type: "integer" },
-          explicit_selected_tokens: { type: "integer" },
-          max_tokens: { type: "integer" },
-          max_skills: { type: "integer" },
-          lock_status: { type: "string", enum: ["LOCKED", "UNLOCKED"] },
-          budget_status: { type: "string" },
-        },
-        required: [
-          "resolution_id",
-          "confidence",
-          "selected",
-          "lock_status",
-          "budget_status",
-        ],
-        additionalProperties: true,
-      }),
-      output: () => ({ $ref: "#/$defs/resolveOutput" }),
+      input: () => RESOLVE_OUTPUT_JSON_SCHEMA,
+      output: () => ({ $ref: "#/$defs/r", $defs: { r: RESOLVE_OUTPUT_JSON_SCHEMA } }),
     },
   },
 };

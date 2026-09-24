@@ -1,6 +1,6 @@
 {
   "name": "@ega-skills/project",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -18,6 +18,8 @@
   "dependencies": {
     "@ega-skills/hashing": "workspace:*",
     "@ega-skills/registry": "workspace:*",
+    "@ega-skills/schema": "workspace:*",
+    "better-sqlite3": "13.0.3",
     "yaml": "2.9.0"
   }
 }

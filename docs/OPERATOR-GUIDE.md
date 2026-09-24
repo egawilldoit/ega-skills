@@ -1,5 +1,9 @@
 # EGA Skills V1.0.1 — Operator Guide
 
+> HISTORICAL GUIDE (V1.0.1). For the 2.0 release, use
+> `docs/operations/RELEASE-2.0-RUNBOOK.md` and
+> `docs/RELEASE-NOTES-2.0.0.md`.
+
 Local-first registry + deterministic resolver for coding-agent skills.
 This guide covers shipped V1.0.1 behavior only (V1.0.0 + patch fixes;
 see docs/RELEASE-NOTES-1.0.1.md).
