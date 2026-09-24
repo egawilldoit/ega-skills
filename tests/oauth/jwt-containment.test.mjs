@@ -108,9 +108,9 @@ test("hosted runtime rejects every bad JWT shape and accepts one valid delegated
   assert.equal(positive.status, 200);
   const listed = JSON.parse(positive.body);
   assert.deepEqual(listed.result.tools.map((tool) => tool.name).sort(), ["get_content", "inspect", "resolve", "search"]);
-  const searched = await rpc(runtime.handler, 2, "tools/call", { name: "search", arguments: { query: "architect" } }, es256(validClaims));
+  const searched = await rpc(runtime.handler, 2, "tools/call", { name: "search", arguments: { query: "test-first" } }, es256(validClaims));
   assert.equal(searched.status, 200);
-  assert.match(searched.body, /cursor\/architect/);
+  assert.match(searched.body, /mattpocock\/tdd/);
 
   const { parts } = sign({ alg: "ES256", kid: "containment-k1", typ: "JWT" }, validClaims);
   // Flip a bit in a real signature byte, not a trailing base64url character:
