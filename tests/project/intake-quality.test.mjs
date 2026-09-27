@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { createQualityReport } from "../../packages/project/dist/index.js";
@@ -35,6 +37,11 @@ async function sourceWorld(t) {
 function diagnostics(report, code) {
   return report.payload.candidates.flatMap((candidate) => candidate.diagnostics.filter((item) => item.code === code));
 }
+
+const FEATURE_MAP_GUIDE = readFileSync(
+  fileURLToPath(new URL("./fixtures/feature-map-guide.md", import.meta.url)),
+  "utf8",
+);
 
 test("QL-01: generic platform is diagnosed with the safe empty-list replacement", async (t) => {
   const world = await sourceWorld(t);
@@ -104,4 +111,150 @@ test("Q1 CLI writes a stable report outside the source tree", async (t) => {
   const report = JSON.parse(await readFile(output, "utf8"));
   assert.equal(summary.digest, report.digest);
   assert.equal(report.object_type, "ega.intake-quality-report");
+});
+
+test("Q1-116: fenced example links are not companion references", async (t) => {
+  const world = await sourceWorld(t);
+  await skill(world.source, "create-verification-workflow", {
+    files: { "references/feature-map-guide.md": FEATURE_MAP_GUIDE },
+  });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  assert.equal(found.length, 0, JSON.stringify(found, null, 2));
+});
+
+test("Q1-116: real broken link outside a fence is still flagged", async (t) => {
+  const world = await sourceWorld(t);
+  await skill(world.source, "real-broken", {
+    body: "---\nname: real-broken\ndescription: real broken link\n---\n# Real broken\n\nSee [missing](./missing-companion.md) for details.\n",
+  });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].relative_file, "SKILL.md");
+  assert.equal(found[0].details.target, "./missing-companion.md");
+});
+
+test("Q1-116: fence variants keep example links inert and prose links live", async (t) => {
+  const world = await sourceWorld(t);
+  const body = [
+    "---",
+    "name: fence-variants",
+    "description: fence variants",
+    "---",
+    "# Fence variants",
+    "",
+    "Before [before-missing](./before-missing.md) the fence.",
+    "",
+    "```text",
+    "first [first-missing](./first-missing.md) example",
+    "```",
+    "",
+    "~~~markdown",
+    "tilde [tilde-missing](./tilde-missing.md) example",
+    "~~~",
+    "",
+    "After [after-missing](./after-missing.md) the fences.",
+    "",
+    "````text",
+    "long [long-missing](./long-missing.md) fence",
+    "```",
+    "not a close",
+    "````",
+    "",
+    "Tail [tail-missing](./tail-missing.md) link.",
+    "",
+  ].join("\n");
+  await skill(world.source, "fence-variants", { body });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  const targets = found.map((item) => item.details.target).sort();
+  assert.deepEqual(targets, ["./after-missing.md", "./before-missing.md", "./tail-missing.md"]);
+});
+
+test("Q1-116: multiple fences each shield their example links", async (t) => {
+  const world = await sourceWorld(t);
+  const body = [
+    "---",
+    "name: multi-fence",
+    "description: multiple fences",
+    "---",
+    "# Multiple fences",
+    "",
+    "```text",
+    "first [first-missing](./first-missing.md) example",
+    "```",
+    "",
+    "Prose between fences is checked: [between-missing](./between-missing.md).",
+    "",
+    "~~~",
+    "second [second-missing](./second-missing.md) example",
+    "~~~",
+    "",
+  ].join("\n");
+  await skill(world.source, "multi-fence", { body });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  assert.deepEqual(found.map((item) => item.details.target), ["./between-missing.md"]);
+});
+
+test("Q1-116: unclosed fence fails safe and shields the rest of the document", async (t) => {
+  const world = await sourceWorld(t);
+  const body = [
+    "---",
+    "name: unclosed-fence",
+    "description: unclosed fence",
+    "---",
+    "# Unclosed fence",
+    "",
+    "```text",
+    "example [example-missing](./example-missing.md) link",
+    "",
+    "Trailing prose with [trailing-missing](./trailing-missing.md) link.",
+    "",
+  ].join("\n");
+  await skill(world.source, "unclosed-fence", { body });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  assert.equal(diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE").length, 0);
+});
+
+test("Q1-116: stray closing fence fails safe", async (t) => {
+  const world = await sourceWorld(t);
+  const body = [
+    "---",
+    "name: stray-fence",
+    "description: stray closing fence",
+    "---",
+    "# Stray fence",
+    "",
+    "Prose before the stray fence: [before-missing](./before-missing.md).",
+    "",
+    "```",
+    "stray closing fence shields the rest",
+    "",
+    "Prose after: [after-missing](./after-missing.md).",
+    "",
+  ].join("\n");
+  await skill(world.source, "stray-fence", { body });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  assert.deepEqual(found.map((item) => item.details.target), ["./before-missing.md"]);
+});
+
+test("Q1-116: inline-code spans are still validated (known limitation, deferred)", async (t) => {
+  const world = await sourceWorld(t);
+  const body = [
+    "---",
+    "name: inline-code",
+    "description: inline code behavior",
+    "---",
+    "# Inline code",
+    "",
+    "Run `verify [inline-missing](./inline-missing.md)` to check.",
+    "",
+  ].join("\n");
+  await skill(world.source, "inline-code", { body });
+  const report = await createQualityReport({ sourcePath: world.source, namespace: "ega" });
+  const found = diagnostics(report, "Q_BROKEN_COMPANION_REFERENCE");
+  assert.deepEqual(found.map((item) => item.details.target), ["./inline-missing.md"]);
 });
