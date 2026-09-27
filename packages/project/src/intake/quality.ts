@@ -158,12 +158,43 @@ function pathFromLink(sourcePath: string, href: string): string | null {
   return normalized;
 }
 
+// Replace fenced code blocks with spaces (newlines preserved) so link
+// matching skips example content. Supports ``` and ~~~ fences with or
+// without an info string; a backtick fence with a backtick in its info
+// string is not a fence. An unclosed fence runs to the end of the document
+// and fails safe by shielding everything after it.
+function maskFencedCodeBlocks(text: string): string {
+  const lines = text.split("\n");
+  let fenceChar = "";
+  let fenceLength = 0;
+  const masked: string[] = [];
+  for (const line of lines) {
+    if (fenceChar === "") {
+      const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+      const marker = opening?.[1] ?? "";
+      const info = opening?.[2] ?? "";
+      if (marker !== "" && !(marker.startsWith("`") && info.includes("`"))) {
+        fenceChar = marker.charAt(0);
+        fenceLength = marker.length;
+        masked.push(" ".repeat(line.length));
+        continue;
+      }
+      masked.push(line);
+      continue;
+    }
+    masked.push(" ".repeat(line.length));
+    const closing = new RegExp(`^ {0,3}${fenceChar === "`" ? "`" : "~"}{${fenceLength},}[ \\t]*$`, "u").exec(line);
+    if (closing !== null) fenceChar = "";
+  }
+  return masked.join("\n");
+}
+
 function brokenReferences(prepared: Awaited<ReturnType<typeof prepareSkillRoot>>): QualityDiagnostic[] {
   const known = new Set(prepared.files.map((file) => file.record.path));
   const diagnostics: QualityDiagnostic[] = [];
   const linkPattern = /!?\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\)/gu;
   for (const file of textFiles(prepared)) {
-    const text = new TextDecoder().decode(file.bytes);
+    const text = maskFencedCodeBlocks(new TextDecoder().decode(file.bytes));
     for (const match of text.matchAll(linkPattern)) {
       const href = match[1] ?? match[2];
       if (href === undefined) continue;
