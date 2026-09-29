@@ -1,0 +1,11 @@
+schema_version: 1
+aliases: [test-behavior-not-implementation]
+triggers:
+  - "test behavior not implementation"
+anti_triggers:
+  - "write a test"
+  - "add tests"
+  - "unit tests"
+  - "test coverage"
+  - "mock"
+  - "integration tests"

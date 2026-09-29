@@ -1,0 +1,4 @@
+interface:
+  display_name: "Production Target Certification"
+  short_description: "Confirm the exact target before production mutation"
+  default_prompt: "Use $certify-production-target before this production change."

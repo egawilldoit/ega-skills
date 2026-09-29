@@ -1,0 +1,9 @@
+schema_version: 1
+aliases: [outcome-oriented-execution]
+triggers:
+  - "outcome oriented execution"
+anti_triggers:
+  - "migration"
+  - "rewrite"
+  - "phases"
+  - "intermediate"

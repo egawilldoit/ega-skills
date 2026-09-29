@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Verification Workflow"
+  short_description: "Build a project-local harness that drives the app"
+  default_prompt: "Use $create-verification-workflow to set up end-to-end checks for this app."

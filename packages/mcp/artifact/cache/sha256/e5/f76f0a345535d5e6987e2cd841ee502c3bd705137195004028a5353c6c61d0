@@ -1,0 +1,4 @@
+interface:
+  display_name: "Artifact Provenance"
+  short_description: "Trace source to artifact to release lineage"
+  default_prompt: "Use $trace-artifact-provenance to pin this build to its source."

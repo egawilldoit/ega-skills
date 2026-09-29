@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minimize Reader Load"
+  short_description: "Cut layers and hidden state a reader must hold"
+  default_prompt: "Use $principle-minimize-reader-load to simplify this call path."

@@ -1,0 +1,10 @@
+schema_version: 1
+aliases: [boundary-discipline]
+triggers:
+  - "boundary discipline"
+anti_triggers:
+  - "input validation"
+  - "error handling"
+  - "framework adapter"
+  - "validate input"
+  - "sanitize"

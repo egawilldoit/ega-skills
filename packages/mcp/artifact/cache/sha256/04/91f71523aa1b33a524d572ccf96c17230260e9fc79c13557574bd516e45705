@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "fix ci"
+  - "fix the failing check"
+  - "turn the checks green"
+  - "fix the build"
+  - "fix ci failure"
+anti_triggers:
+  - "loop on ci"
+  - "watch the checks"
+  - "review and ship"

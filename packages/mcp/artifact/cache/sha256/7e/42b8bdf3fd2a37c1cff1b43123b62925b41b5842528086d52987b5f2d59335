@@ -1,0 +1,4 @@
+interface:
+  display_name: "Exhaust the Design Space"
+  short_description: "Prototype competing options before committing"
+  default_prompt: "Use $principle-exhaust-the-design-space to prototype two or three options first."

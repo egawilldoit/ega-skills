@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Writing"
+  short_description: "Write and review docs, RFCs, and PR descriptions"
+  default_prompt: "Use $technical-writing to tighten this RFC and its structure."

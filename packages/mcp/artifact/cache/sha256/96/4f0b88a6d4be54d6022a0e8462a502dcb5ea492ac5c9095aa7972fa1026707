@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix Merge Conflicts"
+  short_description: "Resolve conflicts while preserving intent"
+  default_prompt: "Use $fix-merge-conflicts on this rebase conflict."
