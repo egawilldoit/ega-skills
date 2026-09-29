@@ -15,3 +15,15 @@
 - R1: PASS after fixes. R2: routing/security PASS; deployment prerequisites OPEN
   (production env/OAuth are release-owner actions).
 - ChatGPT Web validation remains manual.
+
+## Production
+- Baseline and rollback target recorded in `production-baseline.md`.
+- Merge guard + merge + exact-SHA CI + explicit production deploy are
+  release-owner actions (Section 40/47; VERCEL.md marks production rollback and
+  deployment as release-owner actions). Not executed by automation.
+- PR #119 required CI: foundation (ubuntu-latest) PASS, foundation (windows-2022)
+  PASS, contract-f rls (ubuntu-latest) PASS; mergeStateStatus CLEAN.
+- Open issue #120: intake plan/stage root normalization (workaround documented).
+
+## Manual follow-up
+ChatGPT Web validation remains manual.
