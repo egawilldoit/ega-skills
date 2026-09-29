@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { buildHubRelease, verifyReleaseCandidate } from "../../packages/project/dist/index.js";
+import { describeChild, waitForFile } from "../helpers/wait-for-file.mjs";
 
 const cli = join(process.cwd(), "packages", "cli", "bin", "ega-skills.mjs");
 const validateArtifact = join(process.cwd(), "scripts", "hosted", "validate-artifact.mjs");
@@ -32,14 +33,6 @@ function writeEmptyHub(hub) {
   writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: e2e-hub\nowned: []\nexternal: []\n");
   writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
   writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
-}
-
-async function waitForFile(path) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (existsSync(path)) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`timed out waiting for ${path}`);
 }
 
 function launchLocalMcp(t, registryHome) {
@@ -278,7 +271,7 @@ test("E2E-01: actual intake CLI publishes the exact approved candidate", async (
   });
   previewProcess.stdout.on("data", (chunk) => { previewStdout += chunk; });
   previewProcess.stderr.on("data", (chunk) => { previewStderr += chunk; });
-  await waitForFile(marker);
+  await waitForFile(marker, { describe: describeChild(previewProcess, () => previewStderr) });
   const rejected = runSuccessfulCli(
     "hub", "intake", "review",
     "--candidate", plan.digest,
