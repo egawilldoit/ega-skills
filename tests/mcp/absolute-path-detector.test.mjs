@@ -18,9 +18,11 @@ test("detects POSIX absolute paths regardless of host OS", () => {
   assert.equal(hits[0].value, "/home/ubuntu/worktrees/ega/hub/owned/acme/widget");
 });
 
-test("detects Windows drive absolute paths on a POSIX host", () => {
-  // The point of the invariant: a Linux runner must flag a Windows fixture.
-  assert.notEqual(process.platform, "win32", "guard: this test asserts the POSIX-host case");
+test("detects Windows drive absolute paths on any host", () => {
+  // The point of the invariant: the detector classifies by string shape, not by
+  // the host, so BOTH a Linux and a Windows runner must flag these fixtures.
+  // Asserting a host guard here would skip exactly the case the invariant
+  // exists to prove on the Windows foundation runner.
   for (const fixture of [
     "C:\\Users\\alice\\ega\\hub",
     "C:/Users/alice/ega/hub",
@@ -33,8 +35,8 @@ test("detects Windows drive absolute paths on a POSIX host", () => {
   }
 });
 
-test("detects UNC paths on a POSIX host", () => {
-  assert.notEqual(process.platform, "win32", "guard: this test asserts the POSIX-host case");
+test("detects UNC paths on any host", () => {
+  // Host-independent for the same reason as the drive-letter case above.
   for (const fixture of [
     "\\\\fileserver\\share\\ega\\hub.yaml",
     "path=\\\\build-host\\artifacts\\registry.sqlite",
