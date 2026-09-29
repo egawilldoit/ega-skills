@@ -141,3 +141,17 @@ test("describePathClass reports shape without the host prefix", () => {
 test("default timeout is bounded and deadline-based", () => {
   assert.equal(DEFAULT_WAIT_TIMEOUT_MS, 30_000);
 });
+
+test("path classification is host-independent, not host-derived", () => {
+  // A POSIX absolute path must be described identically on a Windows runner:
+  // `path.isAbsolute` and `process.platform` would otherwise relabel it.
+  const posix = describePathClass("/tmp/ega-e2e-8KC94k/preview-marker");
+  assert.match(posix, /^absolute posix path /, `posix shape: ${posix}`);
+  assert.match(posix, /basename="preview-marker"/);
+  assert.ok(!posix.includes("8KC94k"), "leaked temp dir token");
+
+  // Every shape the helper can report, from any host.
+  assert.match(describePathClass("C:\\Users\\bob\\marker"), /^absolute windows path basename="marker"/);
+  assert.match(describePathClass("\\\\server\\share\\marker"), /^absolute windows unc path basename="marker"/);
+  assert.match(describePathClass("relative/marker"), /^relative path basename="marker"/);
+});

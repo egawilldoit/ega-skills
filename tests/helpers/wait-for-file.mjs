@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
 
 /**
  * Deadline-based wait for a file to appear.
@@ -42,11 +41,30 @@ export async function waitForFile(path, options = {}) {
  * they carry the shape of the path and never the host-specific prefix.
  */
 export function describePathClass(path) {
-  const name = basename(path);
-  const shape = isAbsolute(path)
-    ? process.platform === "win32" ? "absolute windows path" : "absolute posix path"
-    : "relative path";
-  return `${shape} basename=${JSON.stringify(name)}`;
+  const name = hostIndependentBasename(path);
+  return `${classifyPathShape(path)} basename=${JSON.stringify(name)}`;
+}
+
+/**
+ * Classify the path by its string shape, never by the host platform.
+ *
+ * A host-dependent classification is wrong twice over: `path.isAbsolute`
+ * answers from the running platform, and on Windows a leading slash is a
+ * root-relative path, so a POSIX absolute path is reported as an absolute
+ * Windows path. Timeout messages reach CI logs, and the same test must produce
+ * the same shape description on every runner.
+ */
+function classifyPathShape(path) {
+  if (/^[A-Za-z]:[\\/]/.test(path)) return "absolute windows path";
+  if (/^\\\\/.test(path)) return "absolute windows unc path";
+  if (path.startsWith("/")) return "absolute posix path";
+  return "relative path";
+}
+
+/** Last segment of a path under either separator, independent of host OS. */
+function hostIndependentBasename(path) {
+  const segments = path.split(/[\\/]+/).filter((segment) => segment.length > 0);
+  return segments.length > 0 ? segments[segments.length - 1] : path;
 }
 
 function formatDiagnostics(describe) {
