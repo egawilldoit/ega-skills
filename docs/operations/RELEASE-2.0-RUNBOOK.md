@@ -16,9 +16,15 @@ short-lived token files with mode 0600.
    Required: Linux PASS, Windows PASS, Contract F PASS, hashing PASS.
 2. Verify the candidate artifact and release digest:
    `node scripts/hosted/validate-artifact.mjs <artifact-dir>`
-   `cat <artifact-dir>/hub-release.json | jq -r '.release_digest'`
-   The digest must equal the digest recorded in
-   `docs/evidence/RELEASE-2.0-FINAL.md` and the value production selects.
+   `cat <artifact-dir>/hub-release.json | jq -r '.digest'`
+   The release digest is the top-level `digest` field of `hub-release.json`
+   (top-level keys are `digest`, `object_type`, `payload`, `schema_version`).
+   Do NOT use `.release_digest` or `.payload.release_digest`: neither exists
+   here — `release_digest` is a field of the release *candidate* envelope
+   (`candidate.json` / `release-diff.json`), not of the exported release.
+   The digest must equal the digest recorded for the active catalog in
+   `docs/evidence/catalog/<CATALOG_ID>/` and the value production selects
+   (the served `effective_release_digest` reported by the `search` tool).
 3. Verify the artifact matches the tested commit:
    `git rev-parse HEAD` equals the CI-verified SHA; the artifact was built
    from this tree with no uncommitted changes (`git status --short` empty).
