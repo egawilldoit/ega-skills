@@ -128,7 +128,11 @@ function describeSurvivors(rootPid) {
     return lines;
   }
   for (const proc of survivors) {
-    const marker = /\.test\.mjs|ega-mcp\.mjs|ega-skill/.test(proc.cmdline) ? " <== test-related" : "";
+    // A surviving process is test-related when it is running a test file or a
+    // test support file. `.fixture.mjs` and friends are the harness's own
+    // fixtures, so omitting them made the evidence drop the marker whenever the
+    // fixture runner was the only process left alive at the bound.
+    const marker = /\.(test|fixture|helper)\.mjs|ega-mcp\.mjs|ega-skill/.test(proc.cmdline) ? " <== test-related" : "";
     lines.push(`  pid=${proc.pid} ppid=${proc.ppid} ${proc.cmdline}${marker}`);
   }
   return lines;
