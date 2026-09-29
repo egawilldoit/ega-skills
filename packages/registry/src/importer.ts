@@ -20,6 +20,13 @@ export interface ImportSkillOptions {
   readonly path: string;
   /** Explicit author namespace (AMEND-02). Never guessed. */
   readonly namespace: string;
+  /**
+   * Stable, host-independent location to persist as the source observation.
+   * Callers that know a logical location (for example the Hub-relative path)
+   * pass it so exported provenance stays reproducible across build machines.
+   * When omitted, the canonical Skill ID is persisted.
+   */
+  readonly logicalPath?: string;
 }
 
 export interface SkillImportFailure {
@@ -54,7 +61,11 @@ export async function importSkills(
   for (const root of roots) {
     try {
       const prepared = await prepareSkillRoot(root, namespace);
-      const result = commitPreparedSkill(registry, prepared);
+      const result = commitPreparedSkill(
+        registry,
+        prepared,
+        options.logicalPath === undefined ? {} : { logicalPath: options.logicalPath },
+      );
       if (result.outcome === "NEW_LOCAL_VERSION") imported += 1;
       else unchanged += 1;
     } catch (error) {
