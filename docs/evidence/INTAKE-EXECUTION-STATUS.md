@@ -1,5 +1,19 @@
 # Intake-to-publication execution status
 
+> **Historical record — not current release state.**
+>
+> This file is a frozen execution record of the EGA-Skills-Intake-E2E
+> implementation plan as it stood on **2026-09-20** (last updated below). Its
+> slice statuses, SHAs, CI run links, and test counts describe the repository at
+> that point in time and are **superseded**. They must not be read as the state
+> of any current release, and nothing here was regenerated when later work
+> landed.
+>
+> For current release and post-production state, see
+> [`catalog/catalog-2026-09-29.1/post-production-acceptance.md`](./catalog/catalog-2026-09-29.1/post-production-acceptance.md).
+>
+> The content below is preserved verbatim as the historical record.
+
 Last updated: 2026-09-20
 
 This is the resume record for the EGA-Skills-Intake-E2E-Implementation-Plan.
