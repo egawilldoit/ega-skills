@@ -28,6 +28,30 @@ export interface SupabaseContextResolverOptions {
 const RELEASE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const WORKSPACE_ROLES = new Set(["owner", "admin", "maintainer", "member", "viewer"]);
 
+const JWT_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+function isJwtShaped(value: string): boolean {
+  const parts = value.split(".");
+  return parts.length === 3 && parts.every((part) => part.length > 0 && JWT_SEGMENT.test(part));
+}
+
+/**
+ * Supabase accepts two privileged key classes. A legacy `service_role` key is a
+ * JWT and the gateway authenticates it on `Authorization: Bearer`; `apikey` alone
+ * is rejected. A modern `sb_secret_` key is an opaque, non-JWT string, and the
+ * gateway parses whatever arrives on `Authorization` as a JWT, so sending one
+ * there fails with 401.
+ *
+ * The key is therefore only ever placed in a header, never parsed: the
+ * JWT-shape test reads only the segment structure and extracts no claim.
+ */
+function credentialHeaders(secretKey: string): Readonly<Record<string, string>> {
+  const base: Record<string, string> = { accept: "application/json", apikey: secretKey };
+  return Object.freeze(isJwtShaped(secretKey)
+    ? { ...base, authorization: `Bearer ${secretKey}` }
+    : base);
+}
+
 function unavailable(): HostedRuntimeError {
   return new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "Context is unavailable");
 }
@@ -53,11 +77,7 @@ export function createSupabaseContextResolver(options: SupabaseContextResolverOp
   if (!options.secretKey) throw new Error("secretKey is required");
   const fetcher = options.fetch ?? (globalThis["fetch"] as unknown as SupabaseFetch | undefined);
   if (!fetcher) throw new Error("fetch is unavailable");
-  const headers = Object.freeze({
-    accept: "application/json",
-    apikey: options.secretKey,
-    authorization: `Bearer ${options.secretKey}`,
-  });
+  const headers = credentialHeaders(options.secretKey);
 
   const readRows = async (
     table: string,

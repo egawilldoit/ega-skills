@@ -7,6 +7,15 @@ const signal = new AbortController().signal;
 const releaseDigest = `sha256:${"1".repeat(64)}`;
 const snapshot = { releaseDigest };
 
+// Structure-only fixture shaped like a legacy `service_role` JWT. Supabase
+// authenticates that key class on `Authorization: Bearer`; `apikey` alone is
+// rejected. Modern `sb_secret_` keys are covered in hosted-supabase-key-class.test.mjs.
+const serverSecret = [
+  Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url"),
+  Buffer.from(JSON.stringify({ role: "service_role", iss: "supabase", sub: "fixture" })).toString("base64url"),
+  "c2lnbmF0dXJlLWZpeHR1cmU",
+].join(".");
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -18,9 +27,9 @@ function apiFetch(overrides = {}) {
     calls.push(url);
     assert.equal(init.method, "GET");
     const headers = new Headers(init.headers);
-    assert.equal(headers.get("apikey"), "server-secret");
-    assert.equal(headers.get("authorization"), "Bearer server-secret");
-    assert.doesNotMatch(url.toString(), /server-secret/);
+    assert.equal(headers.get("apikey"), serverSecret);
+    assert.equal(headers.get("authorization"), `Bearer ${serverSecret}`);
+    assert.doesNotMatch(url.toString(), /service_role|c2lnbmF0dXJl/);
     if (overrides[url.pathname]) return overrides[url.pathname](url);
     if (url.pathname.endsWith("/project_contexts")) return json([{
       id: "ctx-a",
@@ -44,7 +53,7 @@ function apiFetch(overrides = {}) {
 function resolverWith(fetchImpl, onRelease = async () => snapshot) {
   return createSupabaseContextResolver({
     supabaseUrl: "https://project.supabase.co",
-    secretKey: "server-secret",
+    secretKey: serverSecret,
     fetch: fetchImpl,
     resolveRelease: onRelease,
   });
