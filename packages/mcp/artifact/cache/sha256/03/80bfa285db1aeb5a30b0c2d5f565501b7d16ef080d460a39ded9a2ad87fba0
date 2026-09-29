@@ -1,0 +1,9 @@
+schema_version: 1
+aliases: [guard-the-context-window]
+triggers:
+  - "guard the context window"
+anti_triggers:
+  - "large file"
+  - "long output"
+  - "token limit"
+  - "read these files"

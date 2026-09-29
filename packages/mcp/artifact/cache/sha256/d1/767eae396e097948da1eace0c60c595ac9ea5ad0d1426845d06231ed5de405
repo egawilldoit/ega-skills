@@ -1,0 +1,10 @@
+schema_version: 1
+triggers:
+  - "verify the cli"
+  - "verify cli"
+  - "cli verification"
+  - "test the cli"
+  - "verify the command line"
+anti_triggers:
+  - "verify the ui"
+  - "run smoke tests"

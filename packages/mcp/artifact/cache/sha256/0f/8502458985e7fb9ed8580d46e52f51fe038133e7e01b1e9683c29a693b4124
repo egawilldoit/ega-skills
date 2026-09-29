@@ -1,0 +1,9 @@
+schema_version: 1
+domains: [documentation]
+triggers:
+  - "technical writing"
+  - "write a doc"
+  - "write documentation"
+  - "write an rfc"
+  - "pr description"
+  - "document this"

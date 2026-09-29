@@ -1,0 +1,11 @@
+schema_version: 1
+aliases: [make-operations-idempotent]
+triggers:
+  - "idempotent"
+  - "idempotency"
+  - "make operations idempotent"
+anti_triggers:
+  - "retry"
+  - "crash"
+  - "restart"
+  - "failure"

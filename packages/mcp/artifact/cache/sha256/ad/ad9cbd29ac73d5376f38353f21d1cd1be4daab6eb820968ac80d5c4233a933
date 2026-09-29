@@ -1,0 +1,15 @@
+schema_version: 1
+aliases: [fix-root-causes]
+triggers:
+  - "fix root causes"
+  - "root cause"
+  - "trace to the root cause"
+  - "root cause principle"
+  - "don't patch the symptom"
+anti_triggers:
+  - "debug"
+  - "fix the bug"
+  - "why does this crash"
+  - "why is this failing"
+  - "troubleshoot"
+  - "diagnose"

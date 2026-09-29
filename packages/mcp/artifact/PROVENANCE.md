@@ -1,15 +1,37 @@
-# Deployment artifact provenance — catalog-2026-09-24.1
+# Deployment artifact provenance — catalog-2026-09-29.1
 
 Built with the existing Contract C build (`buildHubRelease` / `hub release export`);
 no fixtures, no examples, no invented content.
 
-Built by the clean 49→48-skill catalog reset (release-authority amendment 2026-09-24).
-This is a CATALOG release: the software remains EGA Skills 2.0.0 (v2.0.0 →
-065421c03909089eb6077c1d285af24121329862); no frozen runtime code changed.
+Built by adding the 66-skill `egawilldoit` owned-namespace source to the parent
+48-skill catalog. This is a CATALOG release: the software remains EGA Skills
+2.0.0 (v2.0.0 → 065421c03909089eb6077c1d285af24121329862); no frozen runtime
+code changed.
 
-Release digest: sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f
+Release digest: sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
 Hub id: personal
-Skills: 48 (mattpocock 25, anthropic 14, vercel 9)
+Skills: 114 (mattpocock 25, anthropic 14, vercel 9, egawilldoit 66)
+
+Parent catalog: catalog-2026-09-24.1
+Parent digest: sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f
+Parent skills: 48 (mattpocock 25, anthropic 14, vercel 9)
+
+## New source (catalog-2026-09-29.1): egawilldoit 66
+
+- egawilldoit (egawilldoit-skills): https://github.com/egawilldoit/skills
+  @ f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df
+  roots: 66 explicit `skills/<name>` directories
+  provenance: LICENSE, THIRD_PARTY_NOTICES.md, upstream-sources.json (66/66 entries)
+  source tests: 134 PASS; routing_audit / trigger_audit / validate_ega_metadata PASS
+- Commit chain: b8c3e9f4de88e7005515602e2c67276501fb1050 (initial 66-skill
+  routing metadata) → f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df (PR #5, issue #4:
+  tighten cross-catalog routing metadata for 7 skills).
+- Existing 48 SkillVersion hashes are byte-identical to the parent (48/48).
+
+The sections below document the parent 48-skill catalog (`catalog-2026-09-24.1`)
+and remain the provenance of record for those namespaces.
+
+## Parent catalog-2026-09-24.1 provenance
 
 ## Sources (pinned reviewed commits; every unpatched file byte-verified against the pin)
 

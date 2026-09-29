@@ -1,0 +1,4 @@
+interface:
+  display_name: "Redesign From First Principles"
+  short_description: "Integrate new needs as if known from day one"
+  default_prompt: "Use $principle-redesign-from-first-principles to fold in this new requirement."

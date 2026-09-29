@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sequence Verifiable Units"
+  short_description: "Break work into units that each end verifiable"
+  default_prompt: "Use $principle-sequence-verifiable-units to split this sweep."

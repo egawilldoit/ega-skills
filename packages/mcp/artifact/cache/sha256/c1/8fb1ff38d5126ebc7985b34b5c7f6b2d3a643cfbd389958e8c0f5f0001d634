@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "retrospective"
+  - "work retrospective"
+  - "session retrospective"
+  - "retro"
+  - "lessons from this session"

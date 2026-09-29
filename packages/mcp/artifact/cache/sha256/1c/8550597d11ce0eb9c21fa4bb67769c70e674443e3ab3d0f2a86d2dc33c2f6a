@@ -1,0 +1,4 @@
+interface:
+  display_name: "Subtract Before You Add"
+  short_description: "Remove dead weight before building on the base"
+  default_prompt: "Use $principle-subtract-before-you-add before adding this feature."

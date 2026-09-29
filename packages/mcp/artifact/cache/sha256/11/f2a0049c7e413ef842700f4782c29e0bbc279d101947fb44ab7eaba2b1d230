@@ -1,0 +1,6 @@
+schema_version: 1
+triggers:
+  - "weekly review"
+  - "weekly recap"
+  - "week in review"
+  - "weekly synthesis"

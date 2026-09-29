@@ -1,0 +1,8 @@
+schema_version: 1
+domains: [rationale]
+triggers:
+  - "why is this designed this way"
+  - "design rationale"
+  - "why does this look like this"
+  - "why is this shaped this way"
+  - "why was this built this way"

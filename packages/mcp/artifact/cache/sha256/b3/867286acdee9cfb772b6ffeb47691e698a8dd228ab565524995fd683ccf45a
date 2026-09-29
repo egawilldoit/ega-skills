@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database Rollout Certification"
+  short_description: "Certify a migration across its real lifecycle"
+  default_prompt: "Use $certify-database-rollout before applying this migration."

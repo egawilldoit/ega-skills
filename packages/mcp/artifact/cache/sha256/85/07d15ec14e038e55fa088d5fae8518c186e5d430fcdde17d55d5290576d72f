@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Production Certification"
+  short_description: "Certify a production MCP server end to end"
+  default_prompt: "Use $certify-mcp-production before publishing this MCP server."

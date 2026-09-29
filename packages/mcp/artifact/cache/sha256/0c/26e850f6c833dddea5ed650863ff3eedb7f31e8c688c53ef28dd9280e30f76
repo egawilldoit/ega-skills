@@ -1,0 +1,4 @@
+interface:
+  display_name: "Understand Codebase"
+  short_description: "Build a mental model of how a subsystem works"
+  default_prompt: "Use $understand-codebase to explain how the billing subsystem works."

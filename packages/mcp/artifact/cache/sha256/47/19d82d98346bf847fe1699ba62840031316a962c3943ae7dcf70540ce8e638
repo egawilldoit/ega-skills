@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Certification"
+  short_description: "Certify code, runtime, and product gates for a release"
+  default_prompt: "Use $certify-release before calling this production-ready."
