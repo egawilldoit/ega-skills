@@ -287,12 +287,50 @@ export async function prepareSkillRoot(
   return prepared;
 }
 
-function hasSourceObservation(registry: RegistryHandle, prepared: PreparedSkill): boolean {
+/**
+ * Platform-independent absolute-path test. Deliberately does not use
+ * `path.isAbsolute`, which answers for the running OS only and would let a
+ * Windows or UNC build host persist its own path shape undetected.
+ */
+function isHostAbsolutePath(candidate: string): boolean {
+  return (
+    candidate.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(candidate) ||
+    candidate.startsWith("\\\\")
+  );
+}
+
+/**
+ * The value persisted in `skill_sources.local_path`.
+ *
+ * `prepared.sourceRoot` is the absolute on-disk location the importer reads
+ * from. It is a property of the machine that ran the build, not of the skill,
+ * so persisting it would export the build host's account, worktree layout and
+ * hub directory structure into every shipped registry. Callers that know a
+ * stable logical location (the Hub-relative path) pass it in; otherwise the
+ * canonical Skill ID is used, which is real, deterministic and host-free.
+ */
+function storedLocalPath(prepared: PreparedSkill, logicalPath: string | undefined): string {
+  const candidate = logicalPath ?? prepared.skillId;
+  if (candidate.length === 0) throw new Error(`Local source path for ${prepared.skillId} is empty.`);
+  if (isHostAbsolutePath(candidate)) {
+    throw new Error(
+      `Refusing to persist a host-absolute source path for ${prepared.skillId}; pass a logical path instead.`,
+    );
+  }
+  return candidate;
+}
+
+function hasSourceObservation(
+  registry: RegistryHandle,
+  prepared: PreparedSkill,
+  localPath: string,
+): boolean {
   const row = registry.db
     .prepare(
       "SELECT 1 AS one FROM skill_sources WHERE skill_id = ? AND version_hash = ? AND source_type = ? AND local_path IS ? AND repository IS NULL AND commit_sha IS NULL AND repository_path IS NULL",
     )
-    .get(prepared.skillId, prepared.versionHash, "local", prepared.sourceRoot) as { one: number } | undefined;
+    .get(prepared.skillId, prepared.versionHash, "local", localPath) as { one: number } | undefined;
   return row !== undefined;
 }
 
@@ -300,7 +338,9 @@ function hasSourceObservation(registry: RegistryHandle, prepared: PreparedSkill)
 export function commitPreparedSkill(
   registry: RegistryHandle,
   prepared: PreparedSkill,
+  options: { readonly logicalPath?: string } = {},
 ): CommittedPreparedSkill {
+  const localPath = storedLocalPath(prepared, options.logicalPath);
   validatePreparedSkill(prepared);
   for (const file of prepared.files) {
     putCacheBlob(registry.paths.cacheSha256, file.bytes, file.record.blob_hash);
@@ -358,14 +398,14 @@ export function commitPreparedSkill(
       triggers: prepared.routing.triggers,
       aliases: prepared.routing.aliases,
     });
-    if (!hasSourceObservation(registry, prepared)) {
+    if (!hasSourceObservation(registry, prepared, localPath)) {
       db.prepare(
         "INSERT INTO skill_sources (skill_id, version_hash, source_type, local_path, repository, commit_sha, repository_path, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         prepared.skillId,
         prepared.versionHash,
         "local",
-        prepared.sourceRoot,
+        localPath,
         null,
         null,
         null,

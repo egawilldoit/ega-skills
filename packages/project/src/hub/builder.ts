@@ -11,7 +11,7 @@
 
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { importSkills, listSkillVersions, openRegistry } from "@ega-skills/registry";
 import type { RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
@@ -55,6 +55,8 @@ interface ReadableDb {
 interface ExpectedRoot {
   namespace: string;
   absPath: string;
+  /** Hub-relative logical location persisted as the source observation. */
+  logicalPath: string;
 }
 
 /** Skill directories (SKILL.md holders) at or under any of `roots`. */
@@ -120,17 +122,17 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   }
   // Expected catalog: owned skills + vendored skills under selected roots.
   const expected = new Map<string, ExpectedRoot>();
-  const claim = (skillId: string, namespace: string, absPath: string): void => {
+  const claim = (skillId: string, namespace: string, absPath: string, logicalPath: string): void => {
     const prior = expected.get(skillId);
     if (prior !== undefined && prior.absPath !== absPath) {
       throw new HubError("E_BUILD_ATTESTATION", `duplicate canonical Skill ID ${skillId} from ${prior.absPath} and ${absPath}`);
     }
-    expected.set(skillId, { absPath, namespace });
+    expected.set(skillId, { absPath, namespace, logicalPath });
   };
   for (const owned of hub.owned) {
     for (const rel of discoverSkillDirs(hubDir, [owned.path])) {
       const leaf = rel.split("/").pop() as string;
-      claim(`${owned.namespace}/${leaf}`, owned.namespace, join(hubDir, ...rel.split("/")));
+      claim(`${owned.namespace}/${leaf}`, owned.namespace, join(hubDir, ...rel.split("/")), rel);
     }
   }
   for (const [name, record] of Object.entries(adopted.sources)) {
@@ -139,7 +141,8 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
     const treeDir = adoptedSourcePath(hubDir, name);
     for (const rel of discoverSkillDirs(treeDir, record.selection.roots)) {
       const leaf = rel.split("/").pop() as string;
-      claim(`${source.namespace}/${leaf}`, source.namespace, join(treeDir, ...rel.split("/")));
+      const absPath = join(treeDir, ...rel.split("/"));
+      claim(`${source.namespace}/${leaf}`, source.namespace, absPath, relative(hubDir, absPath));
     }
   }
   // Fresh empty isolated registry: developer history cannot leak in. The env
@@ -149,7 +152,11 @@ export async function buildHub(hubDir: string): Promise<HubBuildResult> {
   try {
     const ordered = [...expected.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
     for (const [, root] of ordered) {
-      const summary = await importSkills(registry, { namespace: root.namespace, path: root.absPath });
+      const summary = await importSkills(registry, {
+        namespace: root.namespace,
+        path: root.absPath,
+        logicalPath: root.logicalPath,
+      });
       if (summary.failed > 0) {
         const first = summary.failures[0];
         throw new HubError("E_BUILD_ATTESTATION", `import failed with zero tolerance: ${first ? first.error : "unknown"}`);
