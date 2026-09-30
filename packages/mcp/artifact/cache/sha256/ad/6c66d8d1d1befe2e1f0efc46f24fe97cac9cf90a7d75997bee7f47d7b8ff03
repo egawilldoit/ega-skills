@@ -1,0 +1,10 @@
+schema_version: 1
+aliases: [exhaust-the-design-space]
+triggers:
+  - "exhaust the design space"
+anti_triggers:
+  - "design this"
+  - "design an architecture"
+  - "ui design"
+  - "prototype this"
+  - "build a component"

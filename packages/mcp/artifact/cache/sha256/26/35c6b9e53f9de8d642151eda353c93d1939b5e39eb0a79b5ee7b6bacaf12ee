@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "record evidence"
+  - "decision ledger"
+  - "evidence ledger"
+  - "log a decision"
+  - "record a decision"

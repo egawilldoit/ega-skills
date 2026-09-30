@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deslop"
+  short_description: "Remove dead code and leftover scaffolding"
+  default_prompt: "Use $deslop to clean up this branch before review."

@@ -1,6 +1,7 @@
 export {
   deriveFingerprintSets,
   detectDirectoryEvidence,
+  digestProjectFingerprint,
   fingerprintDirectory,
 } from "./fingerprint.js";
 export { localDirectoryScan } from "./fingerprint-fs.js";

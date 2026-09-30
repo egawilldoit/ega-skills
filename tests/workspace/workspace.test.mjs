@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const packageNames = ["schema", "hashing", "registry", "router", "project", "mcp", "cli"];
+const packageNames = ["schema", "hashing", "registry", "router", "project", "control-plane", "object-store", "mcp", "cli"];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -34,7 +34,7 @@ test("strict TypeScript configuration and project references cover every package
   assert.deepEqual(references, packageNames.map((name) => `./packages/${name}`));
 });
 
-test("all seven package boundaries are real buildable ESM packages", () => {
+test("all workspace package boundaries are real buildable ESM packages", () => {
   for (const name of packageNames) {
     const dir = join(root, "packages", name);
     const manifestPath = join(dir, "package.json");

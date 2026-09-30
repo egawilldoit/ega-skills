@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "make this easy to review"
+  - "make this pr easy to review"
+  - "tidy this pr"
+  - "clean up commits"
+  - "annotate the diff"
+  - "make pr easy to review"
+anti_triggers:
+  - "review this pr"
+  - "review and ship"

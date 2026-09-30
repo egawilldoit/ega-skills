@@ -134,6 +134,18 @@ export function toolSchema(spec: {
     | { type: "enum"; values: readonly string[] }
   >;
   required: readonly string[];
+  /**
+   * Alternative selector groups. At least one alternative must be satisfied,
+   * where an alternative is a conjunction: every argument name it lists must be
+   * supplied. Published as JSON Schema `anyOf` so a schema-guided client sees
+   * the real contract, and enforced here so a schema-valid-looking call can
+   * never slip through to a downstream runtime error. Unlike `required`, no
+   * single name is unconditionally mandatory: any satisfied alternative does.
+   */
+  selector?: {
+    alternatives: readonly (readonly string[])[];
+    message: string;
+  };
 }): StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>> {
   const jsonProperties: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(spec.fields)) {
@@ -174,6 +186,12 @@ export function toolSchema(spec: {
           if (!(key in args)) {
             issues.push({ message: `Missing required argument: ${key}`, path: [key] });
           }
+        }
+        if (spec.selector && !spec.selector.alternatives.some((alt) => alt.every((key) => args[key] !== undefined))) {
+          issues.push({
+            message: spec.selector.message,
+            path: [spec.selector.alternatives[0]?.[0] ?? ""],
+          });
         }
         for (const [key, field] of Object.entries(spec.fields)) {
           const raw = args[key];
@@ -237,14 +255,35 @@ export function toolSchema(spec: {
           type: "object",
           properties: jsonProperties,
           required: [...spec.required],
+          ...(spec.selector
+            ? { anyOf: spec.selector.alternatives.map((alt) => ({ required: [...alt] })) }
+            : {}),
         }),
-        output: () => ({ $ref: "#/$defs/toolErrorEnvelope" }),
+        output: () => ({ $ref: "#/$defs/toolErrorEnvelope", $defs: { toolErrorEnvelope: TOOL_ERROR_ENVELOPE_JSON_SCHEMA } }),
       },
     },
   };
 }
 
 /** Shared output schema: `structuredContent` is the frozen error envelope. */
+const TOOL_ERROR_ENVELOPE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    error: {
+      type: "object",
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        tool: { type: "string" },
+      },
+      required: ["code", "message", "tool"],
+      additionalProperties: false,
+    },
+  },
+  required: ["error"],
+  additionalProperties: false,
+} as const;
+
 const OUTPUT_SCHEMA: StandardSchemaWithJSON<McpToolErrorEnvelope, McpToolErrorEnvelope> = {
   "~standard": {
     version: 1,
@@ -527,7 +566,7 @@ const BOUND_HANDLERS: Readonly<
  */
 export function createMcpServer(): McpServer {
   const server = new McpServer(
-    { name: "ega-skills", version: "1.0.1" },
+    { name: "ega-skills", version: "2.0.1" },
     { capabilities: { tools: {} } },
   );
 

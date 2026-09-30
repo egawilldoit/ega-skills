@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compare Designs"
+  short_description: "Generate and compare candidate designs before committing"
+  default_prompt: "Use $compare-designs to weigh these two approaches."

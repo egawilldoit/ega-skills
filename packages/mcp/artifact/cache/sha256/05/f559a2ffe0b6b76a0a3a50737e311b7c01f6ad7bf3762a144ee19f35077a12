@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test-Driven Development"
+  short_description: "Drive changes from a failing test to a proven fix"
+  default_prompt: "Use $tdd to build this change from a failing test."

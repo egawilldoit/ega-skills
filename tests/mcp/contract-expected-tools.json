@@ -36,7 +36,10 @@
       "type": "object",
       "properties": {
         "result": {
-          "$ref": "#/properties/result/$defs/resolveOutput"
+          "$ref": "#/properties/result/$defs/r",
+          "$defs": {
+            "r": {}
+          }
         }
       },
       "required": [
@@ -70,7 +73,10 @@
       "type": "object",
       "properties": {
         "result": {
-          "$ref": "#/properties/result/$defs/searchOutput"
+          "$ref": "#/properties/result/$defs/s",
+          "$defs": {
+            "s": {}
+          }
         }
       },
       "required": [
@@ -363,15 +369,15 @@
           ]
         },
         "max_tokens": {
-         "type": "integer",
-         "minimum": 1,
-         "maximum": 1000000
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
         },
         "file_path": {
-         "type": "string"
+          "type": "string"
         },
         "project_path": {
-         "type": "string"
+          "type": "string"
         }
       },
       "required": [
@@ -385,7 +391,10 @@
       "type": "object",
       "properties": {
         "result": {
-          "$ref": "#/properties/result/$defs/getContentOutput"
+          "$ref": "#/properties/result/$defs/g",
+          "$defs": {
+            "g": {}
+          }
         }
       },
       "required": [

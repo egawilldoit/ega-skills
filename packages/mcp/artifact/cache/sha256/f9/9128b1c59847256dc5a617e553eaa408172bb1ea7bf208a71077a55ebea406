@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Architecture"
+  short_description: "Produce an implementable architecture contract"
+  default_prompt: "Use $design-architecture before building this subsystem."

@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "review and ship"
+  - "ship this branch"
+  - "finish this pr"
+  - "review and merge"
+anti_triggers:
+  - "adversarial review"
+  - "integrate pr stack"
+  - "fix ci"
+  - "make this easy to review"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Foundational Thinking"
+  short_description: "Get the core data structures right before logic"
+  default_prompt: "Use $principle-foundational-thinking before designing these types."

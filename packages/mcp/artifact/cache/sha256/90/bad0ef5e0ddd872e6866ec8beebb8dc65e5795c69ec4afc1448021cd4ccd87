@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix Root Causes"
+  short_description: "Trace symptoms to the root cause and fix there"
+  default_prompt: "Use $principle-fix-root-causes to find why this keeps failing."

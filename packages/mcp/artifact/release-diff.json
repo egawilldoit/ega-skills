@@ -1,0 +1,20 @@
+{
+  "digest": "sha256:9f4e3e17a9e85888bff4c7b52fcca76fb8912d7b4d6541da303094ef49f62104",
+  "object_type": "ega.release-diff",
+  "payload": {
+    "added_skill_ids": [],
+    "artifact_changes": {
+      "adopted_sources": false,
+      "alias_map": false,
+      "search_index_input": false,
+      "token_artifact": false
+    },
+    "base_release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+    "candidate_release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+    "hub_id": "personal",
+    "removed_skill_ids": [],
+    "status": "UNCHANGED",
+    "updated_skills": []
+  },
+  "schema_version": 1
+}

@@ -28,8 +28,11 @@ declare const Buffer: {
 };
 
 declare module "node:path" {
+  export const sep: string;
   export function dirname(path: string): string;
+  export function isAbsolute(path: string): boolean;
   export function join(...paths: string[]): string;
+  export function relative(from: string, to: string): string;
   export function resolve(...paths: string[]): string;
 }
 

@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "deslop"
+  - "remove code slop"
+  - "clean up this diff"
+  - "code slop"
+  - "slop in this diff"

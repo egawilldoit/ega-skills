@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "unslop"
+  - "remove ai tells"
+  - "clean up this writing"
+  - "ai tells"
+  - "de-ai this text"

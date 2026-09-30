@@ -1,0 +1,9 @@
+schema_version: 1
+aliases: [type-system-discipline]
+triggers:
+  - "type system discipline"
+anti_triggers:
+  - "typescript"
+  - "type annotation"
+  - "type alias"
+  - "tsx"

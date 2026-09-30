@@ -1,0 +1,84 @@
+{
+  "url": "http://127.0.0.1:38765/mcp",
+  "era": "modern",
+  "protocolVersion": "2026-07-28",
+  "releaseDigest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+  "tools": [
+    "get_content",
+    "inspect",
+    "resolve",
+    "search"
+  ],
+  "reps": {
+    "mattpocock/diagnosing-bugs": {
+      "version_hash": "sha256:f56e6a33a7200be2f172c455ca35718a3345deb3e65ffb250b2c4fe6718ebf48",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 8526,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "anthropic/mcp-builder": {
+      "version_hash": "sha256:039eac54616f60ae8ae0840603710e10eded7ac357a6c3f1d47c27484dd3474e",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 9066,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "vercel/react-best-practices": {
+      "version_hash": "sha256:31856c5e77fb6ef39a8d44195453e0e3ad53bcb77827c16af9c0242f7f5c46bc",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 7244,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "egawilldoit/understand-codebase": {
+      "version_hash": "sha256:9f9d48f6d4cb13fe278afed725d8618274753a79f61c81a3a46b830de315ce9d",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 4004,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "egawilldoit/design-architecture": {
+      "version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 5051,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "egawilldoit/certify-release": {
+      "version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 3636,
+      "get_content_ok": true,
+      "gc_error": null
+    },
+    "egawilldoit/verify-cli": {
+      "version_hash": "sha256:903d8bdb53c9fa2b48661162692aa87682aa3e3a0897af73a45062ace7e708a6",
+      "inspect_ok": true,
+      "content_digest": null,
+      "content_bytes": 4655,
+      "get_content_ok": true,
+      "gc_error": null
+    }
+  },
+  "search": [
+    "egawilldoit/verify-cli",
+    "egawilldoit/create-verification-workflow",
+    "egawilldoit/verify-ui",
+    "vercel/vercel-cli-with-tokens",
+    "egawilldoit/verify-this"
+  ],
+  "resolve": {
+    "selected": [
+      "egawilldoit/understand-codebase"
+    ],
+    "candidates": [],
+    "confidence": "MEDIUM"
+  }
+}
