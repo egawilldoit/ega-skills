@@ -9,9 +9,9 @@ Set on Vercel:
 EGA_HOSTED_ARTIFACT_DIR=./artifact
 ```
 
-## Provisioned release
+## Provisioned release (candidate — not yet promoted)
 
-- Catalog: `catalog-2026-09-29.1`
+- Catalog: `catalog-2026-09-29.2`
 - Release digest: `sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77`
 - Hub id: `personal`
 - Skills: 114 (mattpocock 25, anthropic 14, vercel 9, egawilldoit 66)
