@@ -228,3 +228,111 @@ hash the exact artifact being promoted; do not present it as reproducible.
   runner.
 - Reproduce a local-only failure at the previous release commit before calling
   it a regression. It is only a regression if the earlier commit passes.
+
+## Client credential handling
+
+**Never persist an OAuth access token or bearer token directly inside an
+OpenCode/Codex/MCP client configuration file — including a temporary one.**
+
+A credential belongs in exactly one of:
+
+- an approved credential store, or
+- environment-variable injection at invocation time, or
+- an isolated ephemeral secret file, mode `0600`, purged at end of cycle.
+
+Client configuration is the worst of the available locations, because it is the
+one a human or a template writes by hand, it is easy to leave behind, and it
+outlives the round that created it.
+
+> **Observed 2026-09-30, during end-of-cycle cleanup.** An OpenCode MCP config
+> left over from an *earlier* round carried a live Supabase access token inline
+> in its headers:
+>
+> ```json
+> { "mcp": { "ega-skills": {
+>     "headers": { "Authorization": "Bearer eyJhbGciOiJFUzI1NiIs…" } } } }
+> ```
+>
+> It was still readable at cleanup time, weeks after the round that wrote it,
+> and it survived a first purge pass that only checked a hand-written file list.
+> A client config is evidence; treat it as credential-bearing by default.
+
+Two corollaries that cost real time:
+
+- Isolating a client by copying its auth directory also copies a **live**
+  credential. The copy is a second secret with its own expiry obligation. Purge
+  every isolated home at end of cycle, not just the credential you used.
+- Writing a token into a config to "just test it" is how a token ends up in a
+  file nobody remembers creating. Inject it from the environment instead.
+
+## Purge completeness
+
+**Never prove credential cleanup by checking only known filenames.**
+
+The first purge pass in the 2.0.1 cycle enumerated the credentials it knew it
+had created and verified each was gone. It reported complete. A follow-up
+`find`-based sweep of the same scratch boundary then found **10 more live
+credential files** — nine isolated OpenCode auth stores plus the hardcoded bearer
+token above. Roughly half the exposure had been missed, and the miss was
+invisible because every file on the hand-written list really was absent.
+
+Cleanup proof is five steps, in order:
+
+1. **Delete** the known release credentials — the ones deliberately created.
+2. **Recursively scan** the entire release scratch boundary (`/tmp/opencode` and
+   every worktree this cycle touched), by discovery rather than by name.
+3. **Scan client-specific** auth and config locations: `CODEX_HOME`, XDG data
+   and config homes, isolated client homes, `*.credentials.json`, `auth.json`,
+   `mcp-auth.json`.
+4. **Rescan with secret-shaped patterns** — `vcp_…`, `sb_secret_…`, `sbp_…`,
+   `Bearer <40+>`, `access_token`/`refresh_token` assignments, and JWT-shaped
+   `eyJ….….…` strings.
+5. **Report zero remaining matches**, or an explicit classification of each one.
+
+Candidate locations per sweep: bearer-token patterns; OAuth auth stores; client
+config directories; temporary XDG/`CODEX_HOME` directories; `/tmp` release
+workspaces; env snapshots; shell-generated credential files.
+
+### Classify before deleting
+
+A pattern match is a *candidate*, not a verdict. Two classes routinely match a
+naive scan and must be **kept**, not shredded:
+
+- **Upstream test fixtures.** A cloned repo's own `testdata/`, `hack/test.env`,
+  or `example.env` files contain `service_role` keys and fixed JWT test vectors.
+  Shredding them corrupts a repo checkout and destroys reproducibility for no
+  security gain. Confirm the match is *not* EGA-specific before deleting.
+- **Public API specs and docs**, which embed example tokens in schema
+  descriptions.
+
+Distinguish them with an EGA-specific probe (`ega-skills`, `ega-skills-mcp`,
+the project or account id) rather than a generic `service_role` grep. A generic
+grep produces a wall of false positives that trains you to ignore the output.
+
+### On any discovered live credential
+
+**classify → purge → determine revocation requirement → verify absence.**
+
+Revocation is a separate decision from deletion, and the two are routinely
+conflated. A deleted secret can still be valid.
+
+- **Long-lived or privileged** (`service_role`, `vcp_…`, Supabase keys, any
+  token whose blast radius is unknown): purging local copies is *containment,
+  not remediation*. Revocation is mandatory, and where rotation is blocked,
+  record it as an open security issue with the blocker named — do not let it
+  close as "purged".
+- **Expired short-lived user access tokens**: may be documented as
+  purged/no-revoke, but **only after expiry is independently established** — read
+  the `exp` claim and compare it to the current time. Do not infer expiry from
+  the token's nominal TTL, and do not infer it from the fact that the issuing
+  session was closed.
+- **Scoped, revocable, single-service** tokens: record the issuing authority and
+  the revocation path in the evidence document, so a later reader can act
+  without re-deriving it.
+
+### Cleanup is not a claim, it is a scan
+
+"Credentials purged" is a statement about the state of a filesystem, and
+filesystem state is exactly the thing a list cannot establish. If the proof is a
+list, it is not a proof. Re-run the sweep rather than trusting the earlier pass,
+and keep the sweep's output as part of the release evidence.
