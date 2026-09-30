@@ -10,7 +10,7 @@ import { buildHubRelease } from "../../packages/project/dist/index.js";
 import { createHostedRuntimeFromEnv } from "../../packages/mcp/dist/index.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const RELEASE_VERSION = "2.0.0";
+const RELEASE_VERSION = "2.0.1";
 
 function readVersion(path) {
   return JSON.parse(readFileSync(path, "utf8")).version;
@@ -70,7 +70,7 @@ function parseRpcBody(text) {
   return JSON.parse(data ?? text);
 }
 
-test("root and every workspace package report the 2.0.0 release version", () => {
+test("root and every workspace package report the 2.0.1 release version", () => {
   const rootVersion = readVersion(join(REPO_ROOT, "package.json"));
   assert.equal(rootVersion, RELEASE_VERSION, "root package version must be the release version");
   const packages = workspacePackagePaths().map((path) => ({
