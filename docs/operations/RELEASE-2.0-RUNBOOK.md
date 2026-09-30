@@ -98,3 +98,133 @@ policy JSON present and non-empty; issuer/audience/JWKS configured together;
 Supabase URL and secret key configured together; allowed origins non-empty,
 HTTPS, wildcard-free. The runtime never falls back to anonymous serving; a
 misconfigured deployment serves errors, never partial content.
+
+---
+
+# Hard invariants
+
+Learned the hard way during the 2.0.1 / `catalog-2026-09-29.2` cycle. Each of
+these prevented or would have prevented a real failure. They are not
+advisory.
+
+## Vercel identity
+
+**Never depend on the global CLI auth file for a multi-account VM.**
+
+The Vercel CLI keeps one global credential store per user. A VM hosting more
+than one tenant cannot authenticate to both at once; whichever account logged
+in last silently becomes the identity every command runs as. That is how a
+release stalled with unexplained `403`s from every team-scoped endpoint while
+`whoami` reported a healthy, unrelated account.
+
+- Pass an explicit per-project credential for the release: `VERCEL_TOKEN`, plus
+  `--token` and `--scope` on every invocation.
+- Leave the global store alone. Do not `vercel login` / `vercel logout` to
+  switch tenants.
+- Do not use `vercel switch` for a release workflow; it mutates global state.
+- **Assert identity before acting, not after.** The first command of a session
+  must be `whoami` and a scoped project read. If a scoped call returns `403`,
+  check *who you are* before concluding the credential is expired — an expired
+  token and a wrong-account token look identical from the endpoint.
+- Gate every mutation on reading **both** the team and the project. Abort if the
+  authenticated identity cannot read both. This makes it impossible to run an
+  EGA release command against another tenant's account.
+
+## Merge guard
+
+**Guard activation is its own operation.**
+
+The ignored-build step is consulted asynchronously by the build pipeline.
+Setting it and merging in the same command does not take effect in time, and the
+merge deploys to production.
+
+1. Set the guard.
+2. Read it back.
+3. Allow it to propagate.
+4. Only then merge.
+5. Confirm the merge-window deployment is `CANCELED`/ignored and that the
+   canonical alias did not move.
+6. Restore the guard to its previous value.
+
+Steps 1–3 in one shell invocation with a short wait is not sufficient. Observed:
+~2 minutes plus an intervening command was reliable; immediately adjacent was
+not, and cost two unintended production deploys.
+
+## Production-connected branch
+
+**No merge unless all of these hold:**
+
+- expected Vercel identity verified
+- expected project readable
+- guard readable
+- guard state known
+- resulting deployment observable
+
+A strict `required_status_checks` policy means every merge invalidates the next
+PR's checks. That is correct — it prevents merging untested code against a moved
+base. Budget for it: rebase, push, and wait for a full CI cycle per sequential
+merge rather than fighting it.
+
+## Preview acceptance
+
+Real OAuth clients are **not** required on a protected preview when the issuer
+is intentionally bound to the canonical production resource. A preview behind
+deployment protection answers `302` and the application never sees the request,
+and a token issuer bound to the production audience will refuse to mint for any
+other resource.
+
+- Pre-production: direct protocol acceptance against the artifact.
+- Post-production: real Codex/OpenCode acceptance.
+
+Do not distribute a project-wide protection-bypass secret to developer machines
+to work around this — it unlocks every protected preview in the project.
+
+## Catalog identity
+
+`release_digest` proves **semantic** catalog identity. It is **not** a hash of
+every artifact byte, and it does not cover provenance rows.
+
+A provenance-affecting change can ship with an **unchanged** `release_digest`.
+Never verify such a change with the digest alone. Prove it with all three:
+
+1. the exact deployed source SHA
+2. the **physical** artifact hash (`registry.sqlite`, and the artifact-tree
+   digest — see below)
+3. a **runtime invariant** observed through the API
+
+Reproduce the artifact-tree digest from the repository root (path-relative, so
+it is stable and not cwd-dependent):
+
+```
+find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum
+```
+
+`sqlite_artifact_digest` is **build-instance-scoped**, not reproducible: a
+wall-clock observation timestamp in the registry makes rebuilds differ. Pin and
+hash the exact artifact being promoted; do not present it as reproducible.
+
+## Verifying provenance and content invariants
+
+- Scan **decoded** values, never the JSON-serialized form. Serialization escapes
+  newlines as `\n`, so a prose line ending `<letter>:` matches a naive
+  `[A-Za-z]:[\\/]` host-path pattern and produces phantom findings. Anchor host
+  detection to `/home/`, `/Users/`, `/tmp/`, `/var/task` only.
+- Host-path detectors must detect POSIX, Windows drive **and** UNC forms, and
+  must work on either CI host OS — a Linux runner must catch a Windows fixture.
+  A `process.platform` guard that skips the test on Windows removes exactly the
+  case the test exists to prove.
+- `validate-artifact.mjs` verifies internal integrity, **not** path hygiene. A
+  hand-edited artifact with a rewritten digest still passes. Assert path
+  hygiene separately, against the committed artifact.
+
+## Test determinism
+
+- Never bound a wait by iteration count. `200 × 10 ms` is an unmeasured 2 s
+  ceiling that fails on loaded hosts while passing on fast CI. Use a monotonic
+  deadline sized from measurement, shared through a helper so the next call site
+  cannot reintroduce a magic constant.
+- Classify paths in diagnostics by **string shape**, not by `process.platform`
+  or `path.isAbsolute`. The same test must report the same shape on every
+  runner.
+- Reproduce a local-only failure at the previous release commit before calling
+  it a regression. It is only a regression if the earlier commit passes.
