@@ -73,6 +73,28 @@ describe("apps/web/src imports nothing Node-only", () => {
     assert.ok(SRC_FILES.length >= 20, `expected the console SPA to have sources, found ${SRC_FILES.length}`);
   });
 
+  test("server code may only TYPE-import from apps/web/src", () => {
+    // apps/web/src/api/contracts.ts imports "../console-model" without a file
+    // extension. That is fine for the bundler, but apps/web/server runs under
+    // Node's native type stripping, which requires explicit specifiers. Today the
+    // only server -> src import is `import type`, which verbatimModuleSyntax
+    // erases, so the extensionless specifier is never resolved at runtime. A
+    // VALUE import would be erased no more, would fail only at deploy time, and
+    // tsconfig.server.json uses Bundler resolution, so typecheck would NOT catch
+    // it. This test is the guard for that hazard.
+    for (const { label, text } of SERVER_FILES) {
+      for (const statement of text.matchAll(/^\s*import\s[^\n]*from\s*["']([^"']+)["']/gm)) {
+        const specifier = statement[1] ?? "";
+        if (!specifier.includes("/src/") && !specifier.startsWith("../src")) continue;
+        const isTypeOnly = /^\s*import\s+type\b/.test(statement[0]);
+        assert.ok(
+          isTypeOnly,
+          `${label} value-imports ${specifier}; server code runs under Node type stripping, which cannot resolve apps/web/src extensionless specifiers. Use import type.`,
+        );
+      }
+    }
+  });
+
   test("no node: builtin imports", () => {
     const banned = /(?:from|import|require\s*\()\s*["']node:/;
     for (const { label, text } of SRC_FILES) {
