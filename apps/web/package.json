@@ -11,15 +11,20 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false --force",
+    "typecheck:server": "tsc -p tsconfig.server.json --pretty false",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ega-skills/mcp": "workspace:*",
+    "@ega-skills/project": "workspace:*",
+    "@ega-skills/registry": "workspace:*",
     "@supabase/supabase-js": "2.116.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router-dom": "7.18.4"
   },
   "devDependencies": {
+    "@types/node": "24.3.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
