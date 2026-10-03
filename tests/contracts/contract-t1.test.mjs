@@ -195,6 +195,34 @@ test("CONTRACT-T1 forbids storing search query text and resolve task text", () =
   assert.match(T1_PLAIN, /MUST NOT be read into any permitted field/);
 });
 
+test("CONTRACT-T1's forbidden list is governed by a prohibition, not a permission", () => {
+  // A phrase-presence check alone is not enough: rewording the sentence that
+  // INTRODUCES the forbidden bullets from prohibitive to permissive leaves every
+  // forbidden phrase in place, so this asserts the governing clause itself.
+  const bullets = [...T1_S4.matchAll(/^ {3}- /gm)];
+  assert.ok(
+    bullets.length >= 8,
+    `expected the full forbidden bullet list, found ${bullets.length}`,
+  );
+  const preamble = T1_S4.slice(0, bullets[0].index).trimEnd();
+  const introducing = preamble.split(/(?<=\.)\s+/u).pop() ?? "";
+  assert.match(
+    introducing,
+    /\b(?:forbidden|prohibited|prohibition|MUST NOT|never)\b/i,
+    `section 4's forbidden list is not governed by a prohibition: ${JSON.stringify(introducing.slice(0, 160))}`,
+  );
+  assert.doesNotMatch(
+    introducing,
+    /\b(?:optional|are allowed|are permitted|may record|may store|recommended)\b/i,
+    `section 4's forbidden list is introduced permissively: ${JSON.stringify(introducing.slice(0, 160))}`,
+  );
+  // The privacy-critical classes must be bullets inside that governed list.
+  const governedList = T1_S4.slice(bullets[0].index);
+  for (const term of ["resolve", "task text", "query text", "returned body"]) {
+    assert.ok(governedList.includes(term), `forbidden list does not carry "${term}"`);
+  }
+});
+
 test("CONTRACT-T1 forbids logging forbidden values, not merely persisting them", () => {
   assert.match(T1_PLAIN, /Forbidden means forbidden in logs too/);
   assert.match(T1_PLAIN, /MUST NOT be logged, printed, traced, sampled, attached to an error/);
