@@ -115,8 +115,15 @@ export type ReleaseReadinessProbe = () => ReleaseReadiness | Promise<ReleaseRead
  * ideally one that also verifies the digests in the retained manifest.
  */
 const defaultReadinessProbe: ReleaseReadinessProbe = () => {
-  const artifactDir = process.env["EGA_WEB_ARTIFACT_DIR"];
-  const retainedManifest = process.env["EGA_WEB_RETAINED_MANIFEST"];
+  // An empty value counts as unset: a Vercel env var declared but left blank
+  // must not read as a configured path. This matches the `requiredEnv` rule in
+  // `packages/mcp/src/hosted-runtime.ts`, which rejects empty rather than
+  // falling through to a default.
+  const configured = (raw: string | undefined): string | undefined =>
+    raw === undefined || raw.trim() === "" ? undefined : raw;
+
+  const artifactDir = configured(process.env["EGA_WEB_ARTIFACT_DIR"]);
+  const retainedManifest = configured(process.env["EGA_WEB_RETAINED_MANIFEST"]);
 
   if (artifactDir === undefined && retainedManifest === undefined) {
     return {
@@ -127,19 +134,25 @@ const defaultReadinessProbe: ReleaseReadinessProbe = () => {
   if (artifactDir !== undefined && !existsSync(artifactDir)) {
     return {
       ready: false,
-      detail: `EGA_WEB_ARTIFACT_DIR does not resolve to an existing directory.`,
+      detail: "EGA_WEB_ARTIFACT_DIR does not resolve to an existing directory.",
     };
   }
   if (retainedManifest !== undefined && !existsSync(retainedManifest)) {
     return {
       ready: false,
-      detail: `EGA_WEB_RETAINED_MANIFEST does not resolve to an existing file.`,
+      detail: "EGA_WEB_RETAINED_MANIFEST does not resolve to an existing file.",
     };
   }
   if (artifactDir === undefined) {
     return {
       ready: false,
       detail: "EGA_WEB_ARTIFACT_DIR is not configured; a retained manifest alone does not provide release artifacts to read.",
+    };
+  }
+  if (!statSync(artifactDir).isDirectory()) {
+    return {
+      ready: false,
+      detail: "EGA_WEB_ARTIFACT_DIR exists but is not a directory.",
     };
   }
   return { ready: true, detail: "Release artifacts are configured and present on disk." };

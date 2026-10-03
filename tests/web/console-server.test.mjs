@@ -79,15 +79,84 @@ test("GET /healthz reports a live process", async () => {
 });
 
 test("GET /readyz reports unavailable when no release artifact is configured", async () => {
-  // The console must never claim readiness it cannot back up: with no artifact
-  // directory and no retained manifest, /readyz is a 503.
+  // The console must never claim readiness it cannot back up. The child is
+  // booted with both artifact variables set to the empty string, which counts
+  // as unset: a declared-but-blank env var must not read as a real path.
   const response = await fetch(`${BASE}/readyz`);
   assert.equal(response.status, 503);
   const body = await response.json();
   assert.equal(body.status, "unavailable");
-  assert.equal(typeof body.detail, "string");
+  assert.match(body.detail, /EGA_WEB_ARTIFACT_DIR/);
   assert.ok(body.detail.length > 0, "the reason must be stated");
 });
+
+test("/readyz stays 503 for an artifact directory that does not exist", async () => {
+  // Proves the probe checks the filesystem, not just the presence of the
+  // variable: a configured-but-absent directory must not report ready.
+  const response = await awaitReadyzFor({ EGA_WEB_ARTIFACT_DIR: join(workdir, "no-such-dir") });
+  assert.equal(response.status, 503);
+  assert.equal(response.body.status, "unavailable");
+  assert.match(response.body.detail, /does not resolve to an existing directory/);
+});
+
+test("/readyz reports ready only when the artifact directory actually exists", async () => {
+  const response = await awaitReadyzFor({ EGA_WEB_ARTIFACT_DIR: distDir });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "ready");
+  assert.match(response.body.detail, /present on disk/);
+});
+
+test("/readyz rejects an artifact path that exists but is a file", async () => {
+  const response = await awaitReadyzFor({
+    EGA_WEB_ARTIFACT_DIR: join(distDir, "index.html"),
+  });
+  assert.equal(response.status, 503);
+  assert.match(response.body.detail, /not a directory/);
+});
+
+test("/readyz stays 503 when only a retained manifest is configured", async () => {
+  // A manifest says which digests are authorized; it is not itself readable
+  // release content, so it cannot make the deployment ready on its own.
+  const manifest = join(workdir, "retained.json");
+  writeFileSync(manifest, "{}\n");
+  const response = await awaitReadyzFor({
+    EGA_WEB_ARTIFACT_DIR: "",
+    EGA_WEB_RETAINED_MANIFEST: manifest,
+  });
+  assert.equal(response.status, 503);
+  assert.match(response.body.detail, /EGA_WEB_ARTIFACT_DIR is not configured/);
+});
+
+/**
+ * Boot a second server with specific readiness env, query /readyz, then stop it.
+ * Kept separate from the shared fixture so each readiness rule is proven against
+ * a real process rather than a re-implementation of the probe.
+ */
+async function awaitReadyzFor(env) {
+  const port = PORT + 100 + readyzCounter++;
+  const proc = spawn(process.execPath, [SERVER], {
+    cwd: workdir,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PORT: String(port), EGA_WEB_ARTIFACT_DIR: "", EGA_WEB_RETAINED_MANIFEST: "", ...env },
+  });
+  proc.stderr.resume();
+  try {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+        return { status: response.status, body: await response.json() };
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    throw new Error(`readiness server on port ${port} never answered`);
+  } finally {
+    proc.kill("SIGKILL");
+  }
+}
+
+let readyzCounter = 0;
 
 test("an unknown /api path answers a controlled 404, never a stack trace", async () => {
   const response = await fetch(`${BASE}/api/releases`);
