@@ -95,7 +95,6 @@ import {
   getSkillDetail,
 } from "./skills.ts";
 import {
-  ControlPlaneReadError,
   defaultControlPlaneReader,
   type CallerIdentity,
   type ControlPlaneReader,
@@ -1012,21 +1011,21 @@ export const CONTROL_PLANE_FORBIDDEN_CODE = "E_WEB_CONTROL_PLANE_FORBIDDEN";
  */
 export function toControlPlaneApiError(error: unknown): ConsoleApiError {
   if (error instanceof ConsoleApiError) return error;
-  if (error instanceof ControlPlaneReadError) {
-    return new ConsoleApiError(error.status, error.code, sanitizeMessage(error.message));
-  }
+  // `toConsoleApiError` already reads the `code`/`status` a
+  // `ControlPlaneReadError` publishes, so there is no adapter-specific branch and
+  // no per-code table here. Only the 503 wording is added, below.
   const translated = toConsoleApiError(error);
-  if (translated.status === 401 || translated.status === 403) return translated;
   if (translated.status === 503) {
     // A control-plane read that is unavailable is a *deployment* fact and is
-    // reported as such. Never a 200 with an empty list: that reads as "this
-    // workspace has no rows", which is a false statement.
+    // reported as one. Never a 200 with an empty list: that reads as "this
+    // workspace has no rows", which is a false statement. The adapter's own 503
+    // messages already begin with a reason ("EGA_SUPABASE_URL is not
+    // configured"), so this prefix adds the surface being unavailable without
+    // restating it.
     return new ConsoleApiError(
       503,
       translated.code,
-      sanitizeMessage(
-        "Control-plane data is unavailable: " + translated.message,
-      ),
+      sanitizeMessage(`Control-plane data is unavailable: ${translated.message}`),
     );
   }
   return translated;

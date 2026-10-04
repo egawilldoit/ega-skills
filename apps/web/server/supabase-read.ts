@@ -791,6 +791,17 @@ function parseBaseUrl(supabaseUrl: string | null): URL | null {
   if (parsed.protocol !== "https:") {
     fail(503, "E_WEB_READ_UNAVAILABLE", "EGA_SUPABASE_URL must use HTTPS");
   }
+  // Embedded credentials are refused rather than normalized away. A Supabase
+  // project URL never has userinfo, so a value that does is a configuration
+  // mistake — and silently dropping the userinfo would keep sending the caller's
+  // token somewhere the operator did not name.
+  if (parsed.username !== "" || parsed.password !== "") {
+    fail(
+      503,
+      "E_WEB_READ_UNAVAILABLE",
+      "EGA_SUPABASE_URL must not embed credentials; its userinfo is never reported",
+    );
+  }
   return parsed;
 }
 
