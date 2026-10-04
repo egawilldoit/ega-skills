@@ -43,7 +43,14 @@ const COLUMNS: readonly Column<ReleaseSummary>[] = [
   {
     key: "published_at",
     label: "Published",
-    render: (row) => <time dateTime={row.published_at}>{row.published_at}</time>,
+    // The release identity carries no timestamp by design, so an absent value is
+    // genuinely unknown and must read as such rather than as a blank cell.
+    render: (row) =>
+      row.published_at ? (
+        <time dateTime={row.published_at}>{row.published_at}</time>
+      ) : (
+        <span title="The release identity contains no timestamp by design">Not recorded</span>
+      ),
   },
   {
     key: "is_stable",

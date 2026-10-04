@@ -47,6 +47,25 @@ export function encodePathSegment(value: string, label: string): string {
   return encodeURIComponent(value);
 }
 
+/**
+ * Encode a canonical skill id for a single path segment.
+ *
+ * A skill id is `<namespace>/<portable-name>`, so it CONTAINS a slash and cannot go through
+ * `encodePathSegment`, which rejects a slash precisely because it would change the path
+ * structure. Here the slash is wanted inside one segment: percent-encoding it yields
+ * `namespace%2Fportable-name`, and the server splits the path first and percent-decodes the
+ * segment afterwards, so the id arrives intact without ever becoming two segments.
+ *
+ * Only the shapes that could genuinely alter path structure or escape the segment are refused;
+ * everything else is percent-encoded, so no caller can inject an extra path segment.
+ */
+export function encodeSkillIdPathSegment(skillId: string): string {
+  if (skillId === "" || skillId === "." || skillId === ".." || skillId.includes("\0")) {
+    throw new TypeError("skillId must be a non-empty canonical <namespace>/<portable-name> string");
+  }
+  return encodeURIComponent(skillId);
+}
+
 export type QueryValue = string | number | boolean;
 
 /**
@@ -81,7 +100,7 @@ export function apiUrl(
 export const API_ENDPOINTS = {
   catalog: "/catalog",
   skills: "/skills",
-  skill: (skillId: string) => `/skills/${encodePathSegment(skillId, "skillId")}`,
+  skill: (skillId: string) => `/skills/${encodeSkillIdPathSegment(skillId)}`,
   releases: "/releases",
   /** `/releases/compare` must never be shadowed by `/releases/:releaseDigest`. */
   releaseCompare: () => "/releases/compare",

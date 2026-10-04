@@ -29,16 +29,26 @@ import type { WorkspaceRole } from "../console-model";
 /**
  * Integrity state of a release as observed by the BFF.
  *
- * - `stable`    — the release digest matches the verified snapshot on disk.
- * - `unpinned`  — the digest is well-formed but this deployment has no
- *                 retained manifest entry authorizing it, so its contents are
- *                 unknown and MUST NOT be served.
- * - `mismatch`  — the retained manifest authorizes the digest but the artifact
- *                 digest or snapshot contents disagree with it.
+ * - `stable`    — an authoritative expected digest exists AND equals the fully
+ *                 verified snapshot on disk.
+ * - `unpinned`  — the artifact is FULLY verified (envelope digest, SQLite byte
+ *                 digest, integrity check, release projection, blob presence),
+ *                 but nothing authoritative says which release this deployment
+ *                 should be serving. It is safe to serve and IS served, but the
+ *                 console MUST NOT label it stable or current.
+ * - `mismatch`  — an authoritative expected digest exists and disagrees with
+ *                 the verified snapshot, or two authoritative sources disagree
+ *                 with each other, or the release package disagrees with the
+ *                 envelope. This is the ONLY fail-closed state.
  *
- * The console treats anything other than `stable` as fail-closed: it must show
- * the identity, show `mismatch_reason`, and refuse to present release contents
- * as trustworthy.
+ * Note the earlier wording of this comment said `unpinned` "MUST NOT be served"
+ * and that anything other than `stable` fails closed. That was wrong and
+ * contradicted `server/release-identity.ts` and the reconciled architecture: in a
+ * deployment with no configured pointer there is nothing to disagree with, so
+ * refusing would make the console permanently unavailable rather than safe. What
+ * is unproven is the word "current", not the integrity of the bytes. The UI must
+ * therefore render `unpinned` prominently and never as the workspace's stable
+ * release, while `mismatch` refuses to serve at all.
  */
 export type ReleaseIntegrityStatus = "stable" | "unpinned" | "mismatch";
 
@@ -184,7 +194,17 @@ export interface SkillDetail {
 /** Row in the release list. */
 export interface ReleaseSummary {
   readonly release: ReleaseIdentity;
-  readonly published_at: string;
+  /**
+   * `null` when no authoritative source records it.
+   *
+   * The release identity carries no timestamp BY DESIGN, so this cannot be derived
+   * from the artifact: `packages/project/src/hub/release.ts` states that "SQLite
+   * bytes, URLs, timestamps, and machine paths can change without changing the
+   * release identity", and no committed artifact JSON carries one. A required
+   * value here would have to be fabricated. Render `null` as unknown, never as a
+   * substitute date.
+   */
+  readonly published_at: string | null;
   /** True when `hub_stable_pointers` currently points at this digest. */
   readonly is_stable: boolean;
 }
@@ -192,7 +212,17 @@ export interface ReleaseSummary {
 /** Release detail: identity, artifacts, and stable-pointer bookkeeping. */
 export interface ReleaseDetail {
   readonly release: ReleaseIdentity;
-  readonly published_at: string;
+  /**
+   * `null` when no authoritative source records it.
+   *
+   * The release identity carries no timestamp BY DESIGN, so this cannot be derived
+   * from the artifact: `packages/project/src/hub/release.ts` states that "SQLite
+   * bytes, URLs, timestamps, and machine paths can change without changing the
+   * release identity", and no committed artifact JSON carries one. A required
+   * value here would have to be fabricated. Render `null` as unknown, never as a
+   * substitute date.
+   */
+  readonly published_at: string | null;
   readonly is_stable: boolean;
   readonly artifacts: readonly ReleaseArtifactRef[];
   /** From `hub_stable_pointers.updated_at`; `null` when no pointer exists. */

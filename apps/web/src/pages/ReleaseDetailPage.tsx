@@ -91,7 +91,15 @@ export function ReleaseDetailPage(): ReactNode {
                 {data.release.snapshot_rows}
               </Field>
               <Field label="Published" mono>
-                <time dateTime={data.published_at}>{data.published_at}</time>
+                {data.published_at ? (
+                  <time dateTime={data.published_at}>{data.published_at}</time>
+                ) : (
+                  // The release identity carries no timestamp by design, so
+                  // "unknown" is the honest rendering. Never substitute a date.
+                  <span title="The release identity contains no timestamp by design">
+                    Not recorded
+                  </span>
+                )}
               </Field>
               <Field label="Stable pointer" mono>
                 {data.is_stable ? "This digest" : "Another digest"}

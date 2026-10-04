@@ -19,6 +19,8 @@ import test, { after, before } from "node:test";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SERVER = join(REPO_ROOT, "apps", "web", "server.mts");
+/** The real committed immutable release artifact, used where a verified release is required. */
+const COMMITTED_ARTIFACT_DIR = join(REPO_ROOT, "packages", "mcp", "artifact");
 const PORT = 34117;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -100,10 +102,19 @@ test("/readyz stays 503 for an artifact directory that does not exist", async ()
 });
 
 test("/readyz reports ready only when the artifact directory actually exists", async () => {
-  const response = await awaitReadyzFor({ EGA_WEB_ARTIFACT_DIR: distDir });
-  assert.equal(response.status, 200);
-  assert.equal(response.body.status, "ready");
-  assert.match(response.body.detail, /present on disk/);
+  // The fixture's `dist/` contains an index.html and an assets/ directory, so it
+  // EXISTS as a directory but holds no release artifact. That is exactly the case
+  // the real probe must catch: a present directory is not a verified release. The
+  // previous expectation of 200 pinned the pre-route bootstrap probe, which only
+  // checked configuration and filesystem presence.
+  const missingRelease = await awaitReadyzFor({ EGA_WEB_ARTIFACT_DIR: distDir });
+  assert.equal(missingRelease.status, 503);
+  assert.equal(missingRelease.body.status, "unavailable");
+
+  // The positive case now needs a real, verified artifact.
+  const real = await awaitReadyzFor({ EGA_WEB_ARTIFACT_DIR: COMMITTED_ARTIFACT_DIR });
+  assert.equal(real.status, 200);
+  assert.equal(real.body.status, "ready");
 });
 
 test("/readyz rejects an artifact path that exists but is a file", async () => {
@@ -159,7 +170,10 @@ async function awaitReadyzFor(env) {
 let readyzCounter = 0;
 
 test("an unknown /api path answers a controlled 404, never a stack trace", async () => {
-  const response = await fetch(`${BASE}/api/releases`);
+  // A path that is deliberately NOT registered. `/api/releases` used to be used
+  // here, but it is now a real route, so probing it would assert the route's
+  // behaviour rather than the unknown-path boundary.
+  const response = await fetch(`${BASE}/api/no-such-view`);
   assert.equal(response.status, 404);
   const body = await response.json();
   assert.deepEqual(body, { error: { code: "E_NOT_FOUND", message: "No such route." } });
@@ -218,10 +232,12 @@ test("security headers are present on every response", async () => {
 });
 
 test("an unregistered /api path 404s whatever the method", async () => {
-  // No route is registered yet, so Builder 2's boundary is visible: an unknown
-  // path answers a controlled 404 and never reaches a handler.
+  // The boundary is visible on a path no route claims: an unknown path answers a
+  // controlled 404 for every method and never reaches a handler. A REGISTERED
+  // path is the opposite case and is asserted separately (405 with an Allow
+  // header), so this must probe a path that is genuinely unregistered.
   for (const method of ["GET", "POST", "DELETE"]) {
-    const response = await fetch(`${BASE}/api/releases`, { method });
+    const response = await fetch(`${BASE}/api/no-such-view`, { method });
     assert.equal(response.status, 404, `${method} must not reach a handler`);
     assert.equal((await response.json()).error.code, "E_NOT_FOUND");
   }
