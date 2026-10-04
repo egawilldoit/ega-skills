@@ -1017,13 +1017,25 @@ function buildFacets(rows: readonly CatalogSkillRow[]): CatalogFacets {
  * in one place and so a test can exercise the completeness refusal on a
  * deliberately impossible snapshot. Production goes through
  * {@link getCatalog}; nothing here reads `process.env`.
+ *
+ * Takes raw {@link CatalogOptions} and validates them. {@link getCatalog}
+ * validates first and calls the internal builder instead, so the production
+ * path validates exactly once and in the right order.
  */
 export function buildCatalogPage(
   reader: RegistryReader,
   identity: ReleaseIdentity,
   options: CatalogOptions = {},
 ): CatalogPage {
-  const validated = validateOptions(options);
+  return buildValidatedCatalogPage(reader, identity, validateOptions(options));
+}
+
+/** Assemble a page from options already known to be valid. */
+function buildValidatedCatalogPage(
+  reader: RegistryReader,
+  identity: ReleaseIdentity,
+  validated: ValidatedOptions,
+): CatalogPage {
   const released = readAllReleasedSkills(reader);
 
   const rows: CatalogSkillRow[] = [];
@@ -1072,8 +1084,11 @@ export function buildCatalogPage(
  *
  * Order matters and is the point of this function:
  *
- * 1. Validate every option. A malformed request is rejected before a database
- *    handle is opened, so it costs nothing and never depends on artifact state.
+ * 1. Validate every option, **first**. A malformed request is refused before
+ *    the artifact is even looked at, so it costs nothing and its error does not
+ *    depend on artifact state. This is the order the tests pin: an invalid
+ *    option against a tampered artifact must produce the option error, not the
+ *    verification error.
  * 2. `assertCatalogServable(config)`. On `mismatch`, an unverifiable artifact, or
  *    a malformed expected digest this throws. It is never caught here and never
  *    downgraded to a warning: serving catalog rows under a stale identity is
@@ -1087,7 +1102,8 @@ export function getCatalog(
   config?: Readonly<ServerConfig>,
   options: CatalogOptions = {},
 ): CatalogPage {
+  const validated = validateOptions(options);
   const identity = assertCatalogServable(config);
   const reader = getRegistry(config);
-  return buildCatalogPage(reader, identity, options);
+  return buildValidatedCatalogPage(reader, identity, validated);
 }
