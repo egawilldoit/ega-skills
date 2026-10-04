@@ -72,7 +72,16 @@ const SECRET_MARKERS = Object.freeze({
   bearer: "b4-fixture-delegated-bearer-token",
 });
 
-const BASE_PORT = 34210;
+/**
+ * Base port for the servers this file spawns.
+ *
+ * Node's test runner executes test FILES in parallel, so this range must not
+ * overlap the one in console-server.test.mjs (which uses 34117 for its main
+ * server and 34217+ for readiness probes). The previous base of 34210 DID
+ * overlap 34217+, so the two files could collide on a port and fail for a reason
+ * that has nothing to do with either test. Keep this range well clear of both.
+ */
+const BASE_PORT = 34510;
 let portCursor = 0;
 
 /**
