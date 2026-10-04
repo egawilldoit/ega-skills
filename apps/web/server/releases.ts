@@ -1190,13 +1190,17 @@ export function getReleaseComparison(
     unchanged.push(skillId);
   }
 
-  // Self-check: the four buckets must partition both sides exactly. A mismatch
-  // means a skill was silently dropped, which is the one failure mode a diff
-  // view must never have.
+  // Self-check: the buckets must partition each side exactly. A mismatch means a
+  // skill was silently dropped, which is the one failure mode a diff view must
+  // never have. The base contains `removed + changed + unchanged`; the head
+  // contains `added + changed + unchanged`. An added skill is not in the base and
+  // a removed skill is not in the head, so neither belongs in both sums.
   const baseCount = Object.keys(baseVersions).length;
   const headCount = Object.keys(headVersions).length;
-  const accounted = added.size + removed.size + changed.size + unchanged.length;
-  if (accounted !== baseCount || baseCount - removed.size !== headCount - added.size) {
+  if (
+    removed.size + changed.size + unchanged.length !== baseCount ||
+    added.size + changed.size + unchanged.length !== headCount
+  ) {
     throw new ReleaseReadError(
       "E_WEB_RELEASE_DIFF_INCONSISTENT",
       "The verified release diff does not partition both releases; refusing to report a comparison that may be incomplete.",
