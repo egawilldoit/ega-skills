@@ -16,15 +16,21 @@
 //   *    /api/*                       controlled 404, never a stack trace
 //
 // Two extension points for Builder 2, both additive — neither requires rewriting
-// this file:
+// this file. Both are now wired at the bottom of this file:
 //   1. `API_ROUTES`: push a matcher plus handler for each real endpoint. The
 //      router here already handles method rejection, envelope encoding, and the
-//      controlled 404, so a handler only returns a body or throws `ApiError`.
+//      controlled 404, so a handler only returns a body or throws `ApiError` (or
+//      `ConsoleApiError`, which `apps/web/server/api.ts` throws and which this
+//      file recognises identically).
 //   2. `setReleaseReadinessProbe`: replace the default probe with one that
-//      actually verifies a release artifact. The default probe is deliberately
-//      conservative: with no artifact directory configured it reports NOT ready,
-//      because this deployment cannot serve release contents. It never claims
-//      ready without checking.
+//      actually verifies a release artifact. The default probe below is kept as
+//      the *configuration precondition* of the real probe, so an unconfigured or
+//      mistyped deployment still gets the operator message naming the variable.
+//
+// Path patterns: a route path segment beginning with `:` captures a parameter,
+// and exact literal paths are matched before patterns. Percent-encoded segments
+// are decoded after the split, so `%2F` inside a segment cannot introduce a new
+// one and `anthropic%2Fclaude-api` arrives as the canonical skill id.
 //
 // Security posture mirrors `packages/mcp`: env validation at startup, no
 // secrets logged, no stack traces returned, fail-closed JSON instead of crashes.
@@ -37,6 +43,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
+
+import { ConsoleApiError, installConsoleApi } from "./server/api.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Response helpers                                                            */
@@ -112,7 +120,12 @@ export type ReleaseReadinessProbe = () => ReleaseReadiness | Promise<ReleaseRead
  * directory (or retained manifest) has to actually resolve.
  *
  * Builder 2 replaces this with a real probe via `setReleaseReadinessProbe`,
- * ideally one that also verifies the digests in the retained manifest.
+ * ideally one that also verifies the digests in the retained manifest. That is
+ * what now happens: `createReleaseReadinessProbe` (in `apps/web/server/api.ts`)
+ * runs this function first and then requires a verified artifact whose identity
+ * is not `mismatch`. Keeping this function as the first layer is deliberate — its
+ * messages name the offending variable, which is more useful to an operator than
+ * a generic verification failure.
  */
 const defaultReadinessProbe: ReleaseReadinessProbe = () => {
   // An empty value counts as unset: a Vercel env var declared but left blank
@@ -174,38 +187,112 @@ export interface ApiRouteContext {
   readonly pathname: string;
   readonly query: URLSearchParams;
   readonly request: IncomingMessage;
+  /**
+   * Decoded `:name` path segments, keyed by the name in the matched route's
+   * `path`. Empty for a literal route.
+   *
+   * Segments are percent-decoded by the matcher, so a skill id arrives as the
+   * canonical `namespace/name` string even though the URL carried `%2F`. The
+   * WHATWG URL parser leaves `%2F` encoded in `pathname`, so the split happens
+   * before the decode and a decoded `/` can never introduce a new segment.
+   */
+  readonly params: Readonly<Record<string, string>>;
 }
 
 export interface ApiRoute {
   /** Stable route id, useful in logs and tests. */
   readonly id: string;
-  /** Path under `/api`, e.g. `/releases`. */
+  /**
+   * Path under `/api`, e.g. `/releases`. A segment beginning with `:` names a
+   * captured parameter: `/skills/:skillId` matches `/skills/anthropic%2Ffoo`.
+   */
   readonly path: string;
   readonly methods: readonly string[];
   readonly handle: (context: ApiRouteContext) => Promise<unknown> | unknown;
 }
 
+/** A matched route and the parameters captured from its path. */
+export interface ApiRouteMatch {
+  readonly route: ApiRoute;
+  readonly params: Readonly<Record<string, string>>;
+}
+
 /**
- * Registry of BFF endpoints. Empty at bootstrap: every `/api/*` request answers
- * a controlled 404 until Builder 2 registers real handlers. That is the honest
- * state — the console renders an explicit unavailable view rather than a fake
- * empty list.
+ * Registry of BFF endpoints.
+ *
+ * Populated at bootstrap by `installConsoleApi` (see `apps/web/server/api.ts`),
+ * which pushes the console's read routes and builds the real release-readiness
+ * probe. The array stays exported and mutable so a later builder can add a route
+ * without editing this file.
  */
 export const API_ROUTES: ApiRoute[] = [];
 
-function matchApiRoute(method: string, pathname: string): ApiRoute | undefined {
-  return API_ROUTES.find((route) => route.path === pathname);
+/**
+ * Match one `:name` pattern against one concrete path.
+ *
+ * Returns the captured parameters, or `undefined` when the shapes differ. A
+ * segment count mismatch never matches: `/skills/:skillId` must not swallow
+ * `/skills/a/b`, because the whole point of validating a skill id with the
+ * frozen schema parser is that the value it receives is the one the URL named.
+ *
+ * A percent-decoding failure is a non-match rather than a thrown error, so a
+ * malformed escape answers the controlled 404 instead of a stack trace.
+ */
+function matchRoutePattern(pattern: string, pathname: string): Readonly<Record<string, string>> | undefined {
+  const patternSegments = pattern.split("/");
+  const pathSegments = pathname.split("/");
+  if (patternSegments.length !== pathSegments.length) return undefined;
+  const params: Record<string, string> = {};
+  for (const [index, patternSegment] of patternSegments.entries()) {
+    const pathSegment = pathSegments[index];
+    if (pathSegment === undefined) return undefined;
+    if (!patternSegment.startsWith(":")) {
+      if (patternSegment !== pathSegment) return undefined;
+      continue;
+    }
+    try {
+      params[patternSegment.slice(1)] = decodeURIComponent(pathSegment);
+    } catch {
+      return undefined;
+    }
+  }
+  return Object.freeze(params);
+}
+
+/**
+ * Find the route for a path.
+ *
+ * Exact literal matches are tried first, so a concrete path always beats a
+ * pattern of the same shape. That is what keeps `/releases/compare` from being
+ * captured by `/releases/:releaseDigest` independently of registration order —
+ * and `api.ts` additionally registers `compare` first, so neither mechanism is
+ * load-bearing on its own.
+ */
+function matchApiRoute(method: string, pathname: string): ApiRouteMatch | undefined {
+  void method;
+  for (const route of API_ROUTES) {
+    if (!route.path.includes(":")) {
+      if (route.path === pathname) return { route, params: Object.freeze({}) };
+    }
+  }
+  for (const route of API_ROUTES) {
+    if (!route.path.includes(":")) continue;
+    const params = matchRoutePattern(route.path, pathname);
+    if (params !== undefined) return { route, params };
+  }
+  return undefined;
 }
 
 async function handleApi(
-  route: ApiRoute | undefined,
+  match: ApiRouteMatch | undefined,
   context: ApiRouteContext,
   outgoing: ServerResponse,
 ): Promise<void> {
-  if (route === undefined) {
+  if (match === undefined) {
     notFound(outgoing);
     return;
   }
+  const route = match.route;
   if (!route.methods.includes(context.method)) {
     if (outgoing.writableEnded) return;
     writeHead(outgoing, 405, {
@@ -220,7 +307,11 @@ async function handleApi(
     const body = await route.handle(context);
     json(outgoing, 200, body ?? {});
   } catch (cause) {
-    if (cause instanceof ApiError) {
+    // Both error types publish `status` and `code`, so the envelope is identical
+    // whichever route raised it: `ApiError` for a handler that speaks this file's
+    // dialect, `ConsoleApiError` for the modules registered by `server/api.ts`.
+    // Their messages were redacted at the throw site.
+    if (cause instanceof ApiError || cause instanceof ConsoleApiError) {
       json(outgoing, cause.status, errorBody(cause.code, cause.message));
       return;
     }
@@ -354,11 +445,13 @@ export function createConsoleRequestListener(): (
 
     if (pathname === "/api" || pathname.startsWith("/api/")) {
       const apiPath = pathname.slice("/api".length) || "/";
-      await handleApi(matchApiRoute(method, apiPath), {
+      const match = matchApiRoute(method, apiPath);
+      await handleApi(match, {
         method,
         pathname: apiPath,
         query: url.searchParams,
         request: incoming,
+        params: match?.params ?? Object.freeze({}),
       }, outgoing);
       return;
     }
@@ -407,6 +500,13 @@ function socketEnv(raw: string | undefined, fallback: number, name: string): num
 }
 
 const listener = createConsoleRequestListener();
+
+// Register the console read routes and build the real readiness probe. Builder 1
+// shipped this file with an empty registry and a conservative default probe; both
+// seams are still exported, so this is the only wiring statement the entrypoint
+// needs. `installConsoleApi` returns the probe rather than installing it, because
+// `server/api.ts` must not import a value from this file.
+setReleaseReadinessProbe(installConsoleApi(API_ROUTES, defaultReadinessProbe));
 
 const server = createServer((incoming, outgoing) => {
   void listener(incoming, outgoing).catch(() => {
