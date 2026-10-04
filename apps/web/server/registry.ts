@@ -79,6 +79,39 @@ export interface ReleasedSourceRow {
   readonly observed_at: string | null;
 }
 
+/**
+ * One recorded token count, for one released version's file blob.
+ *
+ * `token_counts` is keyed by `(blob_hash, estimator_id)` and carries no
+ * `skill_id`, so this row is the released-version join that makes the count
+ * attributable to a skill. `role` is the file role the blob belongs to
+ * (`core` = L1 `SKILL.core.md`, `skill-body` = L2 `SKILL.md`), which is what
+ * makes an L1/L2 split possible without guessing.
+ */
+export interface ReleasedTokenRow {
+  readonly skill_id: string;
+  readonly version_hash: string;
+  /** File role of the counted blob: `core` (L1) or `skill-body` (L2). */
+  readonly role: string;
+  readonly blob_hash: string;
+  readonly estimator_id: string;
+  readonly token_count: number;
+}
+
+/**
+ * The one token estimator the registry stores.
+ *
+ * Canonical source of truth is `EGA_O200K_V1_ESTIMATOR_ID` in
+ * `packages/schema/src/token-estimator-internal.ts:1`. `@ega-skills/mcp` does
+ * not re-export it, and `apps/web/server` may only import `@ega-skills/mcp`,
+ * `@ega-skills/project` and `@ega-skills/registry`
+ * (`tests/web/project-boundary.test.mjs:232`), so the literal is repeated here
+ * rather than imported from a fourth package. It is bound as a query
+ * parameter, never interpolated, and every returned row echoes it back so a
+ * caller can assert the value it actually read.
+ */
+const EGA_O200K_V1_ESTIMATOR_ID = "ega-o200k-v1";
+
 /** Optional limit argument shared by every bounded read. */
 export interface QueryOptions {
   /**
@@ -219,6 +252,18 @@ export interface RegistryReader {
 
   /** Provenance rows of one released skill version, bounded. */
   listReleasedSkillSources(skillId: string, options?: QueryOptions): readonly ReleasedSourceRow[];
+
+  /**
+   * Recorded token counts for one released skill version's blobs, bounded.
+   *
+   * Added for the catalog's metadata row (`apps/web/server/catalog.ts`), which
+   * must show L1/L2 token counts and cannot derive them from
+   * {@link ReleasedSkillRow}: `skill_versions` stores `l1_status` but no token
+   * numbers, and `token_counts` has no `skill_id` to join on. Returns one row
+   * per counted blob; roles with no recorded count are simply absent, which is
+   * how a genuinely unwritten L1 is represented.
+   */
+  listReleasedSkillTokens(skillId: string, options?: QueryOptions): readonly ReleasedTokenRow[];
 
   /** Alias -> owning skill_id for the whole release, bounded, sorted. */
   listReleaseAliases(options?: QueryOptions): readonly { readonly alias: string; readonly skill_id: string }[];
@@ -366,6 +411,33 @@ export function createRegistryReader(
             LIMIT ?`,
         )
         .all(skillId, versionHash, limit) as ReleasedSourceRow[];
+      return Object.freeze(rows.map((row) => Object.freeze(row)));
+    },
+
+    listReleasedSkillTokens: (skillId: string, options: QueryOptions = NO_OPTIONS) => {
+      const versionHash = snapshot.release.payload.skill_versions[skillId];
+      if (versionHash === undefined) {
+        throw new RegistryReadError(
+          "E_WEB_SKILL_NOT_RELEASED",
+          "The requested skill is not part of the verified release.",
+        );
+      }
+      const limit = boundedLimit(options.limit, MAX_CHILD_ROWS);
+      // Every value is a bound parameter: the estimator id, both identity
+      // columns, and the limit. Nothing is interpolated into this statement.
+      const rows = db
+        .prepare(
+          `SELECT f.skill_id AS skill_id, f.version_hash AS version_hash, f.role AS role,
+                  f.blob_hash AS blob_hash, t.estimator_id AS estimator_id,
+                  t.token_count AS token_count
+             FROM skill_files f
+             JOIN token_counts t
+               ON t.blob_hash = f.blob_hash AND t.estimator_id = ?
+            WHERE f.skill_id = ? AND f.version_hash = ?
+            ORDER BY f.role, f.path
+            LIMIT ?`,
+        )
+        .all(EGA_O200K_V1_ESTIMATOR_ID, skillId, versionHash, limit) as ReleasedTokenRow[];
       return Object.freeze(rows.map((row) => Object.freeze(row)));
     },
 
