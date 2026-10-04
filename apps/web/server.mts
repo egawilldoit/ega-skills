@@ -235,8 +235,14 @@ export const API_ROUTES: ApiRoute[] = [];
  * `/skills/a/b`, because the whole point of validating a skill id with the
  * frozen schema parser is that the value it receives is the one the URL named.
  *
- * A percent-decoding failure is a non-match rather than a thrown error, so a
- * malformed escape answers the controlled 404 instead of a stack trace.
+ * An **empty** capture is also a non-match. `/releases/` has the same segment
+ * count as `/releases/:releaseDigest`, so without this rule it would reach the
+ * detail route with an empty digest and answer a 400 about the digest — which
+ * tells the caller more about the route table than a 404 does. It answers the
+ * controlled 404 instead.
+ *
+ * A percent-decoding failure is likewise a non-match rather than a thrown error,
+ * so a malformed escape answers the controlled 404 instead of a stack trace.
  */
 function matchRoutePattern(pattern: string, pathname: string): Readonly<Record<string, string>> | undefined {
   const patternSegments = pattern.split("/");
@@ -250,11 +256,14 @@ function matchRoutePattern(pattern: string, pathname: string): Readonly<Record<s
       if (patternSegment !== pathSegment) return undefined;
       continue;
     }
+    let decoded: string;
     try {
-      params[patternSegment.slice(1)] = decodeURIComponent(pathSegment);
+      decoded = decodeURIComponent(pathSegment);
     } catch {
       return undefined;
     }
+    if (decoded === "") return undefined;
+    params[patternSegment.slice(1)] = decoded;
   }
   return Object.freeze(params);
 }
