@@ -193,13 +193,34 @@ function readReleasePackage(
   };
 }
 
+/**
+ * Redact server filesystem layout from an upstream message.
+ *
+ * `getCacheBlob` (packages/registry/src/cache.ts) builds its failure messages with the
+ * absolute blob path embedded, e.g. "Cached blob sha256:ab.. is missing at
+ * /srv/app/packages/mcp/artifact/cache/sha256/ab/ab..". Verified end-to-end. Those messages
+ * reach this module through the snapshot loader, and an operator-facing console route would
+ * otherwise disclose the deployment's directory layout.
+ *
+ * The digest and the error code are what an operator actually needs; the on-disk location is
+ * not. So keep those and drop only the path.
+ */
+function redactFilesystemPaths(message: string): string {
+  return message
+    // Collapse any absolute POSIX path to a placeholder, preserving the prose
+    // around it ("is missing at <redacted-path>.").
+    .replace(/(?:\/[A-Za-z0-9._@+-]+)+\/?/g, "<redacted-path>")
+    // Collapse a Windows-style absolute path too, in case a deployment runs there.
+    .replace(/[A-Za-z]:\\(?:[^\\\s"'`,;)]+\\)*[^\\\s"'`,;)]*/g, "<redacted-path>");
+}
+
 /** Sanitized one-line description of an upstream verification failure. */
 function describeLoadFailure(error: unknown): string {
   if (error instanceof HostedRuntimeError || error instanceof ReleaseIdentityError) {
-    return `${error.code}: ${error.message}`;
+    return redactFilesystemPaths(`${error.code}: ${error.message}`);
   }
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
-  return String(error);
+  if (error instanceof Error) return redactFilesystemPaths(`${error.name}: ${error.message}`);
+  return redactFilesystemPaths(String(error));
 }
 
 /**

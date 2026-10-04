@@ -827,31 +827,22 @@ describe("protected content is not exposed", () => {
     }
   });
 
-  test("KNOWN UPSTREAM LEAK: the propagated identity message embeds an absolute path", () => {
-    // This test documents a live defect in REUSED code, in another builder's
-    // file, which this slice must not edit.
+  test("FIXED UPSTREAM LEAK: the identity message no longer embeds an absolute path", () => {
+    // This test previously DOCUMENTED a live defect and was written to fail once
+    // the defect was fixed. The lead has now fixed it in
+    // `describeLoadFailure` (`apps/web/server/release-identity.ts`), which
+    // redacts absolute POSIX and Windows paths out of an upstream message while
+    // preserving the blob digest and the error code, because those are what an
+    // operator actually needs.
     //
-    // `apps/web/server/skills.ts` composes every message it owns and never
-    // embeds a path. But it deliberately PROPAGATES `ReleaseIdentityError`
-    // unchanged rather than re-wrapping it, and `describeLoadFailure`
-    // (`apps/web/server/release-identity.ts:197-203`) interpolates the upstream
-    // `RegistryError.message` verbatim. `getCacheBlob`
-    // (`packages/registry/src/cache.ts:182-184`) builds that message with the
-    // absolute cache path inside it. So when a cached blob fails hash
-    // verification, the message that reaches a route contains
-    // `<artifact>/cache/sha256/<xx>/<62 hex>`.
+    // `getCacheBlob` (`packages/registry/src/cache.ts`) still builds its message
+    // with the absolute cache path inside it; the redaction happens at the web
+    // boundary, which is the correct place for it. So this test now asserts the
+    // boundary holds.
     //
-    // The leak is a filesystem path, not a secret and not content. It is still
-    // an operator-facing message that a route may render, and the brief requires
-    // no absolute path in one. The fix belongs in
-    // `release-identity.ts`/`getCacheBlob`, not here: re-wrapping someone else's
-    // typed refusal inside `skills.ts` would discard the digest comparison an
-    // operator needs and would hide the very text `release-identity.test.mjs`
-    // pins.
-    //
-    // Asserted here so it cannot be forgotten: if the upstream message is ever
-    // sanitized, this test fails and should be deleted.
-    const copy = copyArtifact("known-upstream-leak");
+    // Verified end-to-end before the fix: a blob hash failure produced
+    // "Cached blob sha256:ab.. is missing at /tmp/.../cache/sha256/ab/ab..".
+    const copy = copyArtifact("known-upstream-leak-fixed");
     const detail = getSkillDetail(committedConfig(), KNOWN);
     const blobPath = blobPathIn(copy, detail.summary.content_digest);
     const original = readFileSync(blobPath);
@@ -869,10 +860,43 @@ describe("protected content is not exposed", () => {
     }
     assert.ok(thrown !== undefined);
     assert.equal(thrown.code, "E_WEB_RELEASE_UNVERIFIED");
-    assert.match(
+    // The operator still learns WHAT failed...
+    assert.match(thrown.message, /hash verification/i, "the failure class must survive redaction");
+    // ...but not WHERE it lives on the server.
+    assert.doesNotMatch(
       thrown.message,
-      /\/(home|tmp|var|etc|usr)\/.*cache\/sha256\//,
-      "the propagated identity message currently embeds the absolute cache path; if this fails, the upstream leak is fixed and this test should be removed",
+      /\/(home|tmp|var|etc|usr|opt|srv)\//,
+      "an absolute server path must never reach a route",
+    );
+    assert.doesNotMatch(thrown.message, /[A-Za-z]:\\/i, "a Windows absolute path must never reach a route");
+
+    // A MISSING blob is the case where the upstream message does carry the blob
+    // digest, and that digest is the operator's only handle on which blob is
+    // broken. Redaction must remove the path without removing the digest.
+    const missing = copyArtifact("known-upstream-leak-missing");
+    const missingBlob = blobPathIn(missing, detail.summary.content_digest);
+    rmSync(missingBlob);
+    let missingThrown;
+    try {
+      const config = parseServerConfig({ EGA_WEB_ARTIFACT_DIR: missing });
+      try {
+        getSkillContent(config, { skillId: KNOWN, level: "L2" });
+      } catch (error) {
+        missingThrown = error;
+      }
+    } finally {
+      rmSync(missing, { recursive: true, force: true });
+    }
+    assert.ok(missingThrown !== undefined, "a missing blob must fail closed");
+    assert.doesNotMatch(
+      missingThrown.message,
+      /\/(home|tmp|var|etc|usr|opt|srv)\//,
+      "the missing-blob message must also be redacted",
+    );
+    assert.match(
+      missingThrown.message,
+      /sha256:[0-9a-f]{64}/,
+      "the failing blob digest must survive redaction, or the operator loses their only handle",
     );
   });
 });
