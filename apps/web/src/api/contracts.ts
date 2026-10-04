@@ -85,6 +85,24 @@ export interface ReleaseArtifactRef {
 /* -------------------------------------------------------------------------- */
 
 /** Catalog-wide totals for one workspace. */
+/** One facet value and how many skills in the filtered set carry it. */
+export interface CatalogFacetValue {
+  readonly value: string;
+  readonly skill_count: number;
+}
+
+/** Facet values with real counts, so a sparse catalog reads as sparse. */
+export interface CatalogFacets {
+  readonly namespaces: readonly CatalogFacetValue[];
+  readonly domains: readonly CatalogFacetValue[];
+  readonly frameworks: readonly CatalogFacetValue[];
+  readonly platforms: readonly CatalogFacetValue[];
+  readonly triggers: readonly CatalogFacetValue[];
+  readonly aliases: readonly CatalogFacetValue[];
+  readonly sources: readonly CatalogFacetValue[];
+  readonly l1_statuses: readonly CatalogFacetValue[];
+}
+
 export interface CatalogSummary {
   readonly workspace_id: string;
   readonly hub_id: string;
@@ -94,6 +112,8 @@ export interface CatalogSummary {
   readonly release_unavailable_reason: string | null;
   readonly skill_total: number;
   readonly domain_total: number;
+  /** Facet counts over the filtered set, before pagination. */
+  readonly facets: CatalogFacets;
   /** Server timestamp of the snapshot these totals came from. */
   readonly generated_at: string;
 }
@@ -102,9 +122,20 @@ export interface CatalogSummary {
 export interface SkillSummary {
   readonly skill_id: string;
   readonly name: string;
+  readonly namespace: string;
   readonly description: string;
   readonly domains: readonly string[];
+  readonly frameworks: readonly string[];
+  readonly platforms: readonly string[];
   readonly triggers: readonly string[];
+  /** The `version_hash` the release pins for this skill. */
+  readonly version_hash: string;
+  readonly l1_status: "AUTHORED" | "MISSING";
+  /** `null` when no L1 was authored. Never `0`. */
+  readonly l1_tokens: number | null;
+  readonly l2_tokens: number;
+  readonly source_type: string | null;
+  readonly provenance_status: "repository-pinned" | "local-only" | "unknown";
   readonly schema_version: number;
   /** Canonical `sha256:<64 hex>` content digest of `SKILL.md`. */
   readonly content_digest: string;
