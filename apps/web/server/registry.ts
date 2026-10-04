@@ -112,6 +112,23 @@ export interface ReleasedTokenRow {
  */
 const EGA_O200K_V1_ESTIMATOR_ID = "ega-o200k-v1";
 
+/**
+ * One recorded version row for a skill, for the history view.
+ *
+ * Deliberately omits `manifest_json`: the history view reports which versions
+ * exist and how they are classified, not their contents, so parsing 114
+ * manifests to render an empty list would be wasted work. `skill_versions` has
+ * no timestamp column, which is why there is no date here either — the schema
+ * records none, so none can be reported.
+ */
+export interface ReleasedVersionRow {
+  readonly skill_id: string;
+  readonly version_hash: string;
+  readonly l1_status: "AUTHORED" | "MISSING";
+  readonly l2_size_class: "NORMAL" | "LARGE" | "OVERSIZED";
+  readonly trust_level: "OWNED" | "EXTERNAL" | "UNKNOWN";
+}
+
 /** Optional limit argument shared by every bounded read. */
 export interface QueryOptions {
   /**
@@ -252,6 +269,23 @@ export interface RegistryReader {
 
   /** Provenance rows of one released skill version, bounded. */
   listReleasedSkillSources(skillId: string, options?: QueryOptions): readonly ReleasedSourceRow[];
+
+  /**
+   * Every version row recorded for a skill, bounded, ordered by `version_hash`.
+   *
+   * Added for `apps/web/server/skills.ts`, which must report whether this
+   * deployment retains any history for a skill. That claim can only be honest if
+   * it is *read* rather than assumed, and no existing helper can answer it: the
+   * release-gated ones (`listReleasedSkills`, `listReleasedSkillFiles`,
+   * `listReleasedSkillSources`, `listReleasedSkillTokens`) all resolve a single
+   * `version_hash` from the release map, so each returns nothing at all for a
+   * version the release does not pin.
+   *
+   * Consequently this one read is deliberately NOT release-gated: history is
+   * about what the registry recorded, which may legitimately be a superset of the
+   * release. Every value is a bound `?` parameter; nothing is interpolated.
+   */
+  listSkillVersions(skillId: string, options?: QueryOptions): readonly ReleasedVersionRow[];
 
   /**
    * Recorded token counts for one released skill version's blobs, bounded.
@@ -411,6 +445,23 @@ export function createRegistryReader(
             LIMIT ?`,
         )
         .all(skillId, versionHash, limit) as ReleasedSourceRow[];
+      return Object.freeze(rows.map((row) => Object.freeze(row)));
+    },
+
+    // Deliberately not release-gated: see `listSkillVersions` on the interface.
+    listSkillVersions: (skillId: string, options: QueryOptions = NO_OPTIONS) => {
+      const limit = boundedLimit(options.limit, MAX_CHILD_ROWS);
+      const rows = db
+        .prepare(
+          `SELECT skill_id AS skill_id, version_hash AS version_hash,
+                  l1_status AS l1_status, l2_size_class AS l2_size_class,
+                  trust_level AS trust_level
+             FROM skill_versions
+            WHERE skill_id = ?
+            ORDER BY version_hash
+            LIMIT ?`,
+        )
+        .all(skillId, limit) as ReleasedVersionRow[];
       return Object.freeze(rows.map((row) => Object.freeze(row)));
     },
 
