@@ -21,10 +21,10 @@
  * one.
  *
  * `apps/web/server/env.ts` parses `EGA_SUPABASE_SECRET_KEY` into `ServerConfig`
- * and it is *deliberately not consulted here*. The same is true of any
- * `VITE_SUPABASE_PUBLISHABLE_KEY`: this module carries no `apikey` header, and
- * `tests/web/project-boundary.test.mjs` already forbids the server directory
- * from reading `VITE_*` names at all.
+ * and it is *deliberately not consulted here*. So is the browser-substituted
+ * publishable key: this module carries no `apikey` header at all, and the static
+ * scan in `tests/web/project-boundary.test.mjs` already forbids the server
+ * directory from reading any browser-substituted variable name.
  *
  * ## No request is an authority
  *
@@ -106,6 +106,19 @@ export const CONTROL_PLANE_MAX_FILTER_VALUES = 20;
 
 /** Largest accepted `Authorization` header value, before parsing. */
 export const CONTROL_PLANE_MAX_TOKEN_LENGTH = 8192;
+
+/**
+ * Largest accepted row offset.
+ *
+ * Pagination has to start somewhere, and an unbounded offset is a way to ask the
+ * database for a single deep row an attacker cannot otherwise find cheaply. 10 000
+ * is far past any real member list or audit page and well inside what PostgREST
+ * will serve.
+ */
+export const CONTROL_PLANE_MAX_OFFSET = 10_000;
+
+/** Offset used when the caller does not ask for one. */
+export const CONTROL_PLANE_DEFAULT_OFFSET = 0;
 
 /** Largest accepted subject (`sub`) after verification. */
 const MAX_SUBJECT_LENGTH = 256;
@@ -528,6 +541,8 @@ export interface ControlPlaneReadOptions {
   readonly filters?: readonly ControlPlaneFilter[] | undefined;
   /** Explicit page size. Omit for {@link CONTROL_PLANE_DEFAULT_LIMIT}. */
   readonly limit?: number | undefined;
+  /** Explicit row offset. Omit for {@link CONTROL_PLANE_DEFAULT_OFFSET}. */
+  readonly offset?: number | undefined;
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -537,6 +552,7 @@ export interface PlannedControlPlaneQuery {
   readonly columns: readonly string[];
   readonly filters: readonly ControlPlaneFilter[];
   readonly limit: number;
+  readonly offset: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -638,11 +654,21 @@ export function planControlPlaneRead(
     );
   }
 
+  const offset = options.offset ?? CONTROL_PLANE_DEFAULT_OFFSET;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > CONTROL_PLANE_MAX_OFFSET) {
+    fail(
+      400,
+      "E_WEB_READ_OFFSET_INVALID",
+      `offset must be an integer between 0 and ${CONTROL_PLANE_MAX_OFFSET}`,
+    );
+  }
+
   return Object.freeze({
     table,
     columns: Object.freeze(columns),
     filters: Object.freeze(planned),
     limit,
+    offset,
   });
 }
 
@@ -669,6 +695,8 @@ export function buildControlPlaneUrl(baseUrl: URL, plan: PlannedControlPlaneQuer
     );
   }
   url.searchParams.set("limit", String(plan.limit));
+  // Only sent when non-zero, so the common first page carries no offset at all.
+  if (plan.offset > 0) url.searchParams.set("offset", String(plan.offset));
   return url.toString();
 }
 
