@@ -33,15 +33,26 @@ test("the role vocabulary matches the workspace_memberships check constraint", (
   assert.deepEqual([...WORKSPACE_ROLES], ["owner", "admin", "maintainer", "member", "viewer"]);
 });
 
-test("owner and admin hold every console read permission", () => {
-  for (const role of ["owner", "admin"]) {
-    for (const permission of CONSOLE_PERMISSIONS) {
-      assert.equal(
-        hasConsolePermission(role, permission),
-        true,
-        `${role} must retain ${permission}`,
-      );
-    }
+test("owner holds every console read permission, and admin holds all but workspace_read", () => {
+  // personal_workspace_owner_read is `owner_subject = auth.jwt() ->> 'sub'` with
+  // no role array, so only the OWNER can read the workspace row. admin must
+  // therefore NOT hold workspace_read, or the nav would advertise a page that
+  // answers 403. This assertion previously required admin to hold everything,
+  // which encoded the bug. See tests/web/console-permissions.test.mjs for the
+  // policy-level pinning.
+  for (const permission of CONSOLE_PERMISSIONS) {
+    assert.equal(
+      hasConsolePermission("owner", permission),
+      true,
+      `owner must retain ${permission}`,
+    );
+  }
+  for (const permission of CONSOLE_PERMISSIONS) {
+    assert.equal(
+      hasConsolePermission("admin", permission),
+      permission !== "workspace_read",
+      `admin must hold ${permission} exactly when it is not owner-only`,
+    );
   }
 });
 
@@ -104,11 +115,23 @@ test("a section with no visible items is dropped entirely", () => {
     }
   }
 
-  // A viewer loses Members/Quotas/Security but keeps Workspace Overview.
-  const viewerWorkspace = visibleNavSections("viewer").find((s) => s.id === "workspace");
+  // A viewer loses Members/Quotas/Security, and also loses Workspace Overview
+  // because /workspace is owner-only. That empties the workspace section for a
+  // viewer, so the section is dropped entirely rather than rendered empty.
+  const viewerSections = visibleNavSections("viewer").map((section) => section.id);
+  assert.ok(
+    !viewerSections.includes("workspace"),
+    "a viewer must not be shown a Workspace section: every item in it is owner- or admin-only",
+  );
+
+  // An admin still sees the workspace section, because /workspace/members,
+  // /workspace/quotas and /workspace/security are owner/admin.
+  const adminWorkspace = visibleNavSections("admin").find((s) => s.id === "workspace");
+  assert.ok(adminWorkspace, "an admin must still see the Workspace section");
   assert.deepEqual(
-    viewerWorkspace.items.map((item) => item.path),
-    ["/workspace"],
+    adminWorkspace.items.map((item) => item.path),
+    ["/workspace/members", "/workspace/quotas", "/workspace/security"],
+    "an admin sees the roster, quotas and denies, but not the owner-only overview",
   );
 
   // Every section in the filtered tree must be one that was declared.
