@@ -23,7 +23,7 @@ A short list for recognition. Routing is decided by the resolver, never by this 
 - `egawilldoit/understand-codebase` — Build a senior-engineer mental model of a subsystem: entry points, runtime path, modules, state ownership, dependencies, data flow,…
 - `egawilldoit/design-architecture` — Design an architecture before implementation: current verified state, desired state, invariants, source of truth, state ownership, failure…
 - `egawilldoit/compare-designs` — Compare materially different designs for a non-trivial artifact before committing, by generating independent candidates, judging them…
-- `egawilldoit/principle-fix-root-causes` — Apply when debugging.
+- `egawilldoit/principle-fix-root-causes` — Apply when debugging. Trace each symptom to its root cause and fix it there; reproduce first, ask why until you reach it, resist nil-check…
 - `egawilldoit/verify-this` — Verify a claim with fresh local evidence: restate it falsifiably, capture baseline and treatment, compare artifacts, and return VERIFIED,…
 - `egawilldoit/adversarial-review` — Independently challenge a completed or proposed change for correctness, security, and maintainability before it ships.
 - `egawilldoit/blast-radius` — Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real…
@@ -48,7 +48,7 @@ Route non-trivial engineering work to the right workflow instead of improvising.
 
 `mattpocock/ask-matt`
 
-Ask which skill or flow fits your situation.
+Ask which skill or flow fits your situation. A router over the skills in this repo.
 
 ## Understand
 
@@ -88,7 +88,7 @@ Shared vocabulary for designing deep modules.
 
 `mattpocock/domain-modeling`
 
-Build and sharpen a project's domain model.
+Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a CONTEXT.md, or recording or…
 
 ### research
 
@@ -294,7 +294,7 @@ Generate an interactive bash wizard that walks a human through steps only they c
 
 `vercel/composition-patterns`
 
-React composition patterns that scale.
+React composition patterns that scale. Use when refactoring components with boolean prop proliferation, building flexible component…
 
 ### react-best-practices
 
@@ -328,7 +328,7 @@ Apply when two or more fixes that share one premise have failed the same gate.
 
 `egawilldoit/principle-fix-root-causes`
 
-Apply when debugging.
+Apply when debugging. Trace each symptom to its root cause and fix it there; reproduce first, ask why until you reach it, resist nil-check…
 
 ### diagnosing-bugs
 
@@ -410,7 +410,7 @@ Verify web, IDE, desktop, or Electron UI behavior with real browser evidence.
 
 `mattpocock/tdd`
 
-Test-driven development.
+Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions "red-green-refactor", or wants…
 
 ## Review
 
@@ -462,7 +462,7 @@ Review the changes since a fixed point (commit, branch, tag, or merge-base) alon
 
 `mattpocock/writing-for-agents`
 
-Writing documents for agents.
+Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.
 
 ### web-design-guidelines
 
@@ -526,7 +526,7 @@ Move issues and external PRs through a state machine of triage roles, categorise
 
 `vercel/deploy-to-vercel`
 
-Deploy applications and websites to Vercel.
+Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the…
 
 ### vercel-cli-with-tokens
 
@@ -710,7 +710,7 @@ After you give a substantive answer or draft that the user may act on — advice
 
 `anthropic/theme-factory`
 
-Toolkit for styling artifacts with a theme.
+Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc.
 
 ### teach
 
@@ -740,7 +740,7 @@ Break a plan, spec, or the current conversation into a set of tracer-bullet tick
 
 `mattpocock/wait-what`
 
-Stop.
+Stop. That last message did not land: re-pitch it.
 
 ## Visual / Creative
 

@@ -85,12 +85,29 @@ test("every skill in the release appears in the generated catalog", async () => 
 });
 
 test("summarize produces a short deterministic one-line pocket summary", () => {
-  assert.equal(summarize("Route work. Then do more things."), "Route work.");
+  // A leading sentence long enough to stand alone is used as-is.
+  assert.equal(
+    summarize("Build a senior-engineer mental model of a subsystem before changing anything at all."),
+    "Build a senior-engineer mental model of a subsystem before changing anything at all.",
+  );
+  // A too-short leading sentence pulls in the next one, so the catalog is useful.
+  assert.equal(summarize("Stop. That last message did not land: re-pitch it."), "Stop. That last message did not land: re-pitch it.");
+  // No sentence boundary: the whole (short) text is the summary.
   assert.equal(summarize("No trailing period here"), "No trailing period here");
   assert.equal(summarize(""), "");
+  // Whitespace is collapsed identically everywhere.
   assert.equal(summarize("a\n\n  b   c"), "a b c");
   const long = summarize(`${"word ".repeat(60)}end.`);
   assert.ok(long.length <= 141, `expected a clipped summary, got ${long.length} chars`);
+});
+
+test("every real release skill gets a non-trivial summary", async () => {
+  const l0 = readL0Metadata(ENV);
+  for (const [id, skill] of l0) {
+    assert.ok(skill.summary.length >= 45, `${id} has a too-short summary: ${JSON.stringify(skill.summary)}`);
+    assert.ok(skill.summary.length <= 140, `${id} has an over-long summary (${skill.summary.length})`);
+    assert.ok(!skill.summary.includes("\n"), `${id} summary must be one line`);
+  }
 });
 
 // --- validation fails closed ---------------------------------------------

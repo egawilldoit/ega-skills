@@ -164,6 +164,59 @@ OpenCode/T3
 
 See [`docs/specs/SPEC-006-MCP-Runtime-Contract.md`](docs/specs/SPEC-006-MCP-Runtime-Contract.md).
 
+## Human discovery
+
+You should not need to memorize skill names. Describe what you want in plain
+language; the resolver routes from L0 metadata only, and LOW confidence is shown
+to you as suggestions rather than executed silently.
+
+```text
+resolve(task)
+ ├─ HIGH / MEDIUM  → the recommendation may be used
+ └─ LOW            → show the top few candidates as suggestions, execute nothing
+```
+
+Execution routing and human discovery are deliberately different answers:
+
+| | Question | LOW behaviour |
+| --- | --- | --- |
+| Execution routing | Is the evidence strong enough to act automatically? | `selected=[]`, fail closed |
+| Human discovery | What is probably relevant to what I am doing? | show candidates |
+
+Per SPEC-004 §5.1.17, LOW never leaks an automatic selection. Discovery may
+still *show* those candidates; it never runs them.
+
+Browse the catalog:
+
+```bash
+ega-skills catalog
+ega-skills catalog --search "review PR"
+ega-skills catalog --json
+```
+
+`catalog` is the human view; `list` remains the registry/operator view. Both read
+the same release, and `catalog` adds no search algorithm of its own — it reuses
+the registry's existing FTS `search`.
+
+The full generated catalog lives at
+[`docs/generated/SKILL-CATALOG.md`](docs/generated/SKILL-CATALOG.md). It is a
+projection of one exact Hub release and is regenerated, never hand-edited:
+
+```bash
+pnpm generate:catalog   # regenerate
+pnpm catalog:check     # fail if the committed file is stale (runs in CI)
+pnpm eval:discovery    # measure routing + discovery quality
+```
+
+Presentation grouping lives in `catalog/presentation.yaml`, which is
+**non-authoritative**: it carries no triggers, domains, platforms,
+anti-triggers, or aliases, and the loader rejects any of those keys. Changing
+the catalog layout cannot change routing or Hub identity.
+
+See [`docs/DISCOVERY-FINDINGS.md`](docs/DISCOVERY-FINDINGS.md) for measured
+discovery quality and the routing-metadata work that belongs in the separate
+skill corpus repository.
+
 ## Hosted MCP (remote, authenticated)
 
 The same four tools are served at `https://ega-skills-mcp.vercel.app/mcp`.
@@ -233,7 +286,12 @@ docs/         operator guide, release notes, corpus + evidence records
 packages/     shipped modular-monolith TypeScript implementation
 fixtures/     frozen fixture trees for hashing/projects/skills
 tests/        token vectors, router goldens, integration/client tests
+tests/discovery/  human-intent discovery corpus + recorded baseline
+catalog/presentation.yaml  non-authoritative catalog grouping (never routing)
+docs/generated/SKILL-CATALOG.md  generated human catalog (do not hand-edit)
 scripts/specs/  spec-drift checker
+scripts/catalog/  deterministic catalog generator + staleness check
+scripts/eval/     routing + discovery evaluation harnesses
 .github/      issue/PR templates with mandatory spec-contract sections
 ```
 

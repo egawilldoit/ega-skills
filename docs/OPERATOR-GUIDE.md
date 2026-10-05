@@ -105,6 +105,71 @@ Supporting files (`references/`, other TEXT companions) are retrievable
 through `get_content` with `file_path` (exact manifest path, L2-only);
 scripts, assets, binaries, and control files are never served.
 
+`list` is the operator/registry view and prints `skill_id` plus
+`current_version_hash`. It is unchanged by the human catalog work.
+
+## 7a. Catalog (human discovery)
+
+```sh
+node packages/cli/bin/ega-skills.mjs catalog
+node packages/cli/bin/ega-skills.mjs catalog --search "review PR"
+node packages/cli/bin/ega-skills.mjs catalog --json
+```
+
+- `catalog` is the **human** view, grouped by intent; `list` is the **operator**
+  view. They read the same release.
+- `--search` reuses the registry's existing FTS `search` against the same
+  release-scoped FTS table the hosted runtime uses. It adds no independent
+  ranking or similarity algorithm.
+- Presentation grouping comes from `catalog/presentation.yaml`, resolved in this
+  order: `--presentation`, `EGA_CATALOG_PRESENTATION`, `./catalog/presentation.yaml`,
+  then the path shipped with the installed package.
+- Presentation metadata is non-authoritative. It may not contain `triggers`,
+  `anti_triggers`, `domains`, `platforms`, `frameworks`, or `aliases`; the loader
+  rejects those keys. Regrouping the catalog cannot change routing.
+- Any skill id in the presentation file that is absent from the release is a hard
+  failure, not a silent skip.
+
+Host/client interaction the catalog is designed for:
+
+```text
+$ ega-skills I think I have something that checks what a small change could break elsewhere
+Best match: blast-radius
+
+$ ega-skills what skills do I have around release work?
+Release
+├── certify-release
+├── certify-pr-head
+├── certify-production-target
+├── certify-database-rollout
+├── certify-mcp-production
+└── trace-artifact-provenance
+```
+
+When routing returns LOW, the candidates are **suggestions, never automatic
+executions** (SPEC-004 §5.1.17 rule 4):
+
+```text
+Best matches (suggestions — nothing was executed):
+
+1. recover-work-context   Reconstruct the entire current project/work state.
+2. what-did-i-get-done    Summarize authored commits only.
+
+Recommended: recover-work-context
+```
+
+## 7b. Regenerating and checking the generated catalog
+
+```sh
+pnpm generate:catalog   # rewrite docs/generated/SKILL-CATALOG.md
+pnpm catalog:check     # exit 1 when the committed file is stale
+pnpm eval:discovery    # routing + discovery quality report
+```
+
+`catalog:check` runs in CI and in `release:verify`, so a catalog that no longer
+matches its release fails the build. Generation is deterministic: the same
+release and presentation file always produce byte-identical output.
+
 ## 8. Codex MCP setup
 
 Same local binary over stdio; full repeatable procedure (isolated config,

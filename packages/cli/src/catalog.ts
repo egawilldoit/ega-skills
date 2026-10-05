@@ -112,15 +112,25 @@ export function oneLine(text: string): string {
  *
  * Skill descriptions deliberately restate their whole trigger surface ("Use for
  * 'x', 'y'..."), which is right for the resolver and far too long for a human
- * catalog. A pocket catalog wants the leading sentence. The cut is purely
- * textual (first sentence boundary, then a hard cap) so it stays deterministic
- * and never depends on the description's routing content.
+ * catalog. A pocket catalog wants the leading sentence or two, so this walks
+ * whole sentences until the summary is informative enough, then applies a hard
+ * cap. The cut is purely textual, so it stays deterministic and never depends on
+ * the description's routing content.
  */
-export function summarize(description: string, maxLength = 140): string {
+export function summarize(description: string, maxLength = 140, minLength = 45): string {
   const text = oneLine(description);
   if (text.length === 0) return "";
-  const sentence = text.match(/^.*?[.!?](?=\s|$)/u);
-  let summary = sentence === null ? text : sentence[0].trim();
+
+  // Collect whole sentences up to the minimum informative length. A sentence
+  // boundary is terminator followed by whitespace or end of string.
+  const sentences = text.match(/^.*?[.!?](?=\s|$)/u);
+  let summary = sentences === null ? text : sentences[0].trim();
+  if (summary.length < minLength) {
+    const remainder = text.slice(summary.length).trimStart();
+    const next = remainder.match(/^.*?[.!?](?=\s|$)/u);
+    if (next !== null) summary = `${summary} ${next[0].trim()}`;
+  }
+
   if (summary.length > maxLength) {
     const clipped = summary.slice(0, maxLength);
     const lastSpace = clipped.lastIndexOf(" ");
@@ -428,7 +438,7 @@ export interface CatalogSearchHit {
 export function runCatalog(options: CatalogCommandOptions): string {
   // L0 metadata is read exactly once and shared by every output path.
   const l0 = readL0Metadata(options.env);
-  const model = buildCatalogModel(l0, parseYaml(readFileSync(resolvePath(options.presentationPath), "utf8")) as unknown);
+  const model = buildCatalogModel(l0, loadPresentation(options.presentationPath));
 
   if (options.search !== undefined && options.search.length > 0) {
     const registry = openRegistry({ env: options.env, readonly: true });
