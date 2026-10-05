@@ -34,17 +34,30 @@ export const CATALOG_SEARCH_LIMIT = 5;
  * Routing keys that presentation metadata must never contain. Presentation is
  * not authority: if it could carry these, editing a catalog label would become
  * a routing change, which the product explicitly forbids.
+ *
+ * Compared in NORMALIZED form (case/separator-insensitive), so `anti_triggers`,
+ * `antiTriggers`, and `anti-triggers` all match `antitriggers`. The last two
+ * entries are realistic synonyms someone might reach for when trying to smuggle
+ * routing authority past the six canonical keys.
  */
 const FORBIDDEN_PRESENTATION_KEYS = [
   "triggers",
-  "anti_triggers",
+  "antitriggers",
   "domains",
   "platforms",
   "frameworks",
   "aliases",
+  "triggerphrases",
+  "keywords",
 ] as const;
 
 const CANONICAL_SKILL_ID = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/u;
+
+/** Canonical release digest shape (SPEC-002). Anything else is not a release id. */
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
+
+/** Placeholder identity: never claim an identity we cannot prove. */
+const UNKNOWN_IDENTITY = { digest: "unknown", hubId: "unknown" } as const;
 
 export class CatalogError extends Error {
   constructor(message: string) {
@@ -102,6 +115,33 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Case- and separator-insensitive key form, so `antiTriggers` == `anti_triggers`. */
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[-_\s]/gu, "");
+}
+
+/**
+ * Reject routing authority ANYWHERE in the presentation document, not just at
+ * the top level.
+ *
+ * A nested `triggers:` inside a group, or a near-miss spelling such as
+ * `antiTriggers`, would otherwise pass validation while still implying that
+ * presentation metadata influences routing. This walks the whole tree.
+ */
+function assertNoRoutingKeys(node: unknown, path = "$"): void {
+  if (Array.isArray(node)) {
+    node.forEach((entry, index) => assertNoRoutingKeys(entry, `${path}[${index}]`));
+    return;
+  }
+  if (!isPlainObject(node)) return;
+  for (const [key, value] of Object.entries(node)) {
+    if ((FORBIDDEN_PRESENTATION_KEYS as readonly string[]).includes(normalizeKey(key))) {
+      fail(`${path}.${key}: presentation metadata must not carry routing key "${key}": presentation is not routing authority`);
+    }
+    assertNoRoutingKeys(value, `${path}.${key}`);
+  }
+}
+
 /** Collapse whitespace so a description renders identically everywhere. */
 export function oneLine(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
@@ -132,7 +172,10 @@ export function summarize(description: string, maxLength = 140, minLength = 45):
   }
 
   if (summary.length > maxLength) {
-    const clipped = summary.slice(0, maxLength);
+    // Clip on code POINTS, not UTF-16 code units, and reserve one character for
+    // the ellipsis so the final length never exceeds maxLength. A UTF-16 slice
+    // can split a surrogate pair and emit a lone surrogate into committed bytes.
+    const clipped = [...summary].slice(0, maxLength - 1).join("");
     const lastSpace = clipped.lastIndexOf(" ");
     summary = `${(lastSpace > maxLength * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}…`;
   }
@@ -153,11 +196,7 @@ export function validatePresentation(
   if (presentation.catalog_version !== CATALOG_PRESENTATION_SCHEMA_VERSION) {
     fail(`unsupported catalog_version: ${String(presentation.catalog_version)}`);
   }
-  for (const key of FORBIDDEN_PRESENTATION_KEYS) {
-    if (key in presentation) {
-      fail(`presentation metadata must not contain routing key "${key}": presentation is not routing authority`);
-    }
-  }
+  assertNoRoutingKeys(presentation);
 
   const requireKnown = (id: unknown, where: string): string => {
     if (typeof id !== "string" || !CANONICAL_SKILL_ID.test(id)) {
@@ -191,7 +230,9 @@ export function validatePresentation(
     if (!isPlainObject(group)) fail("each group must be a YAML mapping");
     const { id, title, blurb, skills } = group;
     if (typeof id !== "string" || id.length === 0) fail("each group needs a non-empty string id");
-    if (typeof title !== "string" || title.length === 0) fail(`group "${id}" needs a non-empty string title`);
+    // Titles and blurbs are emitted into a committed Markdown document, so
+    // collapse whitespace and reject anything that would break its structure.
+    if (typeof title !== "string" || oneLine(title).length === 0) fail(`group "${id}" needs a non-empty string title`);
     if (blurb !== undefined && typeof blurb !== "string") fail(`group "${id}": blurb must be a string`);
     if (seenGroupIds.has(id)) fail(`duplicate group id: "${id}"`);
     seenGroupIds.add(id);
@@ -208,8 +249,8 @@ export function validatePresentation(
     }
     groups.push({
       id,
-      title,
-      blurb: typeof blurb === "string" ? blurb : "",
+      title: oneLine(title),
+      blurb: typeof blurb === "string" ? oneLine(blurb) : "",
       skills: skills.map((entry) => entry as string),
     });
   }
@@ -281,7 +322,7 @@ export function buildCatalogModel(l0: ReadonlyMap<string, CatalogSkill>, present
       skills: [...group.skills].sort().map(toSkill),
     })),
     ungroupedTitle: typeof (presentation as Presentation).ungrouped_title === "string"
-      ? (presentation as Presentation).ungrouped_title!
+      ? oneLine((presentation as Presentation).ungrouped_title!)
       : "Other",
     ungrouped,
     multiGroup,
@@ -390,23 +431,35 @@ export function renderCatalogText(model: CatalogModel, releaseIdentity: { digest
   lines.push(`release ${releaseIdentity.digest}`);
   lines.push(`${model.skillCount} skills in ${model.namespaces.length} namespaces`);
   lines.push("");
-  // Cap the name column so one very long skill id cannot push every summary off
-// the right edge of a terminal.
+
+  const all = [...model.groups.flatMap((g) => g.skills), ...model.ungrouped];
+
+  // Two skills can share a bare name across namespaces (the current release has
+  // both `egawilldoit/tdd` and `mattpocock/tdd`). Print `namespace/name` for
+  // those so the two rows are distinguishable, and keep the compact bare name
+  // everywhere else.
+  const nameCounts = new Map<string, number>();
+  for (const skill of all) nameCounts.set(skill.name, (nameCounts.get(skill.name) ?? 0) + 1);
+  const label = (skill: CatalogSkill): string =>
+    (nameCounts.get(skill.name) ?? 0) > 1 ? `${skill.namespace}/${skill.name}` : skill.name;
+
+  // Cap the label column so one very long skill id cannot push every summary off
+  // the right edge of a terminal.
   const width = Math.min(
-    Math.max(...[...model.groups.flatMap((g) => g.skills.map((s) => s.name.length)), ...model.ungrouped.map((s) => s.name.length)], 10),
+    Math.max(...all.map((skill) => label(skill).length), 10),
     44,
   );
   for (const group of model.groups) {
     lines.push(group.title);
     for (const skill of group.skills) {
-      lines.push(`  ${skill.name.padEnd(width)}  ${skill.summary || ""}`.trimEnd());
+      lines.push(`  ${label(skill).padEnd(width)}  ${skill.summary || ""}`.trimEnd());
     }
     lines.push("");
   }
   if (model.ungrouped.length > 0) {
     lines.push(model.ungroupedTitle);
     for (const skill of model.ungrouped) {
-      lines.push(`  ${skill.name.padEnd(width)}  ${skill.summary || ""}`.trimEnd());
+      lines.push(`  ${label(skill).padEnd(width)}  ${skill.summary || ""}`.trimEnd());
     }
     lines.push("");
   }
@@ -503,15 +556,20 @@ function renderSearchText(query: string, results: readonly CatalogSearchHit[]): 
  * output never claims an identity it cannot prove.
  */
 function releaseIdentityOf(env: Record<string, string | undefined>): { digest: string; hubId: string } {
-  const home = env.EGA_SKILLS_HOME ?? "";
+  // Never fall back to the process CWD: an unrelated `hub-release.json` in the
+  // working directory would silently supply a release identity.
+  const home = env.EGA_SKILLS_HOME;
+  if (home === undefined || home.length === 0) return UNKNOWN_IDENTITY;
   try {
     const release = JSON.parse(readFileSync(resolvePath(home, "hub-release.json"), "utf8")) as {
-      digest?: string;
-      payload?: { hub_id?: string };
+      digest?: unknown;
+      payload?: { hub_id?: unknown };
     };
-    return { digest: release.digest ?? "unknown", hubId: release.payload?.hub_id ?? "unknown" };
+    const digest = typeof release.digest === "string" && SHA256_DIGEST.test(release.digest) ? release.digest : "unknown";
+    const hubId = typeof release.payload?.hub_id === "string" ? release.payload.hub_id : "unknown";
+    return { digest, hubId };
   } catch {
-    return { digest: "unknown", hubId: "unknown" };
+    return UNKNOWN_IDENTITY;
   }
 }
 
@@ -524,7 +582,9 @@ function releaseIdentityOf(env: Record<string, string | undefined>): { digest: s
  */
 function resolveFtsTable(env: Record<string, string | undefined>, db: unknown): string | undefined {
   const { digest } = releaseIdentityOf(env);
-  if (digest === "unknown") return undefined;
+  // A malformed digest is rejected here rather than being sliced into a
+  // nonsense table name that silently degrades to the default table.
+  if (!SHA256_DIGEST.test(digest)) return undefined;
   const table = `release_fts_${digest.slice("sha256:".length)}`;
   const typed = db as { prepare(sql: string): { get(...params: unknown[]): unknown } };
   const exists = typed

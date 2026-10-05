@@ -40,7 +40,7 @@ function basePresentation(overrides = {}) {
 
 // --- generator determinism ------------------------------------------------
 
-test("catalog generation is byte-identical for identical inputs", async () => {
+test("catalog rendering is stable in-process for identical inputs", async () => {
   const a = renderCatalogMarkdown(
     buildCatalogModel(readL0Metadata(ENV), JSON.parse(JSON.stringify(await loadPresentation()))),
     { digest: "sha256:test", hubId: "personal" },
@@ -50,6 +50,51 @@ test("catalog generation is byte-identical for identical inputs", async () => {
     { digest: "sha256:test", hubId: "personal" },
   );
   assert.equal(a, b);
+  // Cross-process / cross-run determinism is proven by the committed
+  // `pnpm catalog:check` staleness gate below, which re-renders and compares.
+});
+
+test("generation is byte-identical across separate processes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ega-catalog-det-"));
+  try {
+    const outputs = [];
+    for (const name of ["a.md", "b.md"]) {
+      const out = join(dir, name);
+      await execFileAsync(process.execPath, ["scripts/catalog/generate.mjs", "--out", out], { cwd: ROOT, env: ENV });
+      outputs.push(await readFile(out, "utf8"));
+    }
+    assert.equal(outputs[0], outputs[1], "two separate generator processes must produce identical bytes");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("summarize never emits a lone surrogate or exceeds its cap", () => {
+  const emoji = `${"x".repeat(139)}😀 more text that goes on`;
+  const clipped = summarize(emoji);
+  assert.ok(clipped.length <= 140, `expected <=140 chars, got ${clipped.length}`);
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(clipped), "must not contain a lone high surrogate");
+  assert.ok(!/[\uDC00-\uDFFF](?![\uD800-\uDBFF])/u.test(clipped), "must not contain a lone low surrogate");
+});
+
+test("text output disambiguates skills that share a bare name", () => {
+  const model = buildCatalogModel(
+    readL0Metadata(ENV),
+    basePresentation({
+      groups: [
+        {
+          id: "dup",
+          title: "Dup",
+          skills: ["egawilldoit/tdd", "mattpocock/tdd", "egawilldoit/verify-ui"],
+        },
+      ],
+    }),
+  );
+  const text = renderCatalogText(model, { digest: "sha256:test" });
+  // Both `tdd` skills must be distinguishable; the unique one stays compact.
+  assert.match(text, /egawilldoit\/tdd/u);
+  assert.match(text, /mattpocock\/tdd/u);
+  assert.match(text, / {2}verify-ui {2}/u);
 });
 
 async function loadPresentation() {
@@ -57,11 +102,13 @@ async function loadPresentation() {
   return parse(await readFile(PRESENTATION, "utf8"));
 }
 
-test("group ordering is authored and skill ordering is id-sorted", async () => {
-  const model = buildCatalogModel(readL0Metadata(ENV), await loadPresentation());
+test("group ordering follows the authored presentation and skills are id-sorted", async () => {
+  const presentation = await loadPresentation();
+  const model = buildCatalogModel(readL0Metadata(ENV), presentation);
   assert.deepEqual(
     model.groups.map((g) => g.id),
-    model.groups.map((g) => g.id),
+    presentation.groups.map((g) => g.id),
+    "rendered group order must match the authored order",
   );
   for (const group of model.groups) {
     const ids = group.skills.map((s) => s.id);
@@ -98,7 +145,7 @@ test("summarize produces a short deterministic one-line pocket summary", () => {
   // Whitespace is collapsed identically everywhere.
   assert.equal(summarize("a\n\n  b   c"), "a b c");
   const long = summarize(`${"word ".repeat(60)}end.`);
-  assert.ok(long.length <= 141, `expected a clipped summary, got ${long.length} chars`);
+  assert.ok(long.length <= 140, `expected a clipped summary <=140, got ${long.length} chars`);
 });
 
 test("every real release skill gets a non-trivial summary", async () => {
@@ -107,6 +154,7 @@ test("every real release skill gets a non-trivial summary", async () => {
     assert.ok(skill.summary.length >= 45, `${id} has a too-short summary: ${JSON.stringify(skill.summary)}`);
     assert.ok(skill.summary.length <= 140, `${id} has an over-long summary (${skill.summary.length})`);
     assert.ok(!skill.summary.includes("\n"), `${id} summary must be one line`);
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(skill.summary), `${id} summary has a lone surrogate`);
   }
 });
 
@@ -185,14 +233,60 @@ test("duplicate group ids fail validation", () => {
   );
 });
 
-test("presentation metadata may not carry routing authority", () => {
+test("presentation metadata may not carry routing authority at any depth or spelling", () => {
+  // Top level, exact spelling.
   for (const key of ["triggers", "anti_triggers", "domains", "platforms", "frameworks", "aliases"]) {
     assert.throws(
       () => validatePresentation(basePresentation({ [key]: ["x"] }), knownIds()),
       CatalogError,
-      `expected routing key ${key} to be rejected`,
+      `expected top-level routing key ${key} to be rejected`,
     );
   }
+  // Nested inside a group — a top-level-only check would let these through.
+  for (const key of ["triggers", "anti_triggers", "domains", "platforms", "frameworks", "aliases"]) {
+    assert.throws(
+      () =>
+        validatePresentation(
+          basePresentation({
+            groups: [{ id: "g", title: "G", skills: ["egawilldoit/verify-ui"], [key]: ["x"] }],
+          }),
+          knownIds(),
+        ),
+      CatalogError,
+      `expected nested routing key ${key} to be rejected`,
+    );
+  }
+  // Near-miss spellings and realistic synonyms normalize onto a forbidden key.
+  for (const key of ["antiTriggers", "anti-triggers", "ANTITRIGGERS", "trigger_phrases", "keywords"]) {
+    assert.throws(
+      () => validatePresentation(basePresentation({ [key]: ["x"] }), knownIds()),
+      CatalogError,
+      `expected near-miss routing key ${key} to be rejected`,
+    );
+  }
+  // Nested deeper still.
+  assert.throws(
+    () =>
+      validatePresentation(
+        basePresentation({ extra: { nested: { domains: ["x"] } } }),
+        knownIds(),
+      ),
+    CatalogError,
+    "expected deeply nested routing key to be rejected",
+  );
+});
+
+test("group titles and blurbs are collapsed to a single line", () => {
+  const model = buildCatalogModel(
+    readL0Metadata(ENV),
+    basePresentation({
+      groups: [{ id: "g", title: "Verify\n## Injected", blurb: "line one\nline two", skills: ["egawilldoit/verify-ui"] }],
+    }),
+  );
+  assert.equal(model.groups[0].title, "Verify ## Injected");
+  assert.equal(model.groups[0].blurb, "line one line two");
+  const markdown = renderCatalogMarkdown(model, { digest: "sha256:test", hubId: "personal" });
+  assert.ok(!markdown.includes("Verify\n## Injected"));
 });
 
 // --- presentation cannot influence routing -------------------------------
@@ -306,10 +400,17 @@ test("existing `list` command contract is unchanged", async () => {
   assert.match(lines[0], /^anthropic\/academy-guide sha256:[0-9a-f]{64}$/u);
 });
 
-test("renderCatalogText and runCatalog agree", () => {
-  const model = buildCatalogModel(readL0Metadata(ENV), basePresentation());
-  const fromRender = renderCatalogText(model, { digest: "sha256:test" });
-  const fromRun = runCatalog({ env: ENV, presentationPath: PRESENTATION });
-  assert.match(fromRun, /^EGA SKILLS$/mu);
-  assert.match(fromRender, /^EGA SKILLS$/mu);
+test("renderCatalogText and runCatalog produce identical output for the same presentation", async () => {
+  // Both paths must render from the SAME inputs, otherwise this compares nothing.
+  const dir = await mkdtemp(join(tmpdir(), "ega-catalog-same-"));
+  try {
+    const path = join(dir, "presentation.yaml");
+    await writeFile(path, JSON.stringify(basePresentation()));
+    const fromRun = runCatalog({ env: ENV, presentationPath: path });
+    const model = buildCatalogModel(readL0Metadata(ENV), JSON.parse(await readFile(path, "utf8")));
+    const release = JSON.parse(await readFile(join(ARTIFACT, "hub-release.json"), "utf8"));
+    assert.equal(fromRun, renderCatalogText(model, { digest: release.digest }));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

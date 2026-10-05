@@ -26,8 +26,8 @@ A short list for recognition. Routing is decided by the resolver, never by this 
 - `egawilldoit/principle-fix-root-causes` — Apply when debugging. Trace each symptom to its root cause and fix it there; reproduce first, ask why until you reach it, resist nil-check…
 - `egawilldoit/verify-this` — Verify a claim with fresh local evidence: restate it falsifiably, capture baseline and treatment, compare artifacts, and return VERIFIED,…
 - `egawilldoit/adversarial-review` — Independently challenge a completed or proposed change for correctness, security, and maintainability before it ships.
-- `egawilldoit/blast-radius` — Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real…
-- `egawilldoit/review-and-ship` — Review the current branch or pull request for bugs, regressions, security, and intent fit, run or add focused tests, commit selected files,…
+- `egawilldoit/blast-radius` — Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running…
+- `egawilldoit/review-and-ship` — Review the current branch or pull request for bugs, regressions, security, and intent fit, run or add focused tests, commit selected…
 - `egawilldoit/recover-work-context` — Reconstruct the current state of ongoing work so it can be resumed without re-reading everything.
 - `egawilldoit/reconcile-project-truth` — Reconcile contradictions about the same project across Git, GitHub, CI, deployment, runtime, trackers, documentation, and agent reports by…
 - `egawilldoit/parallelize-work` — Parallelize work only when it can be split safely, then aggregate deterministically.
@@ -426,7 +426,7 @@ Independently challenge a completed or proposed change for correctness, security
 
 `egawilldoit/blast-radius`
 
-Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real…
+Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running…
 
 ### deslop
 
@@ -438,7 +438,7 @@ Remove AI-generated code slop from a branch's diff and restore local style: stra
 
 `egawilldoit/get-pr-comments`
 
-Fetch and summarize review comments on the active pull request, grouped by severity and actionability, with an ordered action list and open…
+Fetch and summarize review comments on the active pull request, grouped by severity and actionability, with an ordered action list and…
 
 ### principle-minimize-reader-load
 
@@ -450,7 +450,7 @@ Apply when reviewing or shaping code that's hard to trace.
 
 `egawilldoit/review-and-ship`
 
-Review the current branch or pull request for bugs, regressions, security, and intent fit, run or add focused tests, commit selected files,…
+Review the current branch or pull request for bugs, regressions, security, and intent fit, run or add focused tests, commit selected…
 
 ### code-review
 
@@ -478,13 +478,13 @@ Move a branch through checks, review, and merge safely.
 
 `egawilldoit/fix-ci`
 
-Find a failing pull-request check, inspect the actual logs or check link, and apply the smallest fix that turns it green, one failure cause…
+Find a failing pull-request check, inspect the actual logs or check link, and apply the smallest fix that turns it green, one failure…
 
 ### fix-merge-conflicts
 
 `egawilldoit/fix-merge-conflicts`
 
-Resolve merge or rebase conflicts non-interactively, preserving both sides where safe, regenerating lockfiles with the package manager, and…
+Resolve merge or rebase conflicts non-interactively, preserving both sides where safe, regenerating lockfiles with the package manager,…
 
 ### integrate-pr-stack
 
@@ -496,7 +496,7 @@ Safely land stacked pull requests one at a time.
 
 `egawilldoit/loop-on-ci`
 
-Watch a pull request's attached checks and iterate on failures until all required checks are green, treating the complete PR-attached check…
+Watch a pull request's attached checks and iterate on failures until all required checks are green, treating the complete PR-attached…
 
 ### make-pr-easy-to-review
 
@@ -698,7 +698,7 @@ Stop and check this skill before finishing any reply to a question about how to 
 
 `anthropic/claude-api`
 
-Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model…
+Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting,…
 
 ### discernment-nudge
 

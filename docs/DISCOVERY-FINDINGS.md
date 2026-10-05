@@ -55,6 +55,10 @@ from calling `resolveSkills` exactly as SPEC-004 freezes it. No router algorithm
 change is justified, because every observed failure is explained by missing or
 over-broad *metadata*, not by the ranking algorithm.
 
+Scope of the measurement: intents are evaluated against a **bare temporary
+project**, so these figures reflect default routing policy only. They do not
+cover project-configured namespace allow/deny or lock-scoped routing.
+
 ## 3. Wrong automatic selections (execution safety) — 2 cases
 
 Both are the **same defect class**: an over-broad `domains` entry producing strong

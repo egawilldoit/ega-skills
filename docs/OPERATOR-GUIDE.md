@@ -130,32 +130,58 @@ node packages/cli/bin/ega-skills.mjs catalog --json
 - Any skill id in the presentation file that is absent from the release is a hard
   failure, not a silent skip.
 
-Host/client interaction the catalog is designed for:
+Real captured output:
 
-```text
-$ ega-skills I think I have something that checks what a small change could break elsewhere
-Best match: blast-radius
+```console
+$ ega-skills catalog --search "release certification"
+Matches for "release certification"
 
-$ ega-skills what skills do I have around release work?
-Release
-├── certify-release
-├── certify-pr-head
-├── certify-production-target
-├── certify-database-rollout
-├── certify-mcp-production
-└── trace-artifact-provenance
+  certify-release            Certify a release against three separate gates, CODE, RUNTIME, and PRODUCT, and report the highest gate actually reached as CODE_READY,…  [Release]
+  certify-pr-head            Verify that acceptance evidence belongs to the exact current head of a pull request.  [Release]
+  trace-artifact-provenance  Establish immutable lineage from source commit to build to artifact to digest to release to deployment, and emit a provenance manifest…  [Release]
+  certify-mcp-production     Certify a production MCP server end to end: endpoint, protocol negotiation, OAuth, tool discovery, tool schemas, permission and profile…  [Release]
+  deliver-software           Route non-trivial engineering work to the right workflow instead of improvising.  [Not sure which skill?]
 ```
 
-When routing returns LOW, the candidates are **suggestions, never automatic
-executions** (SPEC-004 §5.1.17 rule 4):
+The bracketed group is the human-intent category from
+`catalog/presentation.yaml`. Browsing the full catalog:
+
+```console
+$ ega-skills catalog | head -8
+EGA SKILLS
+release sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
+114 skills in 4 namespaces
+
+Not sure which skill?
+  deliver-software                              Route non-trivial engineering work to the right workflow instead of improvising.
+  ask-matt                                      Ask which skill or flow fits your situation.
+```
+
+### Scope note: natural-language input is not a CLI feature
+
+`ega-skills` does **not** accept a natural-language task as a bare argument; it
+takes explicit subcommands (`resolve --task "..."`, `catalog --search "..."`).
+Describing intent in plain language is an MCP host/client behaviour, driven
+through the four MCP tools, not a shell feature:
+
+```console
+$ ega-skills "what skills do I have"
+Unknown command or option: what skills do I have
+Run "ega-skills --help" for usage.
+```
+
+When routing returns LOW, MCP `resolve` returns the candidates as suggestions
+with `selected=[]` (SPEC-004 §5.1.17 rule 4). The host presents them; it does not
+execute them:
 
 ```text
-Best matches (suggestions — nothing was executed):
+resolve(task) -> confidence: LOW, selected: []
 
-1. recover-work-context   Reconstruct the entire current project/work state.
-2. what-did-i-get-done    Summarize authored commits only.
+  candidates (suggestions only, nothing executed):
+    1. recover-work-context   Reconstruct the current state of ongoing work so it can be resumed…
+    2. what-did-i-get-done    Summarize authored commits over a requested time window…
 
-Recommended: recover-work-context
+  the host must ask the user which to use; it must NOT auto-run candidate 1.
 ```
 
 ## 7b. Regenerating and checking the generated catalog

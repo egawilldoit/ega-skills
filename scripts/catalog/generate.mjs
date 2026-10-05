@@ -49,7 +49,17 @@ async function main() {
     const model = buildCatalogModel(readL0Metadata(env), loadPresentation(presentationPath));
 
     const release = JSON.parse(await readFile(resolve(artifactDir, "hub-release.json"), "utf8"));
-    const identity = { digest: release.digest, hubId: release.payload?.hub_id ?? "unknown" };
+    // Fail closed on an unverifiable identity: the generated document claims to
+    // come from a VERIFIED release, so it must never print "undefined" or an
+    // unvalidated digest. `validate-artifact.mjs` (CI) verifies the artifact in
+    // full; this guard makes the generator safe standalone too.
+    if (!/^sha256:[0-9a-f]{64}$/u.test(release.digest ?? "")) {
+      throw new Error(
+        `artifact ${artifactDir} has no valid release digest (got ${JSON.stringify(release.digest)}); run scripts/hosted/validate-artifact.mjs`,
+      );
+    }
+    const hubId = typeof release.payload?.hub_id === "string" ? release.payload.hub_id : "unknown";
+    const identity = { digest: release.digest, hubId };
     const markdown = renderCatalogMarkdown(model, identity);
 
     if (check) {

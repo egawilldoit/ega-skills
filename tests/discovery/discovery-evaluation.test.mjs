@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
-import { DISCOVERY_CANDIDATE_LIMIT, evaluateDiscovery } from "../../scripts/eval/discovery.mjs";
+import { evaluateDiscovery } from "../../scripts/eval/discovery.mjs";
 
 const CORPUS_PATH = join(process.cwd(), "tests/discovery/personal-intents.json");
 const BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline.json");
@@ -90,16 +90,29 @@ test("discovery ranking never surfaces a must_not_select skill in the candidate 
   const { results } = await report();
   const offenders = results
     .filter((row) => !row.pending && row.catastrophic_top3.length > 0)
-    .map((row) => `${row.id}:${row.catastrophic_top3.join("|")}`);
+    .map((row) => row.id);
 
   // Recorded, not yet fixed: these are metadata defects in the external corpus
-  // repo. The count is pinned in baseline.json and must not grow.
+  // repo. The count may be TIGHTENED when they land, never loosened.
   const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));
-  assert.equal(
-    offenders.length,
-    baseline.summary.catastrophic_top3_count,
-    `catastrophic top-3 count regressed.\nnow: ${offenders.join("\n     ")}`,
+  assert.ok(
+    offenders.length <= baseline.summary.catastrophic_top3_count,
+    `catastrophic top-3 count regressed (baseline ${baseline.summary.catastrophic_top3_count}): ${offenders.join(", ")}`,
   );
+});
+
+test("a corpus targeting a different release fails closed", async () => {
+  const corpus = await loadCorpus();
+  const mismatched = structuredClone(corpus);
+  mismatched.release_digest = "sha256:" + "0".repeat(64);
+  await assert.rejects(() => evaluateDiscovery(mismatched), /corpus targets release/u);
+});
+
+test("a corpus with no measurable intents fails closed", async () => {
+  const corpus = await loadCorpus();
+  const allPending = structuredClone(corpus);
+  for (const intent of allPending.intents) intent.pending_skill = true;
+  await assert.rejects(() => evaluateDiscovery(allPending), /no measurable intents/u);
 });
 
 test("automatic misroutes are limited to the documented external-metadata defects", async () => {
@@ -109,11 +122,14 @@ test("automatic misroutes are limited to the documented external-metadata defect
     .map((row) => row.id)
     .sort();
 
-  assert.deepEqual(
-    offenders,
-    KNOWN_EXTERNAL_AUTO_ROUTES,
-    "unexpected automatic misroute(s); if a corpus-repo metadata fix landed, update KNOWN_EXTERNAL_AUTO_ROUTES and baseline.json",
-  );
+  // Every actual misroute must be a KNOWN one (no new surprises), but a corpus
+  // metadata fix may REMOVE entries, so a subset check rather than equality.
+  for (const id of offenders) {
+    assert.ok(
+      KNOWN_EXTERNAL_AUTO_ROUTES.includes(id),
+      `unexpected automatic misroute "${id}"; if a corpus-repo metadata fix landed, remove it from KNOWN_EXTERNAL_AUTO_ROUTES and tighten baseline.json`,
+    );
+  }
 });
 
 test("discovery quality does not regress below the recorded baseline", async () => {
@@ -149,14 +165,19 @@ test("catalog id validation fails closed on an unknown skill", async () => {
   await assert.rejects(() => evaluateDiscovery(broken), /absent from the catalog/u);
 });
 
-test("a LOW intent reports candidates as suggestions, never as selections", async () => {
+test("a LOW intent ranks suggestions but never selects them", async () => {
   const { results } = await report();
   const low = results.filter((row) => row.confidence === "LOW");
   assert.ok(low.length > 0, "corpus should exercise LOW confidence");
   for (const row of low) {
     // Discovery may still RANK suggestions for a human; that is the whole
     // point of separating discovery from execution routing.
-    assert.ok(Array.isArray(row.ranking));
-    assert.ok(row.ranking.length <= DISCOVERY_CANDIDATE_LIMIT);
+    assert.deepEqual(row.selected, [], `${row.id} is LOW but selected ${JSON.stringify(row.selected)}`);
+    // A LOW row can suggest candidates, but nothing it suggests may itself be
+    // a wrong automatic selection.
+    assert.deepEqual(row.wrong_automatic_selections, [], `${row.id} LOW row reported a wrong selection`);
+    for (const id of row.ranking) {
+      assert.ok(!row.selected.includes(id), `${row.id} ranking must not overlap its own selections`);
+    }
   }
 });

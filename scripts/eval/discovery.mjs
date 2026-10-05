@@ -180,10 +180,26 @@ export async function evaluateDiscovery(corpus, options = {}) {
   const project = await mkdtemp(join(tmpdir(), "ega-discovery-eval-"));
   const env = { ...process.env, EGA_SKILLS_HOME: artifactDir };
 
+  // Fail closed on a corpus that targets a different release. Without this, a
+  // re-vendored catalog would silently be scored against an old corpus while
+  // the report still printed the corpus's stale digest.
+  const release = JSON.parse(await readFile(join(artifactDir, "hub-release.json"), "utf8"));
+  if (release.digest !== corpus.release_digest) {
+    throw new Error(
+      `corpus targets release ${corpus.release_digest} but artifact is ${release.digest}: ` +
+        "re-vendor the corpus and update tests/discovery/personal-intents.json",
+    );
+  }
+
   // The read-only handle stays open for the whole run: `search` and
   // `resolve` both read the same verified catalog snapshot.
   const readable = openRegistry({ env, readonly: true });
   try {
+    // Fail closed BEFORE doing any work: an all-pending corpus would otherwise
+    // report 0 intents with every rate at 0 and `exec_ok: true`.
+    if (corpus.intents.every((intent) => intent.pending_skill === true)) {
+      throw new Error("discovery corpus has no measurable intents (every intent is pending_skill)");
+    }
     const catalogSkillCount = readable.db.prepare("SELECT COUNT(*) AS c FROM skills").get().c;
     const searchByTask = (task) => searchSkills(readable.db, task).map((hit) => hit.skillId);
 

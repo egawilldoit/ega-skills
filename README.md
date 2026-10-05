@@ -196,7 +196,18 @@ ega-skills catalog --json
 
 `catalog` is the human view; `list` remains the registry/operator view. Both read
 the same release, and `catalog` adds no search algorithm of its own — it reuses
-the registry's existing FTS `search`.
+the registry's existing FTS `search` against the same release-scoped table the
+hosted runtime uses.
+
+Two scope boundaries worth knowing:
+
+- `catalog` takes explicit subcommands (`catalog --search "..."`); it does not
+  accept a bare natural-language argument. Plain-language intent is an MCP
+  host/client behaviour driven through the four MCP tools.
+- `catalog --search` is a *discovery* surface, so it searches the whole release
+  rather than applying a project's lock and deny policy. In a locked project it
+  may therefore suggest skills that project cannot currently run. Use
+  `resolve --task "..."` when you need the project's enforced candidate set.
 
 The full generated catalog lives at
 [`docs/generated/SKILL-CATALOG.md`](docs/generated/SKILL-CATALOG.md). It is a
