@@ -25,6 +25,9 @@
     "contracts:check-g": "pnpm exec tsc -b --force packages/registry && node scripts/contracts/validate-contract-g.mjs scripts/contracts/examples/contract-g/import-plan.json",
     "contracts:test-c": "pnpm exec tsc -b --force packages/hashing && node --test tests/contracts/contract-c.test.mjs",
     "specs:check": "node scripts/specs/check-specs.mjs",
+    "generate:catalog": "node scripts/catalog/generate.mjs",
+    "catalog:check": "node scripts/catalog/generate.mjs --check",
+    "eval:discovery": "node scripts/eval/discovery.mjs tests/discovery/personal-intents.json",
     "release:verify": "node scripts/release/verify-release.mjs"
   },
   "devDependencies": {
