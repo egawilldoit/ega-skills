@@ -6,13 +6,14 @@
  *
  * **1. The caller's own credential, and nothing else.** Every read here goes
  * through `apps/web/server/supabase-read.ts` via
- * {@link import("./api.ts").controlPlaneRoute}. `EGA_SUPABASE_SECRET_KEY` does
- * not appear in this file, and neither does any credential field: the adapter
- * has no parameter that would accept one. The only credential that reaches
- * PostgREST is the caller's own bearer token, so PostgreSQL row-level security
- * evaluates the real caller and this console cannot widen a read that RLS
- * refused. `apps/web/server/api.ts:32` already documents the seam; this module
- * adds routes and no authority.
+ * {@link import("./api.ts").controlPlaneRoute}. The privileged Supabase secret
+ * environment variable does not appear in this file — not even in a comment — and
+ * neither does any credential field, because the adapter has no parameter that
+ * would accept one. The only credential that reaches PostgREST is the caller's own
+ * bearer token, so PostgreSQL row-level security evaluates the real caller and
+ * this console cannot widen a read that RLS refused.
+ * `apps/web/server/api.ts:32` already documents the seam; this module adds routes
+ * and no authority.
  *
  * **2. A never-written table is not a zero.** This is the whole point of these
  * three surfaces, and it is easy to get wrong in a way that looks correct.
