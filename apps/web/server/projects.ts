@@ -495,6 +495,18 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 const MAX_DISPLAY_LENGTH = 400;
 
 /**
+ * A statement-shaped SQL fragment inside free text.
+ *
+ * `name`, `reason`, and `revoked_by` are operator-authored and *can* legitimately
+ * read "drop the legacy migration" or "delete-on-failure". A fragment that is
+ * unambiguously a **statement** — a DML/DDL verb, a clause keyword, and a
+ * semicolon or clause terminator — is not prose, so it is redacted. The pattern
+ * requires all three, so no ordinary phrase matches.
+ */
+const SQL_STATEMENT =
+  /\b(?:select|insert\s+into|update|delete\s+from|drop\s+table|alter\s+table|create\s+table|truncate)\b[^;]{0,120}\b(?:from|into|set|where|values|table)\b[^;]{0,120};?/gi;
+
+/**
  * Make one database string safe to render, or refuse the response.
  *
  * Three jobs, in order:
@@ -533,6 +545,7 @@ function displayValue(raw: unknown, label: string): string {
     .replace(/\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "<redacted>")
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s/@]*:[^\s/@]*@[^\s]*/gi, "<redacted-url>")
     .replace(/\b(?:apikey|secret|password|passwd|token)\s*[:=]\s*\S+/gi, "<redacted>")
+    .replace(SQL_STATEMENT, "<redacted-sql>")
     .replace(/(^|[\s"'(=:[])(\/[A-Za-z0-9._@+-]+)+/g, "$1<redacted-path>")
     .replace(/(^|[\s"'(=:])([A-Za-z]:\\(?:[^\\\s"'`,;)]+\\)*[^\\\s"'`,;)]*)/g, "$1<redacted-path>");
   return redacted;
@@ -629,7 +642,7 @@ function toContextRecord(row: Readonly<Record<string, unknown>>): ContextRecord 
 /* -------------------------------------------------------------------------- */
 
 /**
- * A read whose result is presented as a *complete* page.
+ * A read whose result is presented as a *complete* enumeration.
  *
  * The adapter refuses an upstream that returns more rows than the requested
  * limit, but `rows.length === limit` is still ambiguous: it is either exactly
@@ -637,6 +650,10 @@ function toContextRecord(row: Readonly<Record<string, unknown>>): ContextRecord 
  * complete list, ambiguity is refused — {@link ProjectReadError} with
  * {@link PROJECT_PAGE_INCOMPLETE_CODE} — because a floor presented as a count is
  * exactly the fabricated-zero failure this console must not have.
+ *
+ * A **ceiling** of at least 2 is required. With `limit: 1` a single returned row
+ * would be indistinguishable from a truncated page, which would make the
+ * single-row primary-key lookups below refuse every project that exists.
  */
 async function readComplete<T>(
   reader: ControlPlaneReader,
@@ -645,6 +662,13 @@ async function readComplete<T>(
   options: { readonly columns: readonly string[]; readonly filters?: readonly ControlPlaneFilter[]; readonly limit: number },
   subject: string,
 ): Promise<readonly T[]> {
+  if (options.limit < 2) {
+    throw new ProjectReadError(
+      500,
+      "E_WEB_PROJECT_INTERNAL",
+      "A complete-enumeration read was planned with a ceiling of 1, which cannot distinguish one row from a truncated page.",
+    );
+  }
   const rows = await reader.readAsCaller<T>(caller, table, options);
   if (rows.length >= options.limit) {
     throw new ProjectReadError(
@@ -655,6 +679,24 @@ async function readComplete<T>(
     );
   }
   return rows;
+}
+
+/**
+ * A primary-key lookup: at most one row, and no completeness claim.
+ *
+ * Distinct from {@link readComplete} because it makes no counting claim: it asks
+ * "is there a row with this id?", and one row is the answer rather than a
+ * truncated page. `limit: 1` is what makes it a lookup — the adapter refuses an
+ * upstream that returns more, so a second row becomes a malformed-response
+ * refusal at the throw site rather than a silent pick.
+ */
+async function readAtMostOne<T>(
+  reader: ControlPlaneReader,
+  caller: CallerIdentity,
+  table: string,
+  options: { readonly columns: readonly string[]; readonly filters: readonly ControlPlaneFilter[] },
+): Promise<readonly T[]> {
+  return reader.readAsCaller<T>(caller, table, { ...options, limit: 1 });
 }
 
 /** Split values into chunks the adapter's per-filter value cap will accept. */
@@ -901,16 +943,15 @@ export async function getProjectDetail(
   boundQuery(context.query);
   const projectId = readProjectId(context);
 
-  const projectRows = await readComplete<Readonly<Record<string, unknown>>>(
+  const projectRows = await readAtMostOne<Readonly<Record<string, unknown>>>(
     reader,
     caller,
     "projects",
-    { columns: PROJECT_COLUMNS, filters: [{ column: "id", values: [projectId] }], limit: 1 },
-    "The requested project",
+    { columns: PROJECT_COLUMNS, filters: [{ column: "id", values: [projectId] }] },
   );
   // `projects.id` is the primary key, so one row is the only possible answer. More
   // than one means the row did not come from that table, which is a refusal rather
-  // than a pick.
+  // than a pick. The adapter's own limit check normally catches this first.
   if (projectRows.length > 1) {
     throw new ProjectReadError(
       502,
@@ -950,10 +991,22 @@ export async function getProjectDetail(
     records.map((record) => {
       const verdict = describePinnedRelease(record.release_digest, deployment);
       const revocation = revocations.byContextId.get(record.context_id);
-      // The context row's own `revoked_at` wins; a revocation record only fills in
-      // what the context row does not carry, so the two sources can never disagree
-      // about whether the context is revoked.
+      // A revocation record is evidence of revocation, so the merge fails toward
+      // "revoked": an unreadable-looking context with a revocation row attached
+      // renders as revoked, never as active.
+      //
+      // When both sources carry a timestamp and they disagree, the *context row's*
+      // own `revoked_at` wins — it is the column the whole schema checks and the
+      // one the DTO documents — and the disagreement is stated rather than resolved
+      // silently, because a control plane whose two revocation timestamps differ is
+      // telling an operator something and the console must not flatten it.
       const revokedAt = record.revoked_at ?? revocation?.revoked_at ?? null;
+      const disagreement =
+        record.revoked_at !== null &&
+        revocation !== undefined &&
+        revocation.revoked_at !== record.revoked_at
+          ? ` The context row records revocation at ${record.revoked_at} while the revocation record says ${revocation.revoked_at}; both are shown and neither is discarded.`
+          : "";
       const contextRow: ProjectContextRow = Object.freeze({
         context_id: record.context_id,
         project_id: record.project_id,
@@ -961,7 +1014,16 @@ export async function getProjectDetail(
         release_digest: record.release_digest,
         published_at: record.published_at,
         revoked_at: revokedAt,
-        revocation_reason: revokedAt === null ? null : (revocation?.reason ?? null),
+        // `revocation_reason` is `null` — never the string "null", and never a
+        // placeholder — when no revocation record was readable. The `disagreement`
+        // suffix is only ever appended to a reason that actually exists, so a
+        // missing reason cannot turn into prose that implies one.
+        revocation_reason:
+          revokedAt === null
+            ? null
+            : revocation === undefined
+              ? null
+              : revocation.reason + disagreement,
         revoked_by: revokedAt === null ? null : (revocation?.revoked_by ?? null),
         release_resolution: verdict.release_resolution,
         release_resolution_reason: verdict.release_resolution_reason,

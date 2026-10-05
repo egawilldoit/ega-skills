@@ -115,8 +115,8 @@ export function pinContrastNote(
     );
   }
   return (
-    `This deployment currently serves ${servedReleaseDigest}. That is a fact about the deployment, ` +
-    "not about these contexts: a context pins the release the runtime resolves against, which is " +
+    `This deployment currently serves ${servedReleaseDigest}, which is a fact about the deployment and ` +
+    "not about these contexts. A context pins the release the runtime resolves against, which is " +
     "frequently not the release this console serves. No pin on this page has been replaced by it."
   );
 }
