@@ -24,6 +24,14 @@
  *    fault rather than a request fault — is the single deliberate exception and
  *    becomes a 503.
  *
+ * 4. **The control-plane seam.** {@link createControlPlaneHandler} is the only
+ *    supported way to build a route that reads control-plane data: GET-only,
+ *    authenticated caller resolved before the handler runs, and wrapped in the
+ *    same bounds as everything else. It delegates the read itself to
+ *    `apps/web/server/supabase-read.ts`, which forwards the caller's own token so
+ *    PostgreSQL RLS evaluates the real caller. This module adds no individual
+ *    control-plane routes; the later page builders register theirs on this seam.
+ *
  * ## What a browser can influence, and what it cannot
  *
  * A request contributes: a path, a set of query strings, and a method. That is
@@ -86,6 +94,11 @@ import {
   getSkillContent,
   getSkillDetail,
 } from "./skills.ts";
+import {
+  defaultControlPlaneReader,
+  type CallerIdentity,
+  type ControlPlaneReader,
+} from "./supabase-read.ts";
 
 import type { ReleaseIdentity } from "../src/api/contracts.ts";
 import type {
@@ -919,3 +932,186 @@ export function describeRequestBounds(bounds: RequestBounds): string {
 
 /** Re-exported so a test or an operator page can name the comparison state. */
 export { RELEASES_HISTORICAL_ARTIFACT_UNAVAILABLE };
+
+/* -------------------------------------------------------------------------- */
+/* Control-plane read seam                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ## The shared seam for the three later page builders
+ *
+ * The workspace/members, projects/contexts, and quotas/security/audit pages all
+ * need the same three things, and none of them should be written three times:
+ *
+ * 1. **an authenticated caller** resolved once per request;
+ * 2. **typed error mapping** for the refusals a control-plane read can produce
+ *    (401 unauthenticated, 403 forbidden, 503 unavailable) with no per-route
+ *    table;
+ * 3. **the standard security headers** the existing routes already send.
+ *
+ * That is all this section adds. The individual control-plane *routes* belong to
+ * the later builders; they compose these three pieces rather than
+ * reimplementing them, which is the only way "every control-plane route requires
+ * a caller" stays true as the route table grows.
+ *
+ * ### Authentication is not optional here
+ *
+ * {@link createControlPlaneHandler} resolves the caller **before** the handler
+ * runs and hands it in. There is no configuration flag that turns it off, and no
+ * overload that omits it. A route built through this seam cannot serve a
+ * control-plane read to an unauthenticated request, which is the property the
+ * whole console rests on.
+ *
+ * ### Why 403 exists at all, given RLS filters silently
+ *
+ * RLS does not raise; it returns fewer rows. So a 403 from this seam is never
+ * "this row exists and you may not have it" — that would disclose resource
+ * existence, which CONTRACT-D §6 forbids. {@link CONTROL_PLANE_FORBIDDEN_CODE}
+ * carries a message that says the caller may not read the surface, without
+ * naming any row. The adapter does not currently raise it (RLS never does); it
+ * exists so that a *future* surface which must refuse, refuses with the right
+ * status and the right wording rather than inventing a 500.
+ */
+
+/**
+ * Headers every control-plane response must carry.
+ *
+ * Returned as a plain record so a later route can spread it into a response
+ * without importing `node:http`. These are the same values `server.mts` sends on
+ * every API response; a control-plane response that omits any of them is a
+ * regression from the release routes and is asserted in
+ * `tests/web/supabase-read.test.mjs`.
+ */
+export const CONTROL_PLANE_SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+  "cache-control": "no-store",
+});
+
+/**
+ * The code for a refused control-plane surface.
+ *
+ * Deliberately names no row, no workspace, and no identifier: a 403 must not
+ * confirm that the resource it was asked about exists.
+ */
+export const CONTROL_PLANE_FORBIDDEN_CODE = "E_WEB_CONTROL_PLANE_FORBIDDEN";
+
+/**
+ * Typed mapping for control-plane refusals.
+ *
+ * Reads the `code`/`status` a {@link ControlPlaneReadError} already publishes —
+ * the same contract `toConsoleApiError` applies to `CatalogError`,
+ * `SkillReadError` and `ReleaseReadError` — so there is no per-code table and a
+ * new adapter error code cannot need a mapping change.
+ *
+ * The one thing it adds is the {@link CONTROL_PLANE_FORBIDDEN_CODE} branch, so a
+ * handler that refuses a surface itself gets the sanitized, non-disclosing 403
+ * rather than falling into the generic 503.
+ */
+export function toControlPlaneApiError(error: unknown): ConsoleApiError {
+  if (error instanceof ConsoleApiError) return error;
+  // `toConsoleApiError` already reads the `code`/`status` a
+  // `ControlPlaneReadError` publishes, so there is no adapter-specific branch and
+  // no per-code table here. Only the 503 wording is added, below.
+  const translated = toConsoleApiError(error);
+  if (translated.status === 503) {
+    // A control-plane read that is unavailable is a *deployment* fact and is
+    // reported as one. Never a 200 with an empty list: that reads as "this
+    // workspace has no rows", which is a false statement. The adapter's own 503
+    // messages already begin with a reason ("EGA_SUPABASE_URL is not
+    // configured"), so this prefix adds the surface being unavailable without
+    // restating it.
+    return new ConsoleApiError(
+      503,
+      translated.code,
+      sanitizeMessage(`Control-plane data is unavailable: ${translated.message}`),
+    );
+  }
+  return translated;
+}
+
+/**
+ * The authenticated handler signature. The caller is a required parameter, so a
+ * handler cannot accidentally read control-plane data without one.
+ */
+export type ControlPlaneHandler = (
+  context: ApiRouteContext,
+  caller: CallerIdentity,
+  reader: ControlPlaneReader,
+) => Promise<unknown> | unknown;
+
+/**
+ * Build a GET-only, authenticated, bounded control-plane handler.
+ *
+ * Three layers, in this order, and the order matters:
+ *
+ * 1. **Method.** A non-`GET` request is refused with 405 *before* the credential
+ *    is read, so a write verb never reaches the session probe. The console is
+ *    read-only and `authenticated` holds `SELECT` only
+ *    (`202609090004_contract_f_rls.sql:289-306`), so a write is impossible by
+ *    privilege as well as by policy; refusing it here means it is also impossible
+ *    by design.
+ * 2. **Caller.** {@link ControlPlaneReader.resolveCaller} extracts and verifies
+ *    the bearer token. A missing, malformed, or rejected credential is a typed
+ *    401 — there is no anonymous fallback and no cache, so one request's caller
+ *    can never be reused for another's.
+ * 3. **Bounds.** The handler runs inside {@link createBoundedHandler}, so a
+ *    control-plane read gets the same deadline, concurrency cap, and response-size
+ *    ceiling as every other console route.
+ *
+ * `reader` is a parameter rather than a module singleton so a test can supply a
+ * reader bound to a fixture transport, and so the adapter stays free of
+ * process-wide state.
+ */
+export function createControlPlaneHandler(
+  bounds: RequestBounds,
+  handle: ControlPlaneHandler,
+  reader: ControlPlaneReader = defaultControlPlaneReader(),
+): (context: ApiRouteContext) => Promise<unknown> {
+  return createBoundedHandler(bounds, async (context: ApiRouteContext) => {
+    if (context.method !== "GET") {
+      throw new ConsoleApiError(
+        405,
+        "E_METHOD_NOT_ALLOWED",
+        "The control-plane read surface answers GET and nothing else.",
+      );
+    }
+    try {
+      const caller = await reader.resolveCaller({
+        method: context.method,
+        headers: context.request.headers,
+      });
+      return await handle(context, caller, reader);
+    } catch (error) {
+      throw toControlPlaneApiError(error);
+    }
+  });
+}
+
+/**
+ * Register the control-plane routes a deployment exposes.
+ *
+ * Exported for the three later builders. Every route must be `GET`-only and go
+ * through {@link createControlPlaneHandler}, so "every control-plane route
+ * requires an authenticated caller" is a property of the only registration path
+ * rather than a convention each route remembers.
+ *
+ * Route registration happens in `installConsoleApi` in the later builders' waves;
+ * this function is a separate export so `api.ts` stays the single owner of the
+ * seam without also owning the route table.
+ */
+export function controlPlaneRoute(
+  id: string,
+  path: string,
+  handle: ControlPlaneHandler,
+  bounds: RequestBounds = loadRequestBounds(),
+  reader: ControlPlaneReader = defaultControlPlaneReader(),
+): ApiRoute {
+  return Object.freeze({
+    id,
+    path,
+    methods: Object.freeze(["GET"]),
+    handle: createControlPlaneHandler(bounds, handle, reader),
+  });
+}
