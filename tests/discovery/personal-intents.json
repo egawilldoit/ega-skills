@@ -1,0 +1,588 @@
+{
+  "schema_version": 1,
+  "corpus_id": "personal-intents-v1",
+  "description": "Realistic natural-language human intents for EGA Skills discovery evaluation. Prompts are paraphrased personal intent, never copied trigger phrases. Each intent names the skill a human would expect, plus close alternatives that would also be defensible and skills that would be actively wrong to surface.",
+  "release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+  "thresholds": {
+    "top1": 0.9,
+    "top3": 0.98
+  },
+  "intents": [
+    {
+      "id": "understand-code",
+      "task": "I just joined this codebase and I have no idea how the request path actually works. Walk me through it.",
+      "expected_primary": "egawilldoit/understand-codebase",
+      "acceptable_alternatives": ["egawilldoit/design-investigation"],
+      "must_not_select": ["egawilldoit/verify-this", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "recover-design-rationale",
+      "task": "Why is this module shaped like this? Nobody on the team remembers and I want to understand the original reasoning before I touch it.",
+      "expected_primary": "egawilldoit/recover-design-rationale",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/design-architecture", "egawilldoit/principle-attack-the-premise"]
+    },
+    {
+      "id": "architecture-design",
+      "task": "We need to split the monolith into services next quarter. I want a proper architecture proposal before anyone writes code.",
+      "expected_primary": "egawilldoit/design-architecture",
+      "acceptable_alternatives": ["mattpocock/codebase-design"],
+      "must_not_select": ["egawilldoit/review-and-ship", "egawilldoit/new-branch-and-pr"]
+    },
+    {
+      "id": "compare-designs",
+      "task": "We have three possible designs for the scheduling layer and I genuinely cannot tell which one is better. Generate independent reviews and compare them.",
+      "expected_primary": "egawilldoit/compare-designs",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/adversarial-review", "egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "compare-designs-plain",
+      "task": "we have three possible designs",
+      "expected_primary": "egawilldoit/compare-designs",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-foundational-thinking"]
+    },
+    {
+      "id": "debug-root-cause",
+      "task": "Users intermittently get a 500 on checkout. I do not want a band-aid, I want the actual underlying cause.",
+      "expected_primary": "egawilldoit/principle-fix-root-causes",
+      "acceptable_alternatives": ["mattpocock/diagnosing-bugs", "egawilldoit/principle-attack-the-premise"],
+      "must_not_select": ["egawilldoit/fix-ci", "egawilldoit/loop-on-ci"]
+    },
+    {
+      "id": "debug-hard-bug",
+      "task": "This bug has survived four attempted fixes and keeps coming back on the same gate. Something is wrong with how we are approaching it.",
+      "expected_primary": "egawilldoit/principle-attack-the-premise",
+      "acceptable_alternatives": ["mattpocock/diagnosing-bugs"],
+      "must_not_select": ["egawilldoit/principle-fix-root-causes"]
+    },
+    {
+      "id": "tdd-explicit",
+      "task": "Let's do this test first. Write the failing test before the implementation, I want strict TDD here.",
+      "expected_primary": "egawilldoit/tdd",
+      "acceptable_alternatives": ["mattpocock/tdd"],
+      "must_not_select": ["egawilldoit/principle-test-behavior-not-implementation"]
+    },
+    {
+      "id": "regression-test",
+      "task": "Write me a regression test that fails on the current code and passes once the bug is fixed.",
+      "expected_primary": "egawilldoit/tdd",
+      "acceptable_alternatives": ["mattpocock/tdd"],
+      "must_not_select": ["egawilldoit/run-smoke-tests"]
+    },
+    {
+      "id": "single-ci-failure",
+      "task": "CI is red, go look at the logs and fix whatever broke.",
+      "expected_primary": "egawilldoit/fix-ci",
+      "acceptable_alternatives": ["egawilldoit/check-compiler-errors"],
+      "must_not_select": ["egawilldoit/loop-on-ci", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "ci-until-green",
+      "task": "keep working on CI until everything is green",
+      "expected_primary": "egawilldoit/loop-on-ci",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/fix-ci", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "checks-failing",
+      "task": "The required checks on this PR are failing. I want someone watching them and retrying until the whole pipeline is clean.",
+      "expected_primary": "egawilldoit/loop-on-ci",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/fix-ci"]
+    },
+    {
+      "id": "verify-one-claim",
+      "task": "Someone claims the retry logic is safe under concurrency. Prove it or disprove it with real evidence.",
+      "expected_primary": "egawilldoit/verify-this",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-prove-it-works", "egawilldoit/run-smoke-tests"]
+    },
+    {
+      "id": "prove-actually-true",
+      "task": "prove whether this is actually true before I trust it",
+      "expected_primary": "egawilldoit/verify-this",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/reconcile-project-truth"]
+    },
+    {
+      "id": "verify-ui",
+      "task": "I need to confirm the new onboarding modal actually renders and the button works in a real browser.",
+      "expected_primary": "egawilldoit/verify-ui",
+      "acceptable_alternatives": ["anthropic/webapp-testing"],
+      "must_not_select": ["egawilldoit/verify-cli", "egawilldoit/verify-this"]
+    },
+    {
+      "id": "verify-cli",
+      "task": "Check the terminal behavior of the new subcommand, including the prompt and the output when it fails.",
+      "expected_primary": "egawilldoit/verify-cli",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/verify-ui", "egawilldoit/run-smoke-tests"]
+    },
+    {
+      "id": "smoke-tests",
+      "task": "Run the project's end to end suite and tell me what broke.",
+      "expected_primary": "egawilldoit/run-smoke-tests",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/fix-ci", "egawilldoit/verify-ui"]
+    },
+    {
+      "id": "blast-radius-tiny-change",
+      "task": "check what this tiny change could break elsewhere in the system before it goes out",
+      "expected_primary": "egawilldoit/blast-radius",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/adversarial-review", "egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "normal-pr-review",
+      "task": "Review my branch, fix anything you find, and get it ready to merge.",
+      "expected_primary": "egawilldoit/review-and-ship",
+      "acceptable_alternatives": ["mattpocock/code-review"],
+      "must_not_select": ["egawilldoit/adversarial-review", "egawilldoit/loop-on-ci"]
+    },
+    {
+      "id": "review-this-pr",
+      "task": "review this PR and fix whatever's wrong with it so we can ship it",
+      "expected_primary": "egawilldoit/review-and-ship",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "deep-review-before-merge",
+      "task": "go deeply check this PR before I merge",
+      "expected_primary": "egawilldoit/adversarial-review",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/review-and-ship", "egawilldoit/get-pr-comments"]
+    },
+    {
+      "id": "deep-independent-review",
+      "task": "I need an independent pre-merge challenge focused on correctness, security and maintainability. Do not rubber stamp it.",
+      "expected_primary": "egawilldoit/adversarial-review",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/review-and-ship", "egawilldoit/get-pr-comments"]
+    },
+    {
+      "id": "pr-comments",
+      "task": "What exactly did the reviewers ask me to change on this pull request?",
+      "expected_primary": "egawilldoit/get-pr-comments",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/adversarial-review", "egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "pr-cleanup",
+      "task": "This PR has nine commits with a messy history and a vague description. Make it presentable without changing the behavior.",
+      "expected_primary": "egawilldoit/make-pr-easy-to-review",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/review-and-ship", "egawilldoit/deslop"]
+    },
+    {
+      "id": "pr-stack",
+      "task": "I have four dependent PRs stacked on each other and need them landed in order without breaking the chain.",
+      "expected_primary": "egawilldoit/integrate-pr-stack",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/fix-merge-conflicts", "egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "new-branch-and-pr",
+      "task": "Start a fresh branch off the default branch, make the change, commit, push and open a PR.",
+      "expected_primary": "egawilldoit/new-branch-and-pr",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/review-and-ship", "egawilldoit/integrate-pr-stack"]
+    },
+    {
+      "id": "resume-previous-agent-work",
+      "task": "Another agent worked on this yesterday. Recover where it stopped and continue safely.",
+      "expected_primary": "egawilldoit/recover-work-context",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/what-did-i-get-done", "mattpocock/handoff"]
+    },
+    {
+      "id": "take-over-work",
+      "task": "another agent already worked on this and stopped. I need to pick up where it left off without re-reading everything.",
+      "expected_primary": "egawilldoit/recover-work-context",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/what-did-i-get-done"]
+    },
+    {
+      "id": "reconcile-conflicting-truth",
+      "task": "The agent report, GitHub, CI, and deployment disagree about what shipped. Tell me what is actually true.",
+      "expected_primary": "egawilldoit/reconcile-project-truth",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/get-pr-comments", "egawilldoit/blast-radius"]
+    },
+    {
+      "id": "what-actually-shipped",
+      "task": "what actually shipped? three of our systems tell different stories",
+      "expected_primary": "egawilldoit/reconcile-project-truth",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/get-pr-comments", "egawilldoit/what-did-i-get-done"]
+    },
+    {
+      "id": "commit-summary",
+      "task": "Summarize what I personally committed over the last three days.",
+      "expected_primary": "egawilldoit/what-did-i-get-done",
+      "acceptable_alternatives": ["egawilldoit/weekly-review"],
+      "must_not_select": ["egawilldoit/recover-work-context", "egawilldoit/mine-work-patterns"]
+    },
+    {
+      "id": "weekly-review",
+      "task": "Give me a weekly synthesis of my authored commits, grouped into a few real highlights.",
+      "expected_primary": "egawilldoit/weekly-review",
+      "acceptable_alternatives": ["egawilldoit/what-did-i-get-done"],
+      "must_not_select": ["egawilldoit/work-retrospective"]
+    },
+    {
+      "id": "certify-release",
+      "task": "Is this release actually good to ship? Certify it against code, runtime and product gates.",
+      "expected_primary": "egawilldoit/certify-release",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-pr-head", "egawilldoit/run-smoke-tests"]
+    },
+    {
+      "id": "certify-pr-head",
+      "task": "The CI evidence was generated two commits ago. Make sure it actually belongs to the current head before I declare this done.",
+      "expected_primary": "egawilldoit/certify-pr-head",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-release", "egawilldoit/loop-on-ci"]
+    },
+    {
+      "id": "artifact-provenance",
+      "task": "Trace exactly how this shipped artifact came from that source commit, through the build, to the digest we deployed.",
+      "expected_primary": "egawilldoit/trace-artifact-provenance",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-release", "egawilldoit/certify-production-target"]
+    },
+    {
+      "id": "production-target",
+      "task": "Before this destructive migration runs, prove we are pointed at the right production database and not staging.",
+      "expected_primary": "egawilldoit/certify-production-target",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-release", "egawilldoit/verify-this"]
+    },
+    {
+      "id": "prove-really-deployed",
+      "task": "prove this is really deployed and not just committed somewhere",
+      "expected_primary": "egawilldoit/certify-production-target",
+      "acceptable_alternatives": ["egawilldoit/trace-artifact-provenance", "egawilldoit/verify-this"],
+      "must_not_select": ["egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "database-rollout",
+      "task": "This migration needs to work on a fresh database, on upgrade, and under concurrent traffic. Certify the whole lifecycle.",
+      "expected_primary": "egawilldoit/certify-database-rollout",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-release", "egawilldoit/certify-production-target"]
+    },
+    {
+      "id": "mcp-production",
+      "task": "Certify that our production MCP server negotiates the protocol, does OAuth, and exposes its tools correctly.",
+      "expected_primary": "egawilldoit/certify-mcp-production",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-release"]
+    },
+    {
+      "id": "parallel-work",
+      "task": "This is big enough to split. Have several agents work it in parallel and merge the results deterministically.",
+      "expected_primary": "egawilldoit/parallelize-work",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/deliver-software", "egawilldoit/principle-build-the-lever"]
+    },
+    {
+      "id": "execution-contract",
+      "task": "Turn this design into a bounded contract another agent can pick up and execute without guessing.",
+      "expected_primary": "egawilldoit/build-execution-contract",
+      "acceptable_alternatives": ["mattpocock/to-spec"],
+      "must_not_select": ["egawilldoit/design-architecture", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "large-investigation",
+      "task": "This is a huge multi-quarter migration. I need an auditable investigation plan before anyone starts.",
+      "expected_primary": "egawilldoit/design-investigation",
+      "acceptable_alternatives": ["mattpocock/wayfinder"],
+      "must_not_select": ["egawilldoit/design-architecture", "egawilldoit/compare-designs"]
+    },
+    {
+      "id": "work-retrospective",
+      "task": "That session was rough. Review it and route what we learned to the right durable artifact.",
+      "expected_primary": "egawilldoit/work-retrospective",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/weekly-review", "egawilldoit/what-did-i-get-done"]
+    },
+    {
+      "id": "mine-recurring-workflow",
+      "task": "I keep doing this same manual release checklist every single time. Let's figure out if it should become a skill.",
+      "expected_primary": "egawilldoit/mine-work-patterns",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/what-did-i-get-done", "egawilldoit/work-retrospective"]
+    },
+    {
+      "id": "repeating-workflow",
+      "task": "I keep repeating this workflow. Should we automate this?",
+      "expected_primary": "egawilldoit/mine-work-patterns",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-encode-lessons-in-structure"]
+    },
+    {
+      "id": "skill-creation",
+      "task": "I want to author a brand new skill and get it measured for quality.",
+      "expected_primary": "anthropic/skill-creator",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/mine-work-patterns", "egawilldoit/technical-writing"]
+    },
+    {
+      "id": "ui-product-design",
+      "task": "There's a tradeoff between what is easy to build and what the user would actually love here. Help me choose.",
+      "expected_primary": "egawilldoit/principle-experience-first",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/design-architecture", "vercel/react-best-practices"]
+    },
+    {
+      "id": "frontend-implementation",
+      "task": "Build a distinctive new UI for this product. I want it to look intentional, not like every other dashboard.",
+      "expected_primary": "anthropic/frontend-design",
+      "acceptable_alternatives": ["egawilldoit/principle-exhaust-the-design-space"],
+      "must_not_select": ["egawilldoit/verify-ui", "vercel/react-best-practices"]
+    },
+    {
+      "id": "react-performance",
+      "task": "Our React app feels sluggish. Apply the performance and architecture guidance from the Vercel team.",
+      "expected_primary": "vercel/react-best-practices",
+      "acceptable_alternatives": ["vercel/composition-patterns"],
+      "must_not_select": ["egawilldoit/principle-fix-root-causes"]
+    },
+    {
+      "id": "mcp-server-building",
+      "task": "I need to build a new MCP server that exposes tools well and handles the protocol correctly.",
+      "expected_primary": "anthropic/mcp-builder",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/certify-mcp-production"]
+    },
+    {
+      "id": "preflight-repository",
+      "task": "Before I start anything substantial, tell me exactly what repository state I am standing on.",
+      "expected_primary": "egawilldoit/preflight-repository",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/recover-work-context", "egawilldoit/understand-codebase"]
+    },
+    {
+      "id": "merge-conflicts",
+      "task": "I am in the middle of a rebase and there are conflicts everywhere. Resolve them without me babysitting.",
+      "expected_primary": "egawilldoit/fix-merge-conflicts",
+      "acceptable_alternatives": ["mattpocock/resolving-merge-conflicts"],
+      "must_not_select": ["egawilldoit/integrate-pr-stack", "egawilldoit/loop-on-ci"]
+    },
+    {
+      "id": "prove-it-works",
+      "task": "I finished the feature. Before I call it done, verify it against the real running artifact.",
+      "expected_primary": "egawilldoit/principle-prove-it-works",
+      "acceptable_alternatives": ["egawilldoit/verify-this"],
+      "must_not_select": ["egawilldoit/verify-cli", "egawilldoit/verify-ui"]
+    },
+    {
+      "id": "compiler-errors",
+      "task": "The type checker is throwing a wall of errors. Run the compile step and group them for me.",
+      "expected_primary": "egawilldoit/check-compiler-errors",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/fix-ci", "egawilldoit/loop-on-ci"]
+    },
+    {
+      "id": "record-evidence",
+      "task": "Keep an auditable ledger of the decisions and evidence as this multi-phase effort proceeds.",
+      "expected_primary": "egawilldoit/record-evidence",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/work-retrospective", "egawilldoit/mine-work-patterns"]
+    },
+    {
+      "id": "code-slop",
+      "task": "This diff is full of AI-generated filler comments and defensive noise. Strip it back to our local style.",
+      "expected_primary": "egawilldoit/deslop",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/make-pr-easy-to-review", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "prose-tells",
+      "task": "This documentation reads like a chatbot wrote it. Remove the em dashes, the triads and the hedging.",
+      "expected_primary": "egawilldoit/unslop",
+      "acceptable_alternatives": ["egawilldoit/technical-writing"],
+      "must_not_select": ["egawilldoit/deslop"]
+    },
+    {
+      "id": "technical-writing",
+      "task": "Rewrite this guide so it separates tutorials from reference and reads clearly.",
+      "expected_primary": "egawilldoit/technical-writing",
+      "acceptable_alternatives": ["vercel/writing-guidelines"],
+      "must_not_select": ["egawilldoit/unslop"]
+    },
+    {
+      "id": "create-verification-workflow",
+      "task": "We have no automated proof for this project. Set up a workflow that drives the real app and captures evidence.",
+      "expected_primary": "egawilldoit/create-verification-workflow",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/maintain-verification-workflow", "egawilldoit/run-smoke-tests"]
+    },
+    {
+      "id": "maintain-verification-workflow",
+      "task": "Our verification workflow has drifted from what the code actually does now. Audit it.",
+      "expected_primary": "egawilldoit/maintain-verification-workflow",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/create-verification-workflow"]
+    },
+    {
+      "id": "research-primary-sources",
+      "task": "Investigate this open question against high-trust primary sources and write up what you find.",
+      "expected_primary": "mattpocock/research",
+      "acceptable_alternatives": ["egawilldoit/design-investigation"],
+      "must_not_select": ["egawilldoit/technical-writing"]
+    },
+    {
+      "id": "teach-concept",
+      "task": "Teach me this concept properly, with exercises, inside this workspace.",
+      "expected_primary": "mattpocock/teach",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/technical-writing", "anthropic/academy-guide"]
+    },
+    {
+      "id": "deploy-vercel",
+      "task": "Deploy this app to Vercel for me.",
+      "expected_primary": "vercel/deploy-to-vercel",
+      "acceptable_alternatives": ["vercel/vercel-cli-with-tokens"],
+      "must_not_select": ["egawilldoit/certify-production-target", "egawilldoit/certify-release"]
+    },
+    {
+      "id": "domain-modeling",
+      "task": "Our terminology is inconsistent across the codebase. Help me build and sharpen the domain model.",
+      "expected_primary": "mattpocock/domain-modeling",
+      "acceptable_alternatives": ["egawilldoit/principle-model-the-domain"],
+      "must_not_select": ["egawilldoit/understand-codebase"]
+    },
+    {
+      "id": "triage-inbox",
+      "task": "Triage the issue backlog and the stale external PRs through the state machine.",
+      "expected_primary": "mattpocock/triage",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/mine-work-patterns"]
+    },
+    {
+      "id": "handoff-context",
+      "task": "Write a compact handoff document capturing this conversation so another agent can pick it up.",
+      "expected_primary": "mattpocock/handoff",
+      "acceptable_alternatives": ["egawilldoit/record-evidence"],
+      "must_not_select": ["egawilldoit/recover-work-context"]
+    },
+    {
+      "id": "subtract-before-add",
+      "task": "Before we add another abstraction here, let's remove the dead code and redundant validators.",
+      "expected_primary": "egawilldoit/principle-subtract-before-you-add",
+      "acceptable_alternatives": ["egawilldoit/principle-laziness-protocol"],
+      "must_not_select": ["egawilldoit/review-and-ship"]
+    },
+    {
+      "id": "context-window-full",
+      "task": "The context is filling up with huge file dumps. How should I restructure this work to stay sane?",
+      "expected_primary": "egawilldoit/principle-guard-the-context-window",
+      "acceptable_alternatives": ["egawilldoit/principle-minimize-reader-load"],
+      "must_not_select": ["egawilldoit/parallelize-work"]
+    },
+    {
+      "id": "idempotent-operations",
+      "task": "This command can be interrupted halfway and retried. Design it so a crash never corrupts state.",
+      "expected_primary": "egawilldoit/principle-make-operations-idempotent",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-boundary-discipline"]
+    },
+    {
+      "id": "concurrent-writers",
+      "task": "Two agents will be writing the same config file at the same time. How do I stop them colliding?",
+      "expected_primary": "egawilldoit/principle-separate-before-serializing-shared-state",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/parallelize-work"]
+    },
+    {
+      "id": "migrate-callers",
+      "task": "I'm introducing a new internal API while the old one still has callers. Migrate them then delete the legacy path.",
+      "expected_primary": "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-subtract-before-you-add"]
+    },
+    {
+      "id": "type-design",
+      "task": "We're writing this in TypeScript. I want the types designed properly before the logic.",
+      "expected_primary": "egawilldoit/principle-type-system-discipline",
+      "acceptable_alternatives": ["egawilldoit/typescript-best-practices", "egawilldoit/principle-foundational-thinking"],
+      "must_not_select": ["egawilldoit/check-compiler-errors"]
+    },
+    {
+      "id": "nontrivial-work-lever",
+      "task": "This is going to be a lot of repetitive edits. Build the tooling that makes them mechanical instead of hand doing it.",
+      "expected_primary": "egawilldoit/principle-build-the-lever",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/tdd"]
+    },
+    {
+      "id": "outcome-oriented-rewrite",
+      "task": "Plan this rewrite in explicit phases with convergence points rather than one endless refactor.",
+      "expected_primary": "egawilldoit/principle-outcome-oriented-execution",
+      "acceptable_alternatives": ["egawilldoit/build-execution-contract"],
+      "must_not_select": ["egawilldoit/design-investigation"]
+    },
+    {
+      "id": "sequence-verifiable-units",
+      "task": "How should I slice and stack this multi-step change so each commit is independently verifiable?",
+      "expected_primary": "egawilldoit/principle-sequence-verifiable-units",
+      "acceptable_alternatives": ["egawilldoit/new-branch-and-pr"],
+      "must_not_select": ["egawilldoit/integrate-pr-stack"]
+    },
+    {
+      "id": "redesign-from-first-principles",
+      "task": "This new requirement doesn't fit the existing design at all. Should we rethink the shape entirely?",
+      "expected_primary": "egawilldoit/principle-redesign-from-first-principles",
+      "acceptable_alternatives": ["egawilldoit/design-architecture"],
+      "must_not_select": ["egawilldoit/compare-designs"]
+    },
+    {
+      "id": "novel-ui-no-precedent",
+      "task": "We've never built this interaction before and there's no precedent in the codebase. How should I approach it?",
+      "expected_primary": "egawilldoit/principle-exhaust-the-design-space",
+      "acceptable_alternatives": ["anthropic/frontend-design"],
+      "must_not_select": ["egawilldoit/principle-experience-first"]
+    },
+    {
+      "id": "hard-to-trace-code",
+      "task": "Answering a simple question about this code takes six files and four layers. That's a problem.",
+      "expected_primary": "egawilldoit/principle-minimize-reader-load",
+      "acceptable_alternatives": ["mattpocock/codebase-design"],
+      "must_not_select": ["egawilldoit/understand-codebase"]
+    },
+    {
+      "id": "boundary-validation",
+      "task": "Where should validation and error handling live for this adapter layer?",
+      "expected_primary": "egawilldoit/principle-boundary-discipline",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/principle-type-system-discipline"]
+    },
+    {
+      "id": "test-behavior-not-impl",
+      "task": "Review this test. Is it asserting real user-visible behavior or just mirroring the implementation?",
+      "expected_primary": "egawilldoit/principle-test-behavior-not-implementation",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/tdd", "egawilldoit/adversarial-review"]
+    },
+    {
+      "id": "repeat-instruction-leak",
+      "task": "I notice I've written the same rule to the agent three times now. How do I stop that?",
+      "expected_primary": "egawilldoit/principle-encode-lessons-in-structure",
+      "acceptable_alternatives": [],
+      "must_not_select": ["egawilldoit/mine-work-patterns"]
+    },
+    {
+      "id": "ambiguous-skill-memory",
+      "task": "didn't I have a skill for this?",
+      "expected_primary": "egawilldoit/find-skill",
+      "acceptable_alternatives": ["mattpocock/ask-matt"],
+      "must_not_select": ["egawilldoit/adversarial-review"],
+      "pending_skill": true,
+      "pending_note": "egawilldoit/find-skill is the Phase C discovery orchestrator. It does not exist in release sha256:1efdbc3d..., so this intent proves the gap rather than measuring routing. Tracked in docs/DISCOVERY-FINDINGS.md."
+    }
+  ]
+}

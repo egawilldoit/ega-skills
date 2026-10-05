@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "corpus_id": "personal-intents-v1",
+  "release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+  "catalog_skill_count": 114,
+  "summary": {
+    "intent_count": 81,
+    "top1_count": 59,
+    "top1_rate": 0.7283950617283951,
+    "top3_count": 68,
+    "top3_rate": 0.8395061728395061,
+    "wrong_automatic_selection_count": 2,
+    "wrong_automatic_selection_intents": 2,
+    "catastrophic_top3_count": 24,
+    "low_confidence_count": 70,
+    "targets": {
+      "wrong_automatic_selections": false,
+      "top1": false,
+      "top3": false,
+      "no_catastrophic_top3": false
+    },
+    "exec_ok": false,
+    "discovery_ok": false
+  },
+  "pending_skill_intents": [
+    {
+      "id": "ambiguous-skill-memory",
+      "expected_primary": "egawilldoit/find-skill"
+    }
+  ],
+  "known_external_auto_routes": [
+    "react-performance",
+    "reconcile-conflicting-truth"
+  ],
+  "note": "Recorded discovery baseline for release sha256:1efdbc3d... Regenerate with: node scripts/eval/discovery.mjs tests/discovery/personal-intents.json"
+}
