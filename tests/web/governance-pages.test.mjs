@@ -73,6 +73,16 @@ function pageSource(name) {
   return readFileSync(join(REPO_ROOT, "apps", "web", "src", "pages", `${name}.tsx`), "utf8");
 }
 
+/**
+ * A backtick, obtained without writing one.
+ *
+ * The project-boundary rule matches a server-only env var between any of `'`,
+ * `"`, or a backtick, so this check has to cover all three. Naming the character
+ * here keeps the assertion readable and keeps a backtick out of this file's own
+ * source, where it would have to be escaped inside a string.
+ */
+const BACKTICK = String.fromCharCode(96);
+
 /** A syntactically plausible but entirely fictional session token. */
 const CALLER_TOKEN =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyL2MiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.not-a-real-signature-part";
@@ -154,6 +164,11 @@ function stripComments(source) {
 /** One page with its comments removed. */
 function pageCode(name) {
   return stripComments(pageSource(name));
+}
+
+/** The raw server module, comments included. */
+function serverSource() {
+  return readFileSync(SERVER_MODULE, "utf8");
 }
 
 /** The server module with its comments removed. */
@@ -758,9 +773,42 @@ describe("the quota page cannot imply an enforcement mechanism that does not exi
     const source = pageSource("SecurityPage");
     assert.match(source, /recorded control-plane denies/i);
     assert.match(source, /not the whole enforced policy/i);
-    assert.match(source, /EGA_HOSTED_AUTHZ_JSON/);
+    assert.match(source, /separate, process-level authorization policy/);
     // Must not claim an empty table means nothing is denied.
     assert.doesNotMatch(source, /so no identity here is currently denied/i);
+  });
+
+  test("no page names a server-only environment variable", () => {
+    // `tests/web/project-boundary.test.mjs` enforces this for the whole SPA and it
+    // caught SecurityPage when it named the runtime's authz variable in copy. The
+    // rule is right on the merits: a reference in SPA source signals an intent to
+    // read a server secret in the browser, and a workspace admin reading this page
+    // has no such knob to turn. The deployer-facing names belong to the server
+    // module. Asserted here as well so the boundary test is not the only guard.
+    for (const name of ["QuotasPage", "SecurityPage", "AuditPage"]) {
+      const source = pageSource(name);
+      for (const variable of [
+        "EGA_HOSTED_AUTHZ_JSON",
+        "EGA_HOSTED_AUTHZ_FILE",
+        "EGA_HOSTED_BEARER_TOKEN",
+        "EGA_SUPABASE_SECRET_KEY",
+        "EGA_WEB_EXPECTED_RELEASE_DIGEST",
+      ]) {
+        // Plain substring checks, one per quote character, rather than a single
+        // regex. A character class holding all three quote kinds cannot be written
+        // as a literal here without escaping gymnastics that are easy to get
+        // wrong, and this is a boundary check: it should be boring.
+        for (const quote of ['"', "'", BACKTICK]) {
+          assert.ok(
+            !source.includes(quote + variable + quote),
+            `${name} references the server-only variable ${variable}`,
+          );
+        }
+      }
+    }
+    // The names are still asserted where they belong: the server module.
+    assert.match(serverSource(), /EGA_HOSTED_AUTHZ_JSON/);
+    assert.match(serverSource(), /EGA_HOSTED_MAX_CONCURRENT_REQUESTS/);
   });
 
   test("the security note is true: the runtime enforces a separate process-level policy", () => {
@@ -769,7 +817,14 @@ describe("the quota page cannot imply an enforcement mechanism that does not exi
       "utf8",
     );
     assert.ok(runtime.includes("EGA_HOSTED_AUTHZ_JSON"), "EGA_HOSTED_AUTHZ_JSON is not read by the runtime");
-    assert.match(runtime, /EGA_HOSTED_AUTHZ_JSON.*must fail closed|required; hosted authorization/);
+    assert.match(runtime, /required; hosted authorization must fail closed/);
+    // And the page's claim — that a separate process-level policy exists — is the
+    // one it is allowed to make, without naming the variable.
+    assert.match(
+      pageCode("SecurityPage"),
+      /separate, process-level authorization policy/,
+      "the security page no longer states that a separate policy is enforced",
+    );
   });
 
   test("the audit page is labelled control history, not usage analytics", () => {

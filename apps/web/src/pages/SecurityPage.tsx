@@ -18,8 +18,9 @@ import { EmptyState, ResourceSection } from "../components/StatePanel";
  * page, because the table's name invites the opposite assumption.
  *
  * The hosted runtime authorizes requests from a **separate, process-level
- * `EGA_HOSTED_AUTHZ_JSON` policy** (`packages/mcp/src/hosted-runtime.ts:166`),
- * configured by the operator and read once at startup. Nothing in this
+ * authorization policy** (the hosted authz JSON, read at
+ * `packages/mcp/src/hosted-runtime.ts:166`), configured by the operator and read
+ * once at startup. Nothing in this
  * repository writes `security_denies` — the only inserts for it in the whole
  * tree are in `tests/rls/seed.sql` and `tests/web/cross-workspace-isolation.test.mjs`.
  * So in a real deployment this table is empty, and its being empty says nothing
@@ -59,13 +60,23 @@ const COLUMNS: readonly Column<SecurityDenyRow>[] = [
  * The scoping note. Rendered above the table, not in a tooltip or a footer,
  * because a reader who sees the table without it will draw the wrong conclusion
  * from it.
+ *
+ * The environment variable that configures that policy is deliberately **not**
+ * named here. `tests/web/project-boundary.test.mjs` bans any SPA source that
+ * references a server-only env var, because doing so signals an intent to read a
+ * server secret in the browser — and no other page in this SPA names an `EGA_`
+ * variable either. That is the right outcome on the merits as well: the reader of
+ * this page is a workspace admin, who cannot read or change that variable, so the
+ * name would be a knob they do not have. The deployer-facing name lives in
+ * `apps/web/server/governance.ts`, and
+ * `tests/web/governance-pages.test.mjs` asserts it there.
  */
 export const SECURITY_DENY_SCOPE_NOTE =
   "These are the recorded control-plane denies held in public.security_denies — the denies " +
   "written to the database. They are not the whole enforced policy. The hosted runtime " +
-  "additionally enforces a separate EGA_HOSTED_AUTHZ_JSON policy configured on the process, " +
-  "which this table does not describe, and which this console cannot display. An empty table " +
-  "therefore does not mean that nothing is denied.";
+  "additionally enforces a separate, process-level authorization policy that this table does " +
+  "not describe and that this console cannot display, and an identity refused by that policy " +
+  "never appears here. An empty table therefore does not mean that nothing is denied.";
 
 /**
  * Empty-state reason for `security_denies`.
@@ -80,9 +91,9 @@ export const SECURITY_DENY_SCOPE_NOTE =
 export const SECURITY_EMPTY_REASON =
   "No deny rows are recorded for the workspaces this caller may read. Either none has " +
   "been written, or your role does not admit you to any. This table is not the whole " +
-  "enforced policy: the hosted runtime additionally enforces a separate EGA_HOSTED_AUTHZ_JSON " +
-  "policy that these rows do not describe, so an empty table is not a statement that " +
-  "nothing is denied.";
+  "enforced policy: the hosted runtime additionally enforces a separate, process-level " +
+  "authorization policy that these rows do not describe, so an empty table is not a " +
+  "statement that nothing is denied.";
 
 /**
  * `/workspace/security` — recorded deny rows for the caller's workspaces.

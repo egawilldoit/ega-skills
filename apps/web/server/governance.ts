@@ -134,7 +134,12 @@ export const EMPTY_USAGE_REASON =
   "so an empty series is the expected state here — it is not a measurement of zero requests.";
 
 /**
- * Shown when `audit_events` returned no rows.
+ * The sentence `AuditPage.tsx` shows when `audit_events` returned no rows.
+ *
+ * **This constant does not travel in the response.** `AuditRow[]` is a flat
+ * array with no reason field, so the route has nowhere to put it; the page owns
+ * the copy and this export exists so the claim is asserted in one place instead
+ * of paraphrased in a test.
  *
  * Two distinct causes collapse to an empty array and are not distinguishable
  * from the console: nothing has written an event, or the caller's role does not
@@ -148,19 +153,27 @@ export const EMPTY_AUDIT_REASON =
   "viewer, maintainer or member correctly sees none. This is an absence of records, not a count of zero events.";
 
 /**
- * Shown when `security_denies` returned no rows.
+ * The sentence `SecurityPage.tsx` shows when `security_denies` returned no rows.
+ *
+ * **This constant does not travel in the response**, for the same reason as
+ * {@link EMPTY_AUDIT_REASON}: `SecurityDenyRow[]` is a flat array.
  *
  * Deliberately does **not** claim "nothing is denied". The runtime enforces a
- * separate, process-level `EGA_HOSTED_AUTHZ_JSON` policy that this table does not
- * mirror, so an empty `security_denies` is not evidence that no identity is
- * refused.
+ * separate, process-level authorization policy — `EGA_HOSTED_AUTHZ_JSON` in
+ * `packages/mcp/src/hosted-runtime.ts:166` — that this table does not mirror, so
+ * an empty `security_denies` is not evidence that no identity is refused.
+ *
+ * The variable name is named *here* and not in the page's copy: the reader of the
+ * security page is a workspace admin who cannot read that variable, and
+ * `tests/web/project-boundary.test.mjs` bans SPA source from referencing a
+ * server-only env var at all.
  */
 export const EMPTY_DENY_REASON =
   "No deny rows are recorded for the workspaces this caller may read. Either none has " +
   "been written, or your role does not admit you to any. This table is not the whole " +
-  "enforced policy: the hosted runtime additionally enforces a separate EGA_HOSTED_AUTHZ_JSON " +
-  "policy that these rows do not describe, so an empty table is not a statement that " +
-  "nothing is denied.";
+  "enforced policy: the hosted runtime additionally enforces a separate, process-level " +
+  "authorization policy that these rows do not describe, so an empty table is not a " +
+  "statement that nothing is denied.";
 
 /**
  * Shown when `quota_policies` returned no row for the requested workspace.
@@ -176,7 +189,12 @@ export const NULL_POLICY_REASON =
   "enforcement note below this table.";
 
 /**
- * The truthfulness note that travels with every quota response.
+ * The truthfulness note `QuotasPage.tsx` renders above the policy numbers.
+ *
+ * **This constant does not travel in the response either** — `WorkspaceQuotaView`
+ * has no field for it — for the same reason as {@link EMPTY_AUDIT_REASON}: the
+ * note is a *claim*, it is asserted in one place, and the page renders its own
+ * copy of it so a reader sees it before the numbers.
  *
  * Named for the three `EGA_HOSTED_MAX_*` values the hosted runtime actually
  * reads, plus the request deadline, so the operator can go look at the real
@@ -194,6 +212,9 @@ export const POLICY_ENFORCEMENT_NOTE =
 
 /**
  * The banner that keeps `/audit` from reading as usage analytics.
+ *
+ * Like {@link EMPTY_AUDIT_REASON}, this is asserted documentation rather than a
+ * response field.
  *
  * Audit is control and security history: who did what to which identity, and
  * whether it was allowed. It is not traffic volume, and a page that charted it
