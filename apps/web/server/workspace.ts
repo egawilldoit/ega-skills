@@ -506,8 +506,11 @@ async function resolveCallerWorkspaceScope(
  * the caller's visible set is the same 404 as no selector at all — so the status
  * never confirms that some *other* workspace exists.
  */
-function selectWorkspaceId(context: ApiRouteContext, scope: CallerWorkspaceScope): string {
-  const selector = readWorkspaceSelector(context);
+function selectWorkspaceId(
+  context: ApiRouteContext,
+  scope: CallerWorkspaceScope,
+  selector: string | null,
+): string {
   if (selector !== null) {
     if (!scope.visibleWorkspaceIds.includes(selector)) throw notVisible(selector);
     return selector;
@@ -536,8 +539,12 @@ function selectWorkspaceId(context: ApiRouteContext, scope: CallerWorkspaceScope
  */
 const handleWorkspaceOverview: ControlPlaneHandler = async (context, caller, reader) => {
   assertKnownParams(context, WORKSPACE_PARAMS);
+  // Parsed before the scope read so a malformed selector is refused without
+  // asking the database anything at all. Its *membership* in the visible set is
+  // still checked afterwards, because only the read can establish that.
+  const selector = readWorkspaceSelector(context);
   const scope = await resolveCallerWorkspaceScope(caller, reader);
-  const workspaceId = selectWorkspaceId(context, scope);
+  const workspaceId = selectWorkspaceId(context, scope, selector);
 
   const ownRow =
     scope.ownMemberships.find((row) => row.workspace_id === workspaceId) ?? null;
@@ -566,9 +573,13 @@ const handleWorkspaceOverview: ControlPlaneHandler = async (context, caller, rea
  */
 const handleWorkspaceMembers: ControlPlaneHandler = async (context, caller, reader) => {
   assertKnownParams(context, MEMBERS_PARAMS);
+  // Both parameters are validated before any read: a request the route will
+  // refuse anyway must not cost a round trip, and must not reach the database
+  // with a value the route has not accepted.
   const limit = readLimit(context, MEMBERS_PAGE_LIMIT);
+  const selector = readWorkspaceSelector(context);
   const scope = await resolveCallerWorkspaceScope(caller, reader);
-  const workspaceId = selectWorkspaceId(context, scope);
+  const workspaceId = selectWorkspaceId(context, scope, selector);
 
   const raw = await reader.readAsCaller<Readonly<Record<string, unknown>>>(
     caller,

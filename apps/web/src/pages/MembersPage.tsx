@@ -53,8 +53,8 @@ const FULL_ROSTER_ROLES: readonly string[] = Object.freeze(["owner", "admin"]);
  * - No add/remove/change-role control. There is no `INSERT`/`UPDATE`/`DELETE`
  *   grant to `authenticated` on this table, so a membership change is impossible
  *   by privilege; rendering a button would be a lie about what the console can do.
- * - No "0 members" anywhere. An empty result is a statement about policy, and it
- *   is reported as one.
+ * - No zero-member metric anywhere. An empty result is a statement about policy,
+ *   and it is reported as one.
  */
 export function MembersPage(): ReactNode {
   const client = useApiClient();
@@ -91,9 +91,10 @@ export function MembersPage(): ReactNode {
           return (
             <>
               <p className="page__lede">
-                The rows below are exactly what the <span className="mono">membership_self_or_admin_read</span>{" "}
-                policy admitted for your session. Nothing here is filtered, sorted, or widened in the
-                browser.
+                The rows below are exactly what the{" "}
+                <span className="mono">membership_self_or_admin_read</span> policy admitted for your
+                session, in the order the API returned them after its role ordering. Nothing here is
+                filtered, searched, or widened in the browser.
               </p>
               <DataTable
                 caption="Workspace members"
@@ -104,16 +105,24 @@ export function MembersPage(): ReactNode {
               {fullRoster ? (
                 <p className="state state--muted" role="status">
                   {data.length} membership row{data.length === 1 ? "" : "s"} readable. As{" "}
-                  {role}, this policy admits every row in the workspace, so this is the roster
-                  within the page limit the API applied.
+                  {role}, this policy admits every row in the workspace, so these are all the rows
+                  it admits — within the page limit the API applied, which is not a claim that the
+                  workspace has no further members.
                 </p>
               ) : (
                 <p className="state state--muted" role="status">
-                  {data.length} membership row{data.length === 1 ? "" : "s"} readable. Your
-                  resolved role does not let <span className="mono">membership_self_or_admin_read</span>{" "}
-                  admit other members' rows, so {data.length === 1 ? "the single row above is your own membership row" : "the rows above are the only ones this policy admits"} — a
-                  scoped view, not a truncated roster. An owner or an active admin sees the full
-                  list.
+                  {data.length === 1
+                    ? "One membership row is readable: your own. "
+                    : `${data.length} membership rows are readable. `}
+                  Your resolved role does not let{" "}
+                  <span className="mono">membership_self_or_admin_read</span> admit other members'
+                  rows, so{" "}
+                  {data.length === 1
+                    ? "the single row above is your own membership row"
+                    : "the rows above are the only ones this policy admits"}{" "}
+                  — a scoped view, not a truncated roster. An owner or an active admin sees every
+                  member; an <span className="mono">inactive</span> admin does not, because the
+                  policy's owner/admin branch requires an active membership row.
                 </p>
               )}
             </>
