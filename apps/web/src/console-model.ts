@@ -46,6 +46,7 @@ export const CONSOLE_PERMISSIONS = [
   "catalog_read",
   "projects_read",
   "contexts_read",
+  "workspace_read",
   "members_read",
   "quotas_read",
   "security_read",
@@ -59,8 +60,20 @@ export type ConsolePermission = (typeof CONSOLE_PERMISSIONS)[number];
  * `catalog_read`, `projects_read`, and `contexts_read` reach every active
  * member because their policies call `private.can_read_hub`,
  * `private.is_active_member`, and `private.can_read_context` respectively, which
- * all accept any active membership regardless of role. The remaining four are
- * restricted to owner/admin by explicit role arrays in the policies above.
+ * all accept any active membership regardless of role.
+ *
+ * `workspace_read` is OWNER-ONLY and deliberately not one of the three
+ * above. `personal_workspace_owner_read` is exactly
+ * `owner_subject = auth.jwt() ->> 'sub'`, with no role array and no membership
+ * check, so no other role can read the workspace row. It was previously gated on
+ * `contexts_read`, which every role holds, so all four non-owner roles were shown
+ * a `/workspace` nav entry that answered 403 when opened. The nav must reflect
+ * actual authority or it becomes a dead end. `members_read` stays owner/admin,
+ * matching `membership_self_or_admin_read` exactly, which is why an admin can see
+ * the roster but not the workspace summary.
+ *
+ * The remaining permissions are restricted to owner/admin by explicit role arrays
+ * in the policies above.
  *
  * Note that `can_read_hub` additionally permits any authenticated subject to
  * read a `public` hub. That grant is per-object and lives in the policy; this
@@ -68,7 +81,18 @@ export type ConsolePermission = (typeof CONSOLE_PERMISSIONS)[number];
  */
 const ROLE_PERMISSIONS: Readonly<Record<WorkspaceRole, ReadonlySet<ConsolePermission>>> = {
   owner: new Set<ConsolePermission>(CONSOLE_PERMISSIONS),
-  admin: new Set<ConsolePermission>(CONSOLE_PERMISSIONS),
+  // Every permission EXCEPT `workspace_read`, which the policy grants to the
+  // owner alone. Listing it explicitly rather than deriving from
+  // CONSOLE_PERMISSIONS keeps that asymmetry from silently widening.
+  admin: new Set<ConsolePermission>([
+    "catalog_read",
+    "projects_read",
+    "contexts_read",
+    "members_read",
+    "quotas_read",
+    "security_read",
+    "audit_read",
+  ]),
   maintainer: new Set<ConsolePermission>(["catalog_read", "projects_read", "contexts_read"]),
   member: new Set<ConsolePermission>(["catalog_read", "projects_read", "contexts_read"]),
   viewer: new Set<ConsolePermission>(["catalog_read", "projects_read", "contexts_read"]),
@@ -163,7 +187,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       {
         path: "/workspace",
         label: "Overview",
-        permission: "contexts_read",
+        permission: "workspace_read",
         description: "Workspace identity and the viewer's own membership role",
       },
       {
