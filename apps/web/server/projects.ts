@@ -1133,7 +1133,11 @@ export function createProjectRoutes(options: ProjectRouteOptions = {}): ApiRoute
  * Named for the file, matching the pattern the other page builders use. A lead
  * adding this to `apps/web/server/api.ts` needs one import and one spread.
  */
-export const projectRoutes: ApiRoute[] = createProjectRoutes();
+// Do NOT add a pre-built `projectRoutes` array here: building one at module
+// scope calls `loadRequestBounds` from `./api.ts`, which imports this module,
+// and the circular import throws a TDZ ReferenceError before the server can
+// listen. Typecheck cannot see that hazard. Call `createProjectRoutes()` from
+// a context where `./api.ts` has finished evaluating.
 
 /**
  * The adapter's own ceiling, re-exported so a page or a test can name the bound

@@ -108,6 +108,10 @@ import type {
   ReleaseReadinessProbe,
 } from "../server.mts";
 
+import { buildWorkspaceRoutes } from "./workspace.ts";
+import { createProjectRoutes } from "./projects.ts";
+import { createGovernanceRoutes } from "./governance.ts";
+
 /* -------------------------------------------------------------------------- */
 /* Bounds                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -850,6 +854,19 @@ let installed = false;
  * not import a value from `server.mts` (see {@link ConsoleApiError}). `server.mts`
  * owns `setReleaseReadinessProbe` and passes the returned probe straight into it.
  */
+/**
+ * The process-wide control-plane reader, built on first use.
+ *
+ * Deliberately deferred: constructing it reads and validates the environment, and
+ * that must happen on the request path, not while the route table is being
+ * assembled at boot.
+ */
+let cachedControlPlaneReader: ControlPlaneReader | undefined;
+function lazyControlPlaneReader(): ControlPlaneReader {
+  cachedControlPlaneReader ??= defaultControlPlaneReader();
+  return cachedControlPlaneReader;
+}
+
 export function installConsoleApi(
   routes: ApiRoute[],
   precondition: ReleaseReadinessProbe,
@@ -914,6 +931,37 @@ export function installConsoleApi(
       methods: ["GET"],
       handle: bound(handleReleaseDetail),
     },
+  );
+
+  // Control-plane surfaces, each built through the authenticated seam above so
+  // none of them can serve an unauthenticated read. They are appended AFTER the
+  // release routes because the release routes are matched first.
+  //
+  // The FACTORIES are called here, not their pre-built module-level arrays. Those
+  // arrays are evaluated at import time and each one calls back into this module
+  // for `loadRequestBounds`, so importing them here is a circular import and
+  // throws a TDZ ReferenceError before the server can listen:
+  //   "Cannot access 'API_MAX_RESPONSE_BYTES_DEFAULT' before initialization"
+  // Typecheck cannot see that; only starting the process does.
+  //
+  // The reader is LAZY for a second reason. A factory's default reader calls
+  // `loadServerConfig()`, which validates the environment and THROWS on a
+  // malformed expected digest or an artifact path that is not a directory.
+  // Resolving it here would move that validation from per-request to
+  // process-boot, so a deployment with bad config would refuse to start instead
+  // of answering a typed 503. Deferring it keeps validation on the request path,
+  // which is where the error contract already describes it.
+  const lazyReader: ControlPlaneReader = {
+    resolveCaller: (request) => lazyControlPlaneReader().resolveCaller(request),
+    readAsCaller: (caller, table, options) =>
+      lazyControlPlaneReader().readAsCaller(caller, table, options),
+    describeAvailability: () => lazyControlPlaneReader().describeAvailability(),
+  };
+
+  routes.push(
+    ...buildWorkspaceRoutes(bounds, lazyReader),
+    ...createProjectRoutes({ bounds, reader: lazyReader }),
+    ...createGovernanceRoutes({ bounds, reader: lazyReader }),
   );
 
   return probe;

@@ -660,4 +660,14 @@ export const WORKSPACE_ROUTE_PATHS: readonly string[] = Object.freeze([
  * `defaultControlPlaneReader`; no privileged credential is referenced anywhere in
  * this module.
  */
-export const WORKSPACE_ROUTES: readonly ApiRoute[] = Object.freeze(buildWorkspaceRoutes());
+/**
+ * Do NOT add a pre-built `WORKSPACE_ROUTES` array here.
+ *
+ * Building one at module scope calls `loadRequestBounds` from `./api.ts`, and
+ * `api.ts` imports this module. Whichever is imported first, the other side sees
+ * an uninitialized binding and the process dies before it can listen:
+ *   ReferenceError: Cannot access 'API_MAX_RESPONSE_BYTES_DEFAULT' before initialization
+ * Typecheck cannot see that TDZ hazard; only starting the server does. Call
+ * `buildWorkspaceRoutes()` instead, from a context where `./api.ts` has finished
+ * evaluating.
+ */

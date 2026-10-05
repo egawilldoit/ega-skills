@@ -51,8 +51,8 @@ import {
   EMPTY_AUDIT_REASON,
   EMPTY_DENY_REASON,
   EMPTY_USAGE_REASON,
-  GOVERNANCE_ROUTE_IDS,
-  GOVERNANCE_ROUTE_PATHS,
+  governanceRouteIds,
+  governanceRoutePaths,
   NULL_POLICY_REASON,
   POLICY_ENFORCEMENT_NOTE,
   createGovernanceRoutes,
@@ -355,8 +355,8 @@ describe("the governance route table", () => {
       ],
     );
     // The exports the lead wires against must agree with the table itself.
-    assert.deepEqual(GOVERNANCE_ROUTE_IDS, ["workspace-quotas", "security-denies", "audit-events"]);
-    assert.deepEqual(GOVERNANCE_ROUTE_PATHS, [
+    assert.deepEqual(governanceRouteIds(), ["workspace-quotas", "security-denies", "audit-events"]);
+    assert.deepEqual(governanceRoutePaths(), [
       "/workspace/quotas",
       "/workspace/security/denies",
       "/audit",
@@ -381,7 +381,7 @@ describe("the governance route table", () => {
 
   test("a write verb is refused before the session probe reaches the network", async () => {
     const { byPath, transport } = routesWith(tableRespond(fixture()));
-    for (const path of GOVERNANCE_ROUTE_PATHS) {
+    for (const path of governanceRoutePaths()) {
       const result = await call(byPath, path, { method: "POST" });
       assert.equal(result.status, 405, `${path} accepted POST`);
       assert.equal(result.error.code, "E_METHOD_NOT_ALLOWED");
@@ -391,7 +391,7 @@ describe("the governance route table", () => {
 
   test("an unauthenticated request is refused before any handler runs", async () => {
     const { byPath, transport } = routesWith(tableRespond(fixture()));
-    for (const path of GOVERNANCE_ROUTE_PATHS) {
+    for (const path of governanceRoutePaths()) {
       const result = await call(byPath, path, { headers: {} });
       assert.equal(result.status, 401, `${path} served an unauthenticated caller`);
       assert.equal(result.error.code, "E_WEB_UNAUTHENTICATED");
@@ -948,7 +948,7 @@ describe("every read is bounded and an oversized page is refused, not clamped", 
   test("limit above the ceiling is refused on all three routes", async () => {
     const { byPath, transport } = routesWith(tableRespond(fixture()));
     const oversized = `limit=${CONTROL_PLANE_MAX_LIMIT + 1}`;
-    for (const path of GOVERNANCE_ROUTE_PATHS) {
+    for (const path of governanceRoutePaths()) {
       const query = path === "/workspace/quotas" ? workspaceQuery(oversized) : oversized;
       const result = await call(byPath, path, { query });
       assert.equal(result.status, 400, `${path} accepted limit=${CONTROL_PLANE_MAX_LIMIT + 1}`);
@@ -1093,7 +1093,7 @@ describe("every required state renders, and none of them is a blank screen", () 
 
   test("every route reports unavailable rather than empty when Supabase is unconfigured", async () => {
     const { byPath } = routesWith(tableRespond(fixture()), { supabaseUrl: null });
-    for (const path of GOVERNANCE_ROUTE_PATHS) {
+    for (const path of governanceRoutePaths()) {
       const query = path === "/workspace/quotas" ? workspaceQuery() : "";
       const result = await call(byPath, path, { query });
       assert.equal(result.status, 503, `${path} did not report unavailable`);

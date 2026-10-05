@@ -47,7 +47,6 @@ import {
   WORKSPACE_MEMBERSHIP_NOT_READABLE_CODE,
   WORKSPACE_ROW_INVALID_CODE,
   WORKSPACE_ROUTE_PATHS,
-  WORKSPACE_ROUTES,
   buildWorkspaceRoutes,
 } from "../../apps/web/server/workspace.ts";
 
@@ -206,9 +205,9 @@ function tableUrls(calls) {
 
 describe("route registration", () => {
   test("both Builder A routes are exported and GET-only", () => {
-    const paths = WORKSPACE_ROUTES.map((route) => route.path);
+    const paths = buildWorkspaceRoutes().map((route) => route.path);
     assert.deepEqual(paths, ["/workspace", "/workspace/members"]);
-    for (const route of WORKSPACE_ROUTES) {
+    for (const route of buildWorkspaceRoutes()) {
       assert.deepEqual([...route.methods], ["GET"], `${route.id} must be GET-only`);
       assert.equal(typeof route.handle, "function");
     }
@@ -223,7 +222,7 @@ describe("route registration", () => {
   });
 
   test("no route mutates: there is no write verb and no write handler shape", () => {
-    for (const route of WORKSPACE_ROUTES) {
+    for (const route of buildWorkspaceRoutes()) {
       const verbs = route.methods.map((method) => method.toUpperCase());
       for (const verb of ["POST", "PUT", "PATCH", "DELETE"]) {
         assert.ok(!verbs.includes(verb), `${route.id} exposes ${verb}`);

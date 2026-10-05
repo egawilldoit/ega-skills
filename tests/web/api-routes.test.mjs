@@ -153,14 +153,31 @@ async function startServer(env = {}) {
 
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 30_000;
+  let becameHealthy = false;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${base}/healthz`);
-      if (response.ok) break;
+      if (response.ok) {
+        becameHealthy = true;
+        break;
+      }
     } catch {
       // Not listening yet.
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  // A startup timeout must be LOUD. Falling through silently made a server that
+  // never came up indistinguishable from one that did, so the caller went on to
+  // fail with a bare ECONNREFUSED - or, worse, asserted against an empty stderr
+  // array and reported a missing startup warning that had not been emitted yet.
+  // This reproduced intermittently on a loaded 2-vCPU host. console-server's
+  // equivalent helper already throws here; match it.
+  if (!becameHealthy) {
+    child.kill("SIGKILL");
+    throw new Error(
+      `test server on port ${port} never became healthy within 30s. ` +
+        `stderr so far: ${JSON.stringify(stderr.join("").slice(0, 400))}`,
+    );
   }
   return {
     port,
@@ -895,15 +912,27 @@ describe("response size, deadline and concurrency are bounded", () => {
   test("every route is registered exactly once and is GET-only", () => {
     const ids = REGISTERED_ROUTES.map((route) => route.id);
     assert.equal(new Set(ids).size, ids.length, "no route is registered twice");
+    // Sorted, because the assertion sorts the actual ids. Seven of these are
+    // control-plane surfaces served through the authenticated caller seam
+    // (audit-events, project-detail, projects, security-denies, workspace,
+    // workspace-members, workspace-quotas); the other eight come from the
+    // verified artifact.
     assert.deepEqual([...ids].sort(), [
+      "audit-events",
       "catalog",
+      "project-detail",
+      "projects",
       "release-detail",
       "release-identity",
       "releases",
       "releases-compare",
+      "security-denies",
       "skill-content",
       "skill-detail",
       "skills",
+      "workspace",
+      "workspace-members",
+      "workspace-quotas",
     ]);
     for (const route of REGISTERED_ROUTES) {
       assert.deepEqual(route.methods, ["GET"], `${route.id} must be read-only`);

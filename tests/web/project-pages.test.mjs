@@ -79,7 +79,6 @@ import {
   REVOCATIONS_EMPTY_REASON,
   createProjectRoutes,
   describePinnedRelease,
-  projectRoutes,
 } from "../../apps/web/server/projects.ts";
 import { API_ENDPOINTS } from "../../apps/web/src/api/client.ts";
 import { describeApiError, isUnavailableError } from "../../apps/web/src/api/contracts.ts";
@@ -292,7 +291,7 @@ function collectKeys(value, found = new Set()) {
 describe("the two routes exist, are GET-only, and match the client contract", () => {
   test("the exported route table matches API_ENDPOINTS", () => {
     assert.deepEqual(
-      projectRoutes.map((route) => [route.id, route.path]),
+      createProjectRoutes().map((route) => [route.id, route.path]),
       [
         ["projects", "/projects"],
         ["project-detail", "/projects/:projectId"],
@@ -303,7 +302,7 @@ describe("the two routes exist, are GET-only, and match the client contract", ()
   });
 
   test("every route is registered through the seam and answers GET alone", async () => {
-    for (const route of projectRoutes) {
+    for (const route of createProjectRoutes()) {
       assert.deepEqual([...route.methods], ["GET"], `${route.id} must be GET-only`);
     }
     const transport = spyTransport({ tables: {} });

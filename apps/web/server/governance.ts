@@ -762,7 +762,11 @@ export function createGovernanceRoutes(options: GovernanceRoutesOptions = {}): A
  * module in a process with no Supabase configured is safe and every read
  * refuses with a 503 naming the variable.
  */
-export const governanceRoutes: ApiRoute[] = createGovernanceRoutes();
+// Do NOT add a pre-built `governanceRoutes` array here: building one at module
+// scope calls `loadRequestBounds` from `./api.ts`, which imports this module,
+// and the circular import throws a TDZ ReferenceError before the server can
+// listen. Typecheck cannot see that hazard. Call `createGovernanceRoutes()` from
+// a context where `./api.ts` has finished evaluating.
 
 /**
  * Route ids in registration order, for the lead's wiring assertion.
@@ -770,11 +774,13 @@ export const governanceRoutes: ApiRoute[] = createGovernanceRoutes();
  * Duplicating these three ids in a test is how a rename would slip through, so
  * the table is exported instead.
  */
-export const GOVERNANCE_ROUTE_IDS: readonly string[] = Object.freeze(
-  governanceRoutes.map((route) => route.id),
-);
+/** Lazy, for the same circular-import reason described above. */
+export function governanceRouteIds(): readonly string[] {
+  return Object.freeze(createGovernanceRoutes().map((route) => route.id));
+}
 
 /** Route paths in registration order. */
-export const GOVERNANCE_ROUTE_PATHS: readonly string[] = Object.freeze(
-  governanceRoutes.map((route) => route.path),
-);
+/** Lazy, for the same circular-import reason described above. */
+export function governanceRoutePaths(): readonly string[] {
+  return Object.freeze(createGovernanceRoutes().map((route) => route.path));
+}
