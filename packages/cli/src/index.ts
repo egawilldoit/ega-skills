@@ -1,5 +1,21 @@
 export { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runValidate, runInspect, runList, runLock, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubReleasePreview, runHubReleaseExport, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "./commands.js";
 export { runResolve } from "./commands.js";
+export {
+  buildCatalog,
+  buildCatalogModel,
+  oneLine,
+  summarize,
+  readL0Metadata,
+  renderCatalogMarkdown,
+  renderCatalogText,
+  runCatalog,
+  validatePresentation,
+  loadPresentation,
+  CatalogError,
+  CATALOG_PRESENTATION_SCHEMA_VERSION,
+  CATALOG_SEARCH_LIMIT,
+} from "./catalog.js";
+export type { CatalogCommandOptions, CatalogGroup, CatalogModel, CatalogSearchHit, CatalogSkill, BuildCatalogOptions } from "./catalog.js";
 export type {
   ImportSummary,
   ImportPlanCommandOptions,

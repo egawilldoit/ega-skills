@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubReleasePreview, runHubReleaseExport, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
+import { runImport, runImportPlan, runIntakeQuality, runInit, runInitSkill, runInspect, runList, runLock, runResolve, runValidate, runCatalog, runHubBuild, runHubValidate, runHubCheck, runHubUpdate, runHubIntakePlan, runHubIntakeStage, runHubIntakeApply, runHubIntakeDerive, runHubIntakeReview, runHubReleasePreflight, runHubReleasePreview, runHubReleaseExport, runHubCollectionsValidate, runRemoteLockPlan, runRemoteLockApply, runContextPublish } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -20,6 +20,7 @@ function printHelp() {
       "  ega-skills import-plan <path> --namespace <namespace> --output <plan.json>",
       "  ega-skills intake quality <path> --namespace <namespace> --output <report.json>",
       "  ega-skills list",
+      "  ega-skills catalog [--json] [--search \"<query>\"] [--presentation <file>]",
       "  ega-skills inspect <skill-id>",
       "  ega-skills init [<project-dir>] [--force]",
       "  ega-skills validate <path> [--json]",
@@ -180,6 +181,23 @@ function readRepeatableFlag(rest, name) {
   return values;
 }
 
+/**
+ * Locate `catalog/presentation.yaml`.
+ *
+ * Explicit flag wins, then EGA_CATALOG_PRESENTATION, then the current working
+ * directory, then the installed package root. Presentation is a repo asset, so
+ * an installed CLI falls back to the path shipped alongside it.
+ */
+function resolvePresentationPath() {
+  const explicit = process.env.EGA_CATALOG_PRESENTATION;
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  const candidates = [join(process.cwd(), "catalog", "presentation.yaml"), join(here, "..", "..", "..", "catalog", "presentation.yaml")];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
 async function main() {
   const [command, ...rest] = args;
 
@@ -262,6 +280,40 @@ async function main() {
       for (const entry of entries) {
         process.stdout.write(`${entry.skillId} ${entry.currentVersionHash}\n`);
       }
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (command === "catalog") {
+    const json = rest.includes("--json");
+    const search = readFlag(rest, "search");
+    const presentation = readFlag(rest, "presentation");
+    const known = new Set(["--json", "--search", "--presentation"]);
+    const consumed = new Set();
+    for (let i = 0; i < rest.length; i += 1) {
+      const token = rest[i];
+      const name = token.split("=")[0];
+      if (!known.has(name)) continue;
+      consumed.add(i);
+      if (!token.includes("=") && i + 1 < rest.length) {
+        consumed.add(i + 1);
+        i += 1;
+      }
+    }
+    for (let i = 0; i < rest.length; i += 1) {
+      if (!consumed.has(i)) fail(`Unknown command or option: ${rest[i]}`);
+    }
+    try {
+      process.stdout.write(
+        runCatalog({
+          env: process.env,
+          presentationPath: presentation ?? resolvePresentationPath(),
+          ...(json ? { json: true } : {}),
+          ...(search === undefined ? {} : { search }),
+        }),
+      );
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
     }

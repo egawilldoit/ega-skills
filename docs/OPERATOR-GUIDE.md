@@ -105,6 +105,98 @@ Supporting files (`references/`, other TEXT companions) are retrievable
 through `get_content` with `file_path` (exact manifest path, L2-only);
 scripts, assets, binaries, and control files are never served.
 
+`list` is the operator/registry view and prints `skill_id` plus
+`current_version_hash`. It is unchanged by the human catalog work.
+
+## 7a. Catalog (human discovery)
+
+```sh
+node packages/cli/bin/ega-skills.mjs catalog
+node packages/cli/bin/ega-skills.mjs catalog --search "review PR"
+node packages/cli/bin/ega-skills.mjs catalog --json
+```
+
+- `catalog` is the **human** view, grouped by intent; `list` is the **operator**
+  view. They read the same release.
+- `--search` reuses the registry's existing FTS `search` against the same
+  release-scoped FTS table the hosted runtime uses. It adds no independent
+  ranking or similarity algorithm.
+- Presentation grouping comes from `catalog/presentation.yaml`, resolved in this
+  order: `--presentation`, `EGA_CATALOG_PRESENTATION`, `./catalog/presentation.yaml`,
+  then the path shipped with the installed package.
+- Presentation metadata is non-authoritative. It may not contain `triggers`,
+  `anti_triggers`, `domains`, `platforms`, `frameworks`, or `aliases`; the loader
+  rejects those keys. Regrouping the catalog cannot change routing.
+- Any skill id in the presentation file that is absent from the release is a hard
+  failure, not a silent skip.
+
+Real captured output:
+
+```console
+$ ega-skills catalog --search "release certification"
+Matches for "release certification"
+
+  certify-release            Certify a release against three separate gates, CODE, RUNTIME, and PRODUCT, and report the highest gate actually reached as CODE_READY,…  [Release]
+  certify-pr-head            Verify that acceptance evidence belongs to the exact current head of a pull request.  [Release]
+  trace-artifact-provenance  Establish immutable lineage from source commit to build to artifact to digest to release to deployment, and emit a provenance manifest…  [Release]
+  certify-mcp-production     Certify a production MCP server end to end: endpoint, protocol negotiation, OAuth, tool discovery, tool schemas, permission and profile…  [Release]
+  deliver-software           Route non-trivial engineering work to the right workflow instead of improvising.  [Not sure which skill?]
+```
+
+The bracketed group is the human-intent category from
+`catalog/presentation.yaml`. Browsing the full catalog:
+
+```console
+$ ega-skills catalog | head -9
+EGA SKILLS
+release sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
+114 skills in 4 namespaces
+
+When you only know what you want, not which skill does it.
+Not sure which skill?
+  deliver-software                              Route non-trivial engineering work to the right workflow instead of improvising.
+  ask-matt                                      Ask which skill or flow fits your situation. A router over the skills in this repo.
+```
+
+### Scope note: natural-language input is not a CLI feature
+
+`ega-skills` does **not** accept a natural-language task as a bare argument; it
+takes explicit subcommands (`resolve --task "..."`, `catalog --search "..."`).
+Describing intent in plain language is an MCP host/client behaviour, driven
+through the four MCP tools, not a shell feature:
+
+```console
+$ ega-skills "what skills do I have"
+Unknown command or option: what skills do I have
+Run "ega-skills --help" for usage.
+```
+
+When routing returns LOW, MCP `resolve` returns the candidates as suggestions
+with `selected=[]` (SPEC-004 §5.1.17 rule 4). The host presents them; it does not
+execute them:
+
+```text
+resolve(task) -> confidence: LOW, selected: []
+
+  candidates (suggestions only, nothing executed):
+    1. recover-work-context   Reconstruct the current state of ongoing work so it can be resumed…
+    2. what-did-i-get-done    Summarize authored commits over a requested time window…
+
+  the host must ask the user which to use; it must NOT auto-run candidate 1.
+```
+
+## 7b. Regenerating and checking the generated catalog
+
+```sh
+pnpm generate:catalog   # rewrite docs/generated/SKILL-CATALOG.md
+pnpm catalog:check     # exit 1 when the committed file is stale
+pnpm eval:discovery    # routing + discovery quality report
+```
+
+`catalog:check` runs in CI and in `release:verify`, so a catalog that no longer
+matches its release fails the build. Generation is deterministic: the same
+release and presentation file always produce byte-identical output.
+
 ## 8. Codex MCP setup
 
 Same local binary over stdio; full repeatable procedure (isolated config,
