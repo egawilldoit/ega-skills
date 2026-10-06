@@ -154,3 +154,69 @@ It does not block this release; it is carried as follow-up work.
 ## Manual follow-up
 
 ChatGPT Web validation remains manual (unchanged from prior releases).
+
+## Deployment verification protocol (from the parent catalog tag)
+
+The annotated tag `catalog-2026-09-29.2` records a hard invariant that changes
+how this release must be verified in production:
+
+> Verify a deployment with: exact source SHA + physical artifact hash +
+> runtime path invariant (inspect `sources[].local_path` relative).
+> **Do NOT rely on `release_digest` alone to prove sanitization.**
+
+`release_digest` proves *semantic* catalog identity and deliberately does not
+cover `skill_sources` provenance rows. That is precisely why the `.1`/`.2`
+discrepancy was possible: `.2` had an identical digest and different physical
+bytes. Relying on the digest alone would repeat exactly that mistake.
+
+`scripts/hosted/accept-catalog-2026-10-06.1.mjs` implements the invariant. It
+reads the expected 116 `id -> version_hash` pairs from the merged artifact's
+`hub-release.json` — so it cannot drift from what was reviewed — and asserts:
+
+| # | identity | assertion |
+|---|---|---|
+| 1 | semantic | served `effective_release_digest` == `sha256:3de9177a…` |
+| 2 | **physical** | **all 116 served `version_hash` values equal the reviewed values** |
+| 3 | path | every `sources[].local_path` is host-relative; no build-host path in any response |
+| 4 | membership | the 3 added skills serve; the withdrawn skill is refused by `inspect` *and* absent from `search` |
+
+Check 2 is the strong one: per-skill hashes prove physical identity where the
+digest cannot.
+
+Verified offline against the committed artifact through a stdio MCP server
+behind an HTTP shim (`cwd=/tmp`, artifact as the only runtime input):
+
+```
+checks: 17  passed: 17  failed: 0  skipped: 1   ->  PRODUCT_READY
+```
+
+The one skip is the semantic digest check: `effective_release_digest` is a
+**hosted-only** wrapper (`packages/mcp/src/hosted.ts:247`). A stdio server never
+emits it, so the script requires it by default and only tolerates its absence
+behind an explicit `--allow-missing-digest` flag, which is for offline dry runs
+only. In production the flag must not be passed.
+
+Two API facts the dry run established, both of which would otherwise have made
+the production acceptance wrong:
+
+- `search` caps `limit` at **20** (`min 1, max 20`), so the catalog cannot be
+  enumerated from ranked search. The script therefore sweeps the reviewed 116-id
+  list through `inspect` instead.
+- `inspect` discloses `trust`, `l1`, `l2`, `l2_size_class`, `files`, `sources`
+  and the `source <kind> <logical-path> observed_at=` provenance line, but **not**
+  the release digest.
+
+## Physical identity of this catalog
+
+For the promotion tag and the post-production record:
+
+```
+registry.sqlite      sha256:de3ab40cfb13adf05f420cae72d5f7d18add82331d593ff3bf6e5f5f468f6e1d
+hub-release.json     sha256:abd415ad229f7e469b77104f340cacde3d2a5443c57ac4900fd96f7df86ea260
+release-package.json sha256:cd08205868e468902d45e953ca5bf65a5261204a6a41e0559d721abdf68da577
+artifact tree        sha256:4157291f4300fe5996dbeb5c2ca4a1dcefd1695cbf5b352628d943e6a3fd8455   (850 files)
+release_digest       sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3
+```
+
+The tree is 850 files: the 848 files `hub release export` produced, plus the two
+hand-maintained `README.md` and `PROVENANCE.md` that live alongside the export.
