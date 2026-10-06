@@ -28,6 +28,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { openRegistry, searchSkills } from "../../packages/registry/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
@@ -354,4 +355,12 @@ async function main() {
   if (!report.summary.exec_ok) process.exitCode = 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+// Run only when invoked directly. Comparing `import.meta.url` to a hand-built
+// `file://${process.argv[1]}` is WRONG on Windows: `process.argv[1]` uses
+// backslashes (`D:\a\repo\scripts\eval\discovery.mjs`) while `import.meta.url`
+// uses forward slashes (`file:///D:/a/repo/scripts/eval/discovery.mjs`), so the
+// strings never match and this script silently exits 0 without doing anything.
+// `pathToFileURL` normalizes the platform path correctly.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

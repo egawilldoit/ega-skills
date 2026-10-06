@@ -226,6 +226,39 @@ test("a corpus with no measurable intents fails closed", async () => {
   await assert.rejects(() => evaluateDiscovery(allPending), /no measurable intents/u);
 });
 
+test("the eval script's direct-invocation guard is cross-platform", async () => {
+  // Regression guard for a real Windows bug: `import.meta.url ===
+  // \`file://${process.argv[1]}\`` never matches on Windows (argv[1] uses
+  // backslashes, import.meta.url uses forward slashes), so the script exited 0
+  // without doing anything. `pathToFileURL` is the correct comparison.
+  const { pathToFileURL } = await import("node:url");
+  const windowsStyle = "D:\\a\\ega-skills\\scripts\\eval\\discovery.mjs";
+  assert.notEqual(
+    `file://${windowsStyle}`,
+    pathToFileURL(windowsStyle).href,
+    "the naive comparison must be provably wrong for a Windows path",
+  );
+  // And the comparison the script actually uses must round-trip for both styles.
+  for (const candidate of [windowsStyle, "/home/ubuntu/ega/scripts/eval/discovery.mjs"]) {
+    assert.equal(pathToFileURL(candidate).href, pathToFileURL(candidate).href);
+    assert.match(pathToFileURL(candidate).href, /^file:\/\/\//u);
+  }
+  // The shipped scripts must use the correct idiom (ignoring comments, which
+  // legitimately quote the broken form to explain why it is wrong).
+  for (const script of ["scripts/eval/discovery.mjs", "scripts/eval/routing.mjs"]) {
+    const text = await readFile(join(process.cwd(), script), "utf8");
+    const code = text
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .join("\n");
+    assert.ok(
+      !code.includes("`file://${process.argv[1]}`"),
+      `${script} still uses the Windows-broken entrypoint comparison in code`,
+    );
+    assert.ok(code.includes("pathToFileURL"), `${script} must compare via pathToFileURL`);
+  }
+});
+
 test("the CLI refuses a corpus below the measurable-intent floor", async () => {
   const corpus = await loadCorpus();
   const dir = await mkdtemp(join(tmpdir(), "ega-discovery-small-"));
@@ -234,10 +267,18 @@ test("the CLI refuses a corpus below the measurable-intent floor", async () => {
     await writeFile(path, JSON.stringify({ ...corpus, intents: corpus.intents.slice(0, 6) }));
     // The library may evaluate a small subset on purpose; the CLI must not
     // report a pass over one.
-    await assert.rejects(
-      execFileAsync(process.execPath, ["scripts/eval/discovery.mjs", path], { cwd: process.cwd() }),
-      /at least 50 measurable intents/u,
+    const result = await execFileAsync(process.execPath, ["scripts/eval/discovery.mjs", path], {
+      cwd: process.cwd(),
+    }).then(
+      (value) => ({ rejected: false, ...value }),
+      (error) => ({ rejected: true, code: error.code, stderr: error.stderr, stdout: error.stdout }),
     );
+    assert.equal(
+      result.rejected,
+      true,
+      `the CLI must exit non-zero; it resolved with code ${result.code}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+    );
+    assert.match(String(result.stderr), /at least 50 measurable intents/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
