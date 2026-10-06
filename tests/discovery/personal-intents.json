@@ -2,7 +2,7 @@
   "schema_version": 1,
   "corpus_id": "personal-intents-v1",
   "description": "Realistic natural-language human intents for EGA Skills discovery evaluation. Prompts are paraphrased personal intent, not copied trigger phrases, and no prompt may contain a phrase that is an anti-trigger of the skill it expects. Each intent names the skill a human would expect, plus close alternatives that would also be defensible and skills that would be actively wrong to surface.",
-  "release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+  "release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
   "thresholds": {
     "top1": 0.9,
     "top3": 0.98
@@ -235,7 +235,9 @@
       "id": "pr-cleanup",
       "task": "This PR has nine commits with a messy history and a vague description. Make it presentable without changing the behavior.",
       "expected_primary": "egawilldoit/make-pr-easy-to-review",
-      "acceptable_alternatives": [],
+      "acceptable_alternatives": [
+        "mattpocock/pr"
+      ],
       "must_not_select": [
         "egawilldoit/review-and-ship",
         "egawilldoit/deslop"
@@ -432,7 +434,9 @@
       "id": "work-retrospective",
       "task": "That session was rough. Review it and route what we learned to the right durable artifact.",
       "expected_primary": "egawilldoit/work-retrospective",
-      "acceptable_alternatives": [],
+      "acceptable_alternatives": [
+        "mattpocock/retro"
+      ],
       "must_not_select": [
         "egawilldoit/weekly-review",
         "egawilldoit/what-did-i-get-done"
@@ -523,9 +527,7 @@
       "id": "merge-conflicts",
       "task": "I am in the middle of a rebase and there are conflicts everywhere. Resolve them without me babysitting.",
       "expected_primary": "egawilldoit/fix-merge-conflicts",
-      "acceptable_alternatives": [
-        "mattpocock/resolving-merge-conflicts"
-      ],
+      "acceptable_alternatives": [],
       "must_not_select": [
         "egawilldoit/integrate-pr-stack",
         "egawilldoit/loop-on-ci"

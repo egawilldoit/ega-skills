@@ -94,6 +94,7 @@ groups:
       - egawilldoit/principle-make-operations-idempotent
       - egawilldoit/typescript-best-practices
       - mattpocock/implement
+      - mattpocock/implement-spec
       - mattpocock/wizard
       - mattpocock/setup-matt-pocock-skills
       - vercel/react-best-practices
@@ -150,7 +151,7 @@ groups:
       - egawilldoit/make-pr-easy-to-review
       - egawilldoit/integrate-pr-stack
       - egawilldoit/fix-merge-conflicts
-      - mattpocock/resolving-merge-conflicts
+      - mattpocock/pr
       - mattpocock/triage
 
   - id: release
@@ -183,6 +184,7 @@ groups:
     skills:
       - egawilldoit/mine-work-patterns
       - egawilldoit/work-retrospective
+      - mattpocock/retro
       - egawilldoit/record-evidence
       - egawilldoit/unslop
       - egawilldoit/technical-writing

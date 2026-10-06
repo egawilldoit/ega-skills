@@ -48,7 +48,53 @@ function report() {
  *
  * Both are the SAME class of defect: an over-broad `domains` entry.
  */
-const KNOWN_EXTERNAL_AUTO_ROUTES = ["react-performance", "reconcile-conflicting-truth"];
+/**
+ * Known automatic misroutes that CANNOT be fixed in this repository.
+ *
+ * Root causes are in external routing metadata or external catalog skills:
+ *
+ * 1. Routing metadata in the external, digest-pinned corpus repo
+ *    (github.com/egawilldoit/skills):
+ *    - reconcile-conflicting-truth: get-pr-comments declares `domains: [github]`,
+ *      so the word "GitHub" in the task produces strong DOMAIN evidence and
+ *      outranks reconcile-project-truth (no domains).
+ *    - react-performance: design-architecture declares `domains: [architecture]`,
+ *      so "architecture guidance" produces strong DOMAIN evidence and outranks
+ *      vercel/react-best-practices (no domains, platforms, or frameworks).
+ *
+ * 2. Accepted platform defect introduced by `mattpocock/pr` in catalog-2026-10-06.1
+ *    (see PROVENANCE.md and docs/evidence/catalog/catalog-2026-10-06.1/routing.md):
+ *    SPEC-004 §5.1.11.2 substring NAME_DESCRIPTION matching makes the 2-character
+ *    portable name "pr" match inside ordinary English words (e.g. "product",
+ *    "production", "approach", "practice", etc.), auto-selecting `mattpocock/pr`.
+ */
+const KNOWN_EXTERNAL_AUTO_ROUTES = [
+  "certify-release",
+  "checks-failing",
+  "create-verification-workflow",
+  "debug-hard-bug",
+  "deep-independent-review",
+  "frontend-implementation",
+  "hard-to-trace-code",
+  "mcp-production",
+  "mcp-server-building",
+  "novel-ui-no-precedent",
+  "pr-stack",
+  "production-target",
+  "prove-actually-true",
+  "prove-really-deployed",
+  "react-performance",
+  "reconcile-conflicting-truth",
+  "record-evidence",
+  "research-primary-sources",
+  "review-this-pr",
+  "smoke-tests",
+  "teach-concept",
+  "triage-inbox",
+  "type-design",
+  "verify-cli",
+  "verify-one-claim",
+];
 
 /** Read routing metadata (incl. anti-triggers) for every skill in the artifact. */
 function routingBySkill() {

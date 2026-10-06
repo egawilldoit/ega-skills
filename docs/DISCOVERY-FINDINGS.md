@@ -3,8 +3,8 @@
 Evidence for the discovery work in this branch, and the exact changes that
 belong in the **separate** skill corpus repository rather than here.
 
-Measured against release `sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77`
-(114 skills: `anthropic` 14, `egawilldoit` 66, `mattpocock` 25, `vercel` 9).
+Measured against release `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`
+(116 skills: `anthropic` 14, `egawilldoit` 66, `mattpocock` 27, `vercel` 9).
 
 Reproduce with:
 
@@ -64,13 +64,13 @@ ranking signal. Search reachability is therefore reported on its own.
 | Metric | Value | Target | Status |
 | --- | --- | --- | --- |
 | Intents evaluated | 79 | >= 50 | met |
-| Wrong automatic selections | 2 (of 9 that selected anything = 22.2%) | 0 | **not met** (§3) |
+| Wrong automatic selections | 25 (of 33 that selected anything = 75.8%) | 0 | **not met** (§3) |
 | Excluded skill **auto-selected** | 1 | 0 | **not met** (§4) |
-| Excluded skill in a suggestion slot only | 18 | — | presentation issue, not safety |
-| Expected skill ranked #1 | 57/79 = 72.2% | >= 90% | **not met** (§5) |
+| Excluded skill in a suggestion slot only | 16 | — | presentation issue, not safety |
+| Expected skill ranked #1 | 36/79 = 45.6% | >= 90% | **not met** (§5) |
 | Expected skill in top 3 (resolver window) | 65/79 = 82.3% | >= 98% | **not met** (§5) |
 | Expected skill in top 3 of raw `search` | 68/79 = 86.1% | — | fallback path only |
-| LOW-confidence results | 70/79 | — | informational |
+| LOW-confidence results | 46/79 | — | informational |
 
 Two numbers deserve emphasis because the raw counts alone are misleading:
 

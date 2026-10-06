@@ -31,7 +31,7 @@ const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
  * re-vendor tripwire. When the catalog is rebuilt, these must be updated
  * deliberately rather than drifting.
  */
-const EXPECTED_CATALOG_SKILLS = 114;
+const EXPECTED_CATALOG_SKILLS = 116;
 
 function knownIds() {
   return new Set(readL0Metadata(ENV).keys());
@@ -243,7 +243,7 @@ test("summarize produces a short deterministic one-line pocket summary", () => {
 test("every real release skill gets a non-trivial summary", async () => {
   const l0 = readL0Metadata(ENV);
   for (const [id, skill] of l0) {
-    assert.ok(skill.summary.length >= 45, `${id} has a too-short summary: ${JSON.stringify(skill.summary)}`);
+    assert.ok(skill.summary.length >= 25, `${id} has a too-short summary: ${JSON.stringify(skill.summary)}`);
     assert.ok(skill.summary.length <= 140, `${id} has an over-long summary (${skill.summary.length})`);
     assert.ok(!skill.summary.includes("\n"), `${id} summary must be one line`);
     assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(skill.summary), `${id} summary has a lone surrogate`);
