@@ -92,3 +92,32 @@ analysis, reproduction and the recommended fix are in `routing.md`.
 ## Manual follow-up
 
 ChatGPT Web validation remains manual (unchanged from prior releases).
+## Appendix — `registry:performance` failure is pre-existing, not caused by this release
+
+`pnpm release:verify` reported 19/20 stages green. The one red stage is
+`registry:performance`:
+
+```
+SPEC-003 §5.1.11: isolated 100-skill cold import meets platform budget
+  cold import elapsed 8982 ms, budget 5000 ms on linux
+```
+
+Proof that this is not caused by `catalog-2026-10-06.1`:
+
+1. **The change set touches no source.** `git diff --name-only release/2.0..HEAD`
+   returns only `packages/mcp/artifact/**` and
+   `docs/evidence/catalog/catalog-2026-10-06.1/**`. Zero files under
+   `packages/*/src`, `tests/`, `scripts/`, `docs/specs/` or `package.json`.
+2. **The test does not read the catalog.** It writes 100 synthetic skills into a
+   temp directory and imports them into a throwaway registry. It never opens the
+   artifact, the Hub, or any source tree.
+3. **It fails identically on the unmodified base checkout.** Run on the pristine
+   `release/2.0` worktree: `elapsed=9639 ms`, budget `5000 ms` — the same
+   assertion, and marginally *slower* than on this branch (8982 ms).
+4. **It is machine-speed dependent.** The budget is a wall-clock assertion
+   (5000 ms on linux, 30000 ms on win32) with no headroom on a loaded host. Load
+   average during the run was ~6.
+
+CI (ubuntu-latest / windows-2022 runners) is the authority for this budget; it is
+expected to pass there. The failure is recorded rather than suppressed, and no
+budget, threshold, or test was weakened.
