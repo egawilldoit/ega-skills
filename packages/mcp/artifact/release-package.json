@@ -1,5 +1,5 @@
 {
-  "hub_release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
-  "sqlite_artifact_digest": "sha256:ec83966dfd5a3bdd5edc34b1842d6a314b5ced9d689763168c2412cd19418729",
-  "snapshot_rows": 114
+  "hub_release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
+  "sqlite_artifact_digest": "sha256:de3ab40cfb13adf05f420cae72d5f7d18add82331d593ff3bf6e5f5f468f6e1d",
+  "snapshot_rows": 116
 }
