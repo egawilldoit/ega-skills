@@ -483,9 +483,9 @@
     },
     {
       "skill_id": "mattpocock/ask-matt",
-      "version_hash": "sha256:a4e87261199b3641a3b4a4a05d30e8aa7847b5362b297a9677213229eba44e60",
+      "version_hash": "sha256:55d181571d5ddf74c155c58ba8b97d5606f53bb862c9bbc8568a1b7adc4f7dd3",
       "level": "L2",
-      "tokens": 2730
+      "tokens": 2961
     },
     {
       "skill_id": "mattpocock/code-review",
@@ -495,21 +495,21 @@
     },
     {
       "skill_id": "mattpocock/codebase-design",
-      "version_hash": "sha256:265858fa4b2be410c0b73b14f327bba1d7bf3735648fc0562ef4c843b78c098f",
+      "version_hash": "sha256:cc7fced2a48571ab9f334dbe018015efa931e3b4421c9d99660fe54a108feff3",
       "level": "L2",
       "tokens": 1349
     },
     {
       "skill_id": "mattpocock/diagnosing-bugs",
-      "version_hash": "sha256:f56e6a33a7200be2f172c455ca35718a3345deb3e65ffb250b2c4fe6718ebf48",
+      "version_hash": "sha256:2544b52d53191d433c72c48786a974c4bfb9464336ed6005e19c1e9ef0ce2eab",
       "level": "L2",
-      "tokens": 2003
+      "tokens": 2004
     },
     {
       "skill_id": "mattpocock/domain-modeling",
-      "version_hash": "sha256:fbe160a645e7ef7b4cfd5dcab8610e705b15670a99e56724072430ba0d0c0150",
+      "version_hash": "sha256:3d1b9f181597d95507ab95e330647774ab6fe3bb7d68fbbf0ac486e856dbfc44",
       "level": "L2",
-      "tokens": 766
+      "tokens": 781
     },
     {
       "skill_id": "mattpocock/grill-me",
@@ -542,10 +542,22 @@
       "tokens": 97
     },
     {
-      "skill_id": "mattpocock/improve-codebase-architecture",
-      "version_hash": "sha256:707c0647c9c91bb291e2968f9bb65e8b5d274ad3932003994f408f1a6d86f01e",
+      "skill_id": "mattpocock/implement-spec",
+      "version_hash": "sha256:c7d721f475e4479b700c1d102e9dbd7f233a9848a47c0ed6f759344ffd247f6c",
       "level": "L2",
-      "tokens": 1342
+      "tokens": 591
+    },
+    {
+      "skill_id": "mattpocock/improve-codebase-architecture",
+      "version_hash": "sha256:f00dca636d8bf54a46009f2379663aed1a865261e55d7d1a84720f78b76d34d1",
+      "level": "L2",
+      "tokens": 1349
+    },
+    {
+      "skill_id": "mattpocock/pr",
+      "version_hash": "sha256:43174df8327ef089949f5dce65bc2bc893d8aa280f3efdb91092a67633f59adc",
+      "level": "L2",
+      "tokens": 928
     },
     {
       "skill_id": "mattpocock/prototype",
@@ -560,22 +572,22 @@
       "tokens": 169
     },
     {
-      "skill_id": "mattpocock/resolving-merge-conflicts",
-      "version_hash": "sha256:bad7eb9b757d69d561ce788e133a246c811193d104592a0bb42ee99f6ca8a7a9",
+      "skill_id": "mattpocock/retro",
+      "version_hash": "sha256:dca6546731967b94e6f2e8392c29d1ebe91345719f478edea8b0ea9999bc6983",
       "level": "L2",
-      "tokens": 204
+      "tokens": 953
     },
     {
       "skill_id": "mattpocock/setup-matt-pocock-skills",
-      "version_hash": "sha256:31121702fdba56d0f94ebd5069cb66148e9b5626175fc40290f090db3ae53a7a",
+      "version_hash": "sha256:5a80979a5d4281e6f964c50bcdb6144580e25c8f4093883c224669e3142c1e25",
       "level": "L2",
-      "tokens": 1695
+      "tokens": 1701
     },
     {
       "skill_id": "mattpocock/tdd",
-      "version_hash": "sha256:881b83c96da9481d5646b4ce10d88d0434787e540e57d73621838b56c0188e32",
+      "version_hash": "sha256:8a80a764a11952e45b6937eb0e7fa1cc4013325bf0246e47a653d3ae1755f130",
       "level": "L2",
-      "tokens": 756
+      "tokens": 757
     },
     {
       "skill_id": "mattpocock/teach",
@@ -603,15 +615,15 @@
     },
     {
       "skill_id": "mattpocock/triage",
-      "version_hash": "sha256:3e8d4ae488b09036bb25f8843c4aad78dbf066bdd9c5f3e7d7d368815fae783f",
+      "version_hash": "sha256:34325b72c9d502647f5624b65f25c01ba6368ae058c576dfcb0eed9daac02cf7",
       "level": "L2",
-      "tokens": 1556
+      "tokens": 1557
     },
     {
       "skill_id": "mattpocock/wait-what",
-      "version_hash": "sha256:18a2e20abc3801b3cedbef43e318331ed3fed531dd5af9af9fbac89d10725611",
+      "version_hash": "sha256:23bbecb0162c44ad63952f875da90d3ec9b2e6d0a9dcfefdcf5cab79b3986803",
       "level": "L2",
-      "tokens": 100
+      "tokens": 102
     },
     {
       "skill_id": "mattpocock/wayfinder",

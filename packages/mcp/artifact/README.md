@@ -9,17 +9,18 @@ Set on Vercel:
 EGA_HOSTED_ARTIFACT_DIR=./artifact
 ```
 
-## Provisioned release (candidate — not yet promoted)
+## Provisioned release
 
-- Catalog: `catalog-2026-09-29.2`
-- Release digest: `sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77`
+- Catalog: `catalog-2026-10-06.1`
+- Release digest: `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`
 - Hub id: `personal`
-- Skills: 114 (mattpocock 25, anthropic 14, vercel 9, egawilldoit 66)
-- Parent catalog: `catalog-2026-09-24.1` (48 skills, digest
-  `sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f`)
-- Built by the governed hub intake → quality → review → preview → export
-  pipeline from pinned reviewed commits; see `PROVENANCE.md` for sources,
-  repairs, routing metadata, and the reproduce/validate commands.
+- Skills: 116 (mattpocock 27, anthropic 14, vercel 9, egawilldoit 66)
+- Parent catalog: `catalog-2026-09-29.2` → `9c8b0eb98cc608bdc727287fdeb285040fb2771a`
+  (114 skills, digest `sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77`)
+- Software: EGA Skills **2.0.1, unchanged** — this is a catalog-content release
+- Built by the governed hub intake → review → preview → export pipeline from the
+  pinned reviewed commits; see `PROVENANCE.md` for sources, the one documented
+  repair, routing overlays, and the reproduce/validate commands.
 
 A valid artifact contains everything required by the current loader
 (`loadHostedReleaseSnapshot`), including:
