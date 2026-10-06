@@ -150,6 +150,15 @@ test("nested lock selection and provenance are strict canonical sets", () => {
   assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    provenance_files:\n", "    provenance_files:\n      - ../escape\n"))), "E_LOCK_MISMATCH");
 });
 
+test("lock scalar and collection constraints match sources.yaml", () => {
+  const lockText = read("sources.lock.yaml");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    repository: https://github.com/mattpocock/skills", "    repository: mirror/skills"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    namespace: mattpocock", "    namespace: bad namespace"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    requested_ref: main", "    requested_ref: \"\""))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("      roots:\n        - skills/engineering/code-review\n        - skills/engineering/tdd\n        - skills/productivity/grilling", "      roots: []"))), "E_LOCK_MISMATCH");
+  assert.equal(codeOf(() => parseSourcesLockYaml(lockText.replace("    provenance_files:\n      - LICENSE", "    provenance_files: []"))), "E_LOCK_MISMATCH");
+});
+
 // Final Contract A reconciliation: runtime accepts exactly what the
 // executable validator accepts — no divergence in either direction.
 test("credential-bearing repository rejected (E_SOURCE_SCHEMA)", () => {

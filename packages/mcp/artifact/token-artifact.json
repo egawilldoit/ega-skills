@@ -1,0 +1,701 @@
+{
+  "estimator": "ega-o200k-v1",
+  "counts": [
+    {
+      "skill_id": "anthropic/academy-guide",
+      "version_hash": "sha256:650d71eb50374c950157d727a317d5cd71d58dcc683ff72a441159cc5256a5d2",
+      "level": "L2",
+      "tokens": 1808
+    },
+    {
+      "skill_id": "anthropic/algorithmic-art",
+      "version_hash": "sha256:a495a2da00d06628db17f9962ee7114035fcc6969132a0422a10ead0ca739c1a",
+      "level": "L2",
+      "tokens": 4151
+    },
+    {
+      "skill_id": "anthropic/brand-guidelines",
+      "version_hash": "sha256:b195bf16da72a90e09afd501c8fbe4fc2f69e5022c9ffb40b9679e87456cfb07",
+      "level": "L2",
+      "tokens": 518
+    },
+    {
+      "skill_id": "anthropic/canvas-design",
+      "version_hash": "sha256:63a0f7e5a96a965f6c06b7dc3ae01e65e8453893c7f7c01f5938899cdb5ded3d",
+      "level": "L2",
+      "tokens": 2353
+    },
+    {
+      "skill_id": "anthropic/claude-api",
+      "version_hash": "sha256:955e02c6879a4fd2cbc48a25c526b27f6e5447aa4e9c909bc1a4b6fd182bbdc8",
+      "level": "L2",
+      "tokens": 21623
+    },
+    {
+      "skill_id": "anthropic/discernment-nudge",
+      "version_hash": "sha256:c9de755dd75b9f68d3224c7952cab148f5ff07c090f7b599796b9fb8fc3d9121",
+      "level": "L2",
+      "tokens": 2422
+    },
+    {
+      "skill_id": "anthropic/frontend-design",
+      "version_hash": "sha256:ad110017fbe652800952e07f36fc6f687055faf1c762a69b6ed1723a7204692f",
+      "level": "L2",
+      "tokens": 1892
+    },
+    {
+      "skill_id": "anthropic/internal-comms",
+      "version_hash": "sha256:e3279f122b6f80baecd4c5d8273b2d9fa7cb3e905eb287503ed24f6fee3f6d96",
+      "level": "L2",
+      "tokens": 321
+    },
+    {
+      "skill_id": "anthropic/mcp-builder",
+      "version_hash": "sha256:039eac54616f60ae8ae0840603710e10eded7ac357a6c3f1d47c27484dd3474e",
+      "level": "L2",
+      "tokens": 1938
+    },
+    {
+      "skill_id": "anthropic/skill-creator",
+      "version_hash": "sha256:6c44d276d645bc6aac596209629c3f56cf263f423d2986be76678a9c866263e5",
+      "level": "L2",
+      "tokens": 7241
+    },
+    {
+      "skill_id": "anthropic/slack-gif-creator",
+      "version_hash": "sha256:9c0873c03abd1f790c1a2ab2cb3337055615e94427f49a6619931692516379bd",
+      "level": "L2",
+      "tokens": 1983
+    },
+    {
+      "skill_id": "anthropic/theme-factory",
+      "version_hash": "sha256:04ef06daa0528054c296c505a412c012d061f28e34790a4e25df387a3c403d93",
+      "level": "L2",
+      "tokens": 659
+    },
+    {
+      "skill_id": "anthropic/web-artifacts-builder",
+      "version_hash": "sha256:69dfba6d7ed815498fdfba2f8488c0d0eedd88848e81cb2b72f0f7bc723b5abd",
+      "level": "L2",
+      "tokens": 699
+    },
+    {
+      "skill_id": "anthropic/webapp-testing",
+      "version_hash": "sha256:bdac8ed56ad37f44b2adb3959c45052d364c2b523117990305c917aa9ac6fc9a",
+      "level": "L2",
+      "tokens": 884
+    },
+    {
+      "skill_id": "egawilldoit/adversarial-review",
+      "version_hash": "sha256:ba9f40b467dea54f16913a12f8cfd9df0d045967b2e77ac989d1d49ff079f6f6",
+      "level": "L2",
+      "tokens": 1321
+    },
+    {
+      "skill_id": "egawilldoit/blast-radius",
+      "version_hash": "sha256:8976b4b0171ee0abe3c38eff20b6fba7446b31293e8047114b39a41583408fc8",
+      "level": "L2",
+      "tokens": 913
+    },
+    {
+      "skill_id": "egawilldoit/build-execution-contract",
+      "version_hash": "sha256:3d8c57918aeeb14ab4595371ea232004fcccc9a58798633ec263c7e5d31c5de3",
+      "level": "L2",
+      "tokens": 1154
+    },
+    {
+      "skill_id": "egawilldoit/certify-database-rollout",
+      "version_hash": "sha256:2064223c9545d2fc31cce08e1090ef5a983a8b63f30d511206aad74f73ae3d4d",
+      "level": "L2",
+      "tokens": 1099
+    },
+    {
+      "skill_id": "egawilldoit/certify-mcp-production",
+      "version_hash": "sha256:476e900e5080134a4328a9c0ff85350bdf584c1b0f92ff4dc1f6b52528d114a3",
+      "level": "L2",
+      "tokens": 1117
+    },
+    {
+      "skill_id": "egawilldoit/certify-pr-head",
+      "version_hash": "sha256:09732212913804055b494dd8408b490199cd94f19df38628cd33b43bfebd3334",
+      "level": "L2",
+      "tokens": 1310
+    },
+    {
+      "skill_id": "egawilldoit/certify-production-target",
+      "version_hash": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
+      "level": "L2",
+      "tokens": 761
+    },
+    {
+      "skill_id": "egawilldoit/certify-release",
+      "version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "level": "L2",
+      "tokens": 790
+    },
+    {
+      "skill_id": "egawilldoit/check-compiler-errors",
+      "version_hash": "sha256:e82a100da644bfa36fd64cc3060081fd56d162cdf095b9727ba10f097ddfebac",
+      "level": "L2",
+      "tokens": 349
+    },
+    {
+      "skill_id": "egawilldoit/compare-designs",
+      "version_hash": "sha256:373ae7ad0891a1d20f1e5564dfd823d5fef87ff9c2697d220e54bb8e19f97267",
+      "level": "L2",
+      "tokens": 774
+    },
+    {
+      "skill_id": "egawilldoit/create-verification-workflow",
+      "version_hash": "sha256:7fe911b26a352d9bf4123e84ffc97a07098f54186a5dde05c2d8136120b8e388",
+      "level": "L2",
+      "tokens": 1386
+    },
+    {
+      "skill_id": "egawilldoit/deliver-software",
+      "version_hash": "sha256:e9849b1bdfddc0095eda4463f5c09eaba95b606a49679624abae83dd75c3872f",
+      "level": "L2",
+      "tokens": 752
+    },
+    {
+      "skill_id": "egawilldoit/design-architecture",
+      "version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "level": "L2",
+      "tokens": 1029
+    },
+    {
+      "skill_id": "egawilldoit/design-investigation",
+      "version_hash": "sha256:2a3da9fec92367e6a17ded250d1399ede7d5d76ec5143b0ae69251eba8fe3414",
+      "level": "L2",
+      "tokens": 1059
+    },
+    {
+      "skill_id": "egawilldoit/deslop",
+      "version_hash": "sha256:d69f6706c0195f52734c4b999dd30213feb6497df92f18b568f3dd99dc526ef5",
+      "level": "L2",
+      "tokens": 223
+    },
+    {
+      "skill_id": "egawilldoit/fix-ci",
+      "version_hash": "sha256:3f1c46c757786ab3b083bd6a6b73ae217f45c41a0a90f7842346981a4fcddcfd",
+      "level": "L2",
+      "tokens": 605
+    },
+    {
+      "skill_id": "egawilldoit/fix-merge-conflicts",
+      "version_hash": "sha256:757aeffd4943d14e03409ae77434a84b695a4a673122ce369c20603bde31a233",
+      "level": "L2",
+      "tokens": 240
+    },
+    {
+      "skill_id": "egawilldoit/get-pr-comments",
+      "version_hash": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+      "level": "L2",
+      "tokens": 144
+    },
+    {
+      "skill_id": "egawilldoit/integrate-pr-stack",
+      "version_hash": "sha256:b4da73d7dd5282e201a403256bd13c735d8681262345712963783d13e41e38de",
+      "level": "L2",
+      "tokens": 1161
+    },
+    {
+      "skill_id": "egawilldoit/loop-on-ci",
+      "version_hash": "sha256:58333b4ca32527b74681cb72fed45061e8e826554ec4b597c1edf6a62bc5a8cb",
+      "level": "L2",
+      "tokens": 658
+    },
+    {
+      "skill_id": "egawilldoit/maintain-verification-workflow",
+      "version_hash": "sha256:a8d313aa678cfdf0d94ce9c25b40f822892e5081a3a2646a4617139afcde44f2",
+      "level": "L2",
+      "tokens": 1191
+    },
+    {
+      "skill_id": "egawilldoit/make-pr-easy-to-review",
+      "version_hash": "sha256:33cef12e5cdd1993a4009bd6a2cf561c0617e469fb389864297c33bf52e63111",
+      "level": "L2",
+      "tokens": 795
+    },
+    {
+      "skill_id": "egawilldoit/mine-work-patterns",
+      "version_hash": "sha256:1ef20da1fb25498a8e356bf2712680a5383329c298ef7a153e8f788465ed8354",
+      "level": "L2",
+      "tokens": 1280
+    },
+    {
+      "skill_id": "egawilldoit/new-branch-and-pr",
+      "version_hash": "sha256:a198fda5283a2a20ea025fa98b7145485f164ef63cac9b4b23db5facc9cc090f",
+      "level": "L2",
+      "tokens": 602
+    },
+    {
+      "skill_id": "egawilldoit/parallelize-work",
+      "version_hash": "sha256:1f6c7b9c13d0d07de88e2d61a96ea065807b106de9b7f6215fc41e5cd2710178",
+      "level": "L2",
+      "tokens": 1026
+    },
+    {
+      "skill_id": "egawilldoit/preflight-repository",
+      "version_hash": "sha256:c4ff711086df8b9631e8790b9fadddc8d804ab408f68349ac8799b422a5a3180",
+      "level": "L2",
+      "tokens": 1563
+    },
+    {
+      "skill_id": "egawilldoit/principle-attack-the-premise",
+      "version_hash": "sha256:0069441e028d3ae441995a1d65ef613245dea06411156abcfdc819e2a85d0b5c",
+      "level": "L2",
+      "tokens": 430
+    },
+    {
+      "skill_id": "egawilldoit/principle-boundary-discipline",
+      "version_hash": "sha256:e4a297b30de428cd1d8933c17a5b207967a18a5f88cfb82e6bd96038121280f0",
+      "level": "L2",
+      "tokens": 371
+    },
+    {
+      "skill_id": "egawilldoit/principle-build-the-lever",
+      "version_hash": "sha256:4780b76ad7f3eb10757e4bf1a603c72313bcb704b9bfe77050a202cb2730707d",
+      "level": "L2",
+      "tokens": 565
+    },
+    {
+      "skill_id": "egawilldoit/principle-encode-lessons-in-structure",
+      "version_hash": "sha256:ad1b3beec602ff28029d62b1150c9f3b3ec4480d77da6e4fa67482b616a5b6af",
+      "level": "L2",
+      "tokens": 459
+    },
+    {
+      "skill_id": "egawilldoit/principle-exhaust-the-design-space",
+      "version_hash": "sha256:1a9e4e81fa5af126f6ffb66554c87b7997611b9657fcbf21168b14bbf4ab9daf",
+      "level": "L2",
+      "tokens": 215
+    },
+    {
+      "skill_id": "egawilldoit/principle-experience-first",
+      "version_hash": "sha256:eded67fea61f68569d4c2a6fccf03a0745f92d1417d772a826f24668e7dfbd1d",
+      "level": "L2",
+      "tokens": 230
+    },
+    {
+      "skill_id": "egawilldoit/principle-fix-root-causes",
+      "version_hash": "sha256:20cf008f1cb43474c5ca5ac9799d9c902c6315b30e1d9c9fded9472e5a1c1356",
+      "level": "L2",
+      "tokens": 262
+    },
+    {
+      "skill_id": "egawilldoit/principle-foundational-thinking",
+      "version_hash": "sha256:665e90ba8020059c94f01a37a3e8e8995ffcbe439ce3237cc04debb9816882ea",
+      "level": "L2",
+      "tokens": 282
+    },
+    {
+      "skill_id": "egawilldoit/principle-guard-the-context-window",
+      "version_hash": "sha256:17ce8399740d46dd92b3e6ab5128b99e143ad6ad864d16b67494bec07149443f",
+      "level": "L2",
+      "tokens": 191
+    },
+    {
+      "skill_id": "egawilldoit/principle-laziness-protocol",
+      "version_hash": "sha256:ba0b20e80da8ee61b5fc66e151945395184ae7353d6ffb0102148b3fe7de1946",
+      "level": "L2",
+      "tokens": 287
+    },
+    {
+      "skill_id": "egawilldoit/principle-make-operations-idempotent",
+      "version_hash": "sha256:f15dfd3e0119ceec7761efc57deabec1b26779c36d94ec417712da784d9560f6",
+      "level": "L2",
+      "tokens": 283
+    },
+    {
+      "skill_id": "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+      "version_hash": "sha256:981529b6cf487d8aefaad6b7e3785685637b01b66605467ec5a946c60375cb87",
+      "level": "L2",
+      "tokens": 221
+    },
+    {
+      "skill_id": "egawilldoit/principle-minimize-reader-load",
+      "version_hash": "sha256:1e5b2e3f314ffee466f4662e9e1679f03fc3183325e4e96ffc1b6a5291ecdce5",
+      "level": "L2",
+      "tokens": 435
+    },
+    {
+      "skill_id": "egawilldoit/principle-model-the-domain",
+      "version_hash": "sha256:161ed410aaf963e339d1fca1a15c205c629977b5a8843a68ccb633a84d61353f",
+      "level": "L2",
+      "tokens": 405
+    },
+    {
+      "skill_id": "egawilldoit/principle-outcome-oriented-execution",
+      "version_hash": "sha256:c76de47c814625e4db630feb4f60209a6d852faaab1c7af5b525be1795f3a325",
+      "level": "L2",
+      "tokens": 185
+    },
+    {
+      "skill_id": "egawilldoit/principle-prove-it-works",
+      "version_hash": "sha256:da8423af23d09c7b1b371732c93ce3e82f8464960ff4096d0b27bc8fe3dcda2f",
+      "level": "L2",
+      "tokens": 284
+    },
+    {
+      "skill_id": "egawilldoit/principle-redesign-from-first-principles",
+      "version_hash": "sha256:86a38de139a656eff80c09b34aed55cb412b0927a45e7b71760e7477a41ca2d1",
+      "level": "L2",
+      "tokens": 161
+    },
+    {
+      "skill_id": "egawilldoit/principle-separate-before-serializing-shared-state",
+      "version_hash": "sha256:c637cdc30750c1743334d02898daed4453d25f748b73724ef826c3f8cb683eba",
+      "level": "L2",
+      "tokens": 319
+    },
+    {
+      "skill_id": "egawilldoit/principle-sequence-verifiable-units",
+      "version_hash": "sha256:80cf4d02c70f5f15f70a56b22c97f482806024da97656a712703d2096e2ac66d",
+      "level": "L2",
+      "tokens": 365
+    },
+    {
+      "skill_id": "egawilldoit/principle-subtract-before-you-add",
+      "version_hash": "sha256:866e5f4bc1b5eaa86b15f1a8e25804a281c17f5c2740b01998fc60168b7c677b",
+      "level": "L2",
+      "tokens": 206
+    },
+    {
+      "skill_id": "egawilldoit/principle-test-behavior-not-implementation",
+      "version_hash": "sha256:99f4880da51b11f6773438b0f2aada1aebd1f461f8d9eeddcd2978314e9b6966",
+      "level": "L2",
+      "tokens": 597
+    },
+    {
+      "skill_id": "egawilldoit/principle-type-system-discipline",
+      "version_hash": "sha256:c7086713c773f29fc3cde8e531f29b94519d4c439e505883cd69f43b05436f61",
+      "level": "L2",
+      "tokens": 1062
+    },
+    {
+      "skill_id": "egawilldoit/reconcile-project-truth",
+      "version_hash": "sha256:358ebca341b32ee06ec26f29e3c9a2017e1d8b00e401017bdb555af9dac36bc2",
+      "level": "L2",
+      "tokens": 731
+    },
+    {
+      "skill_id": "egawilldoit/record-evidence",
+      "version_hash": "sha256:21a033a44efa4d5589681f5e5f3c31ab2dc0bc48eb768e80faf3b18f0bdc89a9",
+      "level": "L2",
+      "tokens": 1174
+    },
+    {
+      "skill_id": "egawilldoit/recover-design-rationale",
+      "version_hash": "sha256:d652ea34026db956035b8803f2a41c4f588b76306146a6c92d8149d3700e0523",
+      "level": "L2",
+      "tokens": 1052
+    },
+    {
+      "skill_id": "egawilldoit/recover-work-context",
+      "version_hash": "sha256:5ccbbaf2a9b7b06b0a779e954fc23b6a777ffdcb21fb4df6d0f6fd71906d2e03",
+      "level": "L2",
+      "tokens": 1100
+    },
+    {
+      "skill_id": "egawilldoit/review-and-ship",
+      "version_hash": "sha256:41b8878c752b4dfbc79ff2b1de0d35f9c29876488aba4c26839910acb9c1fdad",
+      "level": "L2",
+      "tokens": 807
+    },
+    {
+      "skill_id": "egawilldoit/run-smoke-tests",
+      "version_hash": "sha256:6765e4861c9ee3816a0d0731d42c3719711efc7a708dce8c43d4eaaaaadad10a",
+      "level": "L2",
+      "tokens": 423
+    },
+    {
+      "skill_id": "egawilldoit/tdd",
+      "version_hash": "sha256:6433651b951231949bb78b59f0300003d32274f114bfc99e5e82cc14b4ca053b",
+      "level": "L2",
+      "tokens": 606
+    },
+    {
+      "skill_id": "egawilldoit/technical-writing",
+      "version_hash": "sha256:ad6ebde9c0ef0f03f87371c0e41bbcaf7c02c5bb7023153164521e7ca86b35ae",
+      "level": "L2",
+      "tokens": 2325
+    },
+    {
+      "skill_id": "egawilldoit/trace-artifact-provenance",
+      "version_hash": "sha256:d4ce1b8ecd935a78d26674390b5bf9734c9e854beb8bc92795fda51085072087",
+      "level": "L2",
+      "tokens": 1675
+    },
+    {
+      "skill_id": "egawilldoit/typescript-best-practices",
+      "version_hash": "sha256:3663c344e99b41c600049db4c17680a1e9c1458343d47c79170f7494a6db0a53",
+      "level": "L2",
+      "tokens": 677
+    },
+    {
+      "skill_id": "egawilldoit/understand-codebase",
+      "version_hash": "sha256:9f9d48f6d4cb13fe278afed725d8618274753a79f61c81a3a46b830de315ce9d",
+      "level": "L2",
+      "tokens": 859
+    },
+    {
+      "skill_id": "egawilldoit/unslop",
+      "version_hash": "sha256:a0e4e1b4dda08dc2744489bfcac728a131c26e69bf723ef1744e9c5d9488830a",
+      "level": "L2",
+      "tokens": 1500
+    },
+    {
+      "skill_id": "egawilldoit/verify-cli",
+      "version_hash": "sha256:903d8bdb53c9fa2b48661162692aa87682aa3e3a0897af73a45062ace7e708a6",
+      "level": "L2",
+      "tokens": 981
+    },
+    {
+      "skill_id": "egawilldoit/verify-this",
+      "version_hash": "sha256:a9b7c09213820b50f65eff94322bf5f4f8158f842e2b22398b9d38893f2bcfa4",
+      "level": "L2",
+      "tokens": 620
+    },
+    {
+      "skill_id": "egawilldoit/verify-ui",
+      "version_hash": "sha256:986ba44db995194bd02763b03862f0e8bd0311562216167ed6b3168a8570bfc7",
+      "level": "L2",
+      "tokens": 932
+    },
+    {
+      "skill_id": "egawilldoit/weekly-review",
+      "version_hash": "sha256:303a88b032be80840bd095afde6eab5c092138a2adab864d107e5de8686ae815",
+      "level": "L2",
+      "tokens": 231
+    },
+    {
+      "skill_id": "egawilldoit/what-did-i-get-done",
+      "version_hash": "sha256:a293e22ff211f7bd116b6db7f905084cd76cfdbb01bf47981783c4c15800a13a",
+      "level": "L2",
+      "tokens": 267
+    },
+    {
+      "skill_id": "egawilldoit/work-retrospective",
+      "version_hash": "sha256:5f5daf8def6bb3ef7d023d6f5eb5c549c2444d6e22400472ccc0cd9bd9c1855a",
+      "level": "L2",
+      "tokens": 1242
+    },
+    {
+      "skill_id": "mattpocock/ask-matt",
+      "version_hash": "sha256:55d181571d5ddf74c155c58ba8b97d5606f53bb862c9bbc8568a1b7adc4f7dd3",
+      "level": "L2",
+      "tokens": 2961
+    },
+    {
+      "skill_id": "mattpocock/code-review",
+      "version_hash": "sha256:a31138c9d823ef6c5ec7209e6fbb07f552630ede9670eabb53515673125e9635",
+      "level": "L2",
+      "tokens": 1510
+    },
+    {
+      "skill_id": "mattpocock/codebase-design",
+      "version_hash": "sha256:cc7fced2a48571ab9f334dbe018015efa931e3b4421c9d99660fe54a108feff3",
+      "level": "L2",
+      "tokens": 1349
+    },
+    {
+      "skill_id": "mattpocock/diagnosing-bugs",
+      "version_hash": "sha256:2544b52d53191d433c72c48786a974c4bfb9464336ed6005e19c1e9ef0ce2eab",
+      "level": "L2",
+      "tokens": 2004
+    },
+    {
+      "skill_id": "mattpocock/domain-modeling",
+      "version_hash": "sha256:3d1b9f181597d95507ab95e330647774ab6fe3bb7d68fbbf0ac486e856dbfc44",
+      "level": "L2",
+      "tokens": 781
+    },
+    {
+      "skill_id": "mattpocock/grill-me",
+      "version_hash": "sha256:b4eb607c40c254f74247c0ba2323e4517befc6a6b70c8b4d41f191c15e056259",
+      "level": "L2",
+      "tokens": 36
+    },
+    {
+      "skill_id": "mattpocock/grill-with-docs",
+      "version_hash": "sha256:115eab5e9c915531b5f13d843a0e99694baa8ed9597246a29af048a533773ddc",
+      "level": "L2",
+      "tokens": 60
+    },
+    {
+      "skill_id": "mattpocock/grilling",
+      "version_hash": "sha256:4fb83b5b91e81b51244fbb4a2f056ed6e64303e20080f2d67a1cf9ddc90403cd",
+      "level": "L2",
+      "tokens": 420
+    },
+    {
+      "skill_id": "mattpocock/handoff",
+      "version_hash": "sha256:35e1ad404e47c7653ff3df344f5e33857066419aff660b26321b27db0de6287c",
+      "level": "L2",
+      "tokens": 182
+    },
+    {
+      "skill_id": "mattpocock/implement",
+      "version_hash": "sha256:bf660265938777f6138a5c33edc23329e893b4fc683a60ea85271bc6c2e9846e",
+      "level": "L2",
+      "tokens": 97
+    },
+    {
+      "skill_id": "mattpocock/implement-spec",
+      "version_hash": "sha256:c7d721f475e4479b700c1d102e9dbd7f233a9848a47c0ed6f759344ffd247f6c",
+      "level": "L2",
+      "tokens": 591
+    },
+    {
+      "skill_id": "mattpocock/improve-codebase-architecture",
+      "version_hash": "sha256:f00dca636d8bf54a46009f2379663aed1a865261e55d7d1a84720f78b76d34d1",
+      "level": "L2",
+      "tokens": 1349
+    },
+    {
+      "skill_id": "mattpocock/pr",
+      "version_hash": "sha256:43174df8327ef089949f5dce65bc2bc893d8aa280f3efdb91092a67633f59adc",
+      "level": "L2",
+      "tokens": 928
+    },
+    {
+      "skill_id": "mattpocock/prototype",
+      "version_hash": "sha256:c3d6b0bc45bd4a77b21fb00b54523af84697c1cbd8069a0ae048880eba3cbec5",
+      "level": "L2",
+      "tokens": 642
+    },
+    {
+      "skill_id": "mattpocock/research",
+      "version_hash": "sha256:728d3198b6cd5e195d346fea3e9aeec2e18ea15b25a28cf82afb9b29c38bbb58",
+      "level": "L2",
+      "tokens": 169
+    },
+    {
+      "skill_id": "mattpocock/retro",
+      "version_hash": "sha256:dca6546731967b94e6f2e8392c29d1ebe91345719f478edea8b0ea9999bc6983",
+      "level": "L2",
+      "tokens": 953
+    },
+    {
+      "skill_id": "mattpocock/setup-matt-pocock-skills",
+      "version_hash": "sha256:5a80979a5d4281e6f964c50bcdb6144580e25c8f4093883c224669e3142c1e25",
+      "level": "L2",
+      "tokens": 1701
+    },
+    {
+      "skill_id": "mattpocock/tdd",
+      "version_hash": "sha256:8a80a764a11952e45b6937eb0e7fa1cc4013325bf0246e47a653d3ae1755f130",
+      "level": "L2",
+      "tokens": 757
+    },
+    {
+      "skill_id": "mattpocock/teach",
+      "version_hash": "sha256:a7a63d3c16ae857b6de0adf91fe07be5a3007519d0693cf79f1ef0fe6fdc1362",
+      "level": "L2",
+      "tokens": 1946
+    },
+    {
+      "skill_id": "mattpocock/to-questionnaire",
+      "version_hash": "sha256:a6209cff9ba2d83a789e450e37677a66f9b3556e22c2a230929cb427918a82f9",
+      "level": "L2",
+      "tokens": 632
+    },
+    {
+      "skill_id": "mattpocock/to-spec",
+      "version_hash": "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb",
+      "level": "L2",
+      "tokens": 632
+    },
+    {
+      "skill_id": "mattpocock/to-tickets",
+      "version_hash": "sha256:e13a764057b6d7e5ac37abc8c7e435f21ed4d59c5da37a6272258d9fa3dfb89f",
+      "level": "L2",
+      "tokens": 1241
+    },
+    {
+      "skill_id": "mattpocock/triage",
+      "version_hash": "sha256:34325b72c9d502647f5624b65f25c01ba6368ae058c576dfcb0eed9daac02cf7",
+      "level": "L2",
+      "tokens": 1557
+    },
+    {
+      "skill_id": "mattpocock/wait-what",
+      "version_hash": "sha256:23bbecb0162c44ad63952f875da90d3ec9b2e6d0a9dcfefdcf5cab79b3986803",
+      "level": "L2",
+      "tokens": 102
+    },
+    {
+      "skill_id": "mattpocock/wayfinder",
+      "version_hash": "sha256:6596ee6ad94133449b4c91474234e1b863209e8cf18b50269de0dfe0e2de8177",
+      "level": "L2",
+      "tokens": 2715
+    },
+    {
+      "skill_id": "mattpocock/wizard",
+      "version_hash": "sha256:a0db405d4a299f296c0ed6da4ad700822f02285cdda59d4f0770a95bf86208b6",
+      "level": "L2",
+      "tokens": 957
+    },
+    {
+      "skill_id": "mattpocock/writing-for-agents",
+      "version_hash": "sha256:5296e833a83f9775e7abc0c81ec21e94e63ad4860ba94d7ba71f585f80d1cd53",
+      "level": "L2",
+      "tokens": 2349
+    },
+    {
+      "skill_id": "vercel/composition-patterns",
+      "version_hash": "sha256:bb7b0f9e6c022f9e38efcb7d2533059a7a3a584c13235561ae443d0e8312f711",
+      "level": "L2",
+      "tokens": 623
+    },
+    {
+      "skill_id": "vercel/deploy-to-vercel",
+      "version_hash": "sha256:9b55712ae84cf97ac165e059d933622850864c6e88520971200e31f130485b45",
+      "level": "L2",
+      "tokens": 2894
+    },
+    {
+      "skill_id": "vercel/react-best-practices",
+      "version_hash": "sha256:31856c5e77fb6ef39a8d44195453e0e3ad53bcb77827c16af9c0242f7f5c46bc",
+      "level": "L2",
+      "tokens": 1762
+    },
+    {
+      "skill_id": "vercel/react-native-skills",
+      "version_hash": "sha256:e06ef3ccc7b65da05531f0282b14f528b7b25f72ccabda05c0d84a848d4522ed",
+      "level": "L2",
+      "tokens": 1038
+    },
+    {
+      "skill_id": "vercel/react-view-transitions",
+      "version_hash": "sha256:65e55f557320661b32311f3a8a5942ed1cfa0543083d3ba913ad158a31806621",
+      "level": "L2",
+      "tokens": 3310
+    },
+    {
+      "skill_id": "vercel/vercel-cli-with-tokens",
+      "version_hash": "sha256:e0d2721d72afb6c05ded0b2dc52f5aa7dfe1cd6e9bd1e503c08bbe7cec059677",
+      "level": "L2",
+      "tokens": 2698
+    },
+    {
+      "skill_id": "vercel/vercel-optimize",
+      "version_hash": "sha256:468bcf09d08f80a568687f231c4fc00736441ae91f807e4628f6725cfa44753f",
+      "level": "L2",
+      "tokens": 3954
+    },
+    {
+      "skill_id": "vercel/web-design-guidelines",
+      "version_hash": "sha256:fb18cfe95a3067e333ee4877850e063d2e30095395df7021bdad22d684ed10cd",
+      "level": "L2",
+      "tokens": 268
+    },
+    {
+      "skill_id": "vercel/writing-guidelines",
+      "version_hash": "sha256:a8eb83093df92886215b483f576f51c068dad41e30cdcb655f9dba437012ce47",
+      "level": "L2",
+      "tokens": 270
+    }
+  ]
+}

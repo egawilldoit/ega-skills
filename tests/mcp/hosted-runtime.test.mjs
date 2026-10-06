@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildHubRelease } from "../../packages/project/dist/index.js";
 import {
   createHostedMcpHandler,
+  createHostedRuntimeFromEnv,
   loadHostedReleaseSnapshot,
 } from "../../packages/mcp/dist/index.js";
 
@@ -20,6 +21,32 @@ function makeHub() {
   writeFileSync(join(hubDir, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
   return hubDir;
 }
+
+test("JWT runtime requires the audience to equal the canonical protected resource", async () => {
+  const build = await buildHubRelease(makeHub());
+  const base = {
+    EGA_HOSTED_ARTIFACT_DIR: build.registryHome,
+    EGA_HOSTED_AUTHZ_JSON: JSON.stringify({
+      workspace_id: "oauth-workspace",
+      visibility: "private",
+      owner_subject: "user-1",
+      memberships: [{ subject: "user-1", role: "owner", active: true }],
+      denies: [],
+    }),
+    EGA_HOSTED_ALLOWED_ORIGINS: "http://localhost",
+    EGA_HOSTED_ISSUER: "https://project-ref.supabase.co/auth/v1",
+    EGA_HOSTED_JWKS_URL: "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
+    EGA_HOSTED_RESOURCE_URL: "https://mcp.example.test/mcp",
+  };
+
+  assert.throws(
+    () => createHostedRuntimeFromEnv({ ...base, EGA_HOSTED_AUDIENCE: "authenticated" }),
+    /EGA_HOSTED_AUDIENCE must equal EGA_HOSTED_RESOURCE_URL/,
+  );
+  assert.doesNotThrow(() =>
+    createHostedRuntimeFromEnv({ ...base, EGA_HOSTED_AUDIENCE: "https://mcp.example.test/mcp" }),
+  );
+});
 
 async function rpc(handler, id, method, params = {}) {
   const response = await handler.fetch(new Request("http://localhost/mcp", {
@@ -92,6 +119,32 @@ test("hosted runtime rejects unauthenticated access before tool execution", asyn
   }));
   assert.equal(response.status, 401);
   assert.match(await response.text(), /E_AUTH_REQUIRED/);
+});
+
+test("hosted runtime allows missing Origin into authentication and rejects untrusted Origins", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+  });
+  for (const origin of [undefined, "http://localhost"]) {
+    const headers = { authorization: "Bearer test-token", "content-type": "application/json", accept: "application/json, text/event-stream" };
+    if (origin) headers.origin = origin;
+    const response = await handler.fetch(new Request("http://localhost/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }));
+    assert.equal(response.status, 200, `origin ${origin} must reach authentication`);
+  }
+  const rejected = await handler.fetch(new Request("http://localhost/mcp", {
+    method: "POST",
+    headers: { authorization: "Bearer test-token", "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  }));
+  assert.equal(rejected.status, 403);
 });
 
 test("hosted unpinned requests resolve the stable release once and report its digest", async () => {

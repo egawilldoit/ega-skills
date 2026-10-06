@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "namespace": "ega",
+  "metadata_revision": "routing-corpus-v1",
+  "skills": [
+    {
+      "name": "react-ui",
+      "description": "Build and test React user interfaces.",
+      "ega": "schema_version: 1\ndomains: [engineering]\nframeworks: [react]\nplatforms: [web]\ntriggers: [build react component, react component, react interface]\n",
+      "body": "---\nname: react-ui\ndescription: Build and test React user interfaces.\n---\n# React UI\n\nBuild the interface.\n"
+    },
+    {
+      "name": "python-testing",
+      "description": "Run focused Python tests and pytest diagnostics.",
+      "ega": "schema_version: 1\ndomains: [testing]\nframeworks: [pytest]\ntriggers: [run pytest, python test, diagnose pytest, review pytest output]\n",
+      "body": "---\nname: python-testing\ndescription: Run focused Python tests and pytest diagnostics.\n---\n# Python testing\n\nRun focused tests.\n"
+    },
+    {
+      "name": "git-release",
+      "description": "Prepare a versioned release and release notes.",
+      "ega": "schema_version: 1\ndomains: [release]\ntriggers: [prepare release, release notes, cut release]\n",
+      "body": "---\nname: git-release\ndescription: Prepare a versioned release and release notes.\n---\n# Git release\n\nPrepare the release.\n"
+    },
+    {
+      "name": "api-docs",
+      "description": "Write and review API documentation.",
+      "ega": "schema_version: 1\ndomains: [documentation]\ntriggers: [write api docs, document api, review api docs, document public api]\n",
+      "body": "---\nname: api-docs\ndescription: Write and review API documentation.\n---\n# API docs\n\nDocument the API.\n"
+    },
+    {
+      "name": "french-editing",
+      "description": "Revise French prose while preserving meaning.",
+      "ega": "schema_version: 1\ndomains: [writing]\ntriggers: [réviser français, écrire en français, corriger français, réviser la prose en français, corriger la prose en français]\n",
+      "body": "---\nname: french-editing\ndescription: Revise French prose while preserving meaning.\n---\n# French editing\n\nRevise French prose.\n"
+    },
+    {
+      "name": "attractive-guide",
+      "description": "A polished attractive guide for careful release workflows and beautiful documentation.",
+      "ega": "schema_version: 1\ndomains: [guidance]\ntriggers: [release checklist]\n",
+      "body": "---\nname: attractive-guide\ndescription: A polished attractive guide for careful release workflows and beautiful documentation.\n---\n# Attractive guide\n\nA guide.\n"
+    }
+  ],
+  "tasks": [
+    { "id": "react-01", "task": "build react component", "expected_ids": ["ega/react-ui"], "forbidden_ids": ["ega/python-testing"] },
+    { "id": "react-02", "task": "please build a react interface", "expected_ids": ["ega/react-ui"] },
+    { "id": "react-03", "task": "build react component for the dashboard", "expected_ids": ["ega/react-ui"] },
+    { "id": "react-04", "task": "review the react interface", "expected_ids": ["ega/react-ui"] },
+    { "id": "react-05", "task": "react component", "expected_ids": ["ega/react-ui"] },
+    { "id": "react-06", "task": "ship a react interface change", "expected_ids": ["ega/react-ui"] },
+    { "id": "pytest-01", "task": "run pytest", "expected_ids": ["ega/python-testing"], "forbidden_ids": ["ega/react-ui"] },
+    { "id": "pytest-02", "task": "debug a python test", "expected_ids": ["ega/python-testing"] },
+    { "id": "pytest-03", "task": "diagnose pytest failures", "expected_ids": ["ega/python-testing"] },
+    { "id": "pytest-04", "task": "run a python test suite", "expected_ids": ["ega/python-testing"] },
+    { "id": "pytest-05", "task": "review pytest output", "expected_ids": ["ega/python-testing"] },
+    { "id": "release-01", "task": "prepare release", "expected_ids": ["ega/git-release"], "forbidden_ids": ["ega/attractive-guide"] },
+    { "id": "release-02", "task": "write release notes", "expected_ids": ["ega/git-release"] },
+    { "id": "release-03", "task": "cut release", "expected_ids": ["ega/git-release"] },
+    { "id": "release-04", "task": "prepare the release notes", "expected_ids": ["ega/git-release"] },
+    { "id": "release-05", "task": "cut the next release", "expected_ids": ["ega/git-release"] },
+    { "id": "docs-01", "task": "write api docs", "expected_ids": ["ega/api-docs"] },
+    { "id": "docs-02", "task": "document api", "expected_ids": ["ega/api-docs"] },
+    { "id": "docs-03", "task": "review api docs", "expected_ids": ["ega/api-docs"] },
+    { "id": "docs-04", "task": "document public api", "expected_ids": ["ega/api-docs"] },
+    { "id": "fr-01", "task": "réviser français", "expected_ids": ["ega/french-editing"] },
+    { "id": "fr-02", "task": "écrire en français", "expected_ids": ["ega/french-editing"] },
+    { "id": "fr-03", "task": "corriger français", "expected_ids": ["ega/french-editing"] },
+    { "id": "fr-04", "task": "réviser la prose en français", "expected_ids": ["ega/french-editing"] },
+    { "id": "none-01", "task": "quantum zebra orchard", "expected_ids": [] },
+    { "id": "none-02", "task": "invent a lunar sandwich protocol", "expected_ids": [] },
+    { "id": "none-03", "task": "measure the blue violin", "expected_ids": [] },
+    { "id": "description-only", "task": "polished attractive beautiful guide", "expected_ids": [], "forbidden_ids": ["ega/attractive-guide"] },
+    { "id": "release-06", "task": "prepare release notes for publication", "expected_ids": ["ega/git-release"] },
+    { "id": "fr-05", "task": "corriger la prose en français", "expected_ids": ["ega/french-editing"] }
+  ]
+}

@@ -1,0 +1,8 @@
+schema_version: 1
+triggers:
+  - "preflight"
+  - "repo status"
+  - "where am i"
+  - "repository state"
+  - "preflight repository"
+  - "what branch am i on"

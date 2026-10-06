@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { createRemoteLockPlan, digestProjectLock, hashNormalizedConfig, parseProjectConfig, serializeLockfile } from "../../packages/project/dist/index.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cliPackagePath = join(root, "packages", "cli", "package.json");
@@ -25,6 +26,17 @@ function runCliFrom(cwd, ...args) {
   });
 }
 
+const digest = (hex) => `sha256:${hex.repeat(64 / hex.length)}`;
+
+function testLock(version, configHash = digest("a")) {
+  return {
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: configHash },
+    skills: { "ega/alpha": { name: "alpha", version_hash: digest(version) } },
+  };
+}
+
 test("ega-skills --version prints the package version and exits cleanly", () => {
   const result = runCli("--version");
 
@@ -41,6 +53,8 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
     "  ega-skills --help",
     "  ega-skills --version",
     "  ega-skills import <path> --namespace <namespace>",
+    "  ega-skills import-plan <path> --namespace <namespace> --output <plan.json>",
+    "  ega-skills intake quality <path> --namespace <namespace> --output <report.json>",
     "  ega-skills list",
     "  ega-skills inspect <skill-id>",
     "  ega-skills init [<project-dir>] [--force]",
@@ -51,6 +65,18 @@ test("ega-skills --help prints the CLI surface and exits cleanly", () => {
       "  ega-skills hub build [<hub-dir>]",
       "  ega-skills hub validate [<hub-dir>]",
       "  ega-skills hub check <source-id> [<hub-dir>] --output <plan.json>",
+      "  ega-skills hub intake plan <repository-or-folder> --namespace <namespace> --source-id <id> --commit <sha> --root <path> --output <plan.json>",
+      "  ega-skills hub intake stage --plan <plan.json> [<hub-dir>]",
+      "  ega-skills hub intake apply (--plan <plan.json>|--candidate <candidate.json|digest>) [<hub-dir>]",
+      "  ega-skills hub intake review --candidate <plan.json|digest> --decision <approve|reject> (--expected-revision <N>|--expected-revisions <json-file>) [<hub-dir>]",
+      "  ega-skills hub intake derive --candidate <plan.json|digest> --patch <patch.json> --owned-id <namespace/name> [<hub-dir>]",
+      "  ega-skills hub release preflight [<hub-dir>]",
+      "  ega-skills hub release preview --hub <hub-dir> --against <release.json|artifact-dir> --output-dir <candidate-dir>",
+      "  ega-skills hub release export --candidate <candidate.json> --out <artifact-dir> [--legacy]",
+      "  ega-skills hub collections validate [<hub-dir>] [--hub <hub-dir>]",
+      "  ega-skills remote-lock plan --project <project-dir> --release <sha256:release> --release-file <hub-release.json> --output <lock-plan.json>",
+      "  ega-skills remote-lock apply --plan <lock-plan.json> [<project-dir>]",
+      "  ega-skills context publish --workspace <id> --project-id <id> --release <hub-release.json> [<project-dir>] [--output <context.json>] [--fingerprint <digest>]",
       "  ega-skills hub update --plan <plan.json> [<hub-dir>]",
     "",
     "Options:",
@@ -97,6 +123,86 @@ test("hub build is available through the real CLI entrypoint", () => {
   assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.release, "utf8")), output.release);
   assert.deepEqual(JSON.parse(readFileSync(output.artifactPaths.releasePackage, "utf8")), output.releasePackage);
   assert.equal(result.stderr, "");
+});
+
+test("remote-lock apply is available through the real CLI entrypoint", () => {
+  const project = mkdtempSync(join(tmpdir(), "ega-cli-project-"));
+  const configText = "schema_version: 1\n";
+  writeFileSync(join(project, ".egaskills.yaml"), configText);
+  const configDigest = hashNormalizedConfig(parseProjectConfig(configText));
+  const current = testLock("a", configDigest);
+  const candidate = testLock("b", configDigest);
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile(current));
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: configDigest,
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: digest("c"),
+    current,
+    candidate,
+  });
+  const planPath = join(project, "lock-plan.json");
+  writeFileSync(planPath, JSON.stringify(plan));
+  const result = runCli("remote-lock", "apply", "--plan", planPath, project);
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    applied: true,
+    path: join(project, ".egaskills.lock"),
+    target_release_digest: digest("c"),
+  });
+  assert.match(readFileSync(join(project, ".egaskills.lock"), "utf8"), new RegExp(digest("b")));
+});
+
+test("remote-lock plan binds a local project to an exact HubRelease digest", () => {
+  const project = mkdtempSync(join(tmpdir(), "ega-cli-lock-plan-"));
+  const config = parseProjectConfig("schema_version: 1\n");
+  writeFileSync(join(project, ".egaskills.yaml"), "schema_version: 1\n");
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile({
+    lockfile_version: 1,
+    token_estimator: "ega-o200k-v1",
+    generated_from: { config_hash: hashNormalizedConfig(config) },
+    skills: {},
+  }));
+  const hub = join(project, "hub");
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: lock-plan-hub\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = runCli("hub", "build", hub);
+  assert.equal(built.status, 0);
+  const release = JSON.parse(built.stdout).artifactPaths.release;
+  const output = join(project, "lock-plan.json");
+  const result = runCli("remote-lock", "plan", "--project", project, "--release", JSON.parse(readFileSync(release, "utf8")).digest, "--release-file", release, "--output", output);
+  assert.equal(result.status, 0);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.object_type, "ega.remote-lock-plan");
+  assert.equal(plan.payload.target_release_digest, JSON.parse(readFileSync(release, "utf8")).digest);
+  assert.deepEqual(plan.payload.candidate_lock.skills, {});
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), plan);
+});
+
+test("context publish creates an immutable artifact from validated local project files and a real HubRelease", () => {
+  const project = mkdtempSync(join(tmpdir(), "ega-cli-context-"));
+  writeFileSync(join(project, ".egaskills.yaml"), "schema_version: 1\n");
+  const config = parseProjectConfig("schema_version: 1\n");
+  const lock = { lockfile_version: 1, token_estimator: "ega-o200k-v1", generated_from: { config_hash: hashNormalizedConfig(config) }, skills: {} };
+  writeFileSync(join(project, ".egaskills.lock"), serializeLockfile(lock));
+  const hub = join(project, "hub");
+  mkdirSync(join(hub, "owned", "ega"), { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: context-hub\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+  const built = runCli("hub", "build", hub);
+  assert.equal(built.status, 0, built.stderr);
+  const releasePath = JSON.parse(built.stdout).artifactPaths.release;
+  const output = join(project, "context.json");
+  const result = runCli("context", "publish", "--workspace", "workspace-a", "--project-id", "project-a", "--release", releasePath, project, "--output", output);
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout);
+  assert.equal(context.object_type, "ega.project-context");
+  assert.equal(context.payload.workspace_id, "workspace-a");
+  assert.equal(context.payload.project_id, "project-a");
+  assert.equal(context.payload.release_digest, JSON.parse(readFileSync(releasePath, "utf8")).digest);
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), context);
 });
 
 test("hub validate checks the adopted Hub without mutation", () => {

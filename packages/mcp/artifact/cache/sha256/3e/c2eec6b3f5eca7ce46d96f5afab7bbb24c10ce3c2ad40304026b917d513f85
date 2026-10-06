@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work Retrospective"
+  short_description: "Turn a finished session into durable lessons"
+  default_prompt: "Use $work-retrospective on today's session."

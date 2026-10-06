@@ -1,0 +1,10 @@
+schema_version: 1
+aliases: [migrate-callers-then-delete-legacy-apis]
+triggers:
+  - "migrate callers then delete legacy apis"
+  - "delete legacy apis"
+anti_triggers:
+  - "deprecate"
+  - "legacy code"
+  - "api migration"
+  - "remove dead code"

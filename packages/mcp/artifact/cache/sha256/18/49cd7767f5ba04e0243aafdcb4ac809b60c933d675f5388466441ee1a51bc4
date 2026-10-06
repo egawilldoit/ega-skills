@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adversarial Review"
+  short_description: "Independently challenge a change's correctness"
+  default_prompt: "Use $adversarial-review to stress-test this diff."

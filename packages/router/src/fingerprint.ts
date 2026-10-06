@@ -9,6 +9,9 @@
 // This module detects evidence for ONE directory. Nearest-package assembly,
 // workspace roots and ambiguity are EGA-572 (SPEC-004 §5.1.9).
 
+import { relative, sep } from "node:path";
+import { canonicalizeJson, hashBytes } from "@ega-skills/hashing";
+
 export interface FingerprintEvidence {
   readonly kind: "LANGUAGE" | "FRAMEWORK" | "PLATFORM" | "WORKSPACE";
   readonly value: string;
@@ -24,6 +27,26 @@ export interface ProjectFingerprint {
   readonly platforms: string[];
   readonly frameworks: string[];
   readonly evidence: FingerprintEvidence[];
+}
+
+/** Stable, portable identity for a package-scoped fingerprint (SPEC-004).
+ * Absolute machine paths are projected out before canonical hashing. */
+export function digestProjectFingerprint(fingerprint: ProjectFingerprint, projectRoot = fingerprint.projectPath): string {
+  const portable = (value: string | null): string | null =>
+    value === null ? null : relative(projectRoot, value).split(sep).join("/") || ".";
+  const evidence = fingerprint.evidence
+    .map((record) => ({ kind: record.kind, value: record.value, source: record.source.split(sep).join("/") }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return hashBytes(canonicalizeJson({
+    project_path: ".",
+    package_root: portable(fingerprint.packageRoot),
+    workspace_root: portable(fingerprint.workspaceRoot),
+    workspace_ambiguous: fingerprint.workspaceAmbiguous,
+    languages: [...fingerprint.languages].sort(),
+    platforms: [...fingerprint.platforms].sort(),
+    frameworks: [...fingerprint.frameworks].sort(),
+    evidence,
+  }));
 }
 
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Smoke Tests"
+  short_description: "Run smoke tests and report real failures"
+  default_prompt: "Use $run-smoke-tests to run the existing smoke suite and report any failures."

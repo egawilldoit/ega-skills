@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check Compiler Errors"
+  short_description: "Inspect compiler and type-check failures"
+  default_prompt: "Use $check-compiler-errors to inspect compiler and type-check failures on this branch."

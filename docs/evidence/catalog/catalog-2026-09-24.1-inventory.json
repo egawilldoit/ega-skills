@@ -1,0 +1,99 @@
+{
+  "catalog_id": "catalog-2026-09-24.1",
+  "software": {
+    "version": "2.0.0",
+    "tag": "v2.0.0",
+    "sha": "065421c03909089eb6077c1d285af24121329862"
+  },
+  "release_digest": "sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f",
+  "discovered_total": 53,
+  "discovered": {
+    "mattpocock": 25,
+    "anthropic": 19,
+    "vercel": 9
+  },
+  "active": 48,
+  "active_breakdown": {
+    "mattpocock": 25,
+    "anthropic": 14,
+    "vercel": 9
+  },
+  "exclusions": [
+    {
+      "skill_id": "anthropic/docx",
+      "status": "EXCLUDED_LICENSE",
+      "reason": "proprietary Anthropic PBC; LICENSE.txt at pin"
+    },
+    {
+      "skill_id": "anthropic/pdf",
+      "status": "EXCLUDED_LICENSE",
+      "reason": "proprietary Anthropic PBC; LICENSE.txt at pin"
+    },
+    {
+      "skill_id": "anthropic/pptx",
+      "status": "EXCLUDED_LICENSE",
+      "reason": "proprietary Anthropic PBC; LICENSE.txt at pin"
+    },
+    {
+      "skill_id": "anthropic/xlsx",
+      "status": "EXCLUDED_LICENSE",
+      "reason": "proprietary Anthropic PBC; LICENSE.txt at pin"
+    },
+    {
+      "skill_id": "anthropic/doc-coauthoring",
+      "status": "EXCLUDED_NO_LICENSE",
+      "reason": "release-authority amendment: no explicit license grant at pin; never imported, staged, persisted, exported, or served"
+    }
+  ],
+  "zip_duplicates_excluded": 6,
+  "active_skill_ids": [
+    "anthropic/academy-guide",
+    "anthropic/algorithmic-art",
+    "anthropic/brand-guidelines",
+    "anthropic/canvas-design",
+    "anthropic/claude-api",
+    "anthropic/discernment-nudge",
+    "anthropic/frontend-design",
+    "anthropic/internal-comms",
+    "anthropic/mcp-builder",
+    "anthropic/skill-creator",
+    "anthropic/slack-gif-creator",
+    "anthropic/theme-factory",
+    "anthropic/web-artifacts-builder",
+    "anthropic/webapp-testing",
+    "mattpocock/ask-matt",
+    "mattpocock/code-review",
+    "mattpocock/codebase-design",
+    "mattpocock/diagnosing-bugs",
+    "mattpocock/domain-modeling",
+    "mattpocock/grill-me",
+    "mattpocock/grill-with-docs",
+    "mattpocock/grilling",
+    "mattpocock/handoff",
+    "mattpocock/implement",
+    "mattpocock/improve-codebase-architecture",
+    "mattpocock/prototype",
+    "mattpocock/research",
+    "mattpocock/resolving-merge-conflicts",
+    "mattpocock/setup-matt-pocock-skills",
+    "mattpocock/tdd",
+    "mattpocock/teach",
+    "mattpocock/to-questionnaire",
+    "mattpocock/to-spec",
+    "mattpocock/to-tickets",
+    "mattpocock/triage",
+    "mattpocock/wait-what",
+    "mattpocock/wayfinder",
+    "mattpocock/wizard",
+    "mattpocock/writing-for-agents",
+    "vercel/composition-patterns",
+    "vercel/deploy-to-vercel",
+    "vercel/react-best-practices",
+    "vercel/react-native-skills",
+    "vercel/react-view-transitions",
+    "vercel/vercel-cli-with-tokens",
+    "vercel/vercel-optimize",
+    "vercel/web-design-guidelines",
+    "vercel/writing-guidelines"
+  ]
+}

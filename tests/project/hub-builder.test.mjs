@@ -156,6 +156,24 @@ test("incomplete journal blocks the build (E_RECOVERY_REQUIRED)", async () => {
   assert.equal(await codeOf(() => buildHub(hubDir)), "E_RECOVERY_REQUIRED");
 });
 
+test("read-only build reports COMMITTED cleanup remnants without deleting them", async () => {
+  const hubDir = setupBuildHub();
+  mkdirSync(join(hubDir, ".staging"), { recursive: true });
+  mkdirSync(join(hubDir, ".backup"), { recursive: true });
+  writeFileSync(join(hubDir, ".staging", "sentinel"), "keep\n");
+  writeJournal(hubDir, {
+    expected_old_commit: "a".repeat(40),
+    journal_version: 1,
+    source_id: "plan",
+    state: "COMMITTED",
+    target_commit: "b".repeat(40),
+  });
+  assert.equal(await codeOf(() => buildHub(hubDir)), "E_RECOVERY_REQUIRED");
+  assert.equal(existsSync(join(hubDir, ".hub-journal.json")), true);
+  assert.equal(existsSync(join(hubDir, ".staging", "sentinel")), true);
+  assert.equal(existsSync(join(hubDir, ".backup")), true);
+});
+
 test("tampered tree fails provenance verification (E_TREE_DIGEST)", async () => {
   const hubDir = setupBuildHub(undefined, (dir) => {
     writeFileSync(join(dir, "external", "plan", "repo", "LICENSE"), "Forged.\n");

@@ -1,0 +1,10 @@
+schema_version: 1
+platforms: [web]
+triggers:
+  - "verify the ui"
+  - "verify ui"
+  - "ui verification"
+  - "verify the user interface"
+anti_triggers:
+  - "verify the cli"
+  - "run smoke tests"

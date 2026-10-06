@@ -1,0 +1,4 @@
+interface:
+  display_name: "Experience First"
+  short_description: "Choose user delight over implementation convenience"
+  default_prompt: "Use $principle-experience-first to weigh this UX tradeoff."

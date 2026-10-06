@@ -16,13 +16,60 @@ export {
   loadHostedReleaseSnapshot,
   HostedRuntimeError,
 } from "./hosted.js";
+export {
+  createHostedRuntimeFromEnv,
+  parseAllowedOrigins,
+  parseHostedAuthzPolicy,
+  readHostedAuthzSource,
+  resolveArtifactDir,
+  validateHostedAuthzPolicy,
+  DEFAULT_HOSTED_MAX_BODY_BYTES,
+  DEFAULT_HOSTED_MAX_CONCURRENT_REQUESTS,
+  DEFAULT_HOSTED_MAX_RESPONSE_BYTES,
+  DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
+} from "./hosted-runtime.js";
+export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
+export { createVercelRequestListener } from "./vercel-adapter.js";
+export type { VercelAdapterState, VercelNodeRequest, VercelNodeResponse } from "./vercel-adapter.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
-export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
+export type { JwksBearerVerifierOptions, JwksFetchResponse, VerifiedHostedPrincipal } from "./hosted-auth.js";
+export {
+  PROTECTED_RESOURCE_METADATA_PATHS,
+  PROTECTED_RESOURCE_METADATA_ROOT_PATH,
+  buildProtectedResourceMetadata,
+  buildWwwAuthenticate,
+  isProtectedResourceMetadataPath,
+  parseHostedOAuthConfig,
+} from "./hosted-oauth.js";
+export type {
+  HostedOAuthConfig,
+  HostedOAuthConfigInput,
+  HostedProtectedResourceMetadata,
+} from "./hosted-oauth.js";
+export { createSupabaseContextResolver } from "./hosted-supabase.js";
+export type { SupabaseContextResolverOptions } from "./hosted-supabase.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,
   HostedRuntimeOptions,
 } from "./hosted.js";
+export {
+  createRetainedManifest,
+  loadRetainedReleaseSet,
+  promoteRetainedRelease,
+  resolveRetainedRelease,
+  rollbackRetainedRelease,
+  verifyRetainedManifest,
+  RETAINED_MANIFEST_OBJECT_TYPE,
+  RETAINED_MANIFEST_SCHEMA_VERSION,
+} from "./retained.js";
+export type {
+  RetainedManifest,
+  RetainedManifestPayload,
+  RetainedReleaseEntry,
+  RetainedReleaseSet,
+  RetainedPromotionOptions,
+} from "./retained.js";
 export type { McpToolError, McpToolErrorEnvelope } from "./server.js";
 export {
   GET_CONTENT_LEVELS,

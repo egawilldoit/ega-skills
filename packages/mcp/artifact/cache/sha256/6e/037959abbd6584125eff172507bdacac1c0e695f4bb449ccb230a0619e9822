@@ -1,0 +1,4 @@
+interface:
+  display_name: "Guard the Context Window"
+  short_description: "Route bulk output to subagents, keep summaries"
+  default_prompt: "Use $principle-guard-the-context-window before reading these large files."
