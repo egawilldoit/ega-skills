@@ -17,6 +17,33 @@ on branch `chore/catalog-matt-v1.3.1`. No frozen runtime source was modified.
 | contract C | `pnpm contracts:check-c` | PASS |
 | contract G | `pnpm contracts:check-g` | PASS |
 | full suite | `pnpm test:ci` (bounded runner) | see below |
+| `pnpm release:verify` | **19 / 20 stages PASS**; the single failure is a pre-existing host-speed perf budget, proven unrelated to this release (see §Pre-existing perf failure) |
+
+## Pre-existing perf failure — not caused by this release
+
+`pnpm release:verify` fails one stage: `registry:performance`.
+
+```
+SPEC-003 §5.1.11: isolated 100-skill cold import meets platform budget
+cold import elapsed 9078 ms exceeds budget 5000 ms on linux
+```
+
+This is a **wall-clock budget** assertion, not a correctness assertion, and it
+is provably independent of this release:
+
+| evidence | finding |
+|---|---|
+| the failing test imports **100 synthetic fixture skills** into a temp dir | it never reads `packages/mcp/artifact`, `hub-release.json`, or any catalog content |
+| `git diff --name-only release/2.0..HEAD`, filtered to non-artifact/non-docs paths | **empty** — this branch modifies zero runtime source files |
+| same test on the **unmodified base checkout** `/home/ubuntu/ega-skills` | fails identically: `elapsed 9639 ms` vs budget `5000 ms` |
+| same test on this branch, run isolated | `elapsed 8982 ms` — **faster** than the base checkout, still over budget |
+
+The host runs this fixture import at roughly half the speed the frozen 5 s budget
+assumes, on code paths this release does not touch. It is recorded, not papered
+over: the budget failure is real on this machine and pre-exists this branch.
+The other 19 `release:verify` stages pass, including all four contract gates,
+version-consistency across all 11 workspaces, lockfile cleanliness, and the
+stdio + hosted MCP self-identity checks.
 
 ## Release pipeline gates
 
