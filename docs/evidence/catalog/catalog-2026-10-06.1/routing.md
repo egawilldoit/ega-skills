@@ -210,3 +210,33 @@ to ranking noise. And the genuine PR intent does **not** resolve to `pr` either.
 
 This is reproducible against the exact artifact proposed for production and is
 the blocker referenced in the PR description and `PROVENANCE.md`.
+
+## 8. Release adjudication — ACCEPTED, SHIP WITH DOCUMENTED REGRESSION
+
+The release owner adjudicated §4 and decided to **ship `mattpocock/pr` with the
+regression documented and tracked**, rather than hold the release, hold `pr`
+out, or open a frozen-contract amendment first.
+
+```
+Ship it with the regression documented.
+```
+
+Basis for that decision, as accepted:
+
+- `pr` **displaced 0 correct selections**. It never outranked a skill that was
+  already right, so no previously-correct workflow is now mis-routed.
+- The failure mode is bounded to *abstention → wrong*, i.e. the router now
+  asserts an answer it previously withheld. That is a real quality regression and
+  is recorded as one.
+- `pr` is reachable and functional: `search "pr body"` ranks it 1st, and `inspect`
+  / `get_content` serve it correctly. The defect is in automatic selection only.
+- Both remaining options were rejected on the merits: excluding `pr` would make
+  the catalog misstate upstream's v1.3.1 inventory (26 of 27 Matt roots) with no
+  EGA-level rationale, and amending SPEC-004 is a software release that this
+  catalog-only release is explicitly not permitted to be.
+
+The defect therefore **does not block this release**, but it is not closed: it is
+carried as tracked follow-up work. Anyone adopting this catalog should assume
+`mattpocock/pr` may be auto-selected for any task whose text happens to contain
+the letters `p` and `r` adjacent, until §3's recommended term-boundary fix
+lands in its own release.
