@@ -16,10 +16,15 @@ on branch `chore/catalog-matt-v1.3.1`. No frozen runtime source was modified.
 | contract B | `pnpm contracts:check-b` | PASS |
 | contract C | `pnpm contracts:check-c` | PASS |
 | contract G | `pnpm contracts:check-g` | PASS |
-| full suite | `pnpm test:ci` (bounded runner) | see below |
+| full suite | `pnpm test:ci` (bounded runner, 90-min bound) | **923 pass / 1 fail** — the one failure is a load-induced p95 perf budget on byte-identical router code (see §Pre-existing perf failures) |
 | `pnpm release:verify` | **19 / 20 stages PASS**; the single failure is a pre-existing host-speed perf budget, proven unrelated to this release (see §Pre-existing perf failure) |
 
-## Pre-existing perf failure — not caused by this release
+## Pre-existing perf failures — not caused by this release
+
+Two wall-clock budget assertions fail on this host. Both are performance budgets,
+not correctness assertions, and both are provably independent of this release.
+
+### 1. `registry:performance` (cold import)
 
 `pnpm release:verify` fails one stage: `registry:performance`.
 
@@ -27,9 +32,6 @@ on branch `chore/catalog-matt-v1.3.1`. No frozen runtime source was modified.
 SPEC-003 §5.1.11: isolated 100-skill cold import meets platform budget
 cold import elapsed 9078 ms exceeds budget 5000 ms on linux
 ```
-
-This is a **wall-clock budget** assertion, not a correctness assertion, and it
-is provably independent of this release:
 
 | evidence | finding |
 |---|---|
@@ -39,11 +41,38 @@ is provably independent of this release:
 | same test on this branch, run isolated | `elapsed 8982 ms` — **faster** than the base checkout, still over budget |
 
 The host runs this fixture import at roughly half the speed the frozen 5 s budget
-assumes, on code paths this release does not touch. It is recorded, not papered
-over: the budget failure is real on this machine and pre-exists this branch.
+assumes, on code paths this release does not touch.
+
 The other 19 `release:verify` stages pass, including all four contract gates,
 version-consistency across all 11 workspaces, lockfile cleanliness, and the
 stdio + hosted MCP self-identity checks.
+
+### 2. Full suite: `warm benchmark` p95
+
+The full suite reports **923 passing, 1 failing**. The single failure:
+
+```
+warm benchmark: 100-skill registry, 30 timed resolves, p95 <= 300ms
+[BENCH] min=51.0 median=128.5 p95=305.1 max=416.1
+```
+
+A 305.1 ms p95 against a 300 ms budget — a 1.7% overshoot, measured while all
+128 test files execute concurrently. It is load-induced, not a code regression:
+
+| evidence | finding |
+|---|---|
+| `git diff --stat release/2.0..HEAD -- packages/router/ tests/router/` | **empty output** — the benchmarked source and its tests are byte-identical to the base |
+| this branch, isolated | **PASSES**: `p95=117.3 ms` |
+| base checkout, isolated | **PASSES**: `p95=67.2 ms` |
+| repeated alternating runs on both checkouts | base `238.4 / 96.3`, branch `127.1 / 91.3` — the distributions overlap heavily |
+
+Both checkouts pass when the host is not saturated, and both fail under load, on
+identical router source. The benchmark is measuring host contention, not this
+catalog.
+
+**Both failures are recorded, not papered over.** They are real budget failures
+on this machine; they are simply not attributable to a change that touches no
+runtime code at all.
 
 ## Release pipeline gates
 
@@ -125,32 +154,3 @@ It does not block this release; it is carried as follow-up work.
 ## Manual follow-up
 
 ChatGPT Web validation remains manual (unchanged from prior releases).
-## Appendix — `registry:performance` failure is pre-existing, not caused by this release
-
-`pnpm release:verify` reported 19/20 stages green. The one red stage is
-`registry:performance`:
-
-```
-SPEC-003 §5.1.11: isolated 100-skill cold import meets platform budget
-  cold import elapsed 8982 ms, budget 5000 ms on linux
-```
-
-Proof that this is not caused by `catalog-2026-10-06.1`:
-
-1. **The change set touches no source.** `git diff --name-only release/2.0..HEAD`
-   returns only `packages/mcp/artifact/**` and
-   `docs/evidence/catalog/catalog-2026-10-06.1/**`. Zero files under
-   `packages/*/src`, `tests/`, `scripts/`, `docs/specs/` or `package.json`.
-2. **The test does not read the catalog.** It writes 100 synthetic skills into a
-   temp directory and imports them into a throwaway registry. It never opens the
-   artifact, the Hub, or any source tree.
-3. **It fails identically on the unmodified base checkout.** Run on the pristine
-   `release/2.0` worktree: `elapsed=9639 ms`, budget `5000 ms` — the same
-   assertion, and marginally *slower* than on this branch (8982 ms).
-4. **It is machine-speed dependent.** The budget is a wall-clock assertion
-   (5000 ms on linux, 30000 ms on win32) with no headroom on a loaded host. Load
-   average during the run was ~6.
-
-CI (ubuntu-latest / windows-2022 runners) is the authority for this budget; it is
-expected to pass there. The failure is recorded rather than suppressed, and no
-budget, threshold, or test was weakened.
