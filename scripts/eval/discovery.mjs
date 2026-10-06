@@ -37,8 +37,24 @@ export const DISCOVERY_EVALUATION_SCHEMA_VERSION = 1;
 /** Default artifact directory: the committed deployment artifact. */
 const DEFAULT_ARTIFACT = "packages/mcp/artifact";
 
-/** How many resolved candidates the discovery projection considers. */
+/**
+ * How many candidates the discovery projection shows a human.
+ *
+ * This is the RESOLVER'S window (`selected` then `candidates`), not a search
+ * window. Raw `search` hits are deliberately NOT appended here: FTS returns a
+ * median of 105 of 114 skills for a typical task, so appending that tail would
+ * pad the 3-slot window with arbitrary rows and inflate the top-3 rate without
+ * adding any ordering signal a human would use. Search reachability is reported
+ * separately as `search_reachable_*`.
+ */
 export const DISCOVERY_CANDIDATE_LIMIT = 3;
+
+/**
+ * Minimum measurable intents (mission §8 asks for >= 50 representative tasks).
+ * Enforced on the MEASURABLE subset, so marking intents `pending_skill` can
+ * never quietly shrink the suite into a meaningless pass.
+ */
+export const MIN_MEASURABLE_INTENTS = 50;
 
 /**
  * Collect every skill id a corpus references, so the harness can prove the
@@ -56,18 +72,21 @@ function referencedSkillIds(corpus) {
 }
 
 /**
- * The human-discovery ranking for one task.
+ * The human-discovery ranking for one task: exactly what the resolver offers a
+ * human, in the resolver's own order.
  *
- * Built ONLY from existing frozen primitives, in strict precedence order:
- *   1. resolver `selected`  (HIGH/MEDIUM — the execution recommendation)
+ *   1. resolver `selected`   (HIGH/MEDIUM — the execution recommendation)
  *   2. resolver `candidates` (LOW suggestions, never auto-executed)
- *   3. `search` hits         (only when the resolver offers nothing useful)
  *
  * Duplicates are removed while preserving first-seen order, so the ranking is
  * deterministic for a given catalog + task.
+ *
+ * Note this is NOT extended with `search` hits. Search is measured on its own
+ * (`searchReachable`), because concatenating an FTS tail would pad the window
+ * with rows that carry no ranking signal.
  */
-export function discoveryRanking(resolved, searchIds) {
-  const ordered = [...resolved.selected.map((s) => s.id), ...resolved.candidates.map((s) => s.id), ...searchIds];
+export function discoveryRanking(resolved) {
+  const ordered = [...resolved.selected.map((s) => s.id), ...resolved.candidates.map((s) => s.id)];
   const seen = new Set();
   const ranking = [];
   for (const id of ordered) {
@@ -91,33 +110,46 @@ function acceptableIds(intent) {
  * is neither the expected primary nor an acceptable alternative. LOW results
  * contribute 0 by construction — selecting nothing is never a wrong
  * selection, which is exactly the safety property we want to preserve.
+ *
+ * Catastrophic results are split by severity, because they are NOT equivalent:
+ *   - `catastrophic_auto_selected`: an excluded skill would have RUN. Real risk.
+ *   - `catastrophic_suggested_only`: an excluded skill merely occupies a
+ *     suggestion slot the user must choose from. Cosmetic, not a safety issue.
  */
 function scoreIntent(intent, resolved, searchIds) {
   const acceptable = new Set(acceptableIds(intent));
   const mustNot = new Set(intent.must_not_select ?? []);
   const selected = resolved.selected.map((s) => s.id);
-  const ranking = discoveryRanking(resolved, searchIds);
+  const ranking = discoveryRanking(resolved);
 
   const wrongAutomatic = selected.filter((id) => !acceptable.has(id));
   const rankOfExpected = ranking.indexOf(intent.expected_primary);
-  const catastrophicTop3 = ranking
-    .slice(0, DISCOVERY_CANDIDATE_LIMIT)
-    .filter((id) => mustNot.has(id));
+  const window = ranking.slice(0, DISCOVERY_CANDIDATE_LIMIT);
+  const catastrophicTop3 = window.filter((id) => mustNot.has(id));
+  const catastrophicAuto = catastrophicTop3.filter((id) => selected.includes(id));
+  const searchRank = searchIds.indexOf(intent.expected_primary);
 
   return {
     id: intent.id,
     task: intent.task,
     confidence: resolved.confidence,
     selected,
-    ranking: ranking.slice(0, DISCOVERY_CANDIDATE_LIMIT),
+    candidates: resolved.candidates.map((s) => s.id),
+    ranking: window,
     expected_primary: intent.expected_primary,
+    // Position within the resolver's own window: 0..2, or -1 when absent.
     rank_of_expected: rankOfExpected,
     top1: rankOfExpected === 0,
     top3: rankOfExpected >= 0 && rankOfExpected < DISCOVERY_CANDIDATE_LIMIT,
+    // Search is a SEPARATE fallback path, measured on its own.
+    search_reachable: searchRank >= 0 && searchRank < DISCOVERY_CANDIDATE_LIMIT,
+    search_rank: searchRank,
+    auto_select_attempted: selected.length > 0,
     wrong_automatic_selections: wrongAutomatic,
     low_confidence: resolved.confidence === "LOW",
     catastrophic_top3: catastrophicTop3,
-    passed: wrongAutomatic.length === 0 && catastrophicTop3.length === 0,
+    catastrophic_auto_selected: catastrophicAuto,
+    passed: wrongAutomatic.length === 0 && catastrophicAuto.length === 0,
   };
 }
 
@@ -126,35 +158,52 @@ export function summarize(rows, thresholds) {
   const total = rows.length;
   const top1 = rows.filter((r) => r.top1).length;
   const top3 = rows.filter((r) => r.top3).length;
+  const searchReachable = rows.filter((r) => r.search_reachable).length;
   const wrongRows = rows.filter((r) => r.wrong_automatic_selections.length > 0);
+  const autoRows = rows.filter((r) => r.auto_select_attempted);
   const catastrophic = rows.filter((r) => r.catastrophic_top3.length > 0);
+  const catastrophicAuto = rows.filter((r) => r.catastrophic_auto_selected.length > 0);
   const lowRows = rows.filter((r) => r.low_confidence);
 
-  const ratio = (n) => (total === 0 ? 0 : n / total);
+  // A run that measured nothing must never look like a clean pass. An empty
+  // denominator yields a rate of 0, which would otherwise read as "0% wrong".
+  if (total === 0) throw new Error("no measurable intents to summarize");
+  const ratio = (n, over = total) => (over === 0 ? 0 : n / over);
   const metrics = {
     intent_count: total,
+    // Most intents are LOW and select nothing, so the wrong-selection rate is
+    // only meaningful against the intents that actually attempted a selection.
+    auto_select_attempts: autoRows.length,
     top1_count: top1,
     top1_rate: ratio(top1),
     top3_count: top3,
     top3_rate: ratio(top3),
+    search_reachable_count: searchReachable,
+    search_reachable_rate: ratio(searchReachable),
     wrong_automatic_selection_count: wrongRows.reduce((n, r) => n + r.wrong_automatic_selections.length, 0),
     wrong_automatic_selection_intents: wrongRows.length,
+    wrong_automatic_selection_rate: ratio(wrongRows.length, autoRows.length),
     catastrophic_top3_count: catastrophic.length,
+    catastrophic_auto_selected_count: catastrophicAuto.length,
+    catastrophic_suggested_only_count: catastrophic.length - catastrophicAuto.length,
     low_confidence_count: lowRows.length,
   };
 
   const targets = {
+    // An empty attempt denominator is an UNMEASURED pass, not a clean one.
+    measured_attempts: metrics.auto_select_attempts > 0,
     wrong_automatic_selections: metrics.wrong_automatic_selection_count === 0,
     top1: metrics.top1_rate >= (thresholds?.top1 ?? 0.9),
     top3: metrics.top3_rate >= (thresholds?.top3 ?? 0.98),
-    no_catastrophic_top3: metrics.catastrophic_top3_count === 0,
+    // Only an auto-selected excluded skill is a safety failure; a suggestion
+    // slot is a presentation issue, reported separately.
+    no_catastrophic_auto_selection: metrics.catastrophic_auto_selected_count === 0,
   };
 
   return {
     ...metrics,
     targets,
-    // Human-readable pass/fail; `exec` is the release-blocking gate.
-    exec_ok: targets.wrong_automatic_selections && targets.no_catastrophic_top3,
+    exec_ok: targets.wrong_automatic_selections && targets.no_catastrophic_auto_selection,
     discovery_ok: targets.top1 && targets.top3,
   };
 }
@@ -195,9 +244,12 @@ export async function evaluateDiscovery(corpus, options = {}) {
   // `resolve` both read the same verified catalog snapshot.
   const readable = openRegistry({ env, readonly: true });
   try {
-    // Fail closed BEFORE doing any work: an all-pending corpus would otherwise
-    // report 0 intents with every rate at 0 and `exec_ok: true`.
-    if (corpus.intents.every((intent) => intent.pending_skill === true)) {
+    // Fail closed BEFORE doing any work on a corpus that measures nothing.
+    // `every(pending)` alone is not enough: N intents may all name the same
+    // absent skill as `expected_primary` with `pending_skill`, leaving a single
+    // measurable intent and a vacuous report.
+    const measurableCount = corpus.intents.filter((intent) => intent.pending_skill !== true).length;
+    if (measurableCount === 0) {
       throw new Error("discovery corpus has no measurable intents (every intent is pending_skill)");
     }
     const catalogSkillCount = readable.db.prepare("SELECT COUNT(*) AS c FROM skills").get().c;
@@ -263,6 +315,19 @@ async function main() {
   const artifactDir = artifactFlag >= 0 ? args[artifactFlag + 1] : undefined;
 
   const corpus = JSON.parse(await readFile(corpusPath, "utf8"));
+
+  // The corpus-size floor belongs to the CLI, not to the library: a caller may
+  // legitimately evaluate a small subset, but `pnpm eval:discovery` reporting a
+  // pass over 6 intents would be misleading.
+  const measurable = corpus.intents.filter((intent) => intent.pending_skill !== true).length;
+  if (measurable < MIN_MEASURABLE_INTENTS) {
+    process.stderr.write(
+      `discovery: FAIL corpus needs at least ${MIN_MEASURABLE_INTENTS} measurable intents, found ${measurable}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const report = await evaluateDiscovery(corpus, { artifactDir });
 
   if (!args.includes("--json")) {
@@ -270,11 +335,13 @@ async function main() {
     process.stdout.write(
       [
         `discovery: corpus=${report.corpus_id} catalog=${report.catalog_skill_count} intents=${s.intent_count}`,
-        `  exec safety : wrong automatic selections=${s.wrong_automatic_selection_count} (target 0) ${s.targets.wrong_automatic_selections ? "OK" : "FAIL"}`,
-        `  catastrophic: must-not-select in top3=${s.catastrophic_top3_count} (target 0) ${s.targets.no_catastrophic_top3 ? "OK" : "FAIL"}`,
+        `  window      : resolver selected+candidates only (max ${DISCOVERY_CANDIDATE_LIMIT}); search measured separately`,
+        `  exec safety : wrong automatic selections=${s.wrong_automatic_selection_count} across ${s.auto_select_attempts} attempts = ${(s.wrong_automatic_selection_rate * 100).toFixed(1)}% (target 0) ${s.targets.wrong_automatic_selections ? "OK" : "FAIL"}`,
+        `  excluded    : auto-selected=${s.catastrophic_auto_selected_count} (target 0) ${s.targets.no_catastrophic_auto_selection ? "OK" : "FAIL"}; suggestion-only=${s.catastrophic_suggested_only_count}`,
         `  top-1       : ${s.top1_count}/${s.intent_count} = ${(s.top1_rate * 100).toFixed(1)}% (target >=90%) ${s.targets.top1 ? "OK" : "BELOW"}`,
         `  top-3       : ${s.top3_count}/${s.intent_count} = ${(s.top3_rate * 100).toFixed(1)}% (target >=98%) ${s.targets.top3 ? "OK" : "BELOW"}`,
-        `  LOW cases   : ${s.low_confidence_count}`,
+        `  search-only : expected in top ${DISCOVERY_CANDIDATE_LIMIT} of FTS = ${s.search_reachable_count}/${s.intent_count} = ${(s.search_reachable_rate * 100).toFixed(1)}%`,
+        `  LOW cases   : ${s.low_confidence_count} of ${s.intent_count}`,
         ...(report.pending_skill_intents.length > 0
           ? [`  pending    : ${report.pending_skill_intents.length} intent(s) name a skill absent from this release (proves the gap): ${report.pending_skill_intents.map((p) => p.expected_primary).join(", ")}`]
           : []),

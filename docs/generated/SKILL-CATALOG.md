@@ -96,21 +96,9 @@ Build and sharpen a project's domain model. Use when discussing codebase termino
 
 Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo.
 
-### wayfinder
-
-`mattpocock/wayfinder`
-
-Plan a huge chunk of work (more than one agent session can hold) as a shared map of decision tickets on your issue tracker, and resolve…
-
 ## Design
 
 Decide the shape of the thing before anyone writes code.
-
-### brand-guidelines
-
-`anthropic/brand-guidelines`
-
-Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel.
 
 ### build-execution-contract
 
@@ -183,6 +171,12 @@ Grill the user relentlessly about a plan, decision, or idea.
 `mattpocock/prototype`
 
 Build a throwaway prototype to answer a design question.
+
+### wayfinder
+
+`mattpocock/wayfinder`
+
+Plan a huge chunk of work (more than one agent session can hold) as a shared map of decision tickets on your issue tracker, and resolve…
 
 ## Build / Delegate
 
@@ -382,7 +376,7 @@ Apply when you write, change, or keep a test.
 
 Run the project's existing end-to-end smoke suite, capture failures from traces and logs, and report the result.
 
-### tdd
+### egawilldoit/tdd
 
 `egawilldoit/tdd`
 
@@ -406,7 +400,7 @@ Verify a claim with fresh local evidence: restate it falsifiably, capture baseli
 
 Verify web, IDE, desktop, or Electron UI behavior with real browser evidence.
 
-### tdd
+### mattpocock/tdd
 
 `mattpocock/tdd`
 
@@ -457,12 +451,6 @@ Review the current branch or pull request for bugs, regressions, security, and i
 `mattpocock/code-review`
 
 Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's…
-
-### writing-for-agents
-
-`mattpocock/writing-for-agents`
-
-Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.
 
 ### web-design-guidelines
 
@@ -522,27 +510,9 @@ Use when you need to resolve an in-progress git merge/rebase conflict.
 
 Move issues and external PRs through a state machine of triage roles, categorise, verify, grill if needed, and write agent-ready briefs.
 
-### deploy-to-vercel
-
-`vercel/deploy-to-vercel`
-
-Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the…
-
-### vercel-cli-with-tokens
-
-`vercel/vercel-cli-with-tokens`
-
-Deploy and manage projects on Vercel using token-based authentication.
-
-### vercel-optimize
-
-`vercel/vercel-optimize`
-
-Use for Vercel cost and performance optimization on deployed projects, especially Next.js, SvelteKit, Nuxt, and limited Astro apps.
-
 ## Release
 
-Prove that what you are shipping is genuinely the thing you built.
+Ship it, then prove that what you shipped is genuinely the thing you built.
 
 ### certify-database-rollout
 
@@ -579,6 +549,24 @@ Certify a release against three separate gates, CODE, RUNTIME, and PRODUCT, and 
 `egawilldoit/trace-artifact-provenance`
 
 Establish immutable lineage from source commit to build to artifact to digest to release to deployment, and emit a provenance manifest…
+
+### deploy-to-vercel
+
+`vercel/deploy-to-vercel`
+
+Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the…
+
+### vercel-cli-with-tokens
+
+`vercel/vercel-cli-with-tokens`
+
+Deploy and manage projects on Vercel using token-based authentication.
+
+### vercel-optimize
+
+`vercel/vercel-optimize`
+
+Use for Vercel cost and performance optimization on deployed projects, especially Next.js, SvelteKit, Nuxt, and limited Astro apps.
 
 ## Recover
 
@@ -678,6 +666,12 @@ Review a completed work session for durable lessons and route each one to the ri
 
 Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
 
+### writing-for-agents
+
+`mattpocock/writing-for-agents`
+
+Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.
+
 ### writing-guidelines
 
 `vercel/writing-guidelines`
@@ -705,12 +699,6 @@ Reference for the Claude API / Anthropic SDK — model ids, pricing, params, str
 `anthropic/discernment-nudge`
 
 After you give a substantive answer or draft that the user may act on — advice or recommendations, drafted artifacts such as goals, plans,…
-
-### theme-factory
-
-`anthropic/theme-factory`
-
-Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc.
 
 ### teach
 
@@ -752,6 +740,12 @@ Making something look deliberate, on purpose.
 
 Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration.
 
+### brand-guidelines
+
+`anthropic/brand-guidelines`
+
+Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel.
+
 ### canvas-design
 
 `anthropic/canvas-design`
@@ -769,6 +763,12 @@ Guidance for distinctive, intentional visual design when building new UI or resh
 `anthropic/slack-gif-creator`
 
 Knowledge and utilities for creating animated GIFs optimized for Slack.
+
+### theme-factory
+
+`anthropic/theme-factory`
+
+Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc.
 
 ### web-artifacts-builder
 

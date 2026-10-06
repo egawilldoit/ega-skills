@@ -147,14 +147,15 @@ The bracketed group is the human-intent category from
 `catalog/presentation.yaml`. Browsing the full catalog:
 
 ```console
-$ ega-skills catalog | head -8
+$ ega-skills catalog | head -9
 EGA SKILLS
 release sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
 114 skills in 4 namespaces
 
+When you only know what you want, not which skill does it.
 Not sure which skill?
   deliver-software                              Route non-trivial engineering work to the right workflow instead of improvising.
-  ask-matt                                      Ask which skill or flow fits your situation.
+  ask-matt                                      Ask which skill or flow fits your situation. A router over the skills in this repo.
 ```
 
 ### Scope note: natural-language input is not a CLI feature

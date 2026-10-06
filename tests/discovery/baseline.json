@@ -4,20 +4,26 @@
   "release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
   "catalog_skill_count": 114,
   "summary": {
-    "intent_count": 81,
-    "top1_count": 59,
-    "top1_rate": 0.7283950617283951,
-    "top3_count": 68,
-    "top3_rate": 0.8395061728395061,
+    "intent_count": 79,
+    "auto_select_attempts": 9,
+    "top1_count": 57,
+    "top1_rate": 0.7215189873417721,
+    "top3_count": 65,
+    "top3_rate": 0.8227848101265823,
+    "search_reachable_count": 68,
+    "search_reachable_rate": 0.8607594936708861,
     "wrong_automatic_selection_count": 2,
     "wrong_automatic_selection_intents": 2,
-    "catastrophic_top3_count": 24,
+    "wrong_automatic_selection_rate": 0.2222222222222222,
+    "catastrophic_top3_count": 19,
+    "catastrophic_auto_selected_count": 1,
+    "catastrophic_suggested_only_count": 18,
     "low_confidence_count": 70,
     "targets": {
       "wrong_automatic_selections": false,
       "top1": false,
       "top3": false,
-      "no_catastrophic_top3": false
+      "no_catastrophic_auto_selection": false
     },
     "exec_ok": false,
     "discovery_ok": false
@@ -32,5 +38,10 @@
     "react-performance",
     "reconcile-conflicting-truth"
   ],
-  "note": "Recorded discovery baseline for release sha256:1efdbc3d... Regenerate with: node scripts/eval/discovery.mjs tests/discovery/personal-intents.json"
+  "measurement_notes": {
+    "discovery_window": "resolver selected+candidates only, max 3. Raw FTS search hits are NOT appended to the window; search reachability is reported separately as search_reachable_rate.",
+    "wrong_automatic_selection_rate": "denominator is auto_select_attempts (intents that actually selected something), not intent_count, because most intents are LOW and select nothing.",
+    "catastrophic_split": "catastrophic_auto_selected_count is a safety failure (an excluded skill would have run); catastrophic_suggested_only_count is a presentation issue only."
+  },
+  "note": "Recorded discovery baseline for release sha256:1efdbc3d.... Regenerate with: node scripts/eval/discovery.mjs tests/discovery/personal-intents.json"
 }

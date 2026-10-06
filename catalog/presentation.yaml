@@ -56,7 +56,6 @@ groups:
       - egawilldoit/principle-minimize-reader-load
       - mattpocock/codebase-design
       - mattpocock/domain-modeling
-      - mattpocock/wayfinder
       - mattpocock/research
 
   - id: design
@@ -71,8 +70,8 @@ groups:
       - egawilldoit/principle-exhaust-the-design-space
       - egawilldoit/principle-redesign-from-first-principles
       - egawilldoit/principle-experience-first
-      - anthropic/brand-guidelines
       - mattpocock/grill-me
+      - mattpocock/wayfinder
       - mattpocock/grilling
       - mattpocock/grill-with-docs
       - mattpocock/prototype
@@ -139,7 +138,6 @@ groups:
       - egawilldoit/deslop
       - egawilldoit/principle-minimize-reader-load
       - mattpocock/code-review
-      - mattpocock/writing-for-agents
       - vercel/web-design-guidelines
 
   - id: cipr
@@ -154,14 +152,14 @@ groups:
       - egawilldoit/fix-merge-conflicts
       - mattpocock/resolving-merge-conflicts
       - mattpocock/triage
-      - vercel/deploy-to-vercel
-      - vercel/vercel-cli-with-tokens
-      - vercel/vercel-optimize
 
   - id: release
     title: Release
-    blurb: Prove that what you are shipping is genuinely the thing you built.
+    blurb: Ship it, then prove that what you shipped is genuinely the thing you built.
     skills:
+      - vercel/deploy-to-vercel
+      - vercel/vercel-cli-with-tokens
+      - vercel/vercel-optimize
       - egawilldoit/certify-release
       - egawilldoit/certify-pr-head
       - egawilldoit/certify-production-target
@@ -191,6 +189,7 @@ groups:
       - egawilldoit/principle-encode-lessons-in-structure
       - egawilldoit/principle-guard-the-context-window
       - anthropic/skill-creator
+      - mattpocock/writing-for-agents
       - mattpocock/improve-codebase-architecture
       - vercel/writing-guidelines
       - anthropic/internal-comms
@@ -205,7 +204,6 @@ groups:
       - mattpocock/to-questionnaire
       - anthropic/academy-guide
       - anthropic/discernment-nudge
-      - anthropic/theme-factory
       - anthropic/claude-api
       - mattpocock/wait-what
 
@@ -218,6 +216,8 @@ groups:
       - anthropic/algorithmic-art
       - anthropic/web-artifacts-builder
       - anthropic/slack-gif-creator
+      - anthropic/brand-guidelines
+      - anthropic/theme-factory
 
 # Skills not placed above are still listed, under this heading, so the
 # catalog always accounts for every skill in the release.

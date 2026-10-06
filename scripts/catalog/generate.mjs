@@ -30,13 +30,30 @@ const DEFAULT_OUT = "docs/generated/SKILL-CATALOG.md";
 async function main() {
   const args = process.argv.slice(2);
   const check = args.includes("--check");
+  // Fail closed on a flag with no value rather than letting `resolve(undefined)`
+  // throw a raw node:path TypeError.
   const flag = (name, fallback) => {
     const i = args.indexOf(name);
-    return i >= 0 ? args[i + 1] : fallback;
+    if (i === -1) return fallback;
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new Error(`Missing value for ${name}.`);
+    }
+    return value;
   };
-  const artifactDir = resolve(flag("--artifact", DEFAULT_ARTIFACT));
-  const presentationPath = resolve(flag("--presentation", DEFAULT_PRESENTATION));
-  const outPath = resolve(flag("--out", DEFAULT_OUT));
+
+  let artifactDir;
+  let presentationPath;
+  let outPath;
+  try {
+    artifactDir = resolve(flag("--artifact", DEFAULT_ARTIFACT));
+    presentationPath = resolve(flag("--presentation", DEFAULT_PRESENTATION));
+    outPath = resolve(flag("--out", DEFAULT_OUT));
+  } catch (error) {
+    process.stderr.write(`catalog: FAIL ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (!existsSync(presentationPath)) {
     process.stderr.write(`catalog: FAIL presentation metadata not found: ${presentationPath}\n`);

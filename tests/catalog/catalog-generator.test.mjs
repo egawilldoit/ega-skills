@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 import {
   buildCatalogModel,
+  loadPresentation,
   readL0Metadata,
   renderCatalogMarkdown,
   renderCatalogText,
@@ -24,6 +25,13 @@ const ARTIFACT = join(ROOT, "packages/mcp/artifact");
 const PRESENTATION = join(ROOT, "catalog/presentation.yaml");
 const GENERATED = join(ROOT, "docs/generated/SKILL-CATALOG.md");
 const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
+
+/**
+ * Size of the committed release, asserted in several places on purpose: it is a
+ * re-vendor tripwire. When the catalog is rebuilt, these must be updated
+ * deliberately rather than drifting.
+ */
+const EXPECTED_CATALOG_SKILLS = 114;
 
 function knownIds() {
   return new Set(readL0Metadata(ENV).keys());
@@ -42,11 +50,11 @@ function basePresentation(overrides = {}) {
 
 test("catalog rendering is stable in-process for identical inputs", async () => {
   const a = renderCatalogMarkdown(
-    buildCatalogModel(readL0Metadata(ENV), JSON.parse(JSON.stringify(await loadPresentation()))),
+    buildCatalogModel(readL0Metadata(ENV), JSON.parse(JSON.stringify(loadPresentation(PRESENTATION)))),
     { digest: "sha256:test", hubId: "personal" },
   );
   const b = renderCatalogMarkdown(
-    buildCatalogModel(readL0Metadata(ENV), JSON.parse(JSON.stringify(await loadPresentation()))),
+    buildCatalogModel(readL0Metadata(ENV), JSON.parse(JSON.stringify(loadPresentation(PRESENTATION)))),
     { digest: "sha256:test", hubId: "personal" },
   );
   assert.equal(a, b);
@@ -77,6 +85,95 @@ test("summarize never emits a lone surrogate or exceeds its cap", () => {
   assert.ok(!/[\uDC00-\uDFFF](?![\uD800-\uDBFF])/u.test(clipped), "must not contain a lone low surrogate");
 });
 
+test("summarize honours its cap for astral-heavy text", () => {
+  // Every character here is a surrogate PAIR, so a naive code-unit clip would
+  // emit 2 units per glyph and blow straight past the budget.
+  const astral = summarize(`${"😀".repeat(120)} tail text that continues for a while`);
+  assert.ok(astral.length <= 140, `astral summary exceeded cap: ${astral.length}`);
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(astral));
+});
+
+test("summarize clamps a nonsensical cap instead of slicing negatively", () => {
+  // slice(0, -1) on a zero budget would return "" plus a stray ellipsis, and a
+  // negative cap would slice from the end of the string.
+  for (const cap of [0, -5]) {
+    const out = summarize("hello there, this is a description", cap);
+    assert.ok(out.length <= 1, `cap ${cap} produced ${JSON.stringify(out)}`);
+  }
+});
+
+test("a skill in two groups keeps its compact bare name", () => {
+  // Name disambiguation must count DISTINCT skills, not group placements.
+  const model = buildCatalogModel(
+    readL0Metadata(ENV),
+    basePresentation({
+      groups: [
+        { id: "a", title: "A", skills: ["egawilldoit/principle-minimize-reader-load"] },
+        { id: "b", title: "B", skills: ["egawilldoit/principle-minimize-reader-load"] },
+      ],
+    }),
+  );
+  const markdown = renderCatalogMarkdown(model, { digest: "sha256:test", hubId: "personal" });
+  assert.ok(
+    markdown.includes("\n### principle-minimize-reader-load\n"),
+    "a twice-listed skill must not be namespace-qualified",
+  );
+  assert.ok(!markdown.includes("### egawilldoit/principle-minimize-reader-load"));
+});
+
+test("terminal output truncates over-long labels instead of breaking alignment", () => {
+  const model = buildCatalogModel(
+    readL0Metadata(ENV),
+    basePresentation({
+      groups: [
+        {
+          id: "long",
+          title: "Long",
+          skills: ["egawilldoit/principle-separate-before-serializing-shared-state", "egawilldoit/verify-ui"],
+        },
+      ],
+    }),
+  );
+  const text = renderCatalogText(model, { digest: "sha256:test" });
+  // The other 112 skills land in the ungrouped section; select only the two
+  // rows belonging to the group under test.
+  const rows = text
+    .split("\n")
+    .filter((line) => /principle-separate-before-serializing|verify-ui/.test(line) && line.startsWith("  "));
+  assert.equal(rows.length, 2, `expected 2 skill rows, got ${rows.length}`);
+  // The label cell is capped at 44 columns and padded to exactly that width, so
+  // every summary must begin at the same offset (2 indent + 44 + 2 gap).
+  for (const row of rows) {
+    assert.equal(row.slice(2, 46).length, 44, `label cell is not 44 wide: ${JSON.stringify(row)}`);
+    assert.equal(row.slice(46, 48), "  ", `summary does not start at column 48: ${JSON.stringify(row)}`);
+  }
+  assert.ok(rows.some((row) => row.includes("…")), "the over-long label was not truncated");
+});
+
+test("an explicit empty --search reports no matches instead of dumping the catalog", async () => {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["packages/cli/bin/ega-skills.mjs", "catalog", "--search", "", "--json"],
+    { cwd: ROOT, env: ENV },
+  );
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.query, "");
+  assert.deepEqual(parsed.results, []);
+  assert.ok(!("catalog" in parsed), "an explicit empty query must not fall through to the full catalog");
+});
+
+test("presentation metadata that is not valid UTF-8 is rejected", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ega-catalog-utf8-"));
+  try {
+    const path = join(dir, "presentation.yaml");
+    // latin-1 byte 0xE9 is invalid as UTF-8 and would silently become U+FFFD.
+    await writeFile(path, "catalog_version: 1\ngroups:\n  - id: g\n    title: caf\u00e9\n", "latin1");
+    assert.throws(() => loadPresentation(path), /not valid UTF-8/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("text output disambiguates skills that share a bare name", () => {
   const model = buildCatalogModel(
     readL0Metadata(ENV),
@@ -97,13 +194,8 @@ test("text output disambiguates skills that share a bare name", () => {
   assert.match(text, / {2}verify-ui {2}/u);
 });
 
-async function loadPresentation() {
-  const { parse } = await import("../../packages/cli/node_modules/yaml/dist/index.js");
-  return parse(await readFile(PRESENTATION, "utf8"));
-}
-
 test("group ordering follows the authored presentation and skills are id-sorted", async () => {
-  const presentation = await loadPresentation();
+  const presentation = loadPresentation(PRESENTATION);
   const model = buildCatalogModel(readL0Metadata(ENV), presentation);
   assert.deepEqual(
     model.groups.map((g) => g.id),
@@ -276,7 +368,7 @@ test("presentation metadata may not carry routing authority at any depth or spel
   );
 });
 
-test("group titles and blurbs are collapsed to a single line", () => {
+test("group titles and blurbs cannot inject Markdown structure", () => {
   const model = buildCatalogModel(
     readL0Metadata(ENV),
     basePresentation({
@@ -286,30 +378,73 @@ test("group titles and blurbs are collapsed to a single line", () => {
   assert.equal(model.groups[0].title, "Verify ## Injected");
   assert.equal(model.groups[0].blurb, "line one line two");
   const markdown = renderCatalogMarkdown(model, { digest: "sha256:test", hubId: "personal" });
-  assert.ok(!markdown.includes("Verify\n## Injected"));
+  // Assert the RENDERED structure, not the absence of the raw input: the title
+  // must appear as one heading line, and "Injected" must not become its own
+  // heading on a line of its own.
+  assert.ok(markdown.includes("\n## Verify ## Injected\n"), "title was not rendered as a single heading line");
+  assert.ok(!/^## Injected/mu.test(markdown), "injected heading escaped into the document");
+  assert.ok(!/^line two/mu.test(markdown), "injected blurb line escaped into the document");
 });
 
 // --- presentation cannot influence routing -------------------------------
 
+test("the router and registry never read catalog presentation metadata", async () => {
+  // The causal guarantee behind "presentation is not routing authority" is
+  // structural: the resolver and registry must not even be able to SEE the
+  // presentation file. Assert that at the source level, because a behavioural
+  // comparison of two identical resolver calls cannot fail.
+  const { readdir, readFile } = await import("node:fs/promises");
+  const { join: joinPath } = await import("node:path");
+  for (const pkg of ["router", "registry"]) {
+    const dir = joinPath(ROOT, "packages", pkg, "src");
+    for (const entry of await readdir(dir)) {
+      if (!entry.endsWith(".ts")) continue;
+      const text = await readFile(joinPath(dir, entry), "utf8");
+      assert.ok(
+        !/presentation|catalog\/presentation/i.test(text),
+        `packages/${pkg}/src/${entry} references catalog presentation metadata; routing must not depend on it`,
+      );
+    }
+  }
+});
+
 test("presentation metadata cannot change routing behaviour", async () => {
   const { resolveSkills } = await import("../../packages/router/dist/index.js");
   const project = await mkdtemp(join(tmpdir(), "ega-catalog-routing-"));
+  const dir = await mkdtemp(join(tmpdir(), "ega-catalog-routing-"));
   try {
     const task = "The agent report, GitHub, CI, and deployment disagree about what shipped.";
+    // Point the resolver at a presentation the loader would REJECT for carrying
+    // routing authority, so the only way it could ever matter is if the router
+    // read it. It must be invisible.
+    const hostile = joinPath2(dir, "presentation.yaml");
+    await writeFile(
+      hostile,
+      JSON.stringify(basePresentation({ triggers: ["reconcile"] })),
+    );
     const before = await resolveSkills({ task, projectPath: project, env: ENV });
-    const presentation = await loadPresentation();
-    presentation.groups.push({ id: "zzz", title: "Z", skills: ["egawilldoit/verify-this"] });
-    // Rebuild a model from mutated presentation and confirm the catalog changes
-    // while the resolver's answer does not.
-    const model = buildCatalogModel(readL0Metadata(ENV), presentation);
-    assert.ok(model.groups.some((g) => g.id === "zzz"));
-    const after = await resolveSkills({ task, projectPath: project, env: ENV });
+    const after = await resolveSkills({
+      task,
+      projectPath: project,
+      env: { ...ENV, EGA_CATALOG_PRESENTATION: hostile },
+    });
     assert.deepEqual(after.selected.map((s) => s.id), before.selected.map((s) => s.id));
     assert.equal(after.confidence, before.confidence);
+
+    // And regrouping the catalog visibly changes the catalog, but not routing.
+    const presentation = loadPresentation(PRESENTATION);
+    presentation.groups.push({ id: "zzz", title: "Z", skills: ["egawilldoit/verify-this"] });
+    const model = buildCatalogModel(readL0Metadata(ENV), presentation);
+    assert.ok(model.groups.some((g) => g.id === "zzz"), "presentation mutation was not applied");
   } finally {
     await rm(project, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
+
+function joinPath2(...parts) {
+  return parts.join("/");
+}
 
 // --- generated file freshness --------------------------------------------
 
@@ -333,7 +468,7 @@ test("cli catalog output is stable and non-empty", async () => {
   });
   assert.equal(first.stdout, second.stdout);
   assert.match(first.stdout, /^EGA SKILLS$/mu);
-  assert.match(first.stdout, /114 skills/u);
+  assert.match(first.stdout, new RegExp(`${EXPECTED_CATALOG_SKILLS} skills`, "u"));
   // Human groups, not namespaces.
   assert.match(first.stdout, /^Understand$/mu);
   assert.match(first.stdout, /^Review$/mu);
@@ -350,7 +485,7 @@ test("cli catalog --json is valid JSON with release identity", async () => {
   assert.match(parsed.release.digest, /^sha256:[0-9a-f]{64}$/u);
   assert.ok(Array.isArray(parsed.catalog.favorites));
   assert.ok(parsed.catalog.favorites.length > 0);
-  assert.equal(parsed.catalog.skillCount, 114);
+  assert.equal(parsed.catalog.skillCount, EXPECTED_CATALOG_SKILLS);
 });
 
 test("cli catalog --search reuses existing search and reports groups", async () => {
@@ -396,7 +531,7 @@ test("existing `list` command contract is unchanged", async () => {
     env: ENV,
   });
   const lines = stdout.trim().split("\n");
-  assert.equal(lines.length, 114);
+  assert.equal(lines.length, EXPECTED_CATALOG_SKILLS);
   assert.match(lines[0], /^anthropic\/academy-guide sha256:[0-9a-f]{64}$/u);
 });
 

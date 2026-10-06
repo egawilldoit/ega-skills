@@ -17,6 +17,7 @@
  * bytes on every platform.
  */
 
+
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
@@ -27,7 +28,12 @@ import { openRegistry, searchSkills } from "@ega-skills/registry";
 /** Presentation metadata schema version understood by this module. */
 export const CATALOG_PRESENTATION_SCHEMA_VERSION = 1;
 
-/** Max candidates `catalog --search` reports, mirroring the discovery window. */
+/**
+ * Max results `catalog --search` reports. This is a browsable-search window,
+ * deliberately wider than the 3-slot discovery window in
+ * `scripts/eval/discovery.mjs`, because the operator is scanning a category
+ * rather than being handed one recommendation.
+ */
 export const CATALOG_SEARCH_LIMIT = 5;
 
 /**
@@ -160,6 +166,9 @@ export function oneLine(text: string): string {
 export function summarize(description: string, maxLength = 140, minLength = 45): string {
   const text = oneLine(description);
   if (text.length === 0) return "";
+  // A cap below 1 has no meaningful budget; clamp so slice() can never go
+  // negative and return an empty string with a stray ellipsis.
+  maxLength = Math.max(1, Math.floor(maxLength));
 
   // Collect whole sentences up to the minimum informative length. A sentence
   // boundary is terminator followed by whitespace or end of string.
@@ -172,12 +181,17 @@ export function summarize(description: string, maxLength = 140, minLength = 45):
   }
 
   if (summary.length > maxLength) {
-    // Clip on code POINTS, not UTF-16 code units, and reserve one character for
-    // the ellipsis so the final length never exceeds maxLength. A UTF-16 slice
-    // can split a surrogate pair and emit a lone surrogate into committed bytes.
-    const clipped = [...summary].slice(0, maxLength - 1).join("");
-    const lastSpace = clipped.lastIndexOf(" ");
-    summary = `${(lastSpace > maxLength * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}…`;
+    // The cap is expressed in UTF-16 code units (what callers and tests
+    // measure with `.length`), but the walk must be by CODE POINT so a
+    // surrogate pair is never split into a lone surrogate in committed bytes.
+    const points = [...summary];
+    let cut = points.length;
+    while (cut > 0 && points.slice(0, cut).join("").length > maxLength - 1) cut -= 1;
+    const clipped = points.slice(0, cut).join("");
+    const breakAt = clipped.lastIndexOf(" ");
+    // Only back up to the last space when that still keeps most of the budget.
+    const cell = breakAt > 0 && breakAt > maxLength * 0.6 ? clipped.slice(0, breakAt) : clipped;
+    summary = `${cell.trimEnd()}…`;
   }
   return summary;
 }
@@ -208,6 +222,8 @@ export function validatePresentation(
     return id;
   };
 
+  // `favorites` is optional (an empty list is fine) but must be a sequence when
+  // present. An explicit `null` is rejected rather than coerced.
   const rawFavorites = presentation.favorites ?? [];
   if (!Array.isArray(rawFavorites)) fail("favorites must be a sequence");
   const favorites: string[] = [];
@@ -230,6 +246,11 @@ export function validatePresentation(
     if (!isPlainObject(group)) fail("each group must be a YAML mapping");
     const { id, title, blurb, skills } = group;
     if (typeof id !== "string" || id.length === 0) fail("each group needs a non-empty string id");
+    // Group ids are surfaced in the generated document's "Presentation notes"
+    // section, so constrain them to a plain identifier.
+    if (!/^[a-z0-9][a-z0-9-]*$/u.test(id)) {
+      fail(`group id "${id}" must be lowercase alphanumeric with hyphens only`);
+    }
     // Titles and blurbs are emitted into a committed Markdown document, so
     // collapse whitespace and reject anything that would break its structure.
     if (typeof title !== "string" || oneLine(title).length === 0) fail(`group "${id}" needs a non-empty string title`);
@@ -271,7 +292,8 @@ export function readL0Metadata(env: Record<string, string | undefined>): Map<str
            FROM skills s
            JOIN skill_versions v
              ON v.skill_id = s.skill_id
-            AND v.version_hash = s.current_version_hash`,
+            AND v.version_hash = s.current_version_hash
+          ORDER BY s.skill_id`,
       )
       .all();
     const skills = new Map<string, CatalogSkill>();
@@ -341,7 +363,16 @@ export interface BuildCatalogOptions {
  * script) never need their own `yaml` dependency: this package owns it.
  */
 export function loadPresentation(presentationPath: string): unknown {
-  return parseYaml(readFileSync(resolvePath(presentationPath), "utf8")) as unknown;
+  const raw = readFileSync(resolvePath(presentationPath));
+  const text = raw.toString("utf8");
+  // Fail closed on non-UTF-8 input. `toString("utf8")` silently substitutes
+  // U+FFFD for invalid bytes, which would then be committed into the generated
+  // document AND make `catalog:check` pass, because both sides mangle it the
+  // same way.
+  if (!Buffer.from(text, "utf8").equals(raw)) {
+    throw new CatalogError(`presentation metadata is not valid UTF-8: ${presentationPath}`);
+  }
+  return parseYaml(text) as unknown;
 }
 
 /** Load L0 + presentation from disk and build the model. */
@@ -381,8 +412,20 @@ export function renderCatalogMarkdown(model: CatalogModel, releaseIdentity: { di
   }
   lines.push("");
 
+  // Namespace-qualify a heading only when TWO DISTINCT skills share a bare name
+  // (the release contains both `egawilldoit/tdd` and `mattpocock/tdd`). Counting
+  // distinct ids means a skill listed under two groups keeps its compact name.
+  const distinct = new Map<string, CatalogSkill>();
+  for (const skill of [...model.groups.flatMap((g) => g.skills), ...model.ungrouped]) {
+    distinct.set(skill.id, skill);
+  }
+  const nameCounts = new Map<string, number>();
+  for (const skill of distinct.values()) nameCounts.set(skill.name, (nameCounts.get(skill.name) ?? 0) + 1);
+  const heading = (skill: CatalogSkill): string =>
+    (nameCounts.get(skill.name) ?? 0) > 1 ? `${skill.namespace}/${skill.name}` : skill.name;
+
   const emitSkill = (skill: CatalogSkill): void => {
-    lines.push(`### ${skill.name}`);
+    lines.push(`### ${heading(skill)}`);
     lines.push("");
     lines.push(`\`${skill.id}\``);
     lines.push("");
@@ -432,34 +475,49 @@ export function renderCatalogText(model: CatalogModel, releaseIdentity: { digest
   lines.push(`${model.skillCount} skills in ${model.namespaces.length} namespaces`);
   lines.push("");
 
-  const all = [...model.groups.flatMap((g) => g.skills), ...model.ungrouped];
+  // Count DISTINCT skills, not group placements: a skill authored into two
+  // groups must not look like it has a colliding name.
+  const distinct = new Map<string, CatalogSkill>();
+  for (const skill of [...model.groups.flatMap((g) => g.skills), ...model.ungrouped]) {
+    distinct.set(skill.id, skill);
+  }
+  const all = [...distinct.values()];
 
-  // Two skills can share a bare name across namespaces (the current release has
-  // both `egawilldoit/tdd` and `mattpocock/tdd`). Print `namespace/name` for
-  // those so the two rows are distinguishable, and keep the compact bare name
-  // everywhere else.
+  // Two DIFFERENT skills can share a bare name across namespaces (the current
+  // release has both `egawilldoit/tdd` and `mattpocock/tdd`). Print
+  // `namespace/name` for those so the rows are distinguishable, and keep the
+  // compact bare name everywhere else.
   const nameCounts = new Map<string, number>();
   for (const skill of all) nameCounts.set(skill.name, (nameCounts.get(skill.name) ?? 0) + 1);
   const label = (skill: CatalogSkill): string =>
     (nameCounts.get(skill.name) ?? 0) > 1 ? `${skill.namespace}/${skill.name}` : skill.name;
 
-  // Cap the label column so one very long skill id cannot push every summary off
-  // the right edge of a terminal.
+  // Cap the label column AND truncate: `padEnd` never shortens, so without an
+  // explicit clip the longest skill names would break the alignment the padding
+  // exists to create.
   const width = Math.min(
     Math.max(...all.map((skill) => label(skill).length), 10),
     44,
   );
+  const cell = (skill: CatalogSkill): string => {
+    const text = label(skill);
+    return text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width);
+  };
   for (const group of model.groups) {
+    // The group blurb is the clearest human-intent signal in the catalog, so the
+    // terminal view shows it under its heading rather than reserving it for
+    // Markdown.
+    if (group.blurb) lines.push(group.blurb);
     lines.push(group.title);
     for (const skill of group.skills) {
-      lines.push(`  ${label(skill).padEnd(width)}  ${skill.summary || ""}`.trimEnd());
+      lines.push(`  ${cell(skill)}  ${skill.summary || ""}`.trimEnd());
     }
     lines.push("");
   }
   if (model.ungrouped.length > 0) {
     lines.push(model.ungroupedTitle);
     for (const skill of model.ungrouped) {
-      lines.push(`  ${label(skill).padEnd(width)}  ${skill.summary || ""}`.trimEnd());
+      lines.push(`  ${cell(skill)}  ${skill.summary || ""}`.trimEnd());
     }
     lines.push("");
   }
@@ -493,7 +551,11 @@ export function runCatalog(options: CatalogCommandOptions): string {
   const l0 = readL0Metadata(options.env);
   const model = buildCatalogModel(l0, loadPresentation(options.presentationPath));
 
-  if (options.search !== undefined && options.search.length > 0) {
+  // An EXPLICIT `--search ""` must not silently dump the whole catalog (an
+  // operator with `--search "$UNSET_VAR"` would get a full listing presented as
+  // a search result). `searchSkills` returns no hits for a termless query, so
+  // this correctly reports "no matches".
+  if (options.search !== undefined) {
     const registry = openRegistry({ env: options.env, readonly: true });
     let hits: readonly { skillId: string }[];
     try {
@@ -516,8 +578,8 @@ export function runCatalog(options: CatalogCommandOptions): string {
       const skill = l0.get(hit.skillId);
       return {
         id: hit.skillId,
-        name: skill?.name ?? hit.skillId.split("/")[1] ?? hit.skillId,
-        namespace: skill?.namespace ?? hit.skillId.split("/")[0] ?? "",
+        name: skill?.name ?? hit.skillId.split("/").at(-1) ?? hit.skillId,
+        namespace: skill?.namespace ?? hit.skillId.split("/").at(0) ?? "",
         summary: skill?.summary ?? "",
         group: byId.get(hit.skillId) ?? null,
       };

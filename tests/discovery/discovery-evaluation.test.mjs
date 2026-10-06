@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { evaluateDiscovery } from "../../scripts/eval/discovery.mjs";
+import { openRegistry } from "../../packages/registry/dist/index.js";
 
+const execFileAsync = promisify(execFile);
 const CORPUS_PATH = join(process.cwd(), "tests/discovery/personal-intents.json");
 const BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline.json");
+const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
 
 async function loadCorpus() {
   return JSON.parse(await readFile(CORPUS_PATH, "utf8"));
@@ -44,6 +50,25 @@ function report() {
  */
 const KNOWN_EXTERNAL_AUTO_ROUTES = ["react-performance", "reconcile-conflicting-truth"];
 
+/** Read routing metadata (incl. anti-triggers) for every skill in the artifact. */
+function routingBySkill() {
+  const handle = openRegistry({ env: ENV, readonly: true });
+  try {
+    const rows = handle.db
+      .prepare(
+        `SELECT s.skill_id AS id, v.manifest_json AS manifest
+           FROM skills s
+           JOIN skill_versions v
+             ON v.skill_id = s.skill_id
+            AND v.version_hash = s.current_version_hash`,
+      )
+      .all();
+    return new Map(rows.map((row) => [row.id, JSON.parse(row.manifest).routing ?? {}]));
+  } finally {
+    handle.close();
+  }
+}
+
 test("discovery corpus is realistic and catalog-valid", async () => {
   const corpus = await loadCorpus();
   assert.equal(corpus.schema_version, 1);
@@ -63,42 +88,128 @@ test("discovery corpus is realistic and catalog-valid", async () => {
 
   // Prompts must be natural language, not copied trigger phrases.
   for (const intent of corpus.intents) {
-    const [namespace, name] = intent.expected_primary.split("/");
-    const hyphenated = `${name}`.replaceAll("-", " ");
+    const name = intent.expected_primary.split("/")[1];
     assert.ok(
-      intent.task.toLowerCase() !== hyphenated,
+      intent.task.toLowerCase() !== name.replaceAll("-", " "),
       `intent ${intent.id} must not be the bare skill name`,
     );
-    void namespace;
+    // A realistic utterance carries enough signal to be recognizable.
+    assert.ok(intent.task.trim().length >= 20, `intent ${intent.id} is too terse to be a realistic prompt`);
   }
+});
+
+test("no intent trips an anti-trigger of the skill it expects", async () => {
+  // A prompt that says what the expected skill explicitly excludes is a corpus
+  // bug, not a routing defect: it asks for something the skill disclaims.
+  const corpus = await loadCorpus();
+  const routing = routingBySkill();
+  const offenders = [];
+  for (const intent of corpus.intents) {
+    const anti = routing.get(intent.expected_primary)?.anti_triggers ?? [];
+    const task = intent.task.toLowerCase();
+    const tripped = anti.filter((phrase) => task.includes(String(phrase).toLowerCase()));
+    if (tripped.length > 0) {
+      offenders.push(`${intent.id} expects ${intent.expected_primary} but trips ${JSON.stringify(tripped)}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `anti-trigger collisions:\n  ${offenders.join("\n  ")}`);
+});
+
+test("must_not_select never contradicts another intent's expected_primary without justification", async () => {
+  // Cross-intent tension is legitimate (the same skill can be right for one task
+  // and wrong for another), but every must_not_select entry should be a skill
+  // that some other intent genuinely expects, or the exclusion is meaningless.
+  const corpus = await loadCorpus();
+  const expected = new Set(corpus.intents.map((i) => i.expected_primary));
+  for (const intent of corpus.intents) {
+    for (const id of intent.must_not_select ?? []) {
+      if (id === intent.expected_primary) {
+        assert.fail(`intent ${intent.id} lists its own expected_primary in must_not_select`);
+      }
+    }
+  }
+  // Sanity: the corpus must actually exercise exclusions.
+  const exclusions = corpus.intents.reduce((n, i) => n + (i.must_not_select ?? []).length, 0);
+  assert.ok(exclusions > 0, "corpus should exercise must_not_select");
+  assert.ok(expected.size > 0);
 });
 
 test("LOW confidence never auto-selects a skill", async () => {
   const { results } = await report();
-  for (const row of results) {
-    if (row.confidence === "LOW") {
-      assert.deepEqual(
-        row.selected,
-        [],
-        `LOW confidence must publish selected=[] (SPEC-004 §5.1.17 rule 4); ${row.id} selected ${JSON.stringify(row.selected)}`,
-      );
-    }
+  const low = results.filter((row) => row.confidence === "LOW");
+  assert.ok(low.length > 0, "corpus should exercise LOW confidence");
+  for (const row of low) {
+    assert.deepEqual(
+      row.selected,
+      [],
+      `LOW confidence must publish selected=[] (SPEC-004 §5.1.17 rule 4); ${row.id} selected ${JSON.stringify(row.selected)}`,
+    );
   }
 });
 
-test("discovery ranking never surfaces a must_not_select skill in the candidate window", async () => {
+test("discovery ranking never auto-selects a must_not_select skill", async () => {
   const { results } = await report();
   const offenders = results
-    .filter((row) => !row.pending && row.catastrophic_top3.length > 0)
+    .filter((row) => !row.pending && row.catastrophic_auto_selected.length > 0)
     .map((row) => row.id);
 
   // Recorded, not yet fixed: these are metadata defects in the external corpus
   // repo. The count may be TIGHTENED when they land, never loosened.
   const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));
   assert.ok(
-    offenders.length <= baseline.summary.catastrophic_top3_count,
-    `catastrophic top-3 count regressed (baseline ${baseline.summary.catastrophic_top3_count}): ${offenders.join(", ")}`,
+    offenders.length <= baseline.summary.catastrophic_auto_selected_count,
+    `auto-selected excluded-skill count regressed (baseline ${baseline.summary.catastrophic_auto_selected_count}): ${offenders.join(", ")}`,
   );
+});
+
+test("the discovery window is the resolver window, not a search tail", async () => {
+  // Guards the measurement itself: FTS hits must never be concatenated into the
+  // discovery ranking, because that pads the 3-slot window and inflates top-3.
+  const corpus = await loadCorpus();
+  const subset = { ...corpus, intents: corpus.intents.slice(0, 8) };
+  const report = await evaluateDiscovery(subset);
+  assert.ok(report.results.some((r) => r.ranking.length > 0), "subset produced no window at all");
+  for (const row of report.results) {
+    assert.ok(
+      row.ranking.length <= 3,
+      `${row.id} ranking exceeded the 3-slot discovery window (${row.ranking.length})`,
+    );
+    // Every ranked entry must come from the resolver's own output — never FTS.
+    for (const id of row.ranking) {
+      assert.ok(
+        row.selected.includes(id) || row.candidates.includes(id),
+        `${row.id} ranked "${id}" which the resolver never returned`,
+      );
+    }
+  }
+});
+
+test("search reachability is measured separately from the resolver window", async () => {
+  const { results, summary } = await report();
+  assert.ok(summary.search_reachable_count > 0, "expected some search-reachable intents");
+  const resolverTop3 = results.filter((r) => !r.pending && r.top3).length;
+  // FTS and the resolver read the same catalog, so search should not reach
+  // strictly fewer of the expected skills than the resolver window does.
+  assert.ok(
+    summary.search_reachable_count >= resolverTop3,
+    `search reached ${summary.search_reachable_count} but the resolver window reached ${resolverTop3}`,
+  );
+  // And search must be a genuine fallback, i.e. it finds some the window missed.
+  const resolverMisses = results.filter((r) => !r.pending && !r.top3 && r.search_reachable).length;
+  assert.ok(
+    resolverMisses > 0,
+    "search reached nothing the resolver window missed, so the fallback path is untested",
+  );
+});
+
+test("wrong automatic selections are reported against attempts, not all intents", async () => {
+  const { summary } = await report();
+  assert.ok(summary.auto_select_attempts > 0);
+  assert.equal(summary.targets.measured_attempts, true);
+  const expected = summary.wrong_automatic_selection_intents / summary.auto_select_attempts;
+  assert.ok(Math.abs(summary.wrong_automatic_selection_rate - expected) < 1e-9);
+  // The raw count must never be presented as if it were a share of all intents.
+  assert.ok(summary.intent_count > summary.auto_select_attempts);
 });
 
 test("a corpus targeting a different release fails closed", async () => {
@@ -113,6 +224,23 @@ test("a corpus with no measurable intents fails closed", async () => {
   const allPending = structuredClone(corpus);
   for (const intent of allPending.intents) intent.pending_skill = true;
   await assert.rejects(() => evaluateDiscovery(allPending), /no measurable intents/u);
+});
+
+test("the CLI refuses a corpus below the measurable-intent floor", async () => {
+  const corpus = await loadCorpus();
+  const dir = await mkdtemp(join(tmpdir(), "ega-discovery-small-"));
+  try {
+    const path = join(dir, "small.json");
+    await writeFile(path, JSON.stringify({ ...corpus, intents: corpus.intents.slice(0, 6) }));
+    // The library may evaluate a small subset on purpose; the CLI must not
+    // report a pass over one.
+    await assert.rejects(
+      execFileAsync(process.execPath, ["scripts/eval/discovery.mjs", path], { cwd: process.cwd() }),
+      /at least 50 measurable intents/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("automatic misroutes are limited to the documented external-metadata defects", async () => {
