@@ -185,3 +185,28 @@ widening `pr`'s description to win a lexical match would be exactly the
 - Unrelated-namespace routing: PASS (0 selection changes, 0 losses).
 - New-skill discoverability: PASS.
 - `pr` automatic selection: **FAIL — proven platform defect, release blocker.**
+## 7. Independent re-confirmation against the committed artifact
+
+The defect was re-verified through the **real MCP `resolve` tool over stdio**,
+served from the committed `packages/mcp/artifact` (not the scratch Hub), so the
+numbers below are what a production client would actually receive:
+
+| task | resolve result |
+|---|---|
+| Walk the codebase and propose where to deepen modules. | `mattpocock/pr` MEDIUM |
+| Process the incoming webhook payload. | `mattpocock/pr` MEDIUM |
+| Print the release report. | `mattpocock/pr` MEDIUM |
+| Prove the fix works with a regression test. | `mattpocock/pr` MEDIUM |
+| Profile the hot loop and cut allocations. | `mattpocock/pr` MEDIUM |
+| Design a prompt caching strategy. | `mattpocock/pr` MEDIUM |
+| Explain how this subsystem works before I modify it. | `egawilldoit/understand-codebase` MEDIUM (correct) |
+| Fix the flaky test in the auth suite. | none, LOW (correct) |
+| Write the final PR description with evidence and merge risk. | `egawilldoit/technical-writing` MEDIUM |
+
+**6 of the 6 unrelated tasks containing `pr` as a substring return
+`mattpocock/pr` at MEDIUM confidence.** The two tasks without a `pr` substring
+resolve correctly, which isolates the cause to the substring match rather than
+to ranking noise. And the genuine PR intent does **not** resolve to `pr` either.
+
+This is reproducible against the exact artifact proposed for production and is
+the blocker referenced in the PR description and `PROVENANCE.md`.
