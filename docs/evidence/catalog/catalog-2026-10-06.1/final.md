@@ -91,9 +91,10 @@ All PASS — see `artifact.md` for the full list (3 must-exist, 1 must-not-exist
 ## Routing verification
 
 See `routing.md`. Summary: 0 selection changes on 19 shared tasks, 0 correct
-selections displaced, 0 unrelated-namespace regressions — **but 1 proven platform
-defect introduced by `mattpocock/pr` (12/20 false-positive auto-selections),
-which is a release blocker.**
+selections displaced, 0 unrelated-namespace regressions — **plus 1 proven
+platform defect introduced by `mattpocock/pr` (12/20 false-positive
+auto-selections), which the release owner adjudicated as ACCEPTED: ship with the
+regression documented and tracked.**
 
 ## Version integrity
 
@@ -107,14 +108,19 @@ which is a release blocker.**
 Only `packages/mcp/artifact/**` and `docs/evidence/catalog/catalog-2026-10-06.1/**`
 changed. This is a catalog-content release with **no software change**.
 
-## Known BLOCKER
+## Known defect — ACCEPTED, not a blocker
 
 `mattpocock/pr` — SPEC-004 §5.1.11.2 substring `NAME_DESCRIPTION` matching makes
 a 2-character portable name match inside ordinary words. Measured 12/20
-false-positive auto-selections on unrelated tasks. Fixing it requires either a
+false-positive auto-selections on unrelated tasks, reproduced through the real
+MCP `resolve` against the committed artifact. Fixing it requires either a
 frozen-contract amendment or a catalog that avoids 2-character skill names; it is
 out of scope for a catalog-only release and must not be papered over. Full
-analysis, reproduction and the recommended fix are in `routing.md`.
+analysis, reproduction, the recommended fix and the adjudication are in
+`routing.md` §3, §4, §7 and §8.
+
+**Adjudication: ACCEPTED — ship with the regression documented and tracked.**
+It does not block this release; it is carried as follow-up work.
 
 ## Manual follow-up
 

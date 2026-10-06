@@ -95,6 +95,33 @@ documented in the parent records: `anthropic/claude-api`,
 `anthropic/mcp-builder`, `vercel/react-best-practices`, `vercel/deploy-to-vercel`,
 `vercel/vercel-cli-with-tokens`.
 
+## Known routing defect introduced by this catalog (ACCEPTED, tracked)
+
+`mattpocock/pr` is the first catalog skill with a two-character portable name
+(the previous minimum was three, `tdd`). SPEC-004 §5.1.11.2 implements the
+`NAME_DESCRIPTION` evidence category as a raw substring test on the normalized
+task, so `includes("pr")` matches inside ordinary English words: propose,
+project, process, print, profile, proof, prompt, preview, prepare, provide,
+priority, property, approve, improve. Because `NAME_DESCRIPTION` is a strong
+category, a bare substring hit promotes the skill to Tier B and yields a
+MEDIUM-confidence automatic selection.
+
+Measured against the real MCP `resolve` served from this exact artifact:
+`mattpocock/pr` is spuriously auto-selected for 12 of 20 unrelated tasks. It
+displaced 0 correct selections; each occurrence converted a correct abstention
+into a confident wrong answer. `pr` remains reachable and functional via
+`search "pr body"` (rank 1), `inspect` and `get_content`; the defect is confined
+to automatic selection. No per-skill metadata can express a substring boundary,
+and the behaviourally correct code fix contradicts a frozen, tested requirement
+that `+` and `#` survive identifier normalization (`c++`/`c#` must not collapse
+to `c`), so it cannot ship in a catalog-only release.
+
+Adjudication: ACCEPTED. The release owner decided to ship with the regression
+documented and tracked rather than hold the release, exclude `pr`, or open a
+SPEC-004 amendment first. Full analysis, reproduction data, the recommended fix
+and the accepted rationale are in
+`docs/evidence/catalog/catalog-2026-10-06.1/routing.md`.
+
 ## Parent catalog provenance
 
 ## Sources (pinned reviewed commits; every unpatched file byte-verified against the pin)

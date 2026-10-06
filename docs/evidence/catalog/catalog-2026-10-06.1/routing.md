@@ -70,7 +70,11 @@ be reviewed. Distinct owners; no metadata change warranted.
 branch) and is user-invoked. `parallelize-work` owns the general
 parallelize-the-work intent and is model-invocable. No conflict.
 
-## 4. PROVEN PLATFORM DEFECT — `pr` substring false-positive (**RELEASE BLOCKER**)
+## 4. PROVEN PLATFORM DEFECT — `pr` substring false-positive
+
+> **Adjudicated: ACCEPTED.** The release owner decided to ship with this
+> regression documented and tracked. See §8 for the decision and its basis.
+> The analysis below is unchanged.
 
 ### The defect
 
@@ -184,7 +188,7 @@ widening `pr`'s description to win a lexical match would be exactly the
 - Catalog **content** correctness: PASS.
 - Unrelated-namespace routing: PASS (0 selection changes, 0 losses).
 - New-skill discoverability: PASS.
-- `pr` automatic selection: **FAIL — proven platform defect, release blocker.**
+- `pr` automatic selection: **DEFECT CONFIRMED, ACCEPTED — shipped with documented regression.** See §8.
 ## 7. Independent re-confirmation against the committed artifact
 
 The defect was re-verified through the **real MCP `resolve` tool over stdio**,
