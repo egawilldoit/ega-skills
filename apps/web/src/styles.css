@@ -1,0 +1,810 @@
+/*
+ * EGA Skills Console — operations UI.
+ *
+ * Constraints this stylesheet answers to:
+ *  - No external font, stylesheet, script, or image. The CSP is
+ *    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+ *    img-src 'self' data:; font-src 'self'`, so anything remote would be blocked
+ *    and everything here must be self-contained. The system font stack is used
+ *    precisely because `font-src 'self'` forbids a webfont.
+ *  - Dense and readable. This is an operator tool: rows per screen matter more
+ *    than whitespace. No hero cards, no decorative gradients, no marketing.
+ *  - Light and dark from `prefers-color-scheme`. Both schemes declare their own
+ *    tokens, so contrast is checked per scheme rather than being a filter.
+ *  - WCAG AA: body text >= 4.5:1, large text and UI borders >= 3:1, focus rings
+ *    always visible against both backgrounds.
+ *  - `prefers-reduced-motion` disables every transition and animation.
+ *  - Tables degrade to stacked cards below 640px using each cell's `data-label`,
+ *    which `DataTable` always emits.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --text: #16191d;
+  --text-muted: #4d545c;
+  --surface: #ffffff;
+  --surface-sunken: #f2f4f6;
+  --surface-raised: #ffffff;
+  --border: #c3c9d0;
+  --border-strong: #8b939c;
+  --accent: #14507d;
+  --accent-contrast: #ffffff;
+  --focus: #0b5cad;
+
+  --danger: #8f1f1f;
+  --danger-surface: #fdecec;
+  --danger-border: #d08b8b;
+  --warning: #6d4a05;
+  --warning-surface: #fdf5e2;
+  --warning-border: #d2ac5c;
+  --ok: #1d5a34;
+  --ok-surface: #e9f5ed;
+  --ok-border: #7fae90;
+
+  --radius: 4px;
+  --gap: 12px;
+  --tap: 36px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e7eaee;
+    --text-muted: #a7b0ba;
+    --surface: #14171a;
+    --surface-sunken: #0f1114;
+    --surface-raised: #1c2025;
+    --border: #39414a;
+    --border-strong: #5d6873;
+    --accent: #6db3ea;
+    --accent-contrast: #0d1115;
+    --focus: #7cc0f5;
+
+    --danger: #f3a1a1;
+    --danger-surface: #2a1616;
+    --danger-border: #6d3a3a;
+    --warning: #ecc873;
+    --warning-surface: #2a2312;
+    --warning-border: #6b5525;
+    --ok: #8ed3a8;
+    --ok-surface: #12231a;
+    --ok-border: #2f5c40;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 100%;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--surface);
+  /* Denser than a default 16px body without dropping below the AA threshold. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9375rem;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: 0 0 0.5em;
+}
+
+h1 {
+  font-size: 1.375rem;
+}
+h2 {
+  font-size: 1.0625rem;
+  margin-top: 1.5em;
+}
+h3 {
+  font-size: 0.9375rem;
+}
+
+p {
+  margin: 0 0 0.75em;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  /* Long digests must wrap rather than force the table to scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible only to assistive technology: the skip link, table captions, and
+   the badge prefixes. Kept out of the tab order and the visual layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link: first tab stop, visible only when focused. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  transform: translateY(-120%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* Shell -------------------------------------------------------------------- */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.shell__product {
+  font-weight: 700;
+}
+
+.shell__badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.shell__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.shell__workspace,
+.shell__subject {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.shell__role {
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+}
+
+.shell__alert {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.shell__body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: start;
+}
+
+.shell__nav {
+  padding: 16px 8px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-sunken);
+  /* Sticky on wide screens so a long page keeps its navigation in view. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.shell__nav-empty {
+  margin: 0 8px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.shell__main {
+  padding: 16px 20px 48px;
+  min-width: 0;
+}
+
+.shell__title {
+  margin-bottom: 0.25em;
+}
+
+.shell__drawer-toggle {
+  display: none;
+}
+
+/* Navigation --------------------------------------------------------------- */
+
+.nav-group + .nav-group {
+  margin-top: 16px;
+}
+
+.nav-group__title {
+  margin: 0 8px 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.nav-group__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nav-link {
+  display: block;
+  padding: 6px 8px;
+  border-left: 3px solid transparent;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.nav-link:hover {
+  background: var(--surface);
+  border-left-color: var(--border-strong);
+}
+
+.nav-link--active {
+  border-left-color: var(--accent);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+/* Page furniture ----------------------------------------------------------- */
+
+.page__lede {
+  margin: 0 0 1em;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.panel {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.panel > h2:first-child,
+.panel > h3:first-child {
+  margin-top: 0;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gap);
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.field__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.field__value {
+  margin: 0;
+  min-width: 0;
+}
+
+.field__input {
+  min-height: var(--tap);
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9375rem;
+}
+
+.field__hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+
+.id-list {
+  margin: 0;
+  padding-left: 1.25em;
+  font-size: 0.875rem;
+}
+
+.id-list li {
+  margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* Buttons ------------------------------------------------------------------ */
+
+.button {
+  min-height: var(--tap);
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+.button--primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.button--secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.button--secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: transparent;
+}
+
+/* State surfaces ----------------------------------------------------------- */
+
+.state {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.state h3,
+.state h2 {
+  margin-top: 0;
+}
+
+.state--loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.state--empty {
+  border-left-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+.state--muted {
+  border-left-color: var(--border);
+  color: var(--text-muted);
+}
+
+.state--unavailable,
+.state--forbidden {
+  border-left-color: var(--accent);
+}
+
+.state--error {
+  border-left-color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+
+.state--warning {
+  border-left-color: var(--warning);
+  border-color: var(--warning-border);
+  background: var(--warning-surface);
+  color: var(--warning);
+}
+
+/* A 1.25rem ring: visible against both schemes without relying on hue alone. */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Badges ------------------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.badge--stable {
+  border-color: var(--ok-border);
+  background: var(--ok-surface);
+  color: var(--ok);
+}
+
+.badge--unpinned {
+  border-color: var(--warning-border);
+  background: var(--warning-surface);
+  color: var(--warning);
+}
+
+.badge--mismatch {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+
+.badge--muted {
+  color: var(--text-muted);
+}
+
+/* Tables ------------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--surface-sunken);
+}
+
+.table-empty {
+  padding: 16px 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Auth --------------------------------------------------------------------- */
+
+.auth {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 26rem;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.auth__lede,
+.auth__note {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-bottom: 16px;
+}
+
+.auth__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.auth__divider::before,
+.auth__divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.auth__providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Compare ------------------------------------------------------------------ */
+
+.compare-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--gap);
+  align-items: start;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.compare-form .button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--gap);
+}
+
+.compare-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gap);
+}
+
+/* Narrow screens: the sidebar becomes a drawer, tables become stacked cards. */
+@media (max-width: 900px) {
+  .shell__drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--tap);
+  }
+
+  .shell__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Closed by default; `.shell--drawer-open` reveals it inline above the main
+     region, which keeps the DOM order (nav before main) intact for tabbing. */
+  .shell__nav {
+    display: none;
+    position: static;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .shell--drawer-open .shell__nav {
+    display: block;
+  }
+}
+
+@media (max-width: 640px) {
+  .shell__banner {
+    align-items: flex-start;
+  }
+
+  .shell__main {
+    padding: 12px 12px 40px;
+  }
+
+  /* Each cell carries its column label in `data-label`, so the stacked card is
+     fully self-describing without a duplicated header. */
+  .table-wrap {
+    border: none;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+  }
+
+  .data-table td {
+    display: grid;
+    grid-template-columns: 40% minmax(0, 1fr);
+    gap: var(--gap);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+
+  .data-table td.numeric {
+    text-align: left;
+  }
+
+  .data-table .table-empty {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .data-table .table-empty::before {
+    content: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spinner {
+    animation: none;
+    border-top-color: var(--border-strong);
+  }
+}
