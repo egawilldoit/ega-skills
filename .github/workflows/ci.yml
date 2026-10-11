@@ -170,7 +170,7 @@ jobs:
         run: pnpm build
 
       - name: Cross-workspace isolation (real PostgreSQL 16)
-        run: node --test tests/web/cross-workspace-isolation.test.mjs
+        run: node --test tests/web/cross-workspace-isolation.rls.mjs
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 

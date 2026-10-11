@@ -31,7 +31,7 @@
  * `describe("an empty table is an absence, never a zero")`. `quota_usage`,
  * `security_denies`, and `audit_events` have **no production writer anywhere in
  * this repository** — the only `insert into` statements naming them are in
- * `tests/rls/seed.sql` and `tests/web/cross-workspace-isolation.test.mjs`. An
+ * `tests/rls/seed.sql` and `tests/web/cross-workspace-isolation.rls.mjs`. An
  * empty result set is therefore the expected state of a real deployment, and
  * rendering it as `0 requests` or `0 events` would assert a measurement that was
  * never taken. This suite checks the payload carries a stated reason instead of a

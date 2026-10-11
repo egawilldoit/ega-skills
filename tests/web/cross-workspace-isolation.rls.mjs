@@ -22,6 +22,28 @@
  * load and the run exits non-zero. It does **not** skip. A silently skipped
  * isolation proof is worse than no proof, because the report says "pass".
  *
+ * ## The `.rls.mjs` extension is load-bearing — do not rename it to `.test.mjs`
+ *
+ * `pnpm test:ci` runs `node --test` with no path filter, and Node's default
+ * discovery picks up every file whose name ends in `.test.mjs`. Naming this file
+ * `cross-workspace-isolation.test.mjs` therefore swept it into the general
+ * suite, where no database exists, so it threw and took the whole `foundation`
+ * job red with it:
+ *
+ *   Error: EGA_RLS_DATABASE_URL is required: the console's cross-workspace
+ *   isolation proof runs against a real PostgreSQL and must not silently skip.
+ *
+ * That is the fail-loud rule above working as designed, pointed at the wrong
+ * runner. `.rls.mjs` is outside Node's discovery patterns, exactly like
+ * `tests/rls/contract-f.rls.mjs`, which is why the RLS suites have always needed
+ * a job that provisions PostgreSQL and names them explicitly.
+ *
+ * The alternative — teaching the suite to skip when no database is configured —
+ * would have made `pnpm test:ci` green while quietly dropping the security
+ * proof from the default suite. The extension keeps both properties: the proof
+ * still fails loudly if you run it directly without a database, and it still
+ * runs on every PR in the `web-isolation` job, which provisions one.
+ *
  * Start a disposable cluster and provide the URL:
  *
  * ```sh
@@ -32,7 +54,7 @@
  *       -c unix_socket_directories=/tmp/opencode/ega-pg/sock \
  *       -c fsync=off -c full_page_writes=off -c synchronous_commit=off" -w start
  * export EGA_RLS_DATABASE_URL="postgres://ega@127.0.0.1:55432/postgres"
- * node --test tests/web/cross-workspace-isolation.test.mjs
+ * node --test tests/web/cross-workspace-isolation.rls.mjs
  * ```
  *
  * The database is created with a unique name from the pid and a random suffix, the
@@ -106,7 +128,7 @@ if (!BASE_URL) {
       -c unix_socket_directories=/tmp/opencode/ega-pg/sock \\
       -c fsync=off -c full_page_writes=off -c synchronous_commit=off" -w start`,
       '  export EGA_RLS_DATABASE_URL="postgres://ega@127.0.0.1:55432/postgres"',
-      "  node --test tests/web/cross-workspace-isolation.test.mjs",
+      "  node --test tests/web/cross-workspace-isolation.rls.mjs",
     ].join("\n"),
   );
 }

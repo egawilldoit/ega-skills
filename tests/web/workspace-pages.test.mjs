@@ -3,7 +3,7 @@
  *
  * ## What this suite is for
  *
- * `tests/web/cross-workspace-isolation.test.mjs` proves *who can see what*
+ * `tests/web/cross-workspace-isolation.rls.mjs` proves *who can see what*
  * against a real PostgreSQL, and `tests/web/supabase-read.test.mjs` proves the
  * adapter's own refusals. Neither can see the thing most likely to go wrong in
  * these two pages: that the route sends a filter it should not, or that it fills

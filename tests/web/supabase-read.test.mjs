@@ -3,7 +3,7 @@
  *
  * ## What this suite is for
  *
- * `tests/web/cross-workspace-isolation.test.mjs` proves *who can see what* against
+ * `tests/web/cross-workspace-isolation.rls.mjs` proves *who can see what* against
  * a real PostgreSQL. This suite proves the properties that do not need one: that
  * a request without a caller is refused, that the adapter refuses to build a
  * query it was not told it may build, and that no failure message carries a
