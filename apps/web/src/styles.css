@@ -808,3 +808,56 @@ a:hover {
     border-top-color: var(--border-strong);
   }
 }
+/* ------------------------------------------------------------------------- */
+/* Catalog controls                                                           */
+/* ------------------------------------------------------------------------- */
+
+.catalog-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 0.75rem);
+  margin-block-end: var(--space-4, 1rem);
+}
+
+.catalog-controls__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.catalog-controls__applied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border, currentColor);
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.catalog-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-start: var(--space-3, 0.75rem);
+}
+
+.catalog-pagination__status {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.catalog-pagination__buttons {
+  display: flex;
+  gap: 0.5rem;
+}

@@ -111,6 +111,18 @@ export interface CatalogFacets {
   readonly aliases: readonly CatalogFacetValue[];
   readonly sources: readonly CatalogFacetValue[];
   readonly l1_statuses: readonly CatalogFacetValue[];
+  /** Trust levels present in the filtered set. */
+  readonly trust_levels: readonly CatalogFacetValue[];
+}
+
+/** The filter set the server actually applied, echoed back. */
+export interface CatalogAppliedFilters {
+  readonly q: string | null;
+  readonly namespace: string | null;
+  readonly domain: string | null;
+  readonly framework: string | null;
+  readonly source: string | null;
+  readonly l1: string | null;
 }
 
 /**
@@ -130,7 +142,7 @@ export interface CatalogPage extends CatalogSummary {
   readonly offset: number;
   readonly sort: string;
   readonly sort_direction: "asc" | "desc";
-  readonly applied_filters: Readonly<Record<string, unknown>>;
+  readonly applied_filters: CatalogAppliedFilters;
 }
 
 export interface CatalogSummary {

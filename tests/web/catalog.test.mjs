@@ -1010,3 +1010,72 @@ describe("mismatch fails closed", () => {
     assert.equal(getCatalog(committedConfig(), { limit: 1 }).skills.length, 1);
   });
 });
+/* -------------------------------------------------------------------------- */
+/* SPA/server sort-key parity                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("the SPA's sort keys are the keys the server accepts", () => {
+  test("SkillsPage offers exactly CATALOG_SORT_KEYS, no more and no fewer", () => {
+    // The browser cannot import from the server module — every `@ega-skills/*`
+    // domain package is Node-only — so `SkillsPage` carries its own copy of the
+    // sort keys. That copy is only safe while it matches. A key the page offers
+    // but the server rejects turns every sort click into a 400; a key the page
+    // omits makes a supported ordering unreachable.
+    //
+    // So the duplicate is asserted equal rather than trusted, and this test fails
+    // the moment either side changes alone.
+    const source = readFileSync(join(REPO_ROOT, "apps", "web", "src", "pages", "SkillsPage.tsx"), "utf8");
+    const block = /const SORT_KEYS = \[([^\]]*)\]/.exec(source);
+    assert.ok(block, "SkillsPage must declare a SORT_KEYS list");
+    const declared = [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
+    assert.deepEqual(
+      [...declared].sort(),
+      [...CATALOG_SORT_KEYS].sort(),
+      "the SPA's SORT_KEYS must match the server's CATALOG_SORT_KEYS exactly",
+    );
+  });
+
+  test("every offered key is one the server really accepts", () => {
+    // Belt and braces: even if both lists drifted together to something the
+    // server rejects, `getCatalog` would still refuse it. This proves the
+    // contract end to end rather than by string comparison alone, and it is the
+    // same call the BFF handler makes.
+    for (const key of CATALOG_SORT_KEYS) {
+      const page = getCatalog(committedConfig(), { sort: key, limit: 1, offset: 0 });
+      assert.ok(Array.isArray(page.skills), `sort=${key} must produce a catalog page`);
+    }
+  });
+
+  test("the descending marker is accepted for every key the page offers", () => {
+    // The page renders a "descending" option for each key using a `-` prefix.
+    // If that marker were wrong, half the sort control would 400.
+    for (const key of CATALOG_SORT_KEYS) {
+      const page = getCatalog(committedConfig(), { sort: `-${key}`, limit: 1, offset: 0 });
+      assert.equal(page.sort_direction, "desc", `sort=-${key} must sort descending`);
+    }
+  });
+
+  test("the catalog is larger than one default page, so paging is required", () => {
+    // 114 skills against a default ceiling of 50. This is the defect behind the
+    // "every skill must be reachable" requirement: a page that fetched once and
+    // rendered the result could never show the other 64.
+    const all = fullCatalog();
+    assert.ok(
+      all.total > CATALOG_DEFAULT_LIMIT,
+      `expected more skills than one default page (${all.total} vs ${CATALOG_DEFAULT_LIMIT})`,
+    );
+
+    // And prove the remainder is genuinely reachable by walking the pages.
+    const seen = new Set();
+    for (let offset = 0; offset < all.total; offset += CATALOG_DEFAULT_LIMIT) {
+      const page = getCatalog(committedConfig(), {
+        limit: CATALOG_DEFAULT_LIMIT,
+        offset,
+        sort: "skill_id",
+      });
+      for (const row of page.skills) seen.add(row.skill_id);
+    }
+    assert.equal(seen.size, all.total, "paging through the catalog must reach every skill exactly once");
+  });
+});
