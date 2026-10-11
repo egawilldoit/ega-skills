@@ -39,7 +39,7 @@ behavior and must not be "fixed" by skipping. With a real cluster it passes 38/3
 | 4 Control-plane screens | **PROVEN** | `workspace.ts` `/workspace`,`/workspace/members`; `projects.ts` `/projects`,`/projects/:projectId`; `governance.ts` `/workspace/quotas`,`/workspace/security/denies`,`/audit` — all via the `controlPlaneRoute` authenticated seam. |
 | 5 MCP telemetry (CONTRACT-T1) | **NOT IMPLEMENTED** | Zero telemetry code in `apps/web`. `UsagePage.tsx` renders quota accounting, which the brief forbids presenting as MCP tool analytics. `contract-f rls` green, MCP four-tool contract untouched. **Largest remaining build.** |
 | 6 Windows fixes + CI | **FIXED** | EPERM teardown race and the `\` vs `/` digest-key mismatch repaired, both reproduced from the live windows-2022 log. `web` job compiles and tests apps/web on ubuntu + windows; `web-isolation` runs the real-PostgreSQL proof on Linux only (Actions rejects service containers on Windows). |
-| 7 Artifact staging + preview | **MISSING** | `vercel.json` `includeFiles:["artifact/**/*"]` but the committed artifact lives at `packages/mcp/artifact`; no declared staging step. No `VERCEL_*`/Supabase credentials in this environment → live preview acceptance is **BLOCKED**, to be documented, never mocked. |
+| 7 Artifact staging + preview | **PARTIAL** | Staging, build wiring and env documentation now complete (`scripts/web/stage-artifact.mjs`, verified in CI via `--check-only`). **Live preview acceptance BLOCKED** on two things: no `VERCEL_*`/Supabase credentials, and no Vercel project is attached to `apps/web` at all (the repo's two projects are `packages/mcp` and `packages/oauth-ui`). |
 | 8 Independent reviews | **NOT STARTED** | zero reviews performed |
 
 ## Execution order chosen
@@ -67,10 +67,25 @@ without a database, and the `web-isolation` job runs it on every PR.
 
 ## Blocked, and why it is not worked around
 
-**Wave 7 live preview acceptance.** No `VERCEL_*` or Supabase credentials exist in the
-build environment. The brief requires the exact blocker to be documented rather than
-substituted with mocks, so this stays BLOCKED until an owner supplies preview and
-first-party credentials. Nothing in this branch may claim live-preview evidence.
+**Wave 7 live preview acceptance — two independent blockers.**
+
+1. **No credentials.** No `VERCEL_*` or Supabase credentials exist in the build
+   environment. Nothing here may claim live-preview evidence.
+2. **No Vercel project is attached to `apps/web`.** The repository has two Vercel
+   integrations and the PR comment names both: `ega-skills-mcp`
+   (`rootDirectory: packages/mcp`) and `ega-skills-auth`
+   (`rootDirectory: packages/oauth-ui`). **Neither is the console.** So even with
+   credentials there is no deployment target for the web app; one has to be
+   created and pointed at `apps/web`. This is why the previews report
+   "Canceled by Ignored Build Step" rather than a console build.
+
+What *is* done in Wave 7, and needs no credentials: the artifact is now staged
+deterministically for the deployment by `scripts/web/stage-artifact.mjs`, which
+verifies envelope, SQLite identity and required content through the domain
+package before bundling and never regenerates; `vercel.json` runs it;
+`EGA_WEB_EXPECTED_RELEASE_DIGEST` is documented; and `apps/web/artifact/` is
+ignored so the derived copy is never committed. What remains is the live
+acceptance run itself, which needs (1) and (2).
 
 **CodeRabbit does not review this PR.** `.coderabbit.yaml` sets `auto_review.drafts:
 false`, so the bot skips drafts by configuration. The brief requires the PR stay draft
