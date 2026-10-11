@@ -12,6 +12,24 @@ import { EmptyState, ResourceSection, UnavailableState } from "../components/Sta
 /**
  * `/analytics` — request and bandwidth usage against the quota policy.
  *
+ * ## These numbers are NOT MCP tool telemetry
+ *
+ * CONTRACT-T1 specifies read-path MCP usage telemetry, which would make
+ * per-tool execution counts available here. It is **not implemented**: there is
+ * no telemetry store, no writer, and nothing instruments the four MCP tools. So
+ * this page shows `quota_usage` rows — aggregate counters the control plane
+ * records against a workspace's quota policy — and nothing more.
+ *
+ * That distinction is stated in the UI rather than left for the reader to
+ * infer, because the route is named `/analytics` and sits under
+ * "Observability". An operator looking for per-tool activity and finding a
+ * request count would otherwise conclude the deployment records tool usage and
+ * is idle, when the truth is that it does not record tool usage at all.
+ *
+ * The empty state already distinguishes this the other way round: it reports
+ * the server's own reason rather than showing zeros, so an absent series is
+ * never presented as genuine zero usage.
+ *
  * The console draws no chart. A chart needs a series it can trust, and this
  * deployment has no verified series yet; the numbers below are the raw rows the
  * API returned, and the totals are the API's own rollup, not a client
@@ -34,6 +52,22 @@ export function UsagePage(): ReactNode {
     >
       {(data) => (
         <>
+          {/* Rendered on the page, not only in the source, because the route is
+              named `/analytics` and this is the one place an operator could
+              reasonably mistake quota counters for MCP tool telemetry. */}
+          <section className="panel" aria-labelledby="usage-scope">
+            <h2 id="usage-scope">What this page measures</h2>
+            <p className="page__lede">
+              These are <strong>quota accounting counters</strong> recorded against this
+              workspace&apos;s quota policy — total requests and bandwidth in a time window.
+              They are <strong>not</strong> per-tool MCP execution telemetry. Read-path MCP
+              telemetry (CONTRACT-T1) is not implemented in this deployment: no telemetry is
+              recorded, so per-tool activity is <strong>unavailable</strong>, not zero. An
+              absence of numbers here means nothing has been recorded against the quota,
+              and says nothing at all about which MCP tools ran.
+            </p>
+          </section>
+
           <section className="panel" aria-labelledby="usage-rollup">
             <h2 id="usage-rollup">Reported window</h2>
             <dl className="fields">

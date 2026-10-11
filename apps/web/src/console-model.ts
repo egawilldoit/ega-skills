@@ -218,7 +218,9 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         path: "/analytics",
         label: "Usage",
         permission: "quotas_read",
-        description: "Request and bandwidth usage against the quota policy",
+        description:
+          "Quota accounting counters — request and bandwidth against the quota policy. " +
+          "Not per-tool MCP telemetry, which is not implemented.",
       },
       {
         path: "/audit",

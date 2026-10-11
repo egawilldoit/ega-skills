@@ -1748,3 +1748,58 @@ describe("the audit page filters over time, actor, operation, result and target"
     }
   });
 });
+/* -------------------------------------------------------------------------- */
+/* Usage is quota accounting, not MCP tool telemetry                           */
+/* -------------------------------------------------------------------------- */
+
+describe("the usage page does not read as MCP tool analytics", () => {
+  const USAGE_PAGE = join(REPO_ROOT, "apps", "web", "src", "pages", "UsagePage.tsx");
+  const source = readFileSync(USAGE_PAGE, "utf8");
+
+  test("the page states in the UI that these are quota counters, not tool telemetry", () => {
+    // CONTRACT-T1 exists as normative text, which is not telemetry
+    // implementation. The risk this guards is specific: the route is
+    // `/analytics` and the nav groups it under "Observability", so an operator
+    // looking for per-tool activity finds a request count and concludes the
+    // deployment records tool usage and is idle — when it records none at all.
+    // The distinction therefore has to be visible on the page, not only in a
+    // source comment nobody reads.
+    assert.match(
+      source,
+      /not.{0,40}per-tool MCP execution telemetry/i,
+      "the page must say these are not per-tool MCP telemetry",
+    );
+    assert.match(
+      source,
+      /unavailable.{0,20}not zero/i,
+      "the page must distinguish unavailable telemetry from genuine zero usage",
+    );
+  });
+
+  test("the statement is rendered, not only described in a comment", () => {
+    // Strip comments, then require the notice to survive: a claim that only
+    // exists in a JSDoc block is not something an operator can see.
+    const withoutComments = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    assert.match(
+      withoutComments,
+      /quota accounting counters/i,
+      "the quota/telemetry distinction must be rendered markup",
+    );
+  });
+
+  test("it names CONTRACT-T1 so the absent capability is traceable", () => {
+    assert.match(source, /CONTRACT-T1/);
+  });
+
+  test("the navigation description does not imply per-tool analytics", () => {
+    const model = readFileSync(
+      join(REPO_ROOT, "apps", "web", "src", "console-model.ts"),
+      "utf8",
+    );
+    const item = /id: "observability"[\s\S]*?path: "\/analytics"[\s\S]*?description:\s*([\s\S]*?),\n/.exec(model);
+    assert.ok(item, "the observability nav must declare the usage item");
+    assert.match(item[1], /not per-tool MCP telemetry/i);
+  });
+});
