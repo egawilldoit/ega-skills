@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before, describe } from "node:test";
+import { COMMITTED_SKILL_COUNT } from "../helpers/committed-artifact.mjs";
 
 import {
   API_MAX_QUERY_PARAMS,
@@ -252,7 +253,7 @@ describe("every console route answers against the real artifact", () => {
     const { status, body } = await request(baseline, "/api/release-identity");
     assert.equal(status, 200);
     assert.equal(body.release.release_digest, COMMITTED_DIGEST);
-    assert.equal(body.release.skill_count, 114);
+    assert.equal(body.release.skill_count, COMMITTED_SKILL_COUNT);
     assert.equal(body.actual_release_digest, COMMITTED_DIGEST);
     assert.equal(body.release_unavailable_reason, null);
     assert.equal(body.has_retained_manifest, false);
@@ -265,9 +266,9 @@ describe("every console route answers against the real artifact", () => {
   test("GET /api/catalog enumerates the release", async () => {
     const { status, body } = await request(baseline, "/api/catalog?limit=200");
     assert.equal(status, 200);
-    assert.equal(body.skill_total, 114);
-    assert.equal(body.total, 114);
-    assert.equal(body.skills.length, 114);
+    assert.equal(body.skill_total, COMMITTED_SKILL_COUNT);
+    assert.equal(body.total, COMMITTED_SKILL_COUNT);
+    assert.equal(body.skills.length, COMMITTED_SKILL_COUNT);
     assert.equal(body.release.release_digest, COMMITTED_DIGEST);
     assert.equal(body.release_unavailable_reason, null);
     assert.ok(Array.isArray(body.facets.triggers));
@@ -379,7 +380,7 @@ describe("every console route answers against the real artifact", () => {
     );
     assert.equal(status, 200);
     assert.equal(body.status, "UNCHANGED");
-    assert.equal(body.unchanged_count, 114);
+    assert.equal(body.unchanged_count, COMMITTED_SKILL_COUNT);
     assert.deepEqual(body.added_skill_ids, []);
     assert.deepEqual(body.removed_skill_ids, []);
     assert.deepEqual(body.changed_skill_ids, []);

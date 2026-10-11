@@ -50,6 +50,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, describe } from "node:test";
+import { COMMITTED_SKILL_COUNT as ARTIFACT_SKILL_COUNT } from "../helpers/committed-artifact.mjs";
 
 import { sha256Hex } from "../../packages/hashing/dist/index.js";
 import {
@@ -86,6 +87,18 @@ const COMMITTED_RELEASE = JSON.parse(readFileSync(join(ARTIFACT, "hub-release.js
 const COMMITTED_DIGEST = COMMITTED_PACKAGE.hub_release_digest;
 const COMMITTED_SKILL_COUNT = Object.keys(COMMITTED_RELEASE.payload.skill_versions).length;
 const COMMITTED_SKILL_IDS = Object.keys(COMMITTED_RELEASE.payload.skill_versions).sort();
+
+// Two independent declarations of the same cardinality: the release package's
+// `snapshot_rows` and the envelope's `skill_versions` map. Deriving from the
+// envelope above keeps the assertions honest, and this asserts the two agree —
+// a mismatch would mean the artifact is internally inconsistent, which is
+// exactly the class of defect the console's release-identity checks exist to
+// catch.
+assert.equal(
+  COMMITTED_SKILL_COUNT,
+  ARTIFACT_SKILL_COUNT,
+  "the hub-release envelope and release-package snapshot_rows must declare the same skill count",
+);
 
 /** A different but syntactically valid digest, for the "not held here" cases. */
 const OTHER_DIGEST = `sha256:${"0".repeat(64)}`;
@@ -265,11 +278,11 @@ describe("a self-comparison reports no differences and a correct unchanged count
     assert.deepEqual(view.updated_skills, []);
   });
 
-  test("the unchanged count is 114 and is exactly the release's own skill set", () => {
+  test("the unchanged count is the release's own skill set, exactly", () => {
     assert.equal(view.unchanged_count, COMMITTED_SKILL_COUNT);
-    assert.equal(view.unchanged_count, 114);
-    assert.equal(view.base_skill_count, 114);
-    assert.equal(view.head_skill_count, 114);
+    assert.equal(view.unchanged_count, COMMITTED_SKILL_COUNT);
+    assert.equal(view.base_skill_count, COMMITTED_SKILL_COUNT);
+    assert.equal(view.head_skill_count, COMMITTED_SKILL_COUNT);
     assert.deepEqual([...view.unchanged_skill_ids].sort(), COMMITTED_SKILL_IDS);
   });
 
@@ -295,7 +308,7 @@ describe("a self-comparison reports no differences and a correct unchanged count
   test("how the unchanged set was computed is stated in the notes", () => {
     const note = view.notes.find((line) => /Unchanged is computed/.test(line));
     assert.ok(note, "the comparison must explain its unchanged arithmetic");
-    assert.match(note, /114 of 114/);
+    assert.match(note, new RegExp(`${COMMITTED_SKILL_COUNT} of ${COMMITTED_SKILL_COUNT}`));
   });
 
   test("a self-comparison against a copied, byte-identical artifact is also UNCHANGED", () => {
@@ -308,7 +321,7 @@ describe("a self-comparison reports no differences and a correct unchanged count
       candidate: COMMITTED_DIGEST,
     });
     assert.equal(copiedView.status, "UNCHANGED");
-    assert.equal(copiedView.unchanged_count, 114);
+    assert.equal(copiedView.unchanged_count, COMMITTED_SKILL_COUNT);
   });
 });
 

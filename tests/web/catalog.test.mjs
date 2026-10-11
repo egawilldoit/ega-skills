@@ -43,6 +43,7 @@ import { fileURLToPath } from "node:url";
 import test, { after, describe } from "node:test";
 
 import { loadHostedReleaseSnapshot, openReadOnlyRegistry } from "../../packages/mcp/dist/index.js";
+import { COMMITTED_SKILL_COUNT } from "../helpers/committed-artifact.mjs";
 
 import { parseServerConfig } from "../../apps/web/server/env.ts";
 import {
@@ -136,20 +137,20 @@ describe("the full release is enumerated", () => {
   test("every skill in the release map is returned, and nothing else is", () => {
     const page = fullCatalog();
     const ids = page.skills.map((row) => row.skill_id);
-    assert.equal(ids.length, 114);
+    assert.equal(ids.length, COMMITTED_SKILL_COUNT);
     // Exactly the release's authoritative map, sorted: no extra row invented
     // from the SQLite file, and no released skill silently omitted.
     assert.deepEqual([...ids].sort(), COMMITTED_SKILL_IDS);
-    assert.equal(new Set(ids).size, 114, "no skill appears twice");
+    assert.equal(new Set(ids).size, COMMITTED_SKILL_COUNT, "no skill appears twice");
     // `total` is the pre-pagination match count, so a page proves the total.
-    assert.equal(page.total, 114);
-    assert.equal(page.skill_total, 114);
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
+    assert.equal(page.skill_total, COMMITTED_SKILL_COUNT);
   });
 
   test("the row count agrees with the verified snapshot and the package", () => {
     const snapshot = loadHostedReleaseSnapshot(ARTIFACT);
     const page = fullCatalog();
-    assert.equal(page.total, snapshot.release.payload.skill_versions === undefined ? 0 : 114);
+    assert.equal(page.total, snapshot.release.payload.skill_versions === undefined ? 0 : COMMITTED_SKILL_COUNT);
     assert.equal(page.release.snapshot_rows, COMMITTED_PACKAGE.snapshot_rows);
     assert.equal(page.release.skill_count, COMMITTED_SKILL_IDS.length);
     // The reader's own corpus count is the independent third opinion.
@@ -159,7 +160,7 @@ describe("the full release is enumerated", () => {
   test("a page never exceeds the requested limit", () => {
     const page = getCatalog(committedConfig(), { limit: 10 });
     assert.equal(page.skills.length, 10);
-    assert.equal(page.total, 114, "the total is unaffected by the page size");
+    assert.equal(page.total, COMMITTED_SKILL_COUNT, "the total is unaffected by the page size");
     assert.equal(page.limit, 10);
     const defaulted = getCatalog(committedConfig());
     assert.equal(defaulted.skills.length, CATALOG_DEFAULT_LIMIT);
@@ -194,7 +195,7 @@ describe("release identity is carried", () => {
     const page = fullCatalog({ EGA_WEB_EXPECTED_RELEASE_DIGEST: COMMITTED_DIGEST });
     assert.equal(page.release.status, "stable");
     assert.equal(page.release.mismatch_reason, null);
-    assert.equal(page.total, 114);
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
   });
 });
 
@@ -262,7 +263,7 @@ describe("metadata is correct for a known skill", () => {
     // least one row must actually be truncated.
     assert.ok(
       page.skills.some((row) => row.description_truncated),
-      "expected at least one truncated description in a 114-skill release with a 1018-character description",
+      "expected at least one truncated description in this release",
     );
   });
 });
@@ -454,7 +455,7 @@ describe("facet counts report sparse reality", () => {
     for (const field of ["domains", "frameworks", "platforms", "triggers", "aliases"]) {
       const covered = skillsWith(field);
       assert.ok(covered > 0, `${field} covers no skill; that would mean the facet was not read`);
-      assert.ok(covered < 114, `${field} must not report full coverage in this release`);
+      assert.ok(covered < COMMITTED_SKILL_COUNT, `${field} must not report full coverage in this release`);
     }
     // The exact sparse coverage of the shipped release.
     assert.equal(skillsWith("triggers"), 71);
@@ -471,7 +472,7 @@ describe("facet counts report sparse reality", () => {
     const triggerSum = page.facets.triggers.reduce((sum, facet) => sum + facet.skill_count, 0);
     assert.equal(page.facets.triggers.length, 266, "distinct trigger values in this release");
     assert.equal(triggerSum, 268, "(skill, trigger) pairs in this release");
-    assert.ok(triggerSum > 114, "a multi-valued facet's count sum legitimately exceeds the skill count");
+    assert.ok(triggerSum > COMMITTED_SKILL_COUNT, "a multi-valued facet's count sum legitimately exceeds the skill count");
     assert.deepEqual(
       page.facets.triggers.filter((facet) => facet.skill_count === 2).map((facet) => facet.value).sort(),
       ["red green refactor", "root cause"],
@@ -485,15 +486,15 @@ describe("facet counts report sparse reality", () => {
       page.facets.namespaces.map((facet) => [facet.value, facet.skill_count]),
       [
         ["egawilldoit", 66],
-        ["mattpocock", 25],
+        ["mattpocock", 27],
         ["anthropic", 14],
         ["vercel", 9],
       ],
     );
     // All 114 skills report MISSING / UNKNOWN / local. Not one fabricated zero.
-    assert.deepEqual(page.facets.l1_statuses, [{ value: "MISSING", skill_count: 114 }]);
-    assert.deepEqual(page.facets.trust_levels, [{ value: "UNKNOWN", skill_count: 114 }]);
-    assert.deepEqual(page.facets.sources, [{ value: "local", skill_count: 114 }]);
+    assert.deepEqual(page.facets.l1_statuses, [{ value: "MISSING", skill_count: COMMITTED_SKILL_COUNT }]);
+    assert.deepEqual(page.facets.trust_levels, [{ value: "UNKNOWN", skill_count: COMMITTED_SKILL_COUNT }]);
+    assert.deepEqual(page.facets.sources, [{ value: "local", skill_count: COMMITTED_SKILL_COUNT }]);
     assert.equal(
       page.skills.every((row) => row.l1_tokens === null),
       true,
@@ -543,10 +544,10 @@ describe("filters work and are bounded", () => {
 
   test("source and l1 filters work", () => {
     const bySource = getCatalog(committedConfig(), { source: "local", limit: CATALOG_MAX_LIMIT });
-    assert.equal(bySource.total, 114);
+    assert.equal(bySource.total, COMMITTED_SKILL_COUNT);
     assert.ok(bySource.total <= all.total);
     const byL1 = getCatalog(committedConfig(), { l1: "MISSING", limit: CATALOG_MAX_LIMIT });
-    assert.equal(byL1.total, 114);
+    assert.equal(byL1.total, COMMITTED_SKILL_COUNT);
     const byAuthored = getCatalog(committedConfig(), { l1: "AUTHORED", limit: CATALOG_MAX_LIMIT });
     assert.equal(byAuthored.total, 0, "no skill in this release has an authored L1");
   });
@@ -694,8 +695,8 @@ describe("rejections are deterministic", () => {
       assert.equal(ascending.sort, key);
       assert.equal(ascending.sort_direction, "asc");
       assert.equal(descending.sort_direction, "desc");
-      assert.equal(ascending.total, 114);
-      assert.equal(descending.total, 114);
+      assert.equal(ascending.total, COMMITTED_SKILL_COUNT);
+      assert.equal(descending.total, COMMITTED_SKILL_COUNT);
       // Same rows, opposite order, identical multiset.
       assert.deepEqual(
         [...descending.skills.map((row) => row.skill_id)].sort(),
@@ -709,8 +710,8 @@ describe("rejections are deterministic", () => {
     // reversal here; the guarantee is asserted structurally instead: no sort
     // key may silently drop or reorder a null-token row out of the result.
     const page = getCatalog(committedConfig(), { sort: "-l1_tokens", limit: CATALOG_MAX_LIMIT });
-    assert.equal(page.total, 114);
-    assert.equal(page.skills.length, 114);
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
+    assert.equal(page.skills.length, COMMITTED_SKILL_COUNT);
   });
 });
 
@@ -725,12 +726,12 @@ describe("pagination is bounded and consistent", () => {
     for (let offset = 0; offset < 200; offset += size) {
       const page = getCatalog(committedConfig(), { sort: "skill_id", limit: size, offset });
       assert.ok(page.skills.length <= size, "a page exceeded its own limit");
-      assert.equal(page.total, 114, "the total must not drift between pages");
+      assert.equal(page.total, COMMITTED_SKILL_COUNT, "the total must not drift between pages");
       if (page.skills.length === 0) break;
       for (const row of page.skills) seen.push(row.skill_id);
     }
-    assert.equal(seen.length, 114, "paging dropped or repeated rows");
-    assert.equal(new Set(seen).size, 114, "paging repeated a row");
+    assert.equal(seen.length, COMMITTED_SKILL_COUNT, "paging dropped or repeated rows");
+    assert.equal(new Set(seen).size, COMMITTED_SKILL_COUNT, "paging repeated a row");
     assert.deepEqual(seen, COMMITTED_SKILL_IDS, "the default order must be skill_id ascending");
   });
 
@@ -741,8 +742,8 @@ describe("pagination is bounded and consistent", () => {
       for (const direction of ["", "-"]) {
         const first = getCatalog(committedConfig(), { sort: `${direction}${key}`, limit: CATALOG_MAX_LIMIT });
         const second = getCatalog(committedConfig(), { sort: `${direction}${key}`, limit: CATALOG_MAX_LIMIT });
-        assert.equal(first.total, 114);
-        assert.equal(first.skills.length, 114);
+        assert.equal(first.total, COMMITTED_SKILL_COUNT);
+        assert.equal(first.skills.length, COMMITTED_SKILL_COUNT);
         assert.deepEqual(
           first.skills.map((row) => row.skill_id),
           second.skills.map((row) => row.skill_id),
@@ -761,20 +762,20 @@ describe("pagination is bounded and consistent", () => {
       for (let offset = 0; offset < 200; offset += size) {
         const page = getCatalog(committedConfig(), { sort: key, limit: size, offset });
         assert.ok(page.skills.length <= size);
-        assert.equal(page.total, 114);
+        assert.equal(page.total, COMMITTED_SKILL_COUNT);
         if (page.skills.length === 0) break;
         for (const row of page.skills) seen.push(row.skill_id);
       }
-      assert.equal(seen.length, 114, `sort=${key} lost rows while paging`);
-      assert.equal(new Set(seen).size, 114, `sort=${key} repeated a row while paging`);
+      assert.equal(seen.length, COMMITTED_SKILL_COUNT, `sort=${key} lost rows while paging`);
+      assert.equal(new Set(seen).size, COMMITTED_SKILL_COUNT, `sort=${key} repeated a row while paging`);
     }
   });
 
   test("an offset past the end is an empty page that still reports the total", () => {
-    const page = getCatalog(committedConfig(), { limit: 10, offset: 114 });
+    const page = getCatalog(committedConfig(), { limit: 10, offset: COMMITTED_SKILL_COUNT });
     assert.deepEqual([...page.skills], []);
-    assert.equal(page.total, 114);
-    assert.equal(page.offset, 114);
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
+    assert.equal(page.offset, COMMITTED_SKILL_COUNT);
   });
 
   test("the workspace id is echoed, never invented", () => {
@@ -885,7 +886,7 @@ describe("MCP search is not the source", () => {
     const config = parseServerConfig({ EGA_WEB_ARTIFACT_DIR: ARTIFACT });
     assert.equal(config.artifactDir, ARTIFACT);
     const page = getCatalog(config, { limit: CATALOG_MAX_LIMIT });
-    assert.equal(page.skills.length, 114);
+    assert.equal(page.skills.length, COMMITTED_SKILL_COUNT);
     assert.deepEqual(page.skills.map((row) => row.skill_id), COMMITTED_SKILL_IDS);
   });
 
@@ -955,7 +956,7 @@ describe("a partial catalog is refused", () => {
   test("the refusal is total: the same reader serves the intact artifact", () => {
     // Control: the doctored reader is what fails, not the module or the config.
     const page = fullCatalog();
-    assert.equal(page.skills.length, 114);
+    assert.equal(page.skills.length, COMMITTED_SKILL_COUNT);
   });
 });
 
@@ -1077,5 +1078,49 @@ describe("the SPA's sort keys are the keys the server accepts", () => {
       for (const row of page.skills) seen.add(row.skill_id);
     }
     assert.equal(seen.size, all.total, "paging through the catalog must reach every skill exactly once");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Artifact-declared cardinality                                               */
+/* -------------------------------------------------------------------------- */
+
+describe("the console's counts are the artifact's own, not a remembered literal", () => {
+  test("the namespace facet partition sums to the declared skill count", () => {
+    // The per-namespace numbers above are the one place a catalog republish
+    // genuinely requires an edit: they are real data about this release, and a
+    // reader needs to see them spelled out rather than derived from the code
+    // under test.
+    //
+    // This guard is what makes that edit safe. If the facet counts ever stop
+    // partitioning the release exactly, the pinned numbers and the artifact have
+    // diverged and the failure is reported here — against the artifact — rather
+    // than surfacing as an unrelated-looking assertion failure.
+    const page = fullCatalog();
+    const namespaces = page.facets.namespaces;
+    const summed = namespaces.reduce((total, facet) => total + facet.skill_count, 0);
+
+    assert.equal(
+      summed,
+      COMMITTED_SKILL_COUNT,
+      "every skill must belong to exactly one namespace",
+    );
+    assert.equal(page.skill_total, COMMITTED_SKILL_COUNT);
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
+    assert.equal(page.skills.length, COMMITTED_SKILL_COUNT, "the full page must hold the whole release");
+  });
+
+  test("the committed artifact declares the count this suite assumes", () => {
+    // Names the source of the number, so a reader who wonders "why 116?" has a
+    // one-line answer that is not "because a literal in this file said so".
+    const page = fullCatalog();
+    assert.equal(page.total, COMMITTED_SKILL_COUNT);
+    assert.equal(
+      COMMITTED_SKILL_COUNT,
+      Object.keys(
+        JSON.parse(readFileSync(join(ARTIFACT, "hub-release.json"), "utf8")).payload.skill_versions,
+      ).length,
+      "release-package snapshot_rows must match the envelope's skill_versions",
+    );
   });
 });

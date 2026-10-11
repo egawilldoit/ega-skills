@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before, describe } from "node:test";
+import { COMMITTED_SKILL_COUNT } from "../helpers/committed-artifact.mjs";
 
 import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
 import { parseServerConfig, ServerConfigError } from "../../apps/web/server/env.ts";
@@ -98,11 +99,11 @@ describe("identity matches the verified artifact", () => {
     assert.equal(binding.expected_release_digest, null);
   });
 
-  test("counts report 114 skills and 114 snapshot rows", () => {
+  test("counts report the committed release's skill and snapshot row counts", () => {
     const snapshot = loadHostedReleaseSnapshot(ARTIFACT);
     const identity = evaluateDir(ARTIFACT).identity;
     assert.ok(identity);
-    assert.equal(identity.skill_count, 114);
+    assert.equal(identity.skill_count, COMMITTED_SKILL_COUNT);
     assert.equal(identity.snapshot_rows, COMMITTED_PACKAGE.snapshot_rows);
     assert.equal(identity.skill_count, identity.snapshot_rows);
     assert.equal(
@@ -193,8 +194,8 @@ describe("unpinned is honest, not stable", () => {
     const identity = assertCatalogServable(config);
     // Verified bytes, honestly labelled. Not an error, and NOT "stable".
     assert.equal(identity.status, "unpinned");
-    assert.equal(identity.skill_count, 114);
-    assert.equal(identity.snapshot_rows, 114);
+    assert.equal(identity.skill_count, COMMITTED_SKILL_COUNT);
+    assert.equal(identity.snapshot_rows, COMMITTED_SKILL_COUNT);
   });
 
   test("no release source at all produces no identity and says why", () => {
@@ -293,14 +294,14 @@ describe("mismatch fails closed", () => {
     const healthy = configFor({ EGA_WEB_ARTIFACT_DIR: ARTIFACT });
     // Establish a live handle first, then prove a mismatched config still
     // refuses rather than reusing it.
-    assert.equal(getRegistry(healthy).countReleaseRows(), 114);
+    assert.equal(getRegistry(healthy).countReleaseRows(), COMMITTED_SKILL_COUNT);
     const mismatched = configFor({
       EGA_WEB_ARTIFACT_DIR: ARTIFACT,
       EGA_WEB_EXPECTED_RELEASE_DIGEST: OTHER_DIGEST,
     });
     assert.throws(() => getRegistry(mismatched), ReleaseIdentityError);
     // And the healthy handle still works afterwards.
-    assert.equal(getRegistry(healthy).countReleaseRows(), 114);
+    assert.equal(getRegistry(healthy).countReleaseRows(), COMMITTED_SKILL_COUNT);
   });
 });
 
@@ -531,10 +532,10 @@ describe("the registry handle is read-only", () => {
 
   test("reads work and are bounded", () => {
     const reader = getRegistry(parseServerConfig({ EGA_WEB_ARTIFACT_DIR: ARTIFACT }));
-    assert.equal(reader.countReleaseRows(), 114);
-    assert.equal(reader.listReleasedSkills().length, 114);
+    assert.equal(reader.countReleaseRows(), COMMITTED_SKILL_COUNT);
+    assert.equal(reader.listReleasedSkills().length, COMMITTED_SKILL_COUNT);
     assert.equal(reader.listReleasedSkills({ limit: 3 }).length, 3);
-    assert.equal(reader.listReleasedSkillIds().length, 114);
+    assert.equal(reader.listReleasedSkillIds().length, COMMITTED_SKILL_COUNT);
     const skill = reader.getReleasedSkill("anthropic/academy-guide");
     assert.equal(skill.l1_status, "MISSING");
     assert.equal(skill.trust_level, "UNKNOWN");
@@ -543,7 +544,7 @@ describe("the registry handle is read-only", () => {
     // routing block is the authoritative source for facets.
     assert.ok("anti_triggers" in skill.manifest.routing);
     // A limit above the ceiling is clamped, not honoured.
-    assert.equal(reader.listReleasedSkills({ limit: 10 ** 9 }).length, 114);
+    assert.equal(reader.listReleasedSkills({ limit: 10 ** 9 }).length, COMMITTED_SKILL_COUNT);
   });
 
   test("an unreleased skill and an invalid limit are refused, not empty results", () => {

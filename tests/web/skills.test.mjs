@@ -64,6 +64,7 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, describe } from "node:test";
+import { COMMITTED_SKILL_COUNT } from "../helpers/committed-artifact.mjs";
 
 import { loadHostedReleaseSnapshot, openReadOnlyRegistry } from "../../packages/mcp/dist/index.js";
 import { getCacheBlob } from "../../packages/registry/dist/index.js";
@@ -405,8 +406,8 @@ describe("detail is correct for the named skill", () => {
       if (each.content.l1_available === false) missingL1 += 1;
       if (each.summary.source_type === "local") localSources += 1;
     }
-    assert.equal(missingL1, 114, "L1 is genuinely unavailable for all 114 released skills");
-    assert.equal(localSources, 114, "source_type is local for all 114 released skills");
+    assert.equal(missingL1, COMMITTED_SKILL_COUNT, "L1 is genuinely unavailable for all COMMITTED_SKILL_COUNT released skills");
+    assert.equal(localSources, COMMITTED_SKILL_COUNT, "source_type is local for all COMMITTED_SKILL_COUNT released skills");
   });
 
   test("routing reports the DTO fields the manifest cannot supply, with a reason", () => {
@@ -779,7 +780,15 @@ describe("protected content is not exposed", () => {
     } finally {
       handle.close();
     }
-    assert.equal(forbiddenRoleRefusals, 154, "39 script + 114 skill-body + 1 asset manifest entries");
+    // The refusals are the protected-role files across the whole release: the
+// script entries, one SKILL.md per skill, and the asset manifest. The skill
+// term is derived because it moves with every catalog republish; hardcoding the
+// total made this assertion fail for a reason unrelated to what it checks.
+assert.equal(
+  forbiddenRoleRefusals,
+  39 + COMMITTED_SKILL_COUNT + 1,
+  "39 script + one SKILL.md per skill + 1 asset manifest entry",
+);
     assert.equal(notManifestRefusals, 73, "the 73 registry-only ega.yaml rows");
   });
 
@@ -1160,8 +1169,8 @@ describe("no fabricated history", () => {
         .prepare("SELECT count(*) AS n, count(DISTINCT skill_id) AS skills FROM skill_versions")
         .get();
       // The whole release: one row per skill, no history anywhere.
-      assert.equal(total.n, 114);
-      assert.equal(total.skills, 114);
+      assert.equal(total.n, COMMITTED_SKILL_COUNT);
+      assert.equal(total.skills, COMMITTED_SKILL_COUNT);
       assert.equal(total.n, total.skills, "no skill has more than one recorded version");
     } finally {
       handle.close();
