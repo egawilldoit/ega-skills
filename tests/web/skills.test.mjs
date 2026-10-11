@@ -61,7 +61,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, describe } from "node:test";
 
@@ -157,12 +157,26 @@ function digestEveryFile(dir) {
       if (statSync(full).isDirectory()) {
         walk(full);
       } else {
-        digests.set(full.slice(ARTIFACT.length), createHash("sha256").update(readFileSync(full)).digest("hex"));
+        digests.set(relativeArtifactKey(dir, full), createHash("sha256").update(readFileSync(full)).digest("hex"));
       }
     }
   };
   walk(dir);
   return digests;
+}
+
+/**
+ * A POSIX, `/`-prefixed key for one file under the artifact root.
+ *
+ * `full.slice(dir.length)` keeps whatever separator `join` used, so on Windows
+ * the key came out as `\hub-release.json` and every `has("/" + name)` lookup
+ * missed — the integrity check failed on a machine where nothing had actually
+ * changed. Normalizing once, here, keeps both the corpus keys and the lookup in
+ * step on every platform, and keeps the comparison a plain `/`-rooted POSIX path
+ * regardless of host separator.
+ */
+function relativeArtifactKey(root, full) {
+  return `/${relative(root, full).split(sep).join("/")}`;
 }
 
 const ARTIFACT_DIGESTS_BEFORE = digestEveryFile(ARTIFACT);

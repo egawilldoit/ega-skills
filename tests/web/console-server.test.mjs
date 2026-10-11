@@ -51,10 +51,79 @@ before(async () => {
   await waitForReady();
 });
 
-after(() => {
-  child?.kill("SIGKILL");
-  if (workdir) rmSync(workdir, { recursive: true, force: true });
+after(async () => {
+  await stopChild(child);
+  if (workdir) removeTreeWithRetries(workdir);
 });
+
+/**
+ * Terminate a spawned server and wait for it to actually be gone.
+ *
+ * `kill("SIGKILL")` only *requests* termination. On Windows the process, and any
+ * handle it still holds on the working directory, outlives the call, so removing
+ * that directory immediately after it raises:
+ *
+ *   Error: EPERM, Permission denied: ...\ega-web-server-558EkI
+ *
+ * `exit` is the only reliable signal that the handle is released, so this awaits
+ * it. The `error` listener absorbs a spawn failure, and `unref` keeps a
+ * long-running child from holding the test process open on the success path.
+ *
+ * A child that was never spawned, or already reaped, resolves immediately rather
+ * than waiting out the timeout — teardown must never become the reason a suite
+ * hangs.
+ */
+function stopChild(process, timeoutMs = 10_000) {
+  if (!process || process.exitCode !== null || process.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      process.off("exit", done);
+      resolve();
+    };
+    // SIGKILL is not implemented on Windows; Node maps it to TerminateProcess.
+    process.once("exit", done);
+    process.once("error", done);
+    const timer = setTimeout(done, timeoutMs);
+    // Do not let a stuck child keep the event loop alive past teardown.
+    timer.unref?.();
+    process.kill("SIGKILL");
+  });
+}
+
+/**
+ * Remove a tree, retrying while the OS still reports the handles as busy.
+ *
+ * On Windows an antivirus scanner or a just-exited child can hold a transient
+ * handle that `rmSync` cannot take on the first attempt. `{ force: true }`
+ * already swallows ENOENT for files that vanished mid-removal; what it cannot
+ * swallow is EBUSY/EPERM on a directory that still has an open handle. Those are
+ * transient by construction, so retrying with a short backoff resolves them
+ * without hiding a genuine failure — the last attempt's error still propagates.
+ *
+ * The delay is synchronous because this runs inside node:test's `after` hook,
+ * where returning a promise is the only way to await; a blocking sleep keeps the
+ * ordering of the teardown steps explicit.
+ */
+function removeTreeWithRetries(path, attempts = 10, delayMs = 100) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const retryable = error?.code === "EPERM" || error?.code === "EBUSY";
+      if (!retryable || attempt >= attempts) throw error;
+      sleepSync(delayMs);
+    }
+  }
+}
+
+/** Synchronous backoff, for use inside a test teardown hook. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 async function readFileText(path) {
   return readFile(path, "utf8");
@@ -163,7 +232,10 @@ async function awaitReadyzFor(env) {
     }
     throw new Error(`readiness server on port ${port} never answered`);
   } finally {
-    proc.kill("SIGKILL");
+    // Awaited for the same reason as the suite fixture: a `kill()` that has not
+    // yet been reaped still holds `workdir`, and the next test — or teardown —
+    // would race it and fail with EPERM on Windows.
+    await stopChild(proc);
   }
 }
 
