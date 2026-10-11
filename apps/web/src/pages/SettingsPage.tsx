@@ -105,10 +105,12 @@ export function SettingsPage(): ReactNode {
       </section>
 
       <section className="panel" aria-labelledby="settings-incomplete">
-        <h2 id="settings-incomplete">Not wired yet</h2>
+        <h2 id="settings-incomplete">Deployment status</h2>
         <p className="page__lede">
-          This build has no BFF endpoints behind the API, so every data view reports an
-          explicit unavailable state. Release integrity wording used by the console:{" "}
+          BFF endpoints are authenticated and operational for catalog, skills, releases, projects,
+          workspaces, quotas, security denies, and audit events.
+          Per CONTRACT-T1, read-path per-tool MCP telemetry is not implemented in this deployment.
+          Release integrity wording used by the console:{" "}
           {(["stable", "unpinned", "mismatch"] as const)
             .map((value) => describeReleaseStatus(value))
             .join(", ")}

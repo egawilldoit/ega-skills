@@ -167,8 +167,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SUBJECT = /^[A-Za-z0-9._:@+-]{1,256}$/;
 
 /** Query parameters these routes understand. Anything else is refused. */
-const WORKSPACE_PARAMS: readonly string[] = Object.freeze(["workspace", "limit"]);
-const MEMBERS_PARAMS: readonly string[] = Object.freeze(["workspace", "limit"]);
+const WORKSPACE_PARAMS: readonly string[] = Object.freeze(["workspace", "workspace_id", "limit"]);
+const MEMBERS_PARAMS: readonly string[] = Object.freeze(["workspace", "workspace_id", "limit"]);
 
 /* -------------------------------------------------------------------------- */
 /* Error codes                                                                 */
@@ -400,7 +400,7 @@ function readParam(context: ApiRouteContext, name: string): string | null {
  * the set, and RLS would return nothing for it anyway.
  */
 function readWorkspaceSelector(context: ApiRouteContext): string | null {
-  const raw = readParam(context, "workspace");
+  const raw = readParam(context, "workspace") ?? readParam(context, "workspace_id");
   if (raw === null) return null;
   if (raw.length > 36) {
     throw queryInvalid("workspace must be a canonical lowercase uuid and is not reported back");

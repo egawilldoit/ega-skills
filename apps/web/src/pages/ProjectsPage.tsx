@@ -138,6 +138,7 @@ export function ProjectsPage(): ReactNode {
       client.get<readonly ProjectSummary[]>(API_ENDPOINTS.projects, {
         signal,
         timeoutMs: 15_000,
+        // filter, not a grant: workspace_id narrows the read and grants no access
         query: workspaceId === null ? {} : { workspace_id: workspaceId },
       }),
     [client, workspaceId],

@@ -5,6 +5,7 @@ import { API_ENDPOINTS } from "../api/client";
 import type { AuditRow } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { DataTable, type Column } from "../components/DataTable";
 import { EmptyState, ResourceSection } from "../components/StatePanel";
 
@@ -286,6 +287,7 @@ function filteredEmptyReason(read: number): string {
  */
 export function AuditPage(): ReactNode {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
   const [filters, setFilters] = useState<AuditFilters>(NO_AUDIT_FILTERS);
   const load = useCallback(
     (signal: AbortSignal) =>
@@ -295,11 +297,14 @@ export function AuditPage(): ReactNode {
         // The bounded page is what the filters apply to, so ask for the largest
         // page the adapter permits rather than the 50-row default: an operator
         // filtering a window should not be silently capped below it.
-        query: { limit: 200 },
+        query: {
+          limit: 200,
+          ...(workspaceId ? { workspace: workspaceId, workspace_id: workspaceId } : {}),
+        },
       }),
-    [client],
+    [client, workspaceId],
   );
-  const resource = useApiResource(load, [client]);
+  const resource = useApiResource(load, [client, workspaceId]);
 
   /**
    * Merge a partial filter set.

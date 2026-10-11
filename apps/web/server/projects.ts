@@ -438,7 +438,7 @@ function readLimit(query: URLSearchParams): number {
  * reaches the adapter, where it would be refused anyway.
  */
 function readWorkspaceFilter(query: URLSearchParams): ControlPlaneFilter | null {
-  const raw = query.get("workspace_id");
+  const raw = query.get("workspace") ?? query.get("workspace_id");
   if (raw === null) return null;
   const trimmed = raw.trim();
   if (trimmed === "") return null;

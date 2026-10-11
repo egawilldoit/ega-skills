@@ -5,6 +5,7 @@ import { API_ENDPOINTS } from "../api/client";
 import type { SecurityDenyRow } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { DataTable, type Column } from "../components/DataTable";
 import { EmptyState, ResourceSection } from "../components/StatePanel";
 
@@ -110,15 +111,17 @@ export const SECURITY_EMPTY_REASON =
  */
 export function SecurityPage(): ReactNode {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
   const load = useCallback(
     (signal: AbortSignal) =>
       client.get<readonly SecurityDenyRow[]>(API_ENDPOINTS.securityDenies, {
         signal,
         timeoutMs: 15_000,
+        ...(workspaceId ? { query: { workspace: workspaceId, workspace_id: workspaceId } } : {}),
       }),
-    [client],
+    [client, workspaceId],
   );
-  const resource = useApiResource(load, [client]);
+  const resource = useApiResource(load, [client, workspaceId]);
 
   return (
     <>

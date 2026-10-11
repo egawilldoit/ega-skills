@@ -33,14 +33,18 @@ import { useWorkspace } from "../workspace/WorkspaceProvider";
  */
 export function WorkspaceOverviewPage(): ReactNode {
   const client = useApiClient();
-  const { role, roleLabel, stateLabel } = useWorkspace();
+  const { role, roleLabel, stateLabel, workspaceId } = useWorkspace();
 
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<WorkspaceSummary>(API_ENDPOINTS.workspace, { signal, timeoutMs: 15_000 }),
-    [client],
+      client.get<WorkspaceSummary>(API_ENDPOINTS.workspace, {
+        signal,
+        timeoutMs: 15_000,
+        ...(workspaceId ? { query: { workspace: workspaceId } } : {}),
+      }),
+    [client, workspaceId],
   );
-  const resource = useApiResource(load, [client]);
+  const resource = useApiResource(load, [client, workspaceId]);
 
   return (
     <>

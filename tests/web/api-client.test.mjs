@@ -368,6 +368,29 @@ describe("the real endpoints are validated at the response boundary", () => {
     assert.deepEqual(await client.get("/catalog"), body);
   });
 
+  test("parameterized and newly covered endpoints reject malformed payloads", async () => {
+    const endpoints = [
+      ["/skills/anthropic%2Fclaude-api", { not_a_skill: true }],
+      ["/releases/sha256%3A" + "a".repeat(64), { not_a_release: true }],
+      ["/projects", { not_an_array: true }],
+      ["/projects/018f0c2a-1b2c-7d3e-8f40-1234567890ab", { not_a_project: true }],
+      ["/workspace", { viewer_role: "invalid-role" }],
+      ["/workspace/members", { not_an_array: true }],
+      ["/workspace/quotas", { not_quotas: true }],
+      ["/workspace/security/denies", { not_an_array: true }],
+      ["/audit", { not_an_array: true }],
+      ["/analytics/usage", { not_usage: true }],
+    ];
+    for (const [endpoint, body] of endpoints) {
+      const client = createApiClient({
+        fetchImpl: async () => stubResponse({ status: 200, body }),
+      });
+      await assert.rejects(client.get(endpoint), (error) => {
+        assert.equal(error.kind, "malformed_response", `${endpoint} did not reject with malformed_response`);
+        return true;
+      });
+    }
+  });
   test("a caller-supplied decode still takes precedence", async () => {
     const client = createApiClient({
       fetchImpl: async () => stubResponse({ status: 200, body: { anything: true } }),
@@ -387,8 +410,18 @@ describe("every endpoint the console calls has a declared decoder", () => {
     const declared = [
       "/catalog",
       "/skills",
+      "/skills/anthropic%2Fclaude-api",
       "/releases",
       "/releases/compare",
+      "/releases/sha256%3A" + "a".repeat(64),
+      "/projects",
+      "/projects/018f0c2a-1b2c-7d3e-8f40-1234567890ab",
+      "/workspace",
+      "/workspace/members",
+      "/workspace/quotas",
+      "/workspace/security/denies",
+      "/audit",
+      "/analytics/usage",
     ];
     for (const path of declared) {
       assert.equal(hasResponseDecoder(path), true, `${path} must have a response decoder`);

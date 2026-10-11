@@ -503,6 +503,7 @@ const transport = async (input, init) => {
 /** Build the reader, with the HTTPS URL the fixture stands in for. */
 const reader = createControlPlaneReader({
   supabaseUrl: "https://console-isolation-fixture.supabase.co",
+  publishableKey: "sb_publishable_fixture-key",
   transport,
 });
 

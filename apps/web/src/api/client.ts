@@ -21,7 +21,7 @@ import type { ApiError, ApiErrorEnvelope, ApiErrorKind } from "./contracts";
 // specifiers with Node's ESM rules rather than Vite's. An extensionless
 // relative import works in the browser bundle and fails the moment a test
 // loads `client.ts` itself.
-import { RESPONSE_DECODERS, ResponseContractError } from "./decode.ts";
+import { findResponseDecoder, RESPONSE_DECODERS, ResponseContractError } from "./decode.ts";
 
 /** Same-origin BFF prefix. Never a full URL: relative keeps cookies and CSP sane. */
 export const API_BASE_PATH = "/api";
@@ -107,6 +107,7 @@ export const API_ENDPOINTS = {
   catalog: "/catalog",
   skills: "/skills",
   skill: (skillId: string) => `/skills/${encodeSkillIdPathSegment(skillId)}`,
+  skillContent: (skillId: string) => `/skills/${encodeSkillIdPathSegment(skillId)}/content`,
   releases: "/releases",
   /** `/releases/compare` must never be shadowed by `/releases/:releaseDigest`. */
   releaseCompare: () => "/releases/compare",
@@ -325,7 +326,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     // real gap for any endpoint not yet listed in `RESPONSE_DECODERS`, so it is
     // asserted rather than assumed — `api-client.test.mjs` fails if an endpoint
     // the console calls is silently unvalidated.
-    const contract = RESPONSE_DECODERS[path];
+    const contract = findResponseDecoder(path);
     if (contract !== undefined) {
       try {
         return contract(payload) as T;

@@ -50,6 +50,8 @@ export const SERVER_ENV_KEYS = [
   "EGA_WEB_EXPECTED_RELEASE_DIGEST",
   "EGA_SUPABASE_URL",
   "EGA_SUPABASE_SECRET_KEY",
+  "EGA_SUPABASE_PUBLISHABLE_KEY",
+  "EGA_SUPABASE_ANON_KEY",
 ] as const;
 
 export type ServerEnvKey = (typeof SERVER_ENV_KEYS)[number];
@@ -104,6 +106,11 @@ export interface ServerConfig {
   readonly supabaseUrl: string | null;
   /** Present only as a value: never rendered, never logged, never compared. */
   readonly supabaseSecretKey: string | null;
+  /**
+   * Project publishable key (or anon key) sent in `apikey` header for hosted Supabase.
+   * Must never be a privileged secret key.
+   */
+  readonly supabasePublishableKey: string | null;
   /** True when an authoritative expected digest is configured. */
   readonly hasExpectedReleaseDigest: boolean;
   /** True when at least one release source is configured at all. */
@@ -211,6 +218,32 @@ export function parseServerConfig(
   // it is deliberately absent from every error path and every log line.
   const supabaseUrl = configured(env["EGA_SUPABASE_URL"]) ?? null;
   const supabaseSecretKey = configured(env["EGA_SUPABASE_SECRET_KEY"]) ?? null;
+  const supabasePublishableKey =
+    configured(env["EGA_SUPABASE_PUBLISHABLE_KEY"]) ??
+    configured(env["EGA_SUPABASE_ANON_KEY"]) ??
+    null;
+
+  if (
+    supabasePublishableKey !== null &&
+    supabaseSecretKey !== null &&
+    supabasePublishableKey === supabaseSecretKey
+  ) {
+    throw new ServerConfigError(
+      "E_WEB_ENV_INVALID",
+      "EGA_SUPABASE_PUBLISHABLE_KEY must not be the privileged secret key",
+      "EGA_SUPABASE_PUBLISHABLE_KEY",
+    );
+  }
+  if (
+    supabasePublishableKey !== null &&
+    (supabasePublishableKey.startsWith("sb_secret_") || supabasePublishableKey.includes("service_role"))
+  ) {
+    throw new ServerConfigError(
+      "E_WEB_ENV_INVALID",
+      "EGA_SUPABASE_PUBLISHABLE_KEY must not be a privileged secret key",
+      "EGA_SUPABASE_PUBLISHABLE_KEY",
+    );
+  }
 
   return Object.freeze({
     artifactDir,
@@ -218,6 +251,7 @@ export function parseServerConfig(
     expectedReleaseDigest,
     supabaseUrl,
     supabaseSecretKey,
+    supabasePublishableKey,
     hasExpectedReleaseDigest: expectedReleaseDigest !== null,
     hasReleaseSource: artifactDir !== null || retainedManifestPath !== null,
   });

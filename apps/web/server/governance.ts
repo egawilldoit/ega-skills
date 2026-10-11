@@ -317,7 +317,7 @@ function readParam(query: URLSearchParams, name: string): string | null {
  * default, and never a read whose scope the console had to invent.
  */
 function requireUuidParam(query: URLSearchParams, name: string): string {
-  const value = readParam(query, name);
+  const value = readParam(query, name) ?? (name === "workspace_id" ? readParam(query, "workspace") : null);
   if (value === null) {
     throw new ConsoleApiError(
       400,
@@ -333,7 +333,7 @@ function requireUuidParam(query: URLSearchParams, name: string): string {
 
 /** An optional canonical UUID parameter. */
 function optionalUuidParam(query: URLSearchParams, name: string): string | null {
-  const value = readParam(query, name);
+  const value = readParam(query, name) ?? (name === "workspace_id" ? readParam(query, "workspace") : null);
   if (value === null) return null;
   if (!UUID.test(value)) {
     throw new ConsoleApiError(400, "E_WEB_QUERY_INVALID", `${name} must be a canonical lowercase uuid`);

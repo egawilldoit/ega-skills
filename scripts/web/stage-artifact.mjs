@@ -54,14 +54,60 @@
  */
 
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 
-import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
+/**
+ * Discover the repository root robustly regardless of runner cwd.
+ */
+function findRepoRoot() {
+  let dir = resolve(process.cwd());
+  while (true) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const metaDir = fileURLToPath(new URL(".", import.meta.url));
+  dir = metaDir;
+  while (true) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(fileURLToPath(new URL("../..", import.meta.url)));
+}
 
-const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const REPO_ROOT = findRepoRoot();
 const DEFAULT_SOURCE = join(REPO_ROOT, "packages", "mcp", "artifact");
 const DEFAULT_TARGET = join(REPO_ROOT, "apps", "web", "artifact");
+
+/**
+ * Ensure domain packages are built before importing the staging loader.
+ */
+function ensureDomainPackages(repoRoot) {
+  const mcpEntry = join(repoRoot, "packages", "mcp", "dist", "index.js");
+  if (!existsSync(mcpEntry)) {
+    const res = spawnSync("pnpm", ["exec", "tsc", "-b"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+    if (res.status !== 0) {
+      process.stderr.write("stage-artifact: REFUSED — failed to build domain packages before staging\n");
+      process.exit(1);
+    }
+  }
+}
+
+ensureDomainPackages(REPO_ROOT);
+const mcpModuleUrl = pathToFileURL(join(REPO_ROOT, "packages", "mcp", "dist", "index.js")).href;
+const { loadHostedReleaseSnapshot } = await import(mcpModuleUrl);
 
 /** Files the console cannot serve a release without. */
 const REQUIRED_FILES = [
@@ -73,12 +119,19 @@ const REQUIRED_FILES = [
   "publication-preflight.json",
 ];
 
+function resolveTarget(arg) {
+  if (!arg) return arg;
+  if (isAbsolute(arg)) return arg;
+  if (existsSync(resolve(process.cwd(), arg))) return resolve(process.cwd(), arg);
+  return resolve(REPO_ROOT, arg);
+}
+
 function parseArgs(argv) {
   const options = { from: DEFAULT_SOURCE, to: DEFAULT_TARGET, checkOnly: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--from") options.from = resolve(argv[++i] ?? "");
-    else if (arg === "--to") options.to = resolve(argv[++i] ?? "");
+    if (arg === "--from") options.from = resolveTarget(argv[++i] ?? "");
+    else if (arg === "--to") options.to = resolveTarget(argv[++i] ?? "");
     else if (arg === "--check-only") options.checkOnly = true;
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(

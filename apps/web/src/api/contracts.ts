@@ -219,6 +219,21 @@ export interface SkillDetail {
   readonly release: ReleaseIdentity | null;
 }
 
+export type SkillContentLevel = "L1" | "L2";
+
+/** One skill body, returned only by an explicit content request. */
+export interface SkillContentView {
+  readonly skill_id: string;
+  readonly version_hash: string;
+  readonly level: SkillContentLevel;
+  readonly token_count: number;
+  readonly content: string;
+  readonly requested_max_tokens: number;
+  readonly truncated: false;
+  readonly file_path?: string;
+  readonly release: ReleaseIdentity;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Releases                                                                    */
 /* -------------------------------------------------------------------------- */

@@ -117,9 +117,11 @@ function defaultRespond(input) {
   return jsonResponse(200, [{ id: "00000000-0000-4000-8000-0000000000a1" }]);
 }
 
+const FIXTURE_PUBLISHABLE_KEY = "sb_publishable_fixture-key";
+
 /** A reader wired to `transport`, plus the transport for assertions. */
-function readerWith(transport, supabaseUrl = SUPABASE_URL) {
-  return { reader: createControlPlaneReader({ supabaseUrl, transport }), transport };
+function readerWith(transport, supabaseUrl = SUPABASE_URL, publishableKey = FIXTURE_PUBLISHABLE_KEY) {
+  return { reader: createControlPlaneReader({ supabaseUrl, publishableKey, transport }), transport };
 }
 
 const AUTH_HEADERS = { authorization: `Bearer ${CALLER_TOKEN}` };
@@ -315,17 +317,17 @@ describe("the caller's own token is the only credential", () => {
     const declared = source.slice(start, source.indexOf("\n}", start));
     assert.ok(declared.includes("transport"), "the slice must have reached the interface body");
     const fields = [...declared.matchAll(/readonly (\w+)\??:/g)].map((match) => match[1]);
-    assert.deepEqual(fields.sort(), ["supabaseUrl", "transport"]);
+    assert.deepEqual(fields.sort(), ["publishableKey", "supabaseUrl", "transport"]);
     for (const field of fields) {
       assert.doesNotMatch(
         field,
-        /secret|service|apikey|key$|token/i,
+        /secret|service|role/i,
         `ControlPlaneReaderOptions.${field} could carry a privileged credential`,
       );
     }
   });
 
-  test("the source names no privileged credential variable and builds no apikey header", () => {
+  test("the source names no privileged credential variable and sends only publishable key as apikey", () => {
     const source = readFileSync(join(REPO_ROOT, "apps", "web", "server", "supabase-read.ts"), "utf8");
     // `EGA_SUPABASE_SECRET_KEY` may appear in prose explaining why it is NOT used,
     // but never as a read. Strip comments before the assertion.
@@ -338,13 +340,10 @@ describe("the caller's own token is the only credential", () => {
       !/supabaseSecretKey/.test(code),
       "supabase-read.ts must not read ServerConfig.supabaseSecretKey",
     );
-    // An `apikey` *header* would be a second credential. The word may appear in a
-    // redaction pattern or a comment; what must not exist is a header key.
-    assert.doesNotMatch(code, /["'`]apikey["'`]\s*:/i, "supabase-read.ts must not build an apikey header");
-    assert.doesNotMatch(code, /\bapikey\s*:/i, "supabase-read.ts must not build an apikey header");
+    assert.match(code, /apikey\s*:\s*key/, "supabase-read.ts must forward publishable key as apikey");
   });
 
-  test("every recorded header is the caller's own credential and nothing else", async () => {
+  test("every recorded header carries accept, apikey, and the caller's own credential", async () => {
     const transport = spyTransport();
     const { reader } = readerWith(transport);
     const caller = await resolvedCaller(reader);
@@ -352,7 +351,8 @@ describe("the caller's own token is the only credential", () => {
     assert.equal(transport.calls.length, 2);
     for (const call of transport.calls) {
       const names = Object.keys(call.headers).sort();
-      assert.deepEqual(names, ["accept", "authorization"]);
+      assert.deepEqual(names, ["accept", "apikey", "authorization"]);
+      assert.equal(call.headers["apikey"], FIXTURE_PUBLISHABLE_KEY);
       assert.equal(call.headers["authorization"], `Bearer ${CALLER_TOKEN}`);
       assert.equal(call.headers["accept"], "application/json");
     }
@@ -365,12 +365,13 @@ describe("the caller's own token is the only credential", () => {
         "../../apps/web/server/supabase-read.ts"
       );
       const transport = spyTransport();
-      const reader = create({ supabaseUrl: SUPABASE_URL, transport });
+      const reader = create({ supabaseUrl: SUPABASE_URL, publishableKey: FIXTURE_PUBLISHABLE_KEY, transport });
       const caller = await resolvedCaller(reader);
       await reader.readAsCaller(caller, "workspace_memberships");
       for (const call of transport.calls) {
         assert.ok(!call.url.includes(SERVICE_SECRET), "a configured secret reached the URL");
         assert.ok(!call.headers["authorization"].includes(SERVICE_SECRET));
+        assert.ok(!call.headers["apikey"].includes(SERVICE_SECRET));
       }
     } finally {
       delete process.env.EGA_SUPABASE_SECRET_KEY;
@@ -779,6 +780,35 @@ describe("the assembled query is parameterized, not interpolated", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("an unconfigured or unreachable control plane is unavailable with a reason", () => {
+  test("an unconfigured Supabase publishable key is a 503 naming the variable", async () => {
+    const transport = spyTransport();
+    const reader = createControlPlaneReader({ supabaseUrl: SUPABASE_URL, publishableKey: null, transport });
+    assert.match(reader.describeAvailability(), /EGA_SUPABASE_PUBLISHABLE_KEY/);
+    const caller = Object.freeze({ subject: "user-a", token: CALLER_TOKEN });
+    const error = await reader.readAsCaller(caller, "projects").then(() => null, (c) => c);
+    assert.ok(error instanceof ControlPlaneReadError);
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "E_WEB_READ_UNAVAILABLE");
+    assert.match(error.message, /EGA_SUPABASE_PUBLISHABLE_KEY/);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  test("a privileged secret key is rejected as publishableKey", async () => {
+    const transport = spyTransport();
+    const reader = createControlPlaneReader({
+      supabaseUrl: SUPABASE_URL,
+      publishableKey: "sb_secret_never-forward-this",
+      transport,
+    });
+    const caller = Object.freeze({ subject: "user-a", token: CALLER_TOKEN });
+    const error = await reader.readAsCaller(caller, "projects").then(() => null, (c) => c);
+    assert.ok(error instanceof ControlPlaneReadError);
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "E_WEB_READ_UNAVAILABLE");
+    assert.match(error.message, /privileged (?:secret|<redacted>)/);
+    assert.equal(transport.calls.length, 0);
+  });
+
   test("an unconfigured Supabase is a 503 naming the variable, never an empty list", async () => {
     const transport = spyTransport();
     const reader = createControlPlaneReader({ supabaseUrl: null, transport });
@@ -957,12 +987,13 @@ describe("no message carries a secret, a token, a credential, or a path", () => 
         method: "GET",
         headers: AUTH_HEADERS,
       }),
-      createControlPlaneReader({ supabaseUrl: SUPABASE_URL, transport: spyTransport() }).resolveCaller({
+      createControlPlaneReader({ supabaseUrl: SUPABASE_URL, publishableKey: FIXTURE_PUBLISHABLE_KEY, transport: spyTransport() }).resolveCaller({
         method: "GET",
         headers: { authorization: "Basic " + SECRET_MARKERS.secret },
       }),
       createControlPlaneReader({
         supabaseUrl: SUPABASE_URL,
+        publishableKey: FIXTURE_PUBLISHABLE_KEY,
         transport: spyTransport((input) =>
           new URL(input).pathname === "/auth/v1/user"
             ? jsonResponse(401, { message: SECRET_MARKERS.upstreamBody })

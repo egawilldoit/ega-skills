@@ -228,9 +228,9 @@ const BOUNDS = Object.freeze({
 });
 
 /** Routes bound to `transport`, built exactly the way production builds them. */
-function routesFor(transport, supabaseUrl = SUPABASE_URL) {
+function routesFor(transport, supabaseUrl = SUPABASE_URL, publishableKey = "sb_publishable_fixture-key") {
   return createProjectRoutes({
-    reader: createControlPlaneReader({ supabaseUrl, transport }),
+    reader: createControlPlaneReader({ supabaseUrl, publishableKey, transport }),
     bounds: BOUNDS,
   });
 }
@@ -341,7 +341,8 @@ describe("the caller's own token is the only credential", () => {
     await detailFor(routes);
     assert.ok(transport.calls.length >= 2);
     for (const call of transport.calls) {
-      assert.deepEqual(Object.keys(call.headers).sort(), ["accept", "authorization"]);
+      assert.deepEqual(Object.keys(call.headers).sort(), ["accept", "apikey", "authorization"]);
+      assert.equal(call.headers["apikey"], "sb_publishable_fixture-key");
       assert.equal(call.headers["authorization"], `Bearer ${CALLER_TOKEN}`);
       assert.equal(call.headers["accept"], "application/json");
       assert.equal(call.method, "GET");
@@ -364,6 +365,7 @@ describe("the caller's own token is the only credential", () => {
       for (const call of transport.calls) {
         assert.ok(!call.url.includes(SERVICE_SECRET), "the secret reached a URL");
         assert.ok(!call.headers["authorization"].includes(SERVICE_SECRET));
+        assert.ok(!call.headers["apikey"].includes(SERVICE_SECRET));
       }
       const source = readFileSync(join(REPO_ROOT, "apps", "web", "server", "projects.ts"), "utf8");
       const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
@@ -513,6 +515,7 @@ describe("every required state answers with its own code, never with a zero", ()
   test("unavailable: an unreachable control plane is 503 without the cause", async () => {
     const reader = createControlPlaneReader({
       supabaseUrl: SUPABASE_URL,
+      publishableKey: "sb_publishable_fixture-key",
       transport: async (input) => {
         if (new URL(input).pathname === "/auth/v1/user") {
           return jsonResponse(200, { id: "user-a" });

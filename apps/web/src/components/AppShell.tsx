@@ -15,7 +15,7 @@ import { useWorkspace } from "../workspace/WorkspaceProvider";
  */
 export function AppShell({ children }: { readonly children: ReactNode }): ReactNode {
   const { email, status, signOut, lastFailure } = useAuth();
-  const { workspaceId, role, roleLabel, stateLabel } = useWorkspace();
+  const { workspaceId, role, roleLabel, stateLabel, memberships, selectWorkspace } = useWorkspace();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
   const firstRender = useRef(true);
@@ -69,9 +69,25 @@ export function AppShell({ children }: { readonly children: ReactNode }): ReactN
         </div>
 
         <div className="shell__identity">
-          <span className="shell__workspace">
-            {workspaceId === null ? "No workspace selected" : workspaceId}
-          </span>
+          {memberships.length > 1 ? (
+            <label className="shell__workspace-selector" aria-label="Select workspace">
+              <select
+                className="select shell__workspace-select"
+                value={workspaceId ?? ""}
+                onChange={(e) => selectWorkspace(e.target.value)}
+              >
+                {memberships.map((m) => (
+                  <option key={m.workspaceId} value={m.workspaceId}>
+                    {m.workspaceId} ({m.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="shell__workspace">
+              {workspaceId === null ? "No workspace selected" : workspaceId}
+            </span>
+          )}
           <span className="shell__role" title={stateLabel}>
             {roleLabel}
           </span>

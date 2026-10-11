@@ -58,14 +58,18 @@ const FULL_ROSTER_ROLES: readonly string[] = Object.freeze(["owner", "admin"]);
  */
 export function MembersPage(): ReactNode {
   const client = useApiClient();
-  const { role } = useWorkspace();
+  const { role, workspaceId } = useWorkspace();
 
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<readonly MemberRow[]>(API_ENDPOINTS.members, { signal, timeoutMs: 15_000 }),
-    [client],
+      client.get<readonly MemberRow[]>(API_ENDPOINTS.members, {
+        signal,
+        timeoutMs: 15_000,
+        ...(workspaceId ? { query: { workspace: workspaceId } } : {}),
+      }),
+    [client, workspaceId],
   );
-  const resource = useApiResource(load, [client]);
+  const resource = useApiResource(load, [client, workspaceId]);
 
   return (
     <>

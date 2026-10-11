@@ -257,7 +257,7 @@ function fixture({ quota_policies = [], quota_usage = [], security_denies = [], 
  */
 function routesWith(respond, { supabaseUrl = "https://console-fixture.supabase.co", bounds = BOUNDS } = {}) {
   const transport = spyTransport(respond);
-  const reader = createControlPlaneReader({ supabaseUrl, transport });
+  const reader = createControlPlaneReader({ supabaseUrl, publishableKey: "sb_publishable_fixture-key", transport });
   const routes = createGovernanceRoutes({ bounds, reader });
   return { routes, transport, byPath: new Map(routes.map((route) => [route.path, route])) };
 }
@@ -453,7 +453,8 @@ describe("the caller's own token is the only credential", () => {
 
     assert.ok(tableReads(transport).length > 0, "no request was recorded, so nothing was asserted");
     for (const recorded of transport.calls) {
-      assert.deepEqual(Object.keys(recorded.headers).sort(), ["accept", "authorization"]);
+      assert.deepEqual(Object.keys(recorded.headers).sort(), ["accept", "apikey", "authorization"]);
+      assert.equal(recorded.headers["apikey"], "sb_publishable_fixture-key");
       assert.equal(recorded.headers["accept"], "application/json");
       assert.match(recorded.headers["authorization"], /^Bearer /);
       // The only tokens that may appear are the two fictional callers'.

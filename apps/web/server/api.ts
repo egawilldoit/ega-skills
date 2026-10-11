@@ -731,6 +731,7 @@ function catalogOptions(query: URLSearchParams): CatalogOptions {
     ["l1", "l1"],
     ["sort", "sort"],
     ["workspace_id", "workspace_id"],
+    ["workspace", "workspace_id"],
   ];
   for (const [param, field] of text) {
     const value = readParam(query, param);

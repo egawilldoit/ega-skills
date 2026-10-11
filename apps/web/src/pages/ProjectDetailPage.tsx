@@ -1,3 +1,4 @@
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import type { ReactNode } from "react";
 import { useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -326,6 +327,7 @@ export function renderProjectDetail(
  */
 export function ProjectDetailPage(): ReactNode {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
   const params = useParams<{ readonly projectId: string | undefined }>();
   const projectId = params.projectId ?? null;
 
@@ -336,10 +338,11 @@ export function ProjectDetailPage(): ReactNode {
         : client.get<ProjectDetailView>(API_ENDPOINTS.project(projectId), {
             signal,
             timeoutMs: 15_000,
+            ...(workspaceId ? { query: { workspace: workspaceId, workspace_id: workspaceId } } : {}),
           }),
-    [client, projectId],
+    [client, projectId, workspaceId],
   );
-  const resource = useApiResource(load, [client, projectId]);
+  const resource = useApiResource(load, [client, projectId, workspaceId]);
 
   if (projectId === null) {
     return (

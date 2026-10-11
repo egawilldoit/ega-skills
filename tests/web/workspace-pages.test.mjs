@@ -162,7 +162,8 @@ function routesFor(options = {}) {
   // null. `options.supabaseUrl ?? SUPABASE_URL` would silently substitute the
   // fixture URL for it and the 503 assertion would never be exercised.
   const supabaseUrl = "supabaseUrl" in options ? options.supabaseUrl : SUPABASE_URL;
-  const reader = createControlPlaneReader({ supabaseUrl, transport });
+  const publishableKey = "publishableKey" in options ? options.publishableKey : "sb_publishable_fixture-key";
+  const reader = createControlPlaneReader({ supabaseUrl, publishableKey, transport });
   const routes = buildWorkspaceRoutes(BOUNDS, reader);
   return { routes, calls };
 }
@@ -270,7 +271,7 @@ describe("a caller must be present and verified", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("the caller's own token is the only credential", () => {
-  test("every recorded header map is exactly accept and authorization", async () => {
+  test("every recorded header map carries accept, apikey, and authorization", async () => {
     const { routes, calls } = routesFor({
       workspaces: [{ id: WORKSPACE_ID, owner_subject: OWNER_SUBJECT, created_at: NOW }],
     });
@@ -278,12 +279,10 @@ describe("the caller's own token is the only credential", () => {
     await settle(routes, "/workspace/members");
     assert.ok(calls.length > 0);
     for (const entry of calls) {
-      assert.deepEqual(entry.headerNames, ["accept", "authorization"]);
-      // No apikey header at all: the publishable key is a browser-side value and
-      // the secret key is not in this process by construction.
+      assert.deepEqual(entry.headerNames, ["accept", "apikey", "authorization"]);
       assert.equal(entry.headers["accept"], "application/json");
+      assert.equal(entry.headers["apikey"], "sb_publishable_fixture-key");
       assert.equal(entry.headers["authorization"], `Bearer ${CALLER_TOKEN}`);
-      assert.ok(!("apikey" in entry.headers));
     }
   });
 
@@ -292,7 +291,8 @@ describe("the caller's own token is the only credential", () => {
     await settle(routes, "/workspace/members");
     const serialized = JSON.stringify(calls);
     assert.ok(!serialized.includes(SERVICE_SECRET));
-    assert.ok(!serialized.includes("apikey"));
+    assert.ok(!serialized.includes("service_role"));
+    assert.ok(!serialized.includes("sb_secret_"));
   });
 
   test("the module never references the server secret key or a service role", () => {
@@ -656,14 +656,14 @@ describe("unavailable is never an empty result", () => {
       }
       throw new TypeError("fetch failed");
     };
-    const reader = createControlPlaneReader({ supabaseUrl: SUPABASE_URL, transport });
+    const reader = createControlPlaneReader({ supabaseUrl: SUPABASE_URL, publishableKey: "sb_publishable_fixture-key", transport });
     const routes = buildWorkspaceRoutes(BOUNDS, reader);
     const { body, error } = await settle(routes, "/workspace/members");
     assert.equal(body, undefined);
     assert.equal(error.status, 503);
     assert.match(error.message, /could not be reached/);
     // Even on failure the credential set is unchanged.
-    for (const entry of calls) assert.deepEqual(entry.headerNames, ["accept", "authorization"]);
+    for (const entry of calls) assert.deepEqual(entry.headerNames, ["accept", "apikey", "authorization"]);
   });
 
   test("a rejected session is 401 and the upstream body is dropped", async () => {
@@ -674,7 +674,7 @@ describe("unavailable is never an empty result", () => {
       }
       return jsonResponse(200, []);
     };
-    const reader = createControlPlaneReader({ supabaseUrl: SUPABASE_URL, transport });
+    const reader = createControlPlaneReader({ supabaseUrl: SUPABASE_URL, publishableKey: "sb_publishable_fixture-key", transport });
     const routes = buildWorkspaceRoutes(BOUNDS, reader);
     const { error } = await settle(routes, "/workspace");
     assert.equal(error.status, 401);

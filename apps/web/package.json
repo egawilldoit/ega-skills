@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "stage": "node -e 'const fs=require(\"fs\");const {spawnSync}=require(\"child_process\");const p=[\"scripts/web/stage-artifact.mjs\",\"../../scripts/web/stage-artifact.mjs\"].find(fs.existsSync);if(!p)process.exit(1);const r=spawnSync(process.execPath,[p,...process.argv.slice(1)],{stdio:\"inherit\"});process.exit(r.status??0)'",
+    "prebuild": "pnpm stage",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false --force",
     "typecheck:server": "tsc -p tsconfig.server.json --pretty false",

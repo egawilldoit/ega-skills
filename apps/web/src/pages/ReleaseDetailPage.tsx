@@ -18,9 +18,12 @@ import { ErrorState, ResourceSection } from "../components/StatePanel";
 /**
  * `/releases/:releaseDigest` — one release.
  *
- * When integrity is not `stable` the page renders identity plus the reason and
+ * When integrity is `mismatch` the page renders identity plus the reason and
  * stops: artifact rows are withheld because their contents are not verified.
  * That is the fail-closed path the contract requires.
+ *
+ * For `stable` and `unpinned`, verified artifacts are displayed. An unpinned
+ * release renders an honest warning explaining currency is unproven.
  */
 export function ReleaseDetailPage(): ReactNode {
   const client = useApiClient();
@@ -114,6 +117,18 @@ export function ReleaseDetailPage(): ReactNode {
           </section>
 
           {data.release.status === "mismatch" ? (
+            /* Only `mismatch` withholds content, and the BFF already refuses to
+               answer at all in that state — `assertCatalogServable` throws before
+               a detail response exists, so this branch is a backstop, not the
+               normal path. */
+            <ErrorState
+              title="Release identity does not match this deployment"
+              detail={
+                data.release.mismatch_reason ??
+                "The artifact does not match the release this deployment is configured to serve, so its contents are withheld."
+              }
+            />
+          ) : (
             <>
               <h2>Immutable artifacts</h2>
               <DataTable<ReleaseDetail["artifacts"][number]>
@@ -123,25 +138,6 @@ export function ReleaseDetailPage(): ReactNode {
                 rowKey={(row) => `${row.artifact_kind}:${row.object_digest}`}
               />
             </>
-          ) : (
-            /* Only `mismatch` withholds content, and the BFF already refuses to
-               answer at all in that state — `assertCatalogServable` throws before
-               a detail response exists, so this branch is a backstop, not the
-               normal path.
-
-               An `unpinned` release is NOT that case. Its bytes are fully
-               verified: envelope digest, SQLite digest, integrity check and blob
-               presence all passed. What is missing is an authoritative pointer
-               saying this is the release the deployment *should* serve, which is
-               a statement about currency, not about integrity. Refusing to list
-               those artifacts told the operator the console could not verify
-               them, which is false, and hid real data that had been proven good.
-
-               The honest framing is a warning next to the artifacts. */
-            <ErrorState
-              title="Release identity does not match this deployment"
-              detail="The artifact does not match the release this deployment is configured to serve, so its contents are withheld."
-            />
           )}
         </>
       )}

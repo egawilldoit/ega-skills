@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from "../api/client";
 import type { UsageSummary } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { DataTable, Field, type Column } from "../components/DataTable";
 import { EmptyState, ResourceSection, UnavailableState } from "../components/StatePanel";
 
@@ -37,12 +38,17 @@ import { EmptyState, ResourceSection, UnavailableState } from "../components/Sta
  */
 export function UsagePage(): ReactNode {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<UsageSummary>(API_ENDPOINTS.analyticsUsage(), { signal, timeoutMs: 20_000 }),
-    [client],
+      client.get<UsageSummary>(API_ENDPOINTS.analyticsUsage(), {
+        signal,
+        timeoutMs: 20_000,
+        ...(workspaceId ? { query: { workspace: workspaceId, workspace_id: workspaceId } } : {}),
+      }),
+    [client, workspaceId],
   );
-  const resource = useApiResource(load, [client]);
+  const resource = useApiResource(load, [client, workspaceId]);
 
   return (
     <ResourceSection

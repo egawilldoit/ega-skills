@@ -3,28 +3,18 @@
  *
  * ## The rule this module exists to enforce
  *
- * **The caller's own access token is forwarded. Nothing else is.**
+ * **The caller's own access token is forwarded alongside the publishable key.**
  *
  * The console's entire security value is that PostgreSQL row-level security is
  * the only enforcement point. A caller who cannot read a row through PostgREST
  * must not be able to read it through the console either. That property holds
  * only if the request PostgREST evaluates is *the caller's* request.
  *
- * Concretely, this module has **no credential field of any kind**. There is no
- * `secretKey`, no `serviceRole`, no `apikey`, and no place a privileged
- * credential could be threaded in. {@link ControlPlaneReaderOptions} accepts a
- * `supabaseUrl` and a `transport`, nothing else. The only header carrying a
- * credential is `authorization: Bearer <the caller's token>`, assembled from
- * {@link CallerIdentity.token} and nothing else. If a future builder needs a
- * read this module cannot perform with a caller token, the correct outcome is a
- * new contract and a new endpoint — not a service-role read bolted into this
- * one.
- *
- * `apps/web/server/env.ts` parses `EGA_SUPABASE_SECRET_KEY` into `ServerConfig`
- * and it is *deliberately not consulted here*. So is the browser-substituted
- * publishable key: this module carries no `apikey` header at all, and the static
- * scan in `tests/web/project-boundary.test.mjs` already forbids the server
- * directory from reading any browser-substituted variable name.
+ * Hosted Supabase PostgREST requires the project publishable key in `apikey` to
+ * route the request, alongside the user access token in `authorization`. This
+ * module forwards `apikey: <publishable_key>` and `authorization: Bearer <the caller's token>`,
+ * assembled from {@link CallerIdentity.token} and {@link ControlPlaneReaderOptions.publishableKey}.
+ * Privileged credentials (such as service-role secret keys) are never accepted or forwarded.
  *
  * ## No request is an authority
  *
@@ -510,6 +500,12 @@ export type ControlPlaneTransport = (
 ) => Promise<ControlPlaneHttpResponse>;
 
 export interface ControlPlaneReaderOptions {
+  /**
+   * Project publishable key (anon key), forwarded as the `apikey` header.
+   * Required for hosted Supabase routing alongside the caller's Bearer token.
+   * Must never be a privileged secret key.
+   */
+  readonly publishableKey?: string | null | undefined;
   /** Absolute Supabase project URL, or `null` when unconfigured. */
   readonly supabaseUrl: string | null;
   /** Defaults to `globalThis.fetch`. */
@@ -623,8 +619,8 @@ export function planControlPlaneRead(
         "E_WEB_READ_FILTER_NOT_ALLOWED",
         `${filter.column} is filtered more than once in one read`,
       );
-    }
-    seenColumns.add(filter.column);
+      }
+      seenColumns.add(filter.column);
     if (filter.values.length === 0) {
       fail(400, "E_WEB_READ_FILTER_INVALID", `${filter.column} was given no values`);
     }
@@ -808,8 +804,8 @@ function parseBaseUrl(supabaseUrl: string | null): URL | null {
 /**
  * Build a reader.
  *
- * Deliberately has no credential parameter. See the module comment: the only
- * credential this adapter can ever send is the caller's own token.
+ * Deliberately has no privileged credential parameter. See the module comment:
+ * the headers forwarded are `apikey: publishableKey` and `authorization: Bearer <caller_token>`.
  *
  * An unconfigured `supabaseUrl` does **not** throw here. It makes every read
  * refuse with a 503 that names `EGA_SUPABASE_URL`, which is the honest answer;
@@ -818,6 +814,12 @@ function parseBaseUrl(supabaseUrl: string | null): URL | null {
  */
 export function createControlPlaneReader(options: ControlPlaneReaderOptions): ControlPlaneReader {
   const baseUrl = parseBaseUrl(options.supabaseUrl);
+  const rawKey = options.publishableKey;
+  const publishableKey =
+    rawKey !== undefined
+      ? (rawKey === null ? null : rawKey.trim() || null)
+      : null;
+
   const transport =
     options.transport ?? (globalThis["fetch"] as unknown as ControlPlaneTransport | undefined);
   if (transport === undefined) {
@@ -839,15 +841,41 @@ export function createControlPlaneReader(options: ControlPlaneReaderOptions): Co
     return baseUrl;
   };
 
+  const requirePublishableKey = (): string => {
+    if (publishableKey === null || publishableKey.trim() === "") {
+      fail(
+        503,
+        "E_WEB_READ_UNAVAILABLE",
+        "Control-plane data is unavailable: EGA_SUPABASE_PUBLISHABLE_KEY is not configured for this deployment",
+      );
+    }
+    if (
+      publishableKey.startsWith("sb_secret_") ||
+      publishableKey.includes("service_role")
+    ) {
+      fail(
+        503,
+        "E_WEB_READ_UNAVAILABLE",
+        "EGA_SUPABASE_PUBLISHABLE_KEY must not be a privileged secret key",
+      );
+    }
+    return publishableKey;
+  };
+
   /**
-   * The one credential-bearing header map in this module.
+   * The credential-bearing header map for hosted Supabase.
    *
-   * Both the session probe and every table read build their headers here, from
-   * the caller's token, so there is exactly one place a credential could be and
-   * exactly one place a reviewer can check it.
+   * Both the session probe and every table read build their headers here,
+   * sending `apikey` (the publishable key) and `authorization` (the caller's Bearer token).
    */
-  const callerHeaders = (token: string): Readonly<Record<string, string>> =>
-    Object.freeze({ accept: "application/json", authorization: `Bearer ${token}` });
+  const callerHeaders = (token: string): Readonly<Record<string, string>> => {
+    const key = requirePublishableKey();
+    return Object.freeze({
+      accept: "application/json",
+      apikey: key,
+      authorization: `Bearer ${token}`,
+    });
+  };
 
   const resolveCaller = async (request: ControlPlaneRequest): Promise<CallerIdentity> => {
     // GET-only, decided before the header is even read. There is no write path,
@@ -861,12 +889,13 @@ export function createControlPlaneReader(options: ControlPlaneReaderOptions): Co
     }
     const url = requireBaseUrl();
     const token = extractBearerToken(request);
+    const headers = callerHeaders(token);
 
     let response: ControlPlaneHttpResponse;
     try {
       response = await transport(new URL("/auth/v1/user", url).toString(), {
         method: "GET",
-        headers: callerHeaders(token),
+        headers,
         signal: undefined,
       });
     } catch {
@@ -909,14 +938,15 @@ export function createControlPlaneReader(options: ControlPlaneReaderOptions): Co
     // counts transport calls.
     const plan = planControlPlaneRead(table, readOptions);
     const target = buildControlPlaneUrl(url, plan);
+    const headers = callerHeaders(caller.token);
 
     let response: ControlPlaneHttpResponse;
     try {
       response = await transport(
         target,
         readOptions.signal === undefined
-          ? { method: "GET", headers: callerHeaders(caller.token) }
-          : { method: "GET", headers: callerHeaders(caller.token), signal: readOptions.signal },
+          ? { method: "GET", headers }
+          : { method: "GET", headers, signal: readOptions.signal },
       );
     } catch {
       fail(503, "E_WEB_READ_UNAVAILABLE", "The control-plane read endpoint could not be reached");
@@ -971,21 +1001,30 @@ export function createControlPlaneReader(options: ControlPlaneReaderOptions): Co
   return Object.freeze({
     resolveCaller,
     readAsCaller,
-    describeAvailability: () =>
-      baseUrl === null
-        ? "Control-plane data is unavailable: EGA_SUPABASE_URL is not configured for this deployment."
-        : "Control-plane data is served from Supabase with the caller's own session; no privileged credential is held by this process.",
+    describeAvailability: () => {
+      if (baseUrl === null) {
+        return "Control-plane data is unavailable: EGA_SUPABASE_URL is not configured for this deployment.";
+      }
+      if (publishableKey === null) {
+        return "Control-plane data is unavailable: EGA_SUPABASE_PUBLISHABLE_KEY is not configured for this deployment.";
+      }
+      return "Control-plane data is served from Supabase with the caller's own session; no privileged credential is held by this process.";
+    },
   });
 }
 
 /**
- * The reader for a configured deployment: `EGA_SUPABASE_URL` from
- * `ServerConfig`, and nothing else.
+ * The reader for a configured deployment: `EGA_SUPABASE_URL` and
+ * `EGA_SUPABASE_PUBLISHABLE_KEY` from `ServerConfig`.
  *
- * `ServerConfig.supabaseSecretKey` is deliberately not referenced here. This is
+ * Privileged credentials are deliberately not referenced here. This is
  * the seam a reviewer should read to confirm the rule: there is no code path from
- * `EGA_SUPABASE_SECRET_KEY` to a PostgREST request.
+ * a secret key to a PostgREST request.
  */
 export function defaultControlPlaneReader(): ControlPlaneReader {
-  return createControlPlaneReader({ supabaseUrl: loadServerConfig().supabaseUrl });
+  const config = loadServerConfig();
+  return createControlPlaneReader({
+    supabaseUrl: config.supabaseUrl,
+    publishableKey: config.supabasePublishableKey,
+  });
 }

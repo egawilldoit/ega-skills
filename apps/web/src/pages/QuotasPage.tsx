@@ -125,7 +125,7 @@ export function QuotasPage(): ReactNode {
       return await client.get<WorkspaceQuotaView>(API_ENDPOINTS.workspaceQuotas(), {
         signal,
         timeoutMs: 15_000,
-        query: { workspace_id: workspaceId },
+        query: { workspace: workspaceId, workspace_id: workspaceId },
       });
     },
     [client, workspaceId],
