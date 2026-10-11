@@ -117,14 +117,25 @@ jobs:
       - name: Build web frontend
         run: pnpm --filter @ega-skills/web build
 
+      # Deliberately NOT the isolation suite: that one needs a real PostgreSQL,
+      # which needs a service container, and GitHub Actions rejects service
+      # containers on Windows runners
+      # ("Container operations are only supported on Linux runners"). It runs in
+      # the `web-isolation` job below instead, so the Windows leg of this matrix
+      # stays runnable.
       - name: Web API and integration tests
         run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs
 
-      - name: Cross-workspace isolation (real PostgreSQL 16)
-        run: node --test tests/web/cross-workspace-isolation.test.mjs
-        env:
-          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+  web-isolation:
+    name: web isolation (real PostgreSQL 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
+    # Linux only, and not because of a preference: Actions supports service
+    # containers on Linux runners exclusively. The cross-workspace isolation
+    # proof is worthless without a real database — the suite throws rather than
+    # skipping when `EGA_RLS_DATABASE_URL` is unset — so it gets its own
+    # Linux-only job rather than being dropped to make Windows pass.
     services:
       postgres:
         image: postgres:16
@@ -139,6 +150,29 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build domain packages
+        run: pnpm build
+
+      - name: Cross-workspace isolation (real PostgreSQL 16)
+        run: node --test tests/web/cross-workspace-isolation.test.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
   rls:
     name: contract-f rls (ubuntu-latest)
