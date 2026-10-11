@@ -52,6 +52,13 @@ jobs:
       - name: Validate committed deployment artifact
         run: node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
 
+      # The web deployment stages the committed artifact into apps/web/artifact
+      # via `scripts/web/stage-artifact.mjs`. Verifying it here proves the thing
+      # the console will actually serve is servable, without producing the
+      # staged copy in CI. `--check-only` writes no files.
+      - name: Verify the web deployment artifact stages and verifies
+        run: node scripts/web/stage-artifact.mjs --check-only
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -124,7 +131,7 @@ jobs:
       # the `web-isolation` job below instead, so the Windows leg of this matrix
       # stays runnable.
       - name: Web API and integration tests
-        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs
+        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs
 
   web-isolation:
     name: web isolation (real PostgreSQL 16)

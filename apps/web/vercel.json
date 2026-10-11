@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @ega-skills/web build",
+  "buildCommand": "node scripts/web/stage-artifact.mjs && pnpm --filter @ega-skills/web build",
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "dist",
   "builds": [
