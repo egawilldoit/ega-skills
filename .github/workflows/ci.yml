@@ -67,6 +67,79 @@ jobs:
       - name: Check frozen specs
         run: pnpm specs:check
 
+  web:
+    name: web console (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile is unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      # The root `tsconfig.json` references the domain packages only, so
+      # `pnpm build` and `pnpm typecheck` never touch apps/web. Without this step
+      # the console is never compiled by CI at all, and a type error in the SPA
+      # or the BFF would merge green.
+      - name: Build domain packages
+        run: pnpm build
+
+      - name: Typecheck web frontend
+        run: pnpm --filter @ega-skills/web typecheck
+
+      # `server.mts` and the server modules are outside the frontend tsconfig,
+      # so they are typechecked separately. A BFF-only type error is invisible to
+      # the check above.
+      - name: Typecheck web server
+        run: pnpm --filter @ega-skills/web typecheck:server
+
+      # The real SPA build. This is what proves the bundle compiles and that no
+      # server-only package leaks into it.
+      - name: Build web frontend
+        run: pnpm --filter @ega-skills/web build
+
+      - name: Web API and integration tests
+        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs
+
+      - name: Cross-workspace isolation (real PostgreSQL 16)
+        run: node --test tests/web/cross-workspace-isolation.test.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
   rls:
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest
