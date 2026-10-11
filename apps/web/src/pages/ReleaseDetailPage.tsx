@@ -113,7 +113,7 @@ export function ReleaseDetailPage(): ReactNode {
             </dl>
           </section>
 
-          {data.release.status === "stable" ? (
+          {data.release.status === "mismatch" ? (
             <>
               <h2>Immutable artifacts</h2>
               <DataTable<ReleaseDetail["artifacts"][number]>
@@ -124,9 +124,23 @@ export function ReleaseDetailPage(): ReactNode {
               />
             </>
           ) : (
+            /* Only `mismatch` withholds content, and the BFF already refuses to
+               answer at all in that state — `assertCatalogServable` throws before
+               a detail response exists, so this branch is a backstop, not the
+               normal path.
+
+               An `unpinned` release is NOT that case. Its bytes are fully
+               verified: envelope digest, SQLite digest, integrity check and blob
+               presence all passed. What is missing is an authoritative pointer
+               saying this is the release the deployment *should* serve, which is
+               a statement about currency, not about integrity. Refusing to list
+               those artifacts told the operator the console could not verify
+               them, which is false, and hid real data that had been proven good.
+
+               The honest framing is a warning next to the artifacts. */
             <ErrorState
-              title="Artifact contents withheld"
-              detail="Artifacts for a release that is not integrity-stable are not listed, because this deployment cannot verify what they contain."
+              title="Release identity does not match this deployment"
+              detail="The artifact does not match the release this deployment is configured to serve, so its contents are withheld."
             />
           )}
         </>

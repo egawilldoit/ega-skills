@@ -16,6 +16,12 @@
  */
 
 import type { ApiError, ApiErrorEnvelope, ApiErrorKind } from "./contracts";
+// The explicit `.ts` extension is required, not stylistic: `tests/web`
+// imports this module directly through Node's type stripping, which resolves
+// specifiers with Node's ESM rules rather than Vite's. An extensionless
+// relative import works in the browser bundle and fails the moment a test
+// loads `client.ts` itself.
+import { RESPONSE_DECODERS, ResponseContractError } from "./decode.ts";
 
 /** Same-origin BFF prefix. Never a full URL: relative keeps cookies and CSP sane. */
 export const API_BASE_PATH = "/api";
@@ -309,8 +315,31 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     if (requestOptions.decode !== undefined) {
       return requestOptions.decode(payload);
     }
-    // Trusted cast: there is no backend yet, so no payload exists to validate.
-    // Replace with `decode` in the same commit that adds a real endpoint.
+
+    // Validate against the endpoint's declared contract before the payload is
+    // handed to React. Without this the caller-supplied type parameter is a bare
+    // assertion at runtime: the SPA rendered whatever arrived, so a page built
+    // against the wrong shape threw during render instead of showing an error.
+    //
+    // A path with no declared decoder still falls through to the cast. That is a
+    // real gap for any endpoint not yet listed in `RESPONSE_DECODERS`, so it is
+    // asserted rather than assumed — `api-client.test.mjs` fails if an endpoint
+    // the console calls is silently unvalidated.
+    const contract = RESPONSE_DECODERS[path];
+    if (contract !== undefined) {
+      try {
+        return contract(payload) as T;
+      } catch (cause) {
+        throw error(
+          "malformed_response",
+          cause instanceof ResponseContractError
+            ? cause.message
+            : "The API returned a response that did not match its documented contract.",
+          response.status,
+          null,
+        );
+      }
+    }
     return payload as T;
   }
 

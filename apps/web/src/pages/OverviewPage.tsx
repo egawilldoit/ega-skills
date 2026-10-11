@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { API_ENDPOINTS } from "../api/client";
-import type { CatalogSummary } from "../api/contracts";
+import type { CatalogPage, CatalogSummary } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { Field } from "../components/DataTable";
@@ -24,10 +24,13 @@ export function OverviewPage(): ReactNode {
 
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<CatalogSummary>(API_ENDPOINTS.catalog, {
+      client.get<CatalogPage>(API_ENDPOINTS.catalog, {
         signal,
         timeoutMs: 15_000,
-        query: workspaceId === null ? {} : { workspace: workspaceId },
+        // The catalog route reads `workspace_id`; it has no `workspace`
+        // parameter, so the previous name was silently dropped and the request
+        // ran unscoped whatever workspace was selected.
+        query: workspaceId === null ? {} : { workspace_id: workspaceId },
       }),
     [client, workspaceId],
   );

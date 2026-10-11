@@ -113,6 +113,26 @@ export interface CatalogFacets {
   readonly l1_statuses: readonly CatalogFacetValue[];
 }
 
+/**
+ * The envelope `/catalog` and `/skills` actually answer with.
+ *
+ * Both paths are served by the same catalog read, so both return this shape: the
+ * filtered rows plus the totals, bounds and facets describing that filter. A
+ * consumer that treats either body as a bare `SkillSummary[]` is reading a shape
+ * the server does not produce.
+ */
+export interface CatalogPage extends CatalogSummary {
+  /** The rows for this page only — a window over `total`, not the whole catalog. */
+  readonly skills: readonly SkillSummary[];
+  /** Matches for these filters, before `limit`/`offset`. */
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  readonly sort: string;
+  readonly sort_direction: "asc" | "desc";
+  readonly applied_filters: Readonly<Record<string, unknown>>;
+}
+
 export interface CatalogSummary {
   readonly workspace_id: string;
   readonly hub_id: string;
@@ -190,6 +210,17 @@ export interface SkillDetail {
 /* -------------------------------------------------------------------------- */
 /* Releases                                                                    */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The envelope `/releases` answers with.
+ *
+ * `getReleases` returns `{ releases: [...] }`. A consumer that expects a bare
+ * `ReleaseSummary[]` receives an object where an iterable was promised, and the
+ * table it feeds iterates nothing.
+ */
+export interface ReleasesPage {
+  readonly releases: readonly ReleaseSummary[];
+}
 
 /** Row in the release list. */
 export interface ReleaseSummary {

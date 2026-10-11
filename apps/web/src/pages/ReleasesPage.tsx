@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { API_ENDPOINTS } from "../api/client";
-import type { ReleaseSummary } from "../api/contracts";
+import type { ReleaseSummary, ReleasesPage } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { DataTable, type Column } from "../components/DataTable";
@@ -71,7 +71,10 @@ export function ReleasesPage(): ReactNode {
   const client = useApiClient();
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<readonly ReleaseSummary[]>(API_ENDPOINTS.releases, {
+      // `/releases` answers with `{ releases: [...] }`, not a bare array. The
+      // page read the body as `ReleaseSummary[]` and passed it straight to
+      // `DataTable`, so every real response broke the table's iteration.
+      client.get<ReleasesPage>(API_ENDPOINTS.releases, {
         signal,
         timeoutMs: 15_000,
       }),
@@ -89,7 +92,7 @@ export function ReleasesPage(): ReactNode {
         reload={resource.reload}
         loadingLabel="Loading releases…"
         empty={(data) =>
-          data.length === 0 ? (
+          data.releases.length === 0 ? (
             <EmptyState
               title="No releases recorded"
               reason="The control plane reports no published releases for any hub this session can read."
@@ -101,7 +104,7 @@ export function ReleasesPage(): ReactNode {
           <DataTable
             caption="Published releases"
             columns={COLUMNS}
-            rows={data}
+            rows={data.releases as readonly ReleaseSummary[]}
             rowKey={(row) => `${row.release.hub_id}:${row.release.release_digest}`}
           />
         )}

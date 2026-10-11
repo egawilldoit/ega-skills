@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { API_ENDPOINTS } from "../api/client";
-import type { SkillSummary } from "../api/contracts";
+import type { CatalogPage, SkillSummary } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { DataTable, type Column } from "../components/DataTable";
@@ -43,9 +43,13 @@ const COLUMNS: readonly Column<SkillSummary>[] = [
  */
 export function SkillsPage(): ReactNode {
   const client = useApiClient();
+  // `/skills` is served by the same `handleCatalog` as `/catalog`, so it answers
+  // with the catalog envelope — `{ skills, total, limit, offset, sort,
+  // applied_filters, facets }` — and not a bare array. The page read the body as
+  // `SkillSummary[]` and called `.map` on an object, throwing during render.
   const load = useCallback(
     (signal: AbortSignal) =>
-      client.get<readonly SkillSummary[]>(API_ENDPOINTS.skills, { signal, timeoutMs: 15_000 }),
+      client.get<CatalogPage>(API_ENDPOINTS.skills, { signal, timeoutMs: 15_000 }),
     [client],
   );
   const resource = useApiResource(load, [client]);
@@ -56,7 +60,7 @@ export function SkillsPage(): ReactNode {
       reload={resource.reload}
       loadingLabel="Loading skills…"
       empty={(data) =>
-        data.length === 0 ? (
+        data.skills.length === 0 ? (
           <EmptyState
             title="No skills in the readable release"
             reason="The verified release snapshot for this deployment contains zero skills."
@@ -66,13 +70,17 @@ export function SkillsPage(): ReactNode {
     >
       {(data) => (
         <>
+          {/* `total` counts every match in the release; `skills.length` counts
+              only the rows this page is showing. Conflating them would either
+              hide the rest of the catalog or overstate what is on screen. */}
           <p className="page__lede">
-            {data.length} {data.length === 1 ? "skill" : "skills"} in the readable release.
+            Showing {data.skills.length} of {data.total}{" "}
+            {data.total === 1 ? "skill" : "skills"} in the readable release.
           </p>
           <DataTable
             caption="Skills in the readable Hub release"
             columns={COLUMNS}
-            rows={data}
+            rows={data.skills as readonly SkillSummary[]}
             rowKey={(row) => row.skill_id}
           />
         </>

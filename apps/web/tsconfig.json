@@ -9,6 +9,13 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
+    // `apps/web/src` is loaded two ways: Vite bundles it for the browser, and
+    // `tests/web` imports individual modules directly through Node's type
+    // stripping, which resolves specifiers with Node's ESM rules. Those rules
+    // need the real file extension, so a source file that a test imports
+    // directly must write `./foo.ts`. Allowed only because `noEmit` is set: this
+    // project type-checks but never emits from this config.
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,

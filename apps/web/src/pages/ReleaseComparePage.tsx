@@ -23,29 +23,46 @@ import { ErrorState, ResourceSection, UnavailableState } from "../components/Sta
 export function ReleaseComparePage(): ReactNode {
   const client = useApiClient();
   const baseId = useId();
-  const headId = useId();
+  const candidateId = useId();
   const [baseDraft, setBaseDraft] = useState("");
-  const [headDraft, setHeadDraft] = useState("");
-  const [query, setQuery] = useState<{ base: string; head: string } | null>(null);
+  const [candidateDraft, setCandidateDraft] = useState("");
+  const [query, setQuery] = useState<{ base: string; candidate: string } | null>(null);
 
   const load = useCallback(
-    (signal: AbortSignal) =>
-      client.get<ReleaseDiffView>(API_ENDPOINTS.releaseCompare(), {
+    (signal: AbortSignal) => {
+      // Only ever called with a submitted query: the hook below stays disabled
+      // until `query` is non-null. The guard is here so the invariant is checked
+      // where it is relied on rather than only in a comment.
+      if (query === null) {
+        throw new Error("comparison requested before a base and candidate were submitted");
+      }
+      return client.get<ReleaseDiffView>(API_ENDPOINTS.releaseCompare(), {
         signal,
         timeoutMs: 30_000,
-        query: query === null ? {} : { base: query.base, head: query.head },
-      }),
+        // The server's parameter is `candidate`, not `head`. It reads `base` and
+        // `candidate` and refuses anything else with a 400, so sending `head`
+        // meant every comparison failed on the real API. The *response* still
+        // calls the newer side `head` — that asymmetry is the server's, and the
+        // diff view below reads it unchanged.
+        query: { base: query.base, candidate: query.candidate },
+      });
+    },
     [client, query],
   );
-  const resource = useApiResource(load, [client, query?.base, query?.head]);
+  // Disabled until a valid pair is submitted. Without this the effect ran on
+  // mount and issued a comparison request with no digests, which the server
+  // rejects — the console probed the API before the operator asked anything.
+  const resource = useApiResource(load, [client, query?.base, query?.candidate], {
+    enabled: query !== null,
+  });
 
   const baseValid = isReleaseDigest(baseDraft);
-  const headValid = isReleaseDigest(headDraft);
+  const candidateValid = isReleaseDigest(candidateDraft);
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!baseValid || !headValid) return;
-    setQuery({ base: baseDraft, head: headDraft });
+    if (!baseValid || !candidateValid) return;
+    setQuery({ base: baseDraft, candidate: candidateDraft });
   };
 
   return (
@@ -79,23 +96,23 @@ export function ReleaseComparePage(): ReactNode {
         </div>
 
         <div className="field">
-          <label className="field__label" htmlFor={headId}>
-            Head release digest
+          <label className="field__label" htmlFor={candidateId}>
+            Candidate release digest
           </label>
           <input
             className="field__input mono"
-            id={headId}
-            name="head"
-            value={headDraft}
+            id={candidateId}
+            name="candidate"
+            value={candidateDraft}
             placeholder="sha256:…"
             spellCheck={false}
-            onChange={(event) => setHeadDraft(event.target.value)}
-            aria-describedby={`${headId}-hint`}
+            onChange={(event) => setCandidateDraft(event.target.value)}
+            aria-describedby={`${candidateId}-hint`}
           />
-          <p className="field__hint" id={`${headId}-hint`}>
-            {headDraft === ""
+          <p className="field__hint" id={`${candidateId}-hint`}>
+            {candidateDraft === ""
               ? "Canonical sha256:<64 hex> digest of the newer release."
-              : headValid
+              : candidateValid
                 ? "Valid digest form."
                 : "Not in the canonical sha256:<64 hex> form. No request will be sent."}
           </p>
@@ -104,7 +121,7 @@ export function ReleaseComparePage(): ReactNode {
         <button
           type="submit"
           className="button button--primary"
-          disabled={!baseValid || !headValid}
+          disabled={!baseValid || !candidateValid}
         >
           Compare
         </button>

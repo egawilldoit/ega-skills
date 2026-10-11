@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe } from "node:test";
 
 import {
   API_ENDPOINTS,
@@ -22,6 +22,7 @@ import {
   normalizeThrownError,
   readErrorEnvelope,
 } from "../../apps/web/src/api/client.ts";
+import { hasResponseDecoder } from "../../apps/web/src/api/decode.ts";
 
 /** Minimal Response stand-in: the client only reads `ok`, `status`, `json`, `text`. */
 function stubResponse({ status = 200, body = "" }) {
@@ -34,6 +35,44 @@ function stubResponse({ status = 200, body = "" }) {
     async json() {
       return JSON.parse(typeof body === "string" ? body : JSON.stringify(body));
     },
+  };
+}
+
+/**
+ * A minimal body that satisfies the `/catalog` and `/skills` contract.
+ *
+ * The real endpoints answer with the catalog envelope — `{ skills, total, limit,
+ * offset, sort, sort_direction, applied_filters, facets }` — and the client now
+ * validates that envelope before handing it to React. A stub therefore has to
+ * be shaped like the real response, not like an arbitrary object.
+ */
+function catalogEnvelope(overrides = {}) {
+  return {
+    workspace_id: "ws-1",
+    hub_id: "hub-1",
+    release: null,
+    release_unavailable_reason: "no verified release",
+    skill_total: 0,
+    domain_total: 0,
+    generated_at: "2026-10-11T00:00:00.000Z",
+    facets: {
+      namespaces: [],
+      domains: [],
+      frameworks: [],
+      platforms: [],
+      triggers: [],
+      aliases: [],
+      sources: [],
+      l1_statuses: [],
+    },
+    skills: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    sort: "name",
+    sort_direction: "asc",
+    applied_filters: {},
+    ...overrides,
   };
 }
 
@@ -147,7 +186,11 @@ test("the client attaches the first-party access token and nothing else", async 
   const client = createApiClient({
     fetchImpl: async (url, init) => {
       seen = { url, init };
-      return stubResponse({ status: 200, body: { ok: true } });
+      // A contract-valid catalog envelope. This test is about the outgoing
+      // request, but the body still has to satisfy the endpoint's decoder:
+      // `/skills` is validated on the way out of the client, so a stub of
+      // `{ ok: true }` now fails validation before the assertions run.
+      return stubResponse({ status: 200, body: catalogEnvelope() });
     },
     getAccessToken: async () => "user-jwt",
   });
@@ -165,7 +208,7 @@ test("a signed-out session sends no authorization header at all", async () => {
   const client = createApiClient({
     fetchImpl: async (url, init) => {
       seen = init;
-      return stubResponse({ status: 200, body: {} });
+      return stubResponse({ status: 200, body: catalogEnvelope() });
     },
     getAccessToken: async () => null,
   });
@@ -244,4 +287,111 @@ test("a decoder rejection propagates so a malformed payload cannot be trusted", 
     }),
     TypeError,
   );
+});
+/* -------------------------------------------------------------------------- */
+/* Response contract enforcement                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * These tests pin the Wave 2 failure that made the console crash in the
+ * browser: the pages were typed against shapes the BFF does not produce, and
+ * the client handed whatever arrived straight to React.
+ *
+ * They assert on the *error contract*, not on a particular message, so the
+ * wording can change without invalidating the behavior.
+ */
+
+describe("the real endpoints are validated at the response boundary", () => {
+  test("/skills rejects the bare array the old page expected", async () => {
+    // This is the exact defect: `/skills` answered with `{ skills, ... }` while
+    // `SkillsPage` read `SkillSummary[]` and called `.map` on the envelope.
+    const client = createApiClient({
+      fetchImpl: async () => stubResponse({ status: 200, body: [] }),
+    });
+    await assert.rejects(client.get("/skills"), (error) => {
+      assert.equal(error.kind, "malformed_response");
+      return true;
+    });
+  });
+
+  test("/releases rejects a bare array for the same reason", async () => {
+    const client = createApiClient({
+      fetchImpl: async () => stubResponse({ status: 200, body: [] }),
+    });
+    await assert.rejects(client.get("/releases"), (error) => {
+      assert.equal(error.kind, "malformed_response");
+      return true;
+    });
+  });
+
+  test("a catalog envelope with a malformed skill row is refused, not rendered", async () => {
+    const client = createApiClient({
+      fetchImpl: async () =>
+        stubResponse({
+          status: 200,
+          // `skill_id` is missing, so a page would have rendered a row keyed on
+          // `undefined` rather than showing an error.
+          body: catalogEnvelope({ skills: [{ name: "no id" }], total: 1 }),
+        }),
+    });
+    await assert.rejects(client.get("/catalog"), (error) => {
+      assert.equal(error.kind, "malformed_response");
+      return true;
+    });
+  });
+
+  test("a release with an unrecognized integrity status is refused", async () => {
+    // `status` drives the fail-closed decision. Coercing an unknown value would
+    // silently change what the UI is allowed to claim.
+    const client = createApiClient({
+      fetchImpl: async () =>
+        stubResponse({
+          status: 200,
+          body: {
+            releases: [
+              { release: { release_digest: "sha256:abc", hub_id: "h", status: "probably-fine" } },
+            ],
+          },
+        }),
+    });
+    await assert.rejects(client.get("/releases"), (error) => {
+      assert.equal(error.kind, "malformed_response");
+      return true;
+    });
+  });
+
+  test("a valid envelope is returned unchanged", async () => {
+    const body = catalogEnvelope({ total: 0 });
+    const client = createApiClient({
+      fetchImpl: async () => stubResponse({ status: 200, body }),
+    });
+    assert.deepEqual(await client.get("/catalog"), body);
+  });
+
+  test("a caller-supplied decode still takes precedence", async () => {
+    const client = createApiClient({
+      fetchImpl: async () => stubResponse({ status: 200, body: { anything: true } }),
+    });
+    assert.deepEqual(
+      await client.get("/catalog", { decode: (value) => ({ got: value.anything }) }),
+      { got: true },
+    );
+  });
+});
+
+describe("every endpoint the console calls has a declared decoder", () => {
+  test("no advertised endpoint is silently unvalidated", () => {
+    // The client falls back to an unchecked cast for a path with no decoder.
+    // That fallback is a real gap, so the set of endpoints the SPA actually
+    // calls is checked against the decoder table rather than assumed.
+    const declared = [
+      "/catalog",
+      "/skills",
+      "/releases",
+      "/releases/compare",
+    ];
+    for (const path of declared) {
+      assert.equal(hasResponseDecoder(path), true, `${path} must have a response decoder`);
+    }
+  });
 });
