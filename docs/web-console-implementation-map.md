@@ -54,6 +54,17 @@ never builds the web app mean no later acceptance criterion could be honestly cl
 Waves 6, 2 and 3 are done. Next is Wave 5, the largest remaining build, then Wave 7 as
 far as the missing credentials allow, then Wave 8 against the final candidate.
 
+## CI naming constraint (load-bearing)
+
+`tests/web/cross-workspace-isolation.rls.mjs` is deliberately **not** named
+`*.test.mjs`. `pnpm test:ci` runs `node --test` with no path filter, so Node's
+default discovery sweeps every `*.test.mjs` into jobs that have no PostgreSQL —
+`foundation` and `hashing traversal`. As `*.test.mjs` it threw there by design and
+turned two jobs red. The `.rls.mjs` extension puts it outside discovery, the same
+reason `tests/rls/contract-f.rls.mjs` has always needed a job that provisions a
+database. The isolation proof is not weakened: it still exits 1 when run directly
+without a database, and the `web-isolation` job runs it on every PR.
+
 ## Blocked, and why it is not worked around
 
 **Wave 7 live preview acceptance.** No `VERCEL_*` or Supabase credentials exist in the
