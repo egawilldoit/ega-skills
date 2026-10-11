@@ -1,44 +1,132 @@
-# Deployment artifact provenance — catalog-2026-09-29.1
+# Deployment artifact provenance — catalog-2026-10-06.1
 
 Built with the existing Contract C build (`buildHubRelease` / `hub release export`);
 no fixtures, no examples, no invented content.
 
-Built by adding the 66-skill `egawilldoit` owned-namespace source to the parent
-48-skill catalog. This is a CATALOG release: the software remains EGA Skills
-2.0.0 (v2.0.0 → 065421c03909089eb6077c1d285af24121329862); no frozen runtime
-code changed.
+Built by advancing the governed `mattpocock` namespace from pin
+`c55ee46073ed923f86ce59a5eb3b6d895095d1b7` to the exact upstream release
+`v1.3.1` = `24fe0ef7737efae15c87225755e9f6f5965e4888`. This is a CATALOG
+release: the software remains EGA Skills 2.0.1; no frozen runtime code changed.
 
-Release digest: sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
+Release digest: sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3
 Hub id: personal
-Skills: 114 (mattpocock 25, anthropic 14, vercel 9, egawilldoit 66)
+Skills: 116 (mattpocock 27, anthropic 14, vercel 9, egawilldoit 66)
 
-Parent catalog: catalog-2026-09-24.1
-Parent digest: sha256:55b9dba5e0274dc0640c742a8f2ceab2889c1ef312ca16d1b4f9387cb30f752f
-Parent skills: 48 (mattpocock 25, anthropic 14, vercel 9)
+Parent catalog: catalog-2026-09-29.2 -> 9c8b0eb98cc608bdc727287fdeb285040fb2771a
+Parent digest: sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77
+Parent skills: 114 (mattpocock 25, anthropic 14, vercel 9, egawilldoit 66)
 
-## New source (catalog-2026-09-29.1): egawilldoit 66
+Evidence: docs/evidence/catalog/catalog-2026-10-06.1/
 
-- egawilldoit (egawilldoit-skills): https://github.com/egawilldoit/skills
-  @ f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df
-  roots: 66 explicit `skills/<name>` directories
-  provenance: LICENSE, THIRD_PARTY_NOTICES.md, upstream-sources.json (66/66 entries)
-  source tests: 134 PASS; routing_audit / trigger_audit / validate_ega_metadata PASS
-- Commit chain: b8c3e9f4de88e7005515602e2c67276501fb1050 (initial 66-skill
-  routing metadata) → f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df (PR #5, issue #4:
-  tighten cross-catalog routing metadata for 7 skills).
-- Existing 48 SkillVersion hashes are byte-identical to the parent (48/48).
+## Catalog ID resolution (previously inconsistent)
 
-The sections below document the parent 48-skill catalog (`catalog-2026-09-24.1`)
-and remain the provenance of record for those namespaces.
+This file previously said `catalog-2026-09-29.1` while `README.md` said
+`catalog-2026-09-29.2`. Resolved from evidence, not preference: the promoted
+catalog identity was `catalog-2026-09-29.2`. Its tag
+(`catalog-2026-09-29.2`) points at `9c8b0eb9…`, that commit is the deployed SHA
+recorded in the `catalog-2026-09-29.2` post-production record, and the live MCP
+reported `effective_release_digest` `sha256:1efdbc3d…`. `PROVENANCE.md` was the
+stale document (last touched at the `.1` publish commit `401d5ae`; the `.2`
+republication commit `665f608` updated `README.md` but not this file). This
+release supersedes both with `catalog-2026-10-06.1`, allocated by the existing
+`catalog-<date>.<n>` convention for a genuine catalog-content change.
 
-## Parent catalog-2026-09-24.1 provenance
+## Source change (catalog-2026-10-06.1): mattpocock 25 -> 27
+
+- mattpocock (mattpocock-owned): https://github.com/mattpocock/skills
+  @ 24fe0ef7737efae15c87225755e9f6f5965e4888 (tag v1.3.1, annotated tag
+  object 0b6cee10f260a2e048279cf737bfd3e37b1fce0b, commit date
+  2026-10-04 13:48:05 +0100)
+  previous pin: c55ee46073ed923f86ce59a5eb3b6d895095d1b7 (2026-09-18)
+  roots: skills/engineering/* (20) + skills/productivity/* (7)
+  provenance: LICENSE (MIT, repo-level; byte-identical across both pins)
+  Every selected file byte-verified against the upstream git blobs at the pin
+  (79 files, 0 mismatches).
+- added: mattpocock/implement-spec, mattpocock/pr, mattpocock/retro
+- removed: mattpocock/resolving-merge-conflicts (no replacement upstream; not
+  aliased, because no frozen contract requires a compatibility alias)
+- changed: 9 existing Matt skills; 15 Matt skills unchanged
+- The 89 non-Matt SkillVersions (anthropic 14, vercel 9, egawilldoit 66) are
+  byte-identical to the parent release. 89/89.
+
+The sections below document the inherited provenance for the unchanged
+namespaces and remain the provenance of record for them.
+
+## Documented minimal content repair (Contract D1)
+
+- `mattpocock/pr` (MIT): frontmatter field removal. Upstream ships a NESTED
+  `metadata.credits` mapping. The portable Agent Skills specification defines
+  `metadata` as "a map from string keys to string values", and SPEC-001 §5.1.6
+  freezes the same type, so the strict V1 schema rejects it
+  (`E_SKILL_FRONTMATTER_INVALID`) and the A1 plan is BLOCKED. EGA matches the
+  published portable spec; upstream is the non-conformant party.
+  The repair removes only the unsupported nested `metadata` block. `name`,
+  `description` and the entire instruction body remain byte-identical, and the
+  attribution is retained in the unmodified `pr/CREDITS.md` which ships in the
+  same skill root.
+  original sha256: sha256:ab63f1cf78647389edcd386c9427c5dfca27ed2836930c24773ffee834c19bcd
+  repaired  sha256: sha256:251c58e16de82f462b1c43065ddf5b774fb5f7a4b4f1848b04d7e04792288246
+  SkillVersion:  sha256:43174df8327ef089949f5dce65bc2bc893d8aa280f3efdb91092a67633f59adc
+  rule_version:  catalog-matt-v131-pr-nested-metadata-1
+  Applied through `hub intake derive` (Contract D1) against the immutable
+  BLOCKED stage, then reviewed and adopted. No frozen contract was amended.
+
+## EGA routing overlays carried forward (re-justified, both unchanged)
+
+Both existing Matt overlays were re-checked against the v1.3.1 upstream text.
+Neither upstream description changed in v1.3.1, so the original justification
+still holds and both overlays are preserved byte-for-byte. See
+`docs/evidence/catalog/catalog-2026-10-06.1/governance.md`.
+
+- `mattpocock/diagnosing-bugs`: {"triggers": ["never exits", "hangs", "root cause"]}
+  reason: the brief-mandated collision prompt has zero lexical overlap with the
+  natural description; the v1.3.1 body still contains none of those phrases.
+- `mattpocock/tdd`: {"triggers": ["test-first", "red green refactor", "red-green-refactor"]}
+  reason: test-first build prompts must outrank planning/wayfinder vocabulary;
+  the spaced "red green refactor" variant is still absent from upstream prose.
+
+No overlay was added, removed, or edited. In particular, no routing metadata was
+added for `implement-spec` or `retro`: both are `disable-model-invocation: true`,
+and SPEC-001 §5.1.6.4 forbids automatic routing from ever selecting them, so
+adding triggers to steer automatic routing would contradict a frozen rule.
+
+The following inherited overlays are unchanged by this release and remain as
+documented in the parent records: `anthropic/claude-api`,
+`anthropic/mcp-builder`, `vercel/react-best-practices`, `vercel/deploy-to-vercel`,
+`vercel/vercel-cli-with-tokens`.
+
+## Known routing defect introduced by this catalog (ACCEPTED, tracked)
+
+`mattpocock/pr` is the first catalog skill with a two-character portable name
+(the previous minimum was three, `tdd`). SPEC-004 §5.1.11.2 implements the
+`NAME_DESCRIPTION` evidence category as a raw substring test on the normalized
+task, so `includes("pr")` matches inside ordinary English words: propose,
+project, process, print, profile, proof, prompt, preview, prepare, provide,
+priority, property, approve, improve. Because `NAME_DESCRIPTION` is a strong
+category, a bare substring hit promotes the skill to Tier B and yields a
+MEDIUM-confidence automatic selection.
+
+Measured against the real MCP `resolve` served from this exact artifact:
+`mattpocock/pr` is spuriously auto-selected for 12 of 20 unrelated tasks. It
+displaced 0 correct selections; each occurrence converted a correct abstention
+into a confident wrong answer. `pr` remains reachable and functional via
+`search "pr body"` (rank 1), `inspect` and `get_content`; the defect is confined
+to automatic selection. No per-skill metadata can express a substring boundary,
+and the behaviourally correct code fix contradicts a frozen, tested requirement
+that `+` and `#` survive identifier normalization (`c++`/`c#` must not collapse
+to `c`), so it cannot ship in a catalog-only release.
+
+Adjudication: ACCEPTED. The release owner decided to ship with the regression
+documented and tracked rather than hold the release, exclude `pr`, or open a
+SPEC-004 amendment first. Full analysis, reproduction data, the recommended fix
+and the accepted rationale are in
+`docs/evidence/catalog/catalog-2026-10-06.1/routing.md`.
+
+## Parent catalog provenance
 
 ## Sources (pinned reviewed commits; every unpatched file byte-verified against the pin)
 
-- mattpocock (mattpocock-owned): https://github.com/mattpocock/skills@c55ee46073ed923f86ce59a5eb3b6d895095d1b7
-  roots: skills/engineering/* (18), skills/productivity/* (7)
-  provenance: LICENSE (MIT, repo-level)
-  byte-identity: audited per file vs git blobs at the pin
+- mattpocock (mattpocock-owned): superseded by this release; see above.
 - anthropic-owned: https://github.com/anthropics/skills@34040c9c568585f6929bedeaad110ad08f079624
   roots: the 14 licensed skill directories (per-skill Apache-2.0 LICENSE.txt at pin)
   excluded and never staged: docx, pdf, pptx, xlsx (EXCLUDED_LICENSE, proprietary);
@@ -94,8 +182,12 @@ docs/evidence/catalog/catalog-2026-09-24.1-final.md).
 
 ## Reproduce
 
-Build: hub plan/stage/review/apply from the three pinned-source trees, then
-`hub release preflight` → `hub release preview` (against the previous release)
-→ `hub release export` → `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact`
+Build: `hub intake plan/stage/review/apply` for each source, then the D1
+derivation for `mattpocock/pr`, then `hub release preflight` →
+`hub release preview` (against the previous release) → `hub release export` →
+`node scripts/hosted/validate-artifact.mjs packages/mcp/artifact`.
+The exact commands, pins, digests and approvals are in
+`docs/evidence/catalog/catalog-2026-10-06.1/`.
+
 Validate: node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
-Evidence: docs/evidence/catalog/catalog-2026-09-24.1-final.md
+Evidence: docs/evidence/catalog/catalog-2026-10-06.1/
