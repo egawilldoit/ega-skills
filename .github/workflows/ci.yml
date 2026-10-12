@@ -130,6 +130,13 @@ jobs:
       # ("Container operations are only supported on Linux runners"). It runs in
       # the `web-isolation` job below instead, so the Windows leg of this matrix
       # stays runnable.
+      # Executed React component behaviour. Separate from `node --test` because
+      # .tsx is not something Node's type stripping transforms, and kept separate
+      # so the `pnpm test:ci` count is unchanged and this gate is reported on its
+      # own rather than folded into a total that also means something else.
+      - name: Web component behaviour (executed React)
+        run: pnpm test:web:components
+
       - name: Web API and integration tests
         run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
 
