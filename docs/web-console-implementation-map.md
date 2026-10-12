@@ -33,6 +33,14 @@ Run on the final head `f30ffc8`, each command executed rather than asserted:
 
 The 7 skips in `test:ci` are pre-existing and unrelated to this branch.
 
+Confirmed in required CI at the final SHA, not only locally: `web console`
+(ubuntu + windows-2022) ran the executed React component suite at 16/16 and its
+web API/integration tests at 375/375; `web isolation` ran cross-workspace
+isolation at 38/38 and telemetry authorization/containment/retention at 35/35
+against the real PostgreSQL 16 service; `contract-f rls` 15/15; `foundation` and
+`hashing traversal` on both platforms, each with a frozen-lockfile install and an
+unchanged-lockfile check.
+
 ## Requirements Classification (R1–R10)
 
 | Requirement | Status | Verification & Evidence |
