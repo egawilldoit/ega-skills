@@ -282,33 +282,53 @@ describe("pagination is complete and honestly reported", () => {
   });
 
   test("boundary timestamps at the window edges are included", async () => {
-    // Time is PINNED. The handler derives its window from `Date.now()`, so two
-    // un-pinned calls get windows a few milliseconds apart and a row placed on
-    // the first window's start falls BEFORE the second window's — which made this
-    // test fail intermittently under full-suite load for no real reason.
-    const pinned = Date.parse("2026-06-15T12:00:00.000Z");
-    const realNow = Date.now;
-    Date.now = () => pinned;
-    try {
-      const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry: [] }));
-      const startsAt = Date.parse(summary.window_started);
-      const endsAt = Date.parse(summary.window_ends_at);
+    // Rows are built from the window the QUERY ITSELF carries (`ranges.gte` /
+    // `lte`), so the boundaries are always exactly the bounds under test.
+    //
+    // This replaced a version that pinned `Date.now` and derived rows from the
+    // FIRST call's response. Pinning was ineffective: the handler builds its
+    // window with `new Date()`, which Node does not route through `Date.now`, so
+    // the second call's window had genuinely advanced and a row on the first
+    // window's start sat just outside it. That failure was intermittent, which
+    // is exactly the kind that must not be papered over.
+    let served = false;
+    const reader = {
+      resolveCaller: async () => CALLER,
+      describeAvailability: () => "fixture",
+      async readAsCaller(_caller, table, options = {}) {
+        if (table !== "mcp_tool_executions") return [];
+        const range = (options.ranges ?? []).find((r) => r.column === "observed_at");
+        if (!range?.gte || !range.lte) return [];
+        const gte = Date.parse(range.gte);
+        const lte = Date.parse(range.lte);
+        // One page only. A stub that returns the same rows on every request makes
+        // the paginating scan count them repeatedly — 33334 here, not 2.
+        if (served) return [];
+        served = true;
+        return [
+          telemetryRow({ execution_id: "at-start", observed_at: new Date(gte).toISOString() }),
+          telemetryRow({ execution_id: "at-end", observed_at: new Date(lte).toISOString() }),
+          telemetryRow({
+            execution_id: "just-before",
+            observed_at: new Date(gte - 1).toISOString(),
+          }),
+        ];
+      },
+    };
 
-      const edges = readerWith({
-        telemetry: [
-          telemetryRow({ execution_id: "at-start", observed_at: new Date(startsAt).toISOString() }),
-          telemetryRow({ execution_id: "at-end", observed_at: new Date(endsAt).toISOString() }),
-          telemetryRow({ execution_id: "just-before", observed_at: new Date(startsAt - 1).toISOString() }),
-        ],
-      });
-      const withEdges = await handleAnalyticsUsage(context(), CALLER, edges);
-      assert.equal(
-        withEdges.telemetry?.total_executions,
-        2,
-        "both bounds are inclusive, one ms earlier is out",
-      );
-    } finally {
-      Date.now = realNow;
-    }
+    const summary = await handleAnalyticsUsage(context(), CALLER, reader);
+
+    assert.equal(
+      summary.telemetry?.total_executions,
+      2,
+      "both bounds are inclusive, one ms earlier is out",
+    );
+    assert.equal(
+      summary.window_started,
+      new Date(Date.parse(summary.window_started)).toISOString(),
+      "the reported start must be an exact instant",
+    );
+    const days = (Date.parse(summary.window_ends_at) - Date.parse(summary.window_started)) / 86_400_000;
+    assert.ok(Math.abs(days - 90) < 0.01, `expected a 90-day window, got ${days}`);
   });
 });
