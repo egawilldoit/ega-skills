@@ -497,8 +497,23 @@ export interface McpTelemetrySummary {
     readonly get_content: number;
   };
   readonly total_latency_ms: number;
+  /**
+   * Averaged over the rows that carried a `latency_ms`, not over
+   * `total_executions`. Dividing by every row would dilute the average with
+   * rows carrying no measurement.
+   */
   readonly average_latency_ms: number;
+  /**
+   * Non-null only when the telemetry read SUCCEEDED and the window genuinely
+   * held no executions. An unreachable or denied read is an error response, not
+   * a zero with a note — so this field can never disguise a broken writer as an
+   * idle deployment.
+   */
   readonly telemetry_unavailable_reason: string | null;
+  /** Inclusive start of the window these numbers describe. */
+  readonly window_started: string;
+  /** Inclusive end of the window these numbers describe. */
+  readonly window_ends_at: string;
 }
 
 /**

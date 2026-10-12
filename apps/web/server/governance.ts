@@ -733,7 +733,48 @@ export interface GovernanceRoutesOptions {
  * there is no literal-versus-pattern shadowing to get wrong.
  */
 /**
+ * The window the analytics surface reports over.
+ *
+ * CONTRACT-T1 §8 bounds retention at 90 days, so a 90-day window is the widest
+ * range that can ever be fully backed by stored rows. Defaulting to it means the
+ * reported totals are derived from a window the deployment can actually answer
+ * for, rather than from "however many rows the page limit happened to return".
+ */
+export const ANALYTICS_WINDOW_DAYS = 90;
+
+/** How many telemetry rows are aggregated per window bucket. */
+const TELEMETRY_MAX_ROWS = 5_000;
+
+/**
+ * Why a telemetry read produced no summary.
+ *
+ * These are deliberately different sentences for three genuinely different
+ * states. The previous handler collapsed every one of them into "no records",
+ * which is how a deployment with a broken writer came to look like an idle one.
+ */
+export const TELEMETRY_EMPTY_REASON =
+  "No read-path MCP executions were recorded in this window. Telemetry is enabled " +
+  "for this workspace, so this is a genuine zero.";
+export const TELEMETRY_DISABLED_REASON =
+  "Read-path MCP telemetry is not enabled for this deployment, so per-tool activity " +
+  "is UNAVAILABLE — not zero. Absence of records here says nothing about usage.";
+
+/**
  * `GET /analytics/usage` — quota accounting and CONTRACT-T1 read-path MCP telemetry.
+ *
+ * Two properties this handler must hold, both of which it previously did not:
+ *
+ *  1. **A failure is never zero.** Every read below is allowed to fail; none is
+ *     allowed to fail *silently into an empty array*. A missing table, a denied
+ *     query or an unreachable gateway is reported as unavailable or forbidden,
+ *     with the upstream status preserved. Only a read that SUCCEEDS with no rows
+ *     produces a genuine zero.
+ *  2. **The window is explicit and enforced in the database.** The range is
+ *     pushed into the query as `observed_at >= now-90d`, so the aggregate covers
+ *     the authorized window rather than whichever rows sorted first. Previously
+ *     the handler read `limit: 100` rows and summed them, so its "totals"
+ *     described an arbitrary prefix and reported `average_latency_ms` computed
+ *     over that same truncated set.
  */
 export async function handleAnalyticsUsage(
   context: ApiRouteContext,
@@ -753,106 +794,144 @@ export async function handleAnalyticsUsage(
     Object.freeze({ column: "workspace_id", values: Object.freeze([workspaceId]) }),
   ]);
 
+  // The window is stated explicitly and sent to the database as a range, so
+  // "the last 90 days" means the rows in the last 90 days.
+  const windowEndsAt = new Date();
+  const windowStartedDate = new Date(windowEndsAt.getTime() - ANALYTICS_WINDOW_DAYS * 86_400_000);
+  const windowStarted = windowStartedDate.toISOString();
+  const windowEndsAtIso = windowEndsAt.toISOString();
+  const ranges = Object.freeze([
+    Object.freeze({ column: "observed_at", gte: windowStarted, lte: windowEndsAtIso }),
+  ]);
+
+  // Preserve the upstream failure instead of swallowing it. `readAsCaller`
+  // rejects with a typed ConsoleApiError; mapping it here keeps the status and
+  // code rather than flattening every cause into "empty".
+  const readOrThrow = async <T>(
+    what: string,
+    run: () => Promise<readonly T[]>,
+  ): Promise<readonly T[]> => {
+    try {
+      return await run();
+    } catch (cause) {
+      if (cause instanceof ConsoleApiError) {
+        // `ConsoleApiError` carries its operator-safe text in `message`; there is
+        // no `detail` field. The upstream code is preserved so the two failure
+        // kinds stay distinguishable in the response.
+        throw new ConsoleApiError(
+          cause.status,
+          cause.code,
+          `${what} could not be read (${cause.code}).`,
+        );
+      }
+      throw new ConsoleApiError(
+        503,
+        "E_WEB_UPSTREAM_UNAVAILABLE",
+        `${what} could not be read because the control plane is unavailable`,
+      );
+    }
+  };
+
   const [policyRows, usageRows, telemetryRows] = await Promise.all([
-    reader.readAsCaller(caller, "quota_policies", { filters, limit: 1, offset: 0 }).catch(() => []),
-    reader.readAsCaller(caller, "quota_usage", { filters, limit, offset }).catch(() => []),
-    reader.readAsCaller(caller, "mcp_tool_executions", { filters, limit: 100, offset: 0 }).catch(() => []),
+    readOrThrow("The quota policy", () =>
+      reader.readAsCaller(caller, "quota_policies", { filters, limit: 1, offset: 0 }),
+    ),
+    readOrThrow("Quota usage", () =>
+      reader.readAsCaller(caller, "quota_usage", { filters, limit, offset }),
+    ),
+    // Bounded, windowed, and ordered. `observed_at` is in the projection so the
+    // rows that fall outside the window can be excluded even if a reader
+    // ignores the range, which keeps the aggregate honest under a degraded
+    // transport instead of silently over-counting.
+    readOrThrow("MCP telemetry", () =>
+      reader.readAsCaller(caller, "mcp_tool_executions", {
+        columns: ["tool", "result_class", "latency_ms", "observed_at", "result_count"],
+        filters,
+        ranges,
+        limit: TELEMETRY_MAX_ROWS,
+        offset: 0,
+      }),
+    ),
   ]);
 
   const policyRowsSafe = policyRows.filter(isRecord);
   const policy = policyRowsSafe[0] === undefined ? null : quotaPolicyRow(policyRowsSafe[0]);
-  const usage = Object.freeze(usageRows.filter(isRecord).map(quotaUsageRow));
+  const usage = Object.freeze(usageRows.filter(isRecord).map((row) => quotaUsageRow(row)));
 
   let requestCount = 0;
   let bandwidthBytes = 0;
-  let windowStarted = new Date().toISOString();
-  let windowEndsAt = new Date().toISOString();
 
   if (usage.length > 0) {
-    windowStarted = usage[0]!.window_started;
-    windowEndsAt = new Date(new Date(usage[usage.length - 1]!.window_started).getTime() + 3600_000).toISOString();
     for (const w of usage) {
       requestCount += w.request_count;
       bandwidthBytes += w.bandwidth_bytes;
     }
   }
 
-  let telemetry: McpTelemetrySummary | null = null;
-  if (telemetryRows.length > 0) {
-    let searched = 0;
-    let resolved = 0;
-    let inspected = 0;
-    let contentRetrieved = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let totalLatency = 0;
-    const tools = { search: 0, resolve: 0, inspect: 0, get_content: 0 };
+  // Only rows inside the declared window contribute, whatever the reader did.
+  const windowStartMs = Date.parse(windowStarted);
+  const inWindow = (raw: Record<string, unknown>): boolean => {
+    if (typeof raw.observed_at !== "string") return false;
+    const at = Date.parse(raw.observed_at);
+    return Number.isFinite(at) && at >= windowStartMs && at <= Date.parse(windowEndsAtIso);
+  };
 
-    for (const raw of telemetryRows) {
-      if (!isRecord(raw)) continue;
-      const tool = String(raw.tool ?? "");
-      const resultClass = String(raw.result_class ?? "");
-      const latencyMs = typeof raw.latency_ms === "number" ? raw.latency_ms : 0;
-      totalLatency += latencyMs;
+  let searched = 0;
+  let resolved = 0;
+  let inspected = 0;
+  let contentRetrieved = 0;
+  let successCount = 0;
+  let errorCount = 0;
+  let totalLatency = 0;
+  let latencySamples = 0;
+  let countedRows = 0;
+  const tools: Record<string, number> = { search: 0, resolve: 0, inspect: 0, get_content: 0 };
 
-      if (tool in tools) {
-        tools[tool as keyof typeof tools] += 1;
-      }
-
-      if (resultClass === "success") {
-        successCount += 1;
-        if (tool === "search") searched += 1;
-        else if (tool === "resolve") resolved += 1;
-        else if (tool === "inspect") inspected += 1;
-        else if (tool === "get_content") contentRetrieved += 1;
-      } else {
-        errorCount += 1;
-      }
+  for (const raw of telemetryRows) {
+    if (!isRecord(raw) || !inWindow(raw)) continue;
+    const tool = String(raw.tool ?? "");
+    const resultClass = String(raw.result_class ?? "");
+    // Latency averages over rows that actually carry one. Counting rows that
+    // have no measurement would dilute the average with zeroes.
+    if (typeof raw.latency_ms === "number" && Number.isFinite(raw.latency_ms)) {
+      totalLatency += raw.latency_ms;
+      latencySamples += 1;
     }
+    if (tool in tools) tools[tool] += 1;
+    countedRows += 1;
 
-    const total = telemetryRows.length;
-    telemetry = Object.freeze({
-      total_executions: total,
-      success_count: successCount,
-      error_count: errorCount,
-      funnel: Object.freeze({
-        searched,
-        resolved,
-        inspected,
-        content_retrieved: contentRetrieved,
-      }),
-      tools: Object.freeze(tools),
-      total_latency_ms: totalLatency,
-      average_latency_ms: total > 0 ? Math.round(totalLatency / total) : 0,
-      telemetry_unavailable_reason: null,
-    });
-  } else {
-    telemetry = Object.freeze({
-      total_executions: 0,
-      success_count: 0,
-      error_count: 0,
-      funnel: Object.freeze({
-        searched: 0,
-        resolved: 0,
-        inspected: 0,
-        content_retrieved: 0,
-      }),
-      tools: Object.freeze({
-        search: 0,
-        resolve: 0,
-        inspect: 0,
-        get_content: 0,
-      }),
-      total_latency_ms: 0,
-      average_latency_ms: 0,
-      telemetry_unavailable_reason: "No read-path MCP telemetry records observed in this window.",
-    });
+    // Only a success advances the funnel: a denied or rate-limited execution
+    // ran the tool but produced no result.
+    if (resultClass === "success") {
+      successCount += 1;
+      if (tool === "search") searched += 1;
+      else if (tool === "resolve") resolved += 1;
+      else if (tool === "inspect") inspected += 1;
+      else if (tool === "get_content") contentRetrieved += 1;
+    } else {
+      errorCount += 1;
+    }
   }
+
+  const telemetry: McpTelemetrySummary = Object.freeze({
+    total_executions: countedRows,
+    success_count: successCount,
+    error_count: errorCount,
+    funnel: Object.freeze({ searched, resolved, inspected, content_retrieved: contentRetrieved }),
+    tools: Object.freeze({ ...tools }),
+    total_latency_ms: totalLatency,
+    average_latency_ms: latencySamples > 0 ? Math.round(totalLatency / latencySamples) : 0,
+    // Genuine zero only when the read succeeded and the window held no rows.
+    // The read failing is an error above, never a zero here.
+    telemetry_unavailable_reason: countedRows === 0 ? TELEMETRY_EMPTY_REASON : null,
+    window_started: windowStarted,
+    window_ends_at: windowEndsAtIso,
+  });
 
   return Object.freeze({
     workspace_id: workspaceId,
     window_started: windowStarted,
-    window_ends_at: windowEndsAt,
+    window_ends_at: windowEndsAtIso,
     request_count: requestCount,
     bandwidth_bytes: bandwidthBytes,
     windows: usage,

@@ -211,7 +211,16 @@ export type ControlPlaneValueKind =
   | "hub-visibility"
   | "boolean"
   | "short-text"
-  | "identifier";
+  | "identifier"
+  /**
+   * An ISO-8601 instant, usable only in a RANGE filter.
+   *
+   * `timestamp` columns cannot be equality-filtered meaningfully — two rows
+   * never share an instant — so this kind exists solely for `gte`/`lte`. Keeping
+   * it a separate kind means no eq/in path can be handed a timestamp and try to
+   * build `eq.<instant>` against it.
+   */
+  | "timestamp";
 
 const WORKSPACE_ROLES = Object.freeze(["owner", "admin", "maintainer", "member", "viewer"] as const);
 const DENY_KINDS = Object.freeze(["hub", "release", "skill", "source", "blob"] as const);
@@ -225,6 +234,33 @@ const HUB_VISIBILITIES = Object.freeze(["private", "workspace", "public"] as con
 const FILTER_TEXT = /^[A-Za-z0-9._:@+-]+$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * An ISO-8601 instant for a range bound.
+ *
+ * `Date.parse` alone is too permissive: it accepts `"2026"`, `"12"` and other
+ * partial forms that would silently widen or narrow a window. A range bound must
+ * be a full instant, so the round-trip is checked: the text has to parse AND
+ * re-serialize to the same instant.
+ */
+function validateTimestamp(value: string, table: string, column: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    fail(
+      400,
+      "E_WEB_READ_FILTER_INVALID",
+      `${sanitizeReadMessage(String(column))} range bound is not a valid instant`,
+    );
+  }
+  if (new Date(parsed).toISOString() !== value) {
+    fail(
+      400,
+      "E_WEB_READ_FILTER_INVALID",
+      `${sanitizeReadMessage(String(column))} range bound must be an ISO-8601 instant`,
+    );
+  }
+  return value;
+}
 
 function validateValue(kind: ControlPlaneValueKind, value: string, table: string, column: string): string {
   switch (kind) {
@@ -262,6 +298,9 @@ function validateValue(kind: ControlPlaneValueKind, value: string, table: string
         fail(400, "E_WEB_READ_FILTER_INVALID", `${table}.${column} requires true or false`);
       }
       return value;
+    case "timestamp":
+      // Only reachable through a range; validateTimestamp does the real check.
+      return validateTimestamp(value, table, column);
     case "short-text":
       if (value.length > MAX_SUBJECT_LENGTH || !FILTER_TEXT.test(value)) {
         fail(
@@ -454,6 +493,9 @@ const CONTROL_PLANE_TABLE_LITERALS: Readonly<Record<string, ControlPlaneTableSpe
       tool: { kind: "identifier" },
       result_class: { kind: "identifier" },
       release_digest: { kind: "digest" },
+      // Range-only. Added so an aggregate read can bound its window in the
+      // database rather than summing whichever rows happened to come first.
+      observed_at: { kind: "timestamp" },
     },
   },
 };
@@ -562,10 +604,32 @@ export interface ControlPlaneFilter {
   readonly values: readonly string[];
 }
 
+/**
+ * An inclusive time range on one allow-listed `timestamp` column.
+ *
+ * Separate from {@link ControlPlaneFilter} because it renders as `gte.`/`lte.`
+ * rather than `eq.`/`in.`, and because a range is the only way to bound an
+ * aggregate read. Analytics previously fetched the first N rows and summed
+ * them, so its "totals" silently described whichever rows happened to sort
+ * first; a range lets the database itself select the window.
+ *
+ * Both bounds are optional, so an open-ended range is expressible, but the
+ * caller must give at least one: a range with neither bound is not a filter.
+ */
+export interface ControlPlaneRangeFilter {
+  readonly column: string;
+  /** Inclusive lower bound, ISO-8601. */
+  readonly gte?: string | undefined;
+  /** Inclusive upper bound, ISO-8601. */
+  readonly lte?: string | undefined;
+}
+
 export interface ControlPlaneReadOptions {
   /** Projection. Omit for every allow-listed column of the table. */
   readonly columns?: readonly string[] | undefined;
   readonly filters?: readonly ControlPlaneFilter[] | undefined;
+  /** Inclusive time ranges. Rendered as `gte.`/`lte.`, never as `eq.`. */
+  readonly ranges?: readonly ControlPlaneRangeFilter[] | undefined;
   /** Explicit page size. Omit for {@link CONTROL_PLANE_DEFAULT_LIMIT}. */
   readonly limit?: number | undefined;
   /** Explicit row offset. Omit for {@link CONTROL_PLANE_DEFAULT_OFFSET}. */
@@ -578,6 +642,7 @@ export interface PlannedControlPlaneQuery {
   readonly table: string;
   readonly columns: readonly string[];
   readonly filters: readonly ControlPlaneFilter[];
+  readonly ranges: readonly ControlPlaneRangeFilter[];
   readonly limit: number;
   readonly offset: number;
 }
@@ -672,6 +737,58 @@ export function planControlPlaneRead(
     );
   }
 
+  // Ranges are validated here, after the filter allow-list has been applied,
+  // so a range on a non-allow-listed column fails the same way an eq filter
+  // does rather than silently becoming a no-op.
+  const ranges = options.ranges ?? [];
+  if (ranges.length > CONTROL_PLANE_MAX_FILTERS) {
+    fail(
+      400,
+      "E_WEB_READ_FILTER_NOT_ALLOWED",
+      `a read may carry at most ${CONTROL_PLANE_MAX_FILTERS} ranges`,
+    );
+  }
+  const plannedRanges: ControlPlaneRangeFilter[] = [];
+  for (const range of ranges) {
+    const declared = Object.prototype.hasOwnProperty.call(spec.filterable, range.column)
+      ? spec.filterable[range.column]
+      : undefined;
+    if (declared === undefined) {
+      fail(
+        400,
+        "E_WEB_READ_FILTER_NOT_ALLOWED",
+        `${sanitizeReadMessage(String(range.column))} is not a filterable column of ${table}`,
+      );
+    }
+    // Only a timestamp column may carry a range. Allowing one on a uuid would
+    // let a caller write `gte.<uuid>`, which PostgREST would reject at runtime
+    // with an error the console cannot classify.
+    if (declared.kind !== "timestamp") {
+      fail(
+        400,
+        "E_WEB_READ_FILTER_NOT_ALLOWED",
+        `${sanitizeReadMessage(String(range.column))} is not a timestamp column and cannot carry a range`,
+      );
+    }
+    if (range.gte === undefined && range.lte === undefined) {
+      fail(
+        400,
+        "E_WEB_READ_FILTER_INVALID",
+        `${sanitizeReadMessage(String(range.column))} range needs at least one bound`,
+      );
+    }
+    const gte = range.gte === undefined ? undefined : validateTimestamp(range.gte, table, range.column);
+    const lte = range.lte === undefined ? undefined : validateTimestamp(range.lte, table, range.column);
+    if (gte !== undefined && lte !== undefined && Date.parse(gte) > Date.parse(lte)) {
+      fail(
+        400,
+        "E_WEB_READ_FILTER_INVALID",
+        `${sanitizeReadMessage(String(range.column))} range is inverted`,
+      );
+    }
+    plannedRanges.push(Object.freeze({ column: range.column, gte, lte }));
+  }
+
   const limit = options.limit ?? CONTROL_PLANE_DEFAULT_LIMIT;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > CONTROL_PLANE_MAX_LIMIT) {
     fail(
@@ -694,6 +811,7 @@ export function planControlPlaneRead(
     table,
     columns: Object.freeze(columns),
     filters: Object.freeze(planned),
+    ranges: Object.freeze(plannedRanges),
     limit,
     offset,
   });
@@ -720,6 +838,14 @@ export function buildControlPlaneUrl(baseUrl: URL, plan: PlannedControlPlaneQuer
       filter.column,
       values.length === 1 ? `eq.${values[0] as string}` : `in.(${values.join(",")})`,
     );
+  }
+  for (const range of plan.ranges) {
+    // PostgREST accepts both bounds on the SAME parameter as comma-separated
+    // operators, which is how one column can be constrained at both ends.
+    const parts: string[] = [];
+    if (range.gte !== undefined) parts.push(`gte.${range.gte}`);
+    if (range.lte !== undefined) parts.push(`lte.${range.lte}`);
+    if (parts.length > 0) url.searchParams.set(range.column, parts.join(","));
   }
   url.searchParams.set("limit", String(plan.limit));
   // Only sent when non-zero, so the common first page carries no offset at all.
