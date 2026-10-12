@@ -181,6 +181,14 @@ jobs:
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
+      # Telemetry authorization, delegated containment, retention and the
+      # permitted-field constraints. Real PostgreSQL: the properties are
+      # properties of RLS resolution and function privilege, not of TypeScript.
+      - name: Telemetry authorization and retention (real PostgreSQL 16)
+        run: node --test tests/rls/telemetry-authz.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
   rls:
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest
