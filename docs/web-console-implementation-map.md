@@ -3,8 +3,10 @@
 Baseline verified at `feat/web-console`.
 Target base `release/2.0`: `7bf0d5a2310ffddbdb4055166be67d56916d8ac6`.
 Starting review head: `b5339c2636b1c347f14ac4ea40cef33417c9299f`.
-Final head: `0a4a80982d8600d407530544b7932e4cbcd9ed68` (this document).
-The commit it documents as code-final is `f30ffc8663a1e24fe88e0a61fa50ff51abd9823a`.
+Final head: the PR's current `headRefOid` (read it with `gh pr view 137 --json
+headRefOid`; a copied SHA goes stale the moment a commit is added, and one
+earlier in this file was already wrong). Code-final commit for the nine
+repairs: `f30ffc8663a1e24fe88e0a61fa50ff51abd9823a`.
 
 The earlier-recorded head `f08a542e9c7a7bd393c1859ac2de2d76307747ee` was wrong and
 is not used anywhere in this document.
