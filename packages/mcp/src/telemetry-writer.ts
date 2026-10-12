@@ -1,4 +1,5 @@
 import {
+  TELEMETRY_DEADLINE_MS,
   TELEMETRY_FAILURE_CLASSES,
   type McpTelemetrySink,
   type McpToolExecutionRecord,
@@ -176,7 +177,7 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
     get stats() {
       return Object.freeze({ written, duplicate, rejected, failed });
     },
-    async writeExecution(record: McpToolExecutionRecord): Promise<void> {
+    async writeExecution(record: McpToolExecutionRecord, signal?: AbortSignal): Promise<void> {
       const invalid = validateTelemetryRecord(record);
       if (invalid !== undefined) {
         rejected += 1;
@@ -208,7 +209,11 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
           // gateway would accept — which looked like a successful write while
           // storing nothing.
           body: JSON.stringify([toRow(record)]),
-          signal: AbortSignal.timeout(250),
+          // The caller's signal, so a buffer-imposed deadline reaches the
+          // actual HTTP request. `AbortSignal.timeout` was used alone before,
+          // which meant the queue's deadline could abort nothing: the request
+          // kept its own independent timer and the slot stayed occupied.
+          signal: signal ?? AbortSignal.timeout(TELEMETRY_DEADLINE_MS),
         });
         if (response.ok) {
           written += 1;
@@ -221,11 +226,18 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
         }
         failed += 1;
         report("write_failed");
-      } catch {
-        // Includes the deadline: a write that exceeds 250ms aborts here and is
-        // reported as a closed class. The raw error never leaves this function.
-        failed += 1;
-        report("write_failed");
+      } catch (cause) {
+        // Includes the deadline: the caller's signal aborts the in-flight
+        // request, and the raw driver error never leaves this function. A
+        // caller-initiated abort is reported as `deadline_exceeded` rather than
+        // a generic failure, because the buffer already counted it.
+        if (signal?.aborted === true) {
+          report("deadline_exceeded");
+        } else {
+          failed += 1;
+          report("write_failed");
+        }
+        void cause;
       }
     },
   };

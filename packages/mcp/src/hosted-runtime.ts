@@ -80,11 +80,26 @@ export interface HostedAuthzPolicy {
  * distinguishes a working writer from a degraded one.
  */
 export interface HostedTelemetryStatus {
+  /** True only when a dedicated writer credential was accepted. */
   readonly enabled: boolean;
+  /** Confirmed persisted events. Not submissions, not queued events. */
   readonly written: number;
+  /** Attempts absorbed by the idempotency constraint. */
   readonly duplicate: number;
+  /** Rejected before the wire by field or limit validation. */
   readonly rejected: number;
+  /** Reached the writer and failed there. */
   readonly failed: number;
+  /** Writes currently in flight. */
+  readonly pending: number;
+  /** Writes waiting for a slot. */
+  readonly queued: number;
+  readonly queued_bytes: number;
+  readonly max_queued_bytes: number;
+  /** Dropped oldest-first under pressure (CONTRACT-T1 §6.4). */
+  readonly dropped: number;
+  /** Abandoned at the deadline. */
+  readonly expired: number;
   readonly failure_classes: readonly TelemetryFailureClass[];
 }
 
@@ -102,6 +117,15 @@ export interface HostedRuntimeHandle {
    * enabled and recorded nothing". Those are different facts and conflating them
    * is how a broken writer becomes an apparently-idle installation. Contains
    * counters and closed failure classes only — never a payload or a credential.
+   */
+  /**
+   * LIVE telemetry diagnostics, read through a getter.
+   *
+   * Deliberately not a frozen snapshot captured at construction: the previous
+   * version copied counters once, so a handle read at boot reported zero
+   * forever and an operator could not tell a broken writer from an idle one.
+   * Each access projects the CURRENT counters, and the returned object is a
+   * fresh frozen value so a caller cannot mutate internal state through it.
    */
   readonly telemetry: HostedTelemetryStatus;
 }
@@ -394,12 +418,19 @@ export function createHostedRuntimeFromEnv(
     });
   }
 
-  // The telemetry writer and its workspace resolver (CONTRACT-T1 §5).
+  // Telemetry wiring (CONTRACT-T1 §5).
   //
-  // Both require the Supabase privileged credential, so neither exists without
-  // it. Telemetry is otherwise fully inert: with the flag unset, no sink is
-  // passed and the instrumentation is a no-op, which is why a deployment that
-  // never configured it records nothing rather than failing to start.
+  // §5.3 requires a writer credential DISTINCT from the runtime's read-only
+  // data-plane credential. Reusing `EGA_HOSTED_SUPABASE_SECRET_KEY` would make
+  // the separation nominal: the same secret would hold both authorities, so
+  // compromising the read path would also grant telemetry writes, and
+  // revoking one would silently revoke the other.
+  //
+  // There is therefore NO fallback. A deployment that enables telemetry without
+  // a dedicated key gets telemetry DISABLED plus a sanitized diagnostic, and
+  // the runtime continues to serve tools (§6.7: telemetry is never a
+  // precondition for readiness, and a telemetry misconfiguration must not fail
+  // a successful tool call).
   let telemetrySink: BoundedTelemetrySink | undefined;
   let telemetryWriter: ReturnType<typeof createSupabaseTelemetryWriter> | undefined;
   let resolveTelemetryWorkspace:
@@ -412,23 +443,42 @@ export function createHostedRuntimeFromEnv(
     if (telemetryFailures.length < 100) telemetryFailures.push(failureClass);
   };
 
+  // Workspace ATTRIBUTION is a read, so it legitimately uses the read
+  // credential. Writes use the dedicated one.
+  const telemetryWriterKey = env["EGA_HOSTED_TELEMETRY_WRITER_KEY"];
+
   if (telemetryEnabled && supabaseUrl && supabaseSecretKey) {
     resolveTelemetryWorkspace = createSupabaseWorkspaceResolver({
       supabaseUrl,
       secretKey: supabaseSecretKey,
     });
-    telemetryWriter = createSupabaseTelemetryWriter({
+  }
+
+  if (telemetryEnabled && supabaseUrl && telemetryWriterKey) {
+    if (telemetryWriterKey === supabaseSecretKey) {
+      // Explicitly rejected rather than accepted with a warning: §5.3 asks for
+      // separation, and silently accepting the same secret would report a
+      // separation that does not exist.
+      // Recorded rather than thrown: a misconfigured writer must not stop the
+      // runtime from serving tools. No credential value is included.
+      telemetryFailures.push("disabled");
+      console.warn(
+        "[ega] EGA_HOSTED_TELEMETRY_WRITER_KEY must differ from EGA_HOSTED_SUPABASE_SECRET_KEY; " +
+          "telemetry is disabled for this deployment",
+      );
+    } else {
+      telemetryWriter = createSupabaseTelemetryWriter({
         supabaseUrl,
-        // The dedicated writer credential. It is passed into a closure and
-        // never logged, returned, or exposed on the handle.
-        secretKey: supabaseSecretKey,
-      reporter: onTelemetryFailure,
-    });
-    telemetrySink = new BoundedTelemetrySink(telemetryWriter, { reporter: onTelemetryFailure });
+        secretKey: telemetryWriterKey,
+        reporter: onTelemetryFailure,
+      });
+      telemetrySink = new BoundedTelemetrySink(telemetryWriter, { reporter: onTelemetryFailure });
+    }
   } else if (telemetryEnabled) {
-    throw new Error(
-      "EGA_HOSTED_TELEMETRY_ENABLED=true requires EGA_HOSTED_SUPABASE_URL and " +
-        "EGA_HOSTED_SUPABASE_SECRET_KEY to configure the telemetry writer",
+    telemetryFailures.push("disabled");
+    console.warn(
+      "[ega] EGA_HOSTED_TELEMETRY_ENABLED=true requires EGA_HOSTED_SUPABASE_URL and " +
+        "EGA_HOSTED_TELEMETRY_WRITER_KEY; telemetry is disabled for this deployment",
     );
   }
 
@@ -494,13 +544,26 @@ export function createHostedRuntimeFromEnv(
     maxBodyBytes,
     maxResponseBytes,
     protectedResourceMetadata: oauth ? buildProtectedResourceMetadata(oauth) : undefined,
-    telemetry: {
-      enabled: telemetrySink !== undefined,
-      written: telemetryWriter?.stats.written ?? 0,
-      duplicate: telemetryWriter?.stats.duplicate ?? 0,
-      rejected: telemetryWriter?.stats.rejected ?? 0,
-      failed: telemetryWriter?.stats.failed ?? 0,
-      failure_classes: Object.freeze([...telemetryFailures]),
+    get telemetry(): HostedTelemetryStatus {
+      const writer = telemetryWriter?.stats;
+      const buffer = telemetrySink?.stats;
+      return Object.freeze({
+        enabled: telemetrySink !== undefined,
+        // "written" means CONFIRMED persistence: the writer incremented it only
+        // after a non-error response. Submission alone is not written, and
+        // neither is a queued or in-flight event.
+        written: writer?.written ?? 0,
+        duplicate: writer?.duplicate ?? 0,
+        rejected: writer?.rejected ?? 0,
+        failed: writer?.failed ?? 0,
+        pending: buffer?.pending ?? 0,
+        queued: buffer?.queued ?? 0,
+        queued_bytes: buffer?.queuedBytes ?? 0,
+        max_queued_bytes: buffer?.maxQueuedBytes ?? 0,
+        dropped: buffer?.dropped ?? 0,
+        expired: buffer?.expired ?? 0,
+        failure_classes: Object.freeze([...telemetryFailures]),
+      });
     },
   };
 }

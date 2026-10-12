@@ -143,6 +143,8 @@ export {
   BoundedTelemetrySink,
   computeIdempotencyKey,
   fireAndForgetTelemetry,
+  measureRecordBytes,
+  recordExceedsFieldLimits,
   TELEMETRY_DEADLINE_MS,
   TELEMETRY_FAILURE_CLASSES,
 } from "./telemetry.js";
