@@ -34,7 +34,42 @@ import {
   type McpTelemetrySink,
   type McpToolExecutionRecord,
   type McpToolName,
+  type TelemetryFailureClass,
 } from "./telemetry.js";
+
+/**
+ * The number of items a tool ACTUALLY returned, per tool.
+ *
+ * CONTRACT-T1 §3 permits `result_count`, and §6 forbids storing content, so the
+ * number is the only permissible summary of a result set. Counting MCP content
+ * blocks would report 1 for every search — `runSearchTool` returns one text
+ * block containing the serialized output regardless of how many skills matched.
+ *
+ * Returns `undefined` rather than 0 when the shape is not recognized: an
+ * unparseable result is an absence of information, and recording it as zero
+ * would report "matched nothing" for a search that may have matched plenty.
+ */
+function countStructuredResults(tool: string, result: CallToolResult): number | undefined {
+  const structured = result.structuredContent;
+  if (structured === null || typeof structured !== "object") return undefined;
+  const output = structured as Record<string, unknown>;
+  switch (tool) {
+    case "search": {
+      const results = output["results"];
+      return Array.isArray(results) ? results.length : undefined;
+    }
+    case "resolve": {
+      const selected = output["selected"];
+      return Array.isArray(selected) ? selected.length : undefined;
+    }
+    case "inspect":
+    case "get_content":
+      // One skill, by construction: both tools address exactly one skill_id.
+      return 1;
+    default:
+      return undefined;
+  }
+}
 
 export interface HostedReleaseSnapshot {
   readonly artifactDir: string;
@@ -73,6 +108,22 @@ export interface HostedRuntimeOptions {
   readonly resolveContext?: (contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
   /** Optional telemetry sink for CONTRACT-T1 read-path usage telemetry. */
   readonly telemetrySink?: McpTelemetrySink;
+  /**
+   * Resolve the authorized workspace for one execution (CONTRACT-T1 §3.1).
+   *
+   * Required whenever `telemetrySink` is configured: a telemetry row carries a
+   * `workspace_id` foreign key, and that value must come from the verified
+   * ownership chain rather than from the principal or the request. Returning
+   * `null` omits the event, which is the only honest outcome when identity
+   * cannot be established.
+   */
+  readonly resolveTelemetryWorkspace?: (
+    principal: HostedPrincipal,
+    contextId: string | undefined,
+    signal: AbortSignal,
+  ) => Promise<string | null>;
+  /** Closed-vocabulary telemetry diagnostics sink (CONTRACT-T1 §4.5). */
+  readonly onTelemetryFailure?: (failureClass: TelemetryFailureClass) => void;
 }
 
 export class HostedRuntimeError extends Error {
@@ -288,11 +339,11 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     };
     let selectionPromise: Promise<HostedReleaseSnapshot> | undefined;
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
+      const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
       // One request selects exactly one release handle. Every tool phase
       // (guard, body, post-checks) reuses this promise, so a context is
       // resolved once and no phase can observe a different snapshot.
       selectionPromise ??= (async () => {
-        const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
         const requestedDigest = typeof args.release_digest === "string" ? args.release_digest : undefined;
         let resolved: HostedReleaseSnapshot;
         if (contextId !== undefined) {
@@ -319,6 +370,85 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       })();
       return selectionPromise;
     };
+    /**
+     * Emit one telemetry event for a completed execution (CONTRACT-T1 §5, §6).
+     *
+     * Every step here is a refusal rather than a guess:
+     *  - no sink, or no principal: nothing to attribute;
+     *  - no workspace resolver: the `workspace_id` would have to be invented;
+     *  - a resolver that returns null: identity was not established.
+     *
+     * In each case the event is OMITTED and the MCP result proceeds unchanged.
+     * A failed identity lookup must never turn a successful tool result into an
+     * error, and must never fabricate a row attributed to a workspace the
+     * caller may not belong to.
+     */
+    const emitTelemetry = (event: {
+      readonly principal: HostedPrincipal | undefined;
+      readonly contextId: string | undefined;
+      readonly executionId: string;
+      readonly tool: string;
+      readonly effectiveDigest: string | undefined;
+      readonly latencyMs: number;
+      readonly resultClass: McpResultClass;
+      readonly errorClass?: string | undefined;
+      readonly resultCount?: number | undefined;
+      readonly contentLevel?: McpContentLevel | undefined;
+    }): void => {
+      const sink = options.telemetrySink;
+      if (!sink || !event.principal) return;
+      if (!options.resolveTelemetryWorkspace) {
+        // Without a resolver there is no verified workspace, and the column is a
+        // foreign key. Emitting a zero UUID would attribute the execution to an
+        // arbitrary workspace; emitting the subject alone is not representable.
+        try {
+          options.onTelemetryFailure?.("invalid_record");
+        } catch {
+          // Diagnostics must not escape into tool execution.
+        }
+        return;
+      }
+
+      const reportFailure = (failureClass: TelemetryFailureClass): void => {
+        try {
+          options.onTelemetryFailure?.(failureClass);
+        } catch {
+          // Contained: a failing reporter must not reach the tool result.
+        }
+      };
+
+      void options
+        .resolveTelemetryWorkspace(event.principal, event.contextId, requestSignal)
+        .then((workspaceId) => {
+          if (workspaceId === null) {
+            reportFailure("invalid_record");
+            return;
+          }
+          const record: McpToolExecutionRecord = {
+            workspace_id: workspaceId,
+            // The verified subject, straight off the typed principal. The
+            // previous `?? "anonymous"` fallback attributed executions to a
+            // subject that does not exist.
+            subject: event.principal?.subject ?? "",
+            execution_id: event.executionId,
+            idempotency_key: computeIdempotencyKey(event.executionId, event.tool),
+            tool: event.tool as McpToolName,
+            release_digest: event.effectiveDigest,
+            latency_ms: Math.max(0, event.latencyMs),
+            result_class: event.resultClass,
+            ...(event.errorClass === undefined ? {} : { error_class: event.errorClass }),
+            ...(event.resultCount === undefined ? {} : { result_count: event.resultCount }),
+            ...(event.contentLevel === undefined ? {} : { content_level: event.contentLevel }),
+            schema_version: 1,
+            observed_at: new Date().toISOString(),
+          };
+          fireAndForgetTelemetry(sink, record, undefined, { reporter: reportFailure });
+        })
+        .catch(() => {
+          reportFailure("invalid_record");
+        });
+    };
+
     const server = new McpServer({ name: "ega-skills-hosted", version: "2.0.1" }, { capabilities: { tools: {} } });
     let executionCounter = 0;
     const guard = async (tool: string, args: Record<string, unknown>, body: (context: McpProjectContext) => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
@@ -329,6 +459,11 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       let effectiveDigest: string | undefined;
       let resultCount: number | undefined;
       let contentLevel: McpContentLevel | undefined;
+      // Hoisted so the telemetry emit can see the context that authorized this
+      // execution. It is the only verified link from the execution to a
+      // workspace (CONTRACT-T1 §3.1), so it is read from the arguments exactly
+      // once, here, rather than re-derived per emit.
+      const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
 
       if (tool === "get_content") {
         if (typeof args.file_path === "string" && args.file_path.length > 0) {
@@ -373,27 +508,25 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
         }
         const finalResult = (tool === "search" || tool === "resolve") ? withEffectiveRelease(result, effectiveSnapshot.releaseDigest) : result;
 
-        if (tool === "search" && Array.isArray((finalResult as any)?.content)) {
-          resultCount = (finalResult as any).content.length;
-        }
+        // Count the STRUCTURED result, not the content blocks.
+        //
+        // `content` is a transport envelope: every tool answers with exactly one
+        // text block holding the serialized output, so counting it reported 1
+        // for a search that matched 40 skills. The real count lives in the
+        // structured payload, and each tool names its own collection.
+        resultCount = countStructuredResults(tool, finalResult);
 
-        if (options.telemetrySink && principal) {
-          const record: McpToolExecutionRecord = {
-            workspace_id: (principal as any).workspaceId ?? (principal as any).workspace_id ?? "00000000-0000-0000-0000-000000000000",
-            subject: (principal as any).subject ?? (principal as any).id ?? "anonymous",
-            execution_id: executionId,
-            idempotency_key: computeIdempotencyKey(executionId, tool),
-            tool: tool as McpToolName,
-            release_digest: effectiveDigest,
-            latency_ms: Math.max(0, Date.now() - startTime),
-            result_class: resultClass,
-            result_count: resultCount,
-            content_level: contentLevel,
-            schema_version: 1,
-            observed_at: new Date().toISOString(),
-          };
-          fireAndForgetTelemetry(options.telemetrySink, record);
-        }
+        emitTelemetry({
+          principal,
+          contextId,
+          executionId,
+          tool,
+          effectiveDigest,
+          latencyMs: Date.now() - startTime,
+          resultClass,
+          resultCount,
+          contentLevel,
+        });
 
         return finalResult;
       } catch (error) {
@@ -402,23 +535,17 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
         }
         errorClass = error instanceof HostedRuntimeError ? error.code : "E_INTERNAL";
 
-        if (options.telemetrySink && principal) {
-          const record: McpToolExecutionRecord = {
-            workspace_id: (principal as any).workspaceId ?? (principal as any).workspace_id ?? "00000000-0000-0000-0000-000000000000",
-            subject: (principal as any).subject ?? (principal as any).id ?? "anonymous",
-            execution_id: executionId,
-            idempotency_key: computeIdempotencyKey(executionId, tool),
-            tool: tool as McpToolName,
-            release_digest: effectiveDigest,
-            latency_ms: Math.max(0, Date.now() - startTime),
-            result_class: resultClass,
-            error_class: errorClass,
-            content_level: contentLevel,
-            schema_version: 1,
-            observed_at: new Date().toISOString(),
-          };
-          fireAndForgetTelemetry(options.telemetrySink, record);
-        }
+        emitTelemetry({
+          principal,
+          contextId,
+          executionId,
+          tool,
+          effectiveDigest,
+          latencyMs: Date.now() - startTime,
+          resultClass,
+          errorClass,
+          contentLevel,
+        });
 
         return errorResult(tool, error);
       }

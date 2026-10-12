@@ -33,7 +33,9 @@ import {
 } from "./hosted.js";
 import { createJwksBearerVerifier } from "./hosted-auth.js";
 import { buildProtectedResourceMetadata, parseHostedOAuthConfig, type HostedOAuthConfig } from "./hosted-oauth.js";
-import { createSupabaseContextResolver } from "./hosted-supabase.js";
+import { createSupabaseContextResolver, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
+import { BoundedTelemetrySink, type TelemetryFailureClass } from "./telemetry.js";
+import { createSupabaseTelemetryWriter } from "./telemetry-writer.js";
 import { loadRetainedReleaseSet, resolveRetainedRelease, type RetainedReleaseSet } from "./retained.js";
 
 export const DEFAULT_HOSTED_MAX_BODY_BYTES = 1_048_576;
@@ -71,6 +73,21 @@ export interface HostedAuthzPolicy {
   readonly denied_sources?: readonly string[];
 }
 
+/**
+ * Telemetry status for a runtime handle.
+ *
+ * `enabled` distinguishes disabled from enabled-but-silent; `failure_classes`
+ * distinguishes a working writer from a degraded one.
+ */
+export interface HostedTelemetryStatus {
+  readonly enabled: boolean;
+  readonly written: number;
+  readonly duplicate: number;
+  readonly rejected: number;
+  readonly failed: number;
+  readonly failure_classes: readonly TelemetryFailureClass[];
+}
+
 export interface HostedRuntimeHandle {
   readonly snapshot: HostedReleaseSnapshot;
   readonly handler: McpHttpHandler;
@@ -78,6 +95,15 @@ export interface HostedRuntimeHandle {
   readonly maxResponseBytes: number;
   /** Public OAuth Protected Resource Metadata (RFC 9728), when configured. */
   readonly protectedResourceMetadata: unknown;
+  /**
+   * Telemetry operational state (CONTRACT-T1 §6).
+   *
+   * Present so a deployment can tell "telemetry is disabled" from "telemetry is
+   * enabled and recorded nothing". Those are different facts and conflating them
+   * is how a broken writer becomes an apparently-idle installation. Contains
+   * counters and closed failure classes only — never a payload or a credential.
+   */
+  readonly telemetry: HostedTelemetryStatus;
 }
 
 function requiredEnv(value: string | undefined): string | undefined {
@@ -257,6 +283,10 @@ export function createHostedRuntimeFromEnv(
   const jwksUrl = requiredEnv(env["EGA_HOSTED_JWKS_URL"]);
   const supabaseUrl = requiredEnv(env["EGA_HOSTED_SUPABASE_URL"]);
   const supabaseSecretKey = requiredEnv(env["EGA_HOSTED_SUPABASE_SECRET_KEY"]);
+  // Telemetry is OFF unless explicitly enabled, and the flag is read as an exact
+  // "true" rather than truthiness so a typo like "yes" cannot silently enable
+  // a writer that persists rows.
+  const telemetryEnabled = env["EGA_HOSTED_TELEMETRY_ENABLED"] === "true";
   const allowedOrigins = parseAllowedOrigins(env["EGA_HOSTED_ALLOWED_ORIGINS"]);
 
   if (!artifactDir && !retainedManifestPath) {
@@ -364,12 +394,55 @@ export function createHostedRuntimeFromEnv(
     });
   }
 
+  // The telemetry writer and its workspace resolver (CONTRACT-T1 §5).
+  //
+  // Both require the Supabase privileged credential, so neither exists without
+  // it. Telemetry is otherwise fully inert: with the flag unset, no sink is
+  // passed and the instrumentation is a no-op, which is why a deployment that
+  // never configured it records nothing rather than failing to start.
+  let telemetrySink: BoundedTelemetrySink | undefined;
+  let telemetryWriter: ReturnType<typeof createSupabaseTelemetryWriter> | undefined;
+  let resolveTelemetryWorkspace:
+    | ((principal: HostedPrincipal, contextId: string | undefined, signal: AbortSignal) => Promise<string | null>)
+    | undefined;
+  const telemetryFailures: TelemetryFailureClass[] = [];
+  const onTelemetryFailure = (failureClass: TelemetryFailureClass): void => {
+    // Bounded ring: a persistently failing sink must not grow this array
+    // without limit inside a long-lived process.
+    if (telemetryFailures.length < 100) telemetryFailures.push(failureClass);
+  };
+
+  if (telemetryEnabled && supabaseUrl && supabaseSecretKey) {
+    resolveTelemetryWorkspace = createSupabaseWorkspaceResolver({
+      supabaseUrl,
+      secretKey: supabaseSecretKey,
+    });
+    telemetryWriter = createSupabaseTelemetryWriter({
+        supabaseUrl,
+        // The dedicated writer credential. It is passed into a closure and
+        // never logged, returned, or exposed on the handle.
+        secretKey: supabaseSecretKey,
+      reporter: onTelemetryFailure,
+    });
+    telemetrySink = new BoundedTelemetrySink(telemetryWriter, { reporter: onTelemetryFailure });
+  } else if (telemetryEnabled) {
+    throw new Error(
+      "EGA_HOSTED_TELEMETRY_ENABLED=true requires EGA_HOSTED_SUPABASE_URL and " +
+        "EGA_HOSTED_SUPABASE_SECRET_KEY to configure the telemetry writer",
+    );
+  }
+
   const requiredScope = requiredEnv(env["EGA_HOSTED_REQUIRED_SCOPE"]);
   const jwksMaxAgeRaw = requiredEnv(env["EGA_HOSTED_JWKS_MAX_AGE_MS"]);
   const jwksRefreshCooldownRaw = requiredEnv(env["EGA_HOSTED_JWKS_REFRESH_COOLDOWN_MS"]);
   const handler = createHostedMcpHandler(snapshot, {
     allowedOrigins,
     ...(oauth ? { oauth } : {}),
+    // Spread conditionally so an unconfigured deployment passes no sink at all
+    // rather than a no-op object, which the instrumentation would still call.
+    ...(telemetrySink ? { telemetrySink } : {}),
+    ...(resolveTelemetryWorkspace ? { resolveTelemetryWorkspace } : {}),
+    onTelemetryFailure,
     verifyBearer: useJwt
       ? createJwksBearerVerifier({
           issuer: issuer as string,
@@ -421,5 +494,13 @@ export function createHostedRuntimeFromEnv(
     maxBodyBytes,
     maxResponseBytes,
     protectedResourceMetadata: oauth ? buildProtectedResourceMetadata(oauth) : undefined,
+    telemetry: {
+      enabled: telemetrySink !== undefined,
+      written: telemetryWriter?.stats.written ?? 0,
+      duplicate: telemetryWriter?.stats.duplicate ?? 0,
+      rejected: telemetryWriter?.stats.rejected ?? 0,
+      failed: telemetryWriter?.stats.failed ?? 0,
+      failure_classes: Object.freeze([...telemetryFailures]),
+    },
   };
 }

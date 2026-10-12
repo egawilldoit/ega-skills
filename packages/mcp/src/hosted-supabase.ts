@@ -27,6 +27,7 @@ export interface SupabaseContextResolverOptions {
 
 const RELEASE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const WORKSPACE_ROLES = new Set(["owner", "admin", "maintainer", "member", "viewer"]);
+const WORKSPACE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const JWT_SEGMENT = /^[A-Za-z0-9_-]+$/;
 
@@ -142,6 +143,125 @@ export function createSupabaseContextResolver(options: SupabaseContextResolverOp
       }
       if (error instanceof HostedRuntimeError && error.code === "E_CONTEXT_UNAVAILABLE") throw error;
       throw unavailable();
+    }
+  };
+}
+
+/**
+ * Resolve the workspace that owns an authorized execution (CONTRACT-T1 §3.1).
+ *
+ * Telemetry records a `workspace_id`, and the column is a foreign key to
+ * `personal_workspaces`. It must therefore be the workspace the server actually
+ * verified for THIS execution, derived through the same ownership chain the
+ * context resolver already trusts:
+ *
+ *   project_context -> project -> workspace, plus an active membership for the
+ *   authenticated subject.
+ *
+ * The alternative — reading a workspace id off the principal or off the
+ * request — is what the previous instrumentation did, and it is wrong twice
+ * over: a caller-supplied id is not authority, and the zero-UUID fallback
+ * attributed unattributed executions to a workspace that may not exist.
+ *
+ * Returns `null` when identity cannot be established. The caller omits the
+ * event rather than inventing one, and the MCP result is unaffected.
+ */
+export interface SupabaseWorkspaceResolver {
+  (principal: HostedPrincipal, contextId: string | undefined, signal: AbortSignal): Promise<string | null>;
+}
+
+export function createSupabaseWorkspaceResolver(
+  options: { readonly supabaseUrl: string; readonly secretKey: string; readonly fetch?: SupabaseFetch },
+): SupabaseWorkspaceResolver {
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(options.supabaseUrl);
+  } catch {
+    throw new Error("supabaseUrl must be a valid URL");
+  }
+  if (baseUrl.protocol !== "https:") throw new Error("supabaseUrl must use HTTPS");
+  if (!options.secretKey) throw new Error("secretKey is required");
+  const fetcher = options.fetch ?? (globalThis["fetch"] as unknown as SupabaseFetch | undefined);
+  if (!fetcher) throw new Error("fetch is unavailable");
+  const headers = credentialHeaders(options.secretKey);
+
+  const readRows = async (
+    table: string,
+    select: string,
+    filters: Readonly<Record<string, string>>,
+    signal: AbortSignal,
+  ): Promise<unknown[]> => {
+    const url = new URL(`/rest/v1/${table}`, baseUrl);
+    url.searchParams.set("select", select);
+    for (const [key, value] of Object.entries(filters)) url.searchParams.set(key, value);
+    url.searchParams.set("limit", "1");
+    const response = await fetcher(url.toString(), { method: "GET", headers, signal });
+    if (!response.ok) throw new Error("Supabase request failed");
+    const body = await response.json();
+    if (!Array.isArray(body)) throw new Error("Supabase response is invalid");
+    return body;
+  };
+
+  return async (principal, contextId, signal) => {
+    try {
+      if (!principal.subject || signal.aborted) return null;
+
+      // Without a context there is no verified ownership chain, so there is no
+      // workspace to attribute the execution to. Returning null is the honest
+      // answer; guessing from the subject would be an invention.
+      if (typeof contextId !== "string" || contextId.length === 0) return null;
+
+      const contexts = await readRows(
+        "project_contexts",
+        "id,project_id,revoked_at",
+        { id: `eq.${contextId}` },
+        signal,
+      );
+      if (contexts.length !== 1) return null;
+      const context = record(contexts[0]);
+      if (!context || context.id !== contextId || typeof context.project_id !== "string") return null;
+      // A revoked context is not an authorized execution, so it yields no
+      // identity; the execution itself is refused separately.
+      if (context.revoked_at !== null && typeof context.revoked_at !== "string") return null;
+      if (context.revoked_at !== null) return null;
+
+      const projects = await readRows(
+        "projects",
+        "id,workspace_id",
+        { id: `eq.${context.project_id}` },
+        signal,
+      );
+      if (projects.length !== 1) return null;
+      const project = record(projects[0]);
+      if (!project || project.id !== context.project_id) return null;
+      if (typeof project.workspace_id !== "string" || !WORKSPACE_UUID.test(project.workspace_id)) return null;
+
+      const memberships = await readRows(
+        "workspace_memberships",
+        "workspace_id,subject,active",
+        {
+          workspace_id: `eq.${project.workspace_id}`,
+          subject: `eq.${principal.subject}`,
+          active: "eq.true",
+        },
+        signal,
+      );
+      if (memberships.length !== 1) return null;
+      const membership = record(memberships[0]);
+      if (
+        !membership ||
+        membership.workspace_id !== project.workspace_id ||
+        membership.subject !== principal.subject ||
+        membership.active !== true
+      ) {
+        return null;
+      }
+
+      return project.workspace_id;
+    } catch {
+      // A failed identity lookup must never change an MCP result, so every
+      // failure collapses to "no identity" rather than propagating.
+      return null;
     }
   };
 }

@@ -28,7 +28,7 @@ export {
   DEFAULT_HOSTED_MAX_RESPONSE_BYTES,
   DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
 } from "./hosted-runtime.js";
-export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
+export type { HostedAuthzPolicy, HostedRuntimeHandle, HostedTelemetryStatus } from "./hosted-runtime.js";
 export { createVercelRequestListener } from "./vercel-adapter.js";
 export type { VercelAdapterState, VercelNodeRequest, VercelNodeResponse } from "./vercel-adapter.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
@@ -46,8 +46,8 @@ export type {
   HostedOAuthConfigInput,
   HostedProtectedResourceMetadata,
 } from "./hosted-oauth.js";
-export { createSupabaseContextResolver } from "./hosted-supabase.js";
-export type { SupabaseContextResolverOptions } from "./hosted-supabase.js";
+export { createSupabaseContextResolver, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
+export type { SupabaseContextResolverOptions, SupabaseWorkspaceResolver } from "./hosted-supabase.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,
@@ -140,8 +140,11 @@ export type {
 
 export {
   aggregateMcpTelemetry,
+  BoundedTelemetrySink,
   computeIdempotencyKey,
   fireAndForgetTelemetry,
+  TELEMETRY_DEADLINE_MS,
+  TELEMETRY_FAILURE_CLASSES,
 } from "./telemetry.js";
 export type {
   McpContentLevel,
@@ -151,4 +154,13 @@ export type {
   McpTelemetrySummary,
   McpToolExecutionRecord,
   McpToolName,
+  TelemetryBufferOptions,
+  TelemetryFailureClass,
+  TelemetryReporter,
 } from "./telemetry.js";
+export { createSupabaseTelemetryWriter, validateTelemetryRecord } from "./telemetry-writer.js";
+export type {
+  SupabaseRestFetch,
+  SupabaseTelemetryWriter,
+  SupabaseTelemetryWriterOptions,
+} from "./telemetry-writer.js";
