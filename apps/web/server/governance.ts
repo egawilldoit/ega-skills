@@ -885,7 +885,15 @@ export async function handleAnalyticsUsage(
   let totalLatency = 0;
   let latencySamples = 0;
   let countedRows = 0;
-  const tools: Record<string, number> = { search: 0, resolve: 0, inspect: 0, get_content: 0 };
+  // Mutable while accumulating, frozen at the response boundary. Typed by its
+  // keys rather than as `Record<string, number>` so a missing tool is a compile
+  // error rather than an `undefined` in a JSON payload.
+  const tools: { search: number; resolve: number; inspect: number; get_content: number } = {
+    search: 0,
+    resolve: 0,
+    inspect: 0,
+    get_content: 0,
+  };
 
   for (const raw of telemetryRows) {
     if (!isRecord(raw) || !inWindow(raw)) continue;
@@ -897,7 +905,9 @@ export async function handleAnalyticsUsage(
       totalLatency += raw.latency_ms;
       latencySamples += 1;
     }
-    if (tool in tools) tools[tool] += 1;
+    if (Object.prototype.hasOwnProperty.call(tools, tool)) {
+      tools[tool as keyof typeof tools] += 1;
+    }
     countedRows += 1;
 
     // Only a success advances the funnel: a denied or rate-limited execution
