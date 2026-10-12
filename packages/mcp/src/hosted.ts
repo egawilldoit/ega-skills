@@ -119,7 +119,7 @@ export interface HostedRuntimeOptions {
    */
   readonly resolveTelemetryWorkspace?: (
     principal: HostedPrincipal,
-    contextId: string | undefined,
+    request: { readonly contextId?: string | undefined; readonly releaseDigest?: string | undefined },
     signal: AbortSignal,
   ) => Promise<string | null>;
   /** Closed-vocabulary telemetry diagnostics sink (CONTRACT-T1 §4.5). */
@@ -418,7 +418,13 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       };
 
       void options
-        .resolveTelemetryWorkspace(event.principal, event.contextId, requestSignal)
+        .resolveTelemetryWorkspace(
+          event.principal,
+          // Both verified identities from THIS execution. The release digest is
+          // the value the runtime resolved and verified, not a client string.
+          { contextId: event.contextId, releaseDigest: event.effectiveDigest },
+          requestSignal,
+        )
         .then((workspaceId) => {
           if (workspaceId === null) {
             reportFailure("invalid_record");

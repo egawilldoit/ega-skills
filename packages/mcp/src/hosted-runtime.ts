@@ -434,7 +434,11 @@ export function createHostedRuntimeFromEnv(
   let telemetrySink: BoundedTelemetrySink | undefined;
   let telemetryWriter: ReturnType<typeof createSupabaseTelemetryWriter> | undefined;
   let resolveTelemetryWorkspace:
-    | ((principal: HostedPrincipal, contextId: string | undefined, signal: AbortSignal) => Promise<string | null>)
+    | ((
+        principal: HostedPrincipal,
+        request: { readonly contextId?: string | undefined; readonly releaseDigest?: string | undefined },
+        signal: AbortSignal,
+      ) => Promise<string | null>)
     | undefined;
   const telemetryFailures: TelemetryFailureClass[] = [];
   const onTelemetryFailure = (failureClass: TelemetryFailureClass): void => {
