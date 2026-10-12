@@ -33,6 +33,7 @@ export type SupabaseRestFetch = (
   init?: {
     readonly method?: string;
     readonly headers?: Readonly<Record<string, string>>;
+    readonly body?: string;
     readonly signal?: AbortSignal;
   },
 ) => Promise<SupabaseRestResponse>;
@@ -202,6 +203,11 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
         const response = await fetcher(url.toString(), {
           method: "POST",
           headers,
+          // The permitted projection, serialized. This line is the difference
+          // between recording an event and POSTing an empty body that a
+          // gateway would accept — which looked like a successful write while
+          // storing nothing.
+          body: JSON.stringify([toRow(record)]),
           signal: AbortSignal.timeout(250),
         });
         if (response.ok) {
