@@ -425,6 +425,37 @@ const CONTROL_PLANE_TABLE_LITERALS: Readonly<Record<string, ControlPlaneTableSpe
     columns: ["hub_id", "release_digest", "updated_at"],
     filterable: { hub_id: { kind: "uuid" }, release_digest: { kind: "digest" } },
   },
+  mcp_tool_executions: {
+    columns: [
+      "id",
+      "workspace_id",
+      "subject",
+      "request_id",
+      "execution_id",
+      "idempotency_key",
+      "tool",
+      "release_digest",
+      "latency_ms",
+      "result_class",
+      "error_class",
+      "rate_limit_result",
+      "auth_decision",
+      "request_bytes",
+      "response_bytes",
+      "result_count",
+      "content_level",
+      "telemetry_failure_class",
+      "schema_version",
+      "observed_at",
+    ],
+    filterable: {
+      workspace_id: { kind: "uuid" },
+      subject: { kind: "short-text" },
+      tool: { kind: "identifier" },
+      result_class: { kind: "identifier" },
+      release_digest: { kind: "digest" },
+    },
+  },
 };
 
 /** The eleven allow-listed tables, deep-frozen. This is the exported boundary. */

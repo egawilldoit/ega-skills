@@ -110,7 +110,7 @@ import type {
 
 import { buildWorkspaceRoutes } from "./workspace.ts";
 import { createProjectRoutes } from "./projects.ts";
-import { createGovernanceRoutes } from "./governance.ts";
+import { createGovernanceRoutes, handleAnalyticsUsage } from "./governance.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Bounds                                                                      */
@@ -868,6 +868,76 @@ function lazyControlPlaneReader(): ControlPlaneReader {
   return cachedControlPlaneReader;
 }
 
+/**
+ * Enforces artifact access policy (R8) on release and skill endpoints.
+ *
+ * When EGA_WEB_PUBLIC_POLICY is "public" (or EGA_WEB_ALLOW_ANONYMOUS is "true"),
+ * anonymous reads are permitted.
+ * Otherwise, requires caller authentication (401 on missing/rejected session) and,
+ * when Supabase is configured, verifies that the caller has access to the requested
+ * release digest(s) under hub_releases RLS (403 on inaccessible release).
+ */
+export async function authorizeArtifactRequest(
+  context: ApiRouteContext,
+  reader: ControlPlaneReader,
+  options?: { readonly requestedDigests?: readonly string[] },
+): Promise<CallerIdentity | null> {
+  const config = loadServerConfig();
+  if (config.isPublicPolicy) {
+    return null;
+  }
+
+  let caller: CallerIdentity;
+  try {
+    caller = await reader.resolveCaller({
+      method: context.method,
+      headers: context.request.headers,
+    });
+  } catch (error) {
+    throw toControlPlaneApiError(error);
+  }
+
+  if (config.supabaseUrl) {
+    let digestsToCheck = options?.requestedDigests;
+    if (!digestsToCheck || digestsToCheck.length === 0) {
+      try {
+        const identity = releaseIdentityView();
+        const digest = identity.actual_release_digest ?? identity.expected_release_digest;
+        if (digest) {
+          digestsToCheck = [digest];
+        }
+      } catch {
+        // If release identity is unavailable, skip release_digest check
+      }
+    }
+
+    if (digestsToCheck && digestsToCheck.length > 0) {
+      for (const digest of digestsToCheck) {
+        if (!digest) continue;
+        try {
+          const rows = await reader.readAsCaller(caller, "hub_releases", {
+            filters: [{ column: "release_digest", values: [digest] }],
+            limit: 1,
+            offset: 0,
+          });
+          if (rows.length === 0) {
+            throw new ConsoleApiError(
+              403,
+              CONTROL_PLANE_FORBIDDEN_CODE,
+              "Access to the requested release is forbidden or not found in authorized hubs.",
+            );
+          }
+        } catch (err) {
+          if (err instanceof ConsoleApiError) throw err;
+          throw toControlPlaneApiError(err);
+        }
+      }
+    }
+  }
+
+  return caller;
+}
+
 export function installConsoleApi(
   routes: ApiRoute[],
   precondition: ReleaseReadinessProbe,
@@ -885,52 +955,77 @@ export function installConsoleApi(
       id: "release-identity",
       path: "/release-identity",
       methods: ["GET"],
-      handle: bound(() => handleReleaseIdentity()),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleReleaseIdentity();
+      }),
     },
     {
       id: "catalog",
       path: "/catalog",
       methods: ["GET"],
-      handle: bound((context) => handleCatalog(context.query)),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleCatalog(context.query);
+      }),
     },
     {
       id: "skills",
       path: "/skills",
       methods: ["GET"],
-      // The list surface is the catalog with no filters: one bounded
-      // enumeration, not a second read path that could disagree with `/catalog`
-      // about what the release contains.
-      handle: bound((context) => handleCatalog(context.query)),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleCatalog(context.query);
+      }),
     },
     {
       id: "skill-detail",
       path: "/skills/:skillId",
       methods: ["GET"],
-      handle: bound(handleSkillDetail),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleSkillDetail(context);
+      }),
     },
     {
       id: "skill-content",
       path: "/skills/:skillId/content",
       methods: ["GET"],
-      handle: bound(handleSkillContent),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleSkillContent(context);
+      }),
     },
     {
       id: "releases",
       path: "/releases",
       methods: ["GET"],
-      handle: bound(handleReleases),
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleReleases(context);
+      }),
     },
     {
       id: "releases-compare",
       path: "/releases/compare",
       methods: ["GET"],
-      handle: bound(handleReleaseCompare),
+      handle: bound(async (context) => {
+        const base = readParam(context.query, "base");
+        const head = readParam(context.query, "head");
+        const digests = [base, head].filter((d): d is string => typeof d === "string" && d.length > 0);
+        await authorizeArtifactRequest(context, lazyReader, { requestedDigests: digests });
+        return handleReleaseCompare(context);
+      }),
     },
     {
       id: "release-detail",
       path: "/releases/:releaseDigest",
       methods: ["GET"],
-      handle: bound(handleReleaseDetail),
+      handle: bound(async (context) => {
+        const digest = segment(context, "releaseDigest");
+        await authorizeArtifactRequest(context, lazyReader, { requestedDigests: [digest] });
+        return handleReleaseDetail(context);
+      }),
     },
   );
 
@@ -963,6 +1058,7 @@ export function installConsoleApi(
     ...buildWorkspaceRoutes(bounds, lazyReader),
     ...createProjectRoutes({ bounds, reader: lazyReader }),
     ...createGovernanceRoutes({ bounds, reader: lazyReader }),
+    controlPlaneRoute("analytics-usage", "/analytics/usage", handleAnalyticsUsage, bounds, lazyReader),
   );
 
   return probe;

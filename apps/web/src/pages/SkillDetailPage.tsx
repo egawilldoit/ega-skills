@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { API_ENDPOINTS } from "../api/client";
-import type { SkillContentLevel, SkillContentView, SkillDetail } from "../api/contracts";
+import type { SkillContentLevel, SkillContentView, SkillDetail, SkillSourceRef } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { DataTable, Field, type Column } from "../components/DataTable";
@@ -15,6 +15,26 @@ type ContentState =
   | { readonly status: "loading"; readonly level: SkillContentLevel; readonly filePath?: string }
   | { readonly status: "loaded"; readonly data: SkillContentView }
   | { readonly status: "error"; readonly message: string; readonly level: SkillContentLevel; readonly filePath?: string };
+
+const SOURCE_COLUMNS: readonly Column<SkillSourceRef>[] = [
+  { key: "source_id", label: "Source id", mono: true, render: (row) => row.source_id },
+  { key: "revision", label: "Revision", mono: true, render: (row) => row.revision },
+  { key: "path", label: "Path", mono: true, render: (row) => row.path },
+];
+
+function isInspectableCompanionFile(row: SkillDetail["files"][number]): boolean {
+  if (row.path === "SKILL.md" || row.path === "SKILL.core.md") return false;
+  if (row.role && ["skill-body", "core", "script", "asset", "ega-metadata"].includes(row.role)) {
+    return false;
+  }
+  if (row.content_kind && row.content_kind !== "TEXT") {
+    return false;
+  }
+  const lower = row.path.toLowerCase();
+  const binaryExts = [".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".zip", ".tar", ".gz", ".bin", ".exe", ".pdf", ".wasm"];
+  if (binaryExts.some((ext) => lower.endsWith(ext))) return false;
+  return true;
+}
 
 /**
  * `/skills/:skillId` — one skill as released.
@@ -40,19 +60,70 @@ export function SkillDetailPage(): ReactNode {
 
   const [contentState, setContentState] = useState<ContentState>({ status: "idle" });
 
+  const activeRequestRef = useRef<{
+    seq: number;
+    controller: AbortController;
+  } | null>(null);
+  const reqSeqRef = useRef<number>(0);
+
+  // Synchronously abort in-flight requests and reset content state when skillId changes or unmounts
+  useEffect(() => {
+    if (activeRequestRef.current) {
+      activeRequestRef.current.controller.abort();
+      activeRequestRef.current = null;
+    }
+    setContentState({ status: "idle" });
+    return () => {
+      if (activeRequestRef.current) {
+        activeRequestRef.current.controller.abort();
+        activeRequestRef.current = null;
+      }
+    };
+  }, [skillId]);
+
+  const closeContent = useCallback(() => {
+    if (activeRequestRef.current) {
+      activeRequestRef.current.controller.abort();
+      activeRequestRef.current = null;
+    }
+    setContentState({ status: "idle" });
+  }, []);
+
   const fetchContent = useCallback(
     async (level: SkillContentLevel, filePath?: string) => {
       if (skillId === null) return;
+      if (activeRequestRef.current) {
+        activeRequestRef.current.controller.abort();
+      }
+      const controller = new AbortController();
+      const seq = ++reqSeqRef.current;
+      activeRequestRef.current = { seq, controller };
+
       setContentState({ status: "loading", level, ...(filePath ? { filePath } : {}) });
       try {
         const query: Record<string, string> = { level };
         if (filePath) query.file_path = filePath;
         const res = await client.get<SkillContentView>(API_ENDPOINTS.skillContent(skillId), {
           query,
+          signal: controller.signal,
           timeoutMs: 15_000,
         });
+
+        // Discard late or superseded responses, or if user closed the viewer
+        if (controller.signal.aborted || activeRequestRef.current?.seq !== seq) {
+          return;
+        }
+        activeRequestRef.current = null;
         setContentState({ status: "loaded", data: res });
       } catch (err: unknown) {
+        if (
+          controller.signal.aborted ||
+          activeRequestRef.current?.seq !== seq ||
+          (err instanceof Error && err.name === "AbortError")
+        ) {
+          return;
+        }
+        activeRequestRef.current = null;
         const msg =
           err instanceof Error
             ? err.message
@@ -70,10 +141,6 @@ export function SkillDetailPage(): ReactNode {
     [client, skillId],
   );
 
-  const closeContent = useCallback(() => {
-    setContentState({ status: "idle" });
-  }, []);
-
   const fileColumns: readonly Column<SkillDetail["files"][number]>[] = [
     { key: "path", label: "Path", mono: true, render: (row) => row.path },
     { key: "byte_length", label: "Bytes", numeric: true, render: (row) => row.byte_length.toLocaleString() },
@@ -81,16 +148,27 @@ export function SkillDetailPage(): ReactNode {
     {
       key: "actions",
       label: "Inspection",
-      render: (row) => (
-        <button
-          type="button"
-          className="button button--secondary"
-          onClick={() => void fetchContent("L2", row.path)}
-          disabled={contentState.status === "loading"}
-        >
-          View content
-        </button>
-      ),
+      render: (row) => {
+        if (!isInspectableCompanionFile(row)) {
+          return (
+            <span className="muted">
+              {row.path === "SKILL.md" || row.path === "SKILL.core.md"
+                ? "Use level buttons above"
+                : "Not inspectable as text"}
+            </span>
+          );
+        }
+        return (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => void fetchContent("L2", row.path)}
+            disabled={contentState.status === "loading"}
+          >
+            View content
+          </button>
+        );
+      },
     },
   ];
 
@@ -149,16 +227,43 @@ export function SkillDetailPage(): ReactNode {
           <h2>Token Budgets & Content Availability</h2>
           <dl className="fields">
             <Field label="L1 Content Status" mono>
-              Missing (SKILL.core.md was not authored in this release)
+              {data.summary.l1_status === "AUTHORED"
+                ? "Authored (SKILL.core.md is present in release)"
+                : "Missing (SKILL.core.md was not authored in this release)"}
             </Field>
             <Field label="L1 Token Budget" mono>
-              0 tokens (Unavailable)
+              {data.summary.l1_tokens !== null
+                ? `${data.summary.l1_tokens.toLocaleString()} tokens`
+                : "Unavailable (SKILL.core.md not authored in this release)"}
             </Field>
             <Field label="L2 Content Status" mono>
-              Available (Servable on demand)
+              {data.content?.l2_available === false
+                ? "Unavailable"
+                : "Available (Servable on demand)"}
             </Field>
             <Field label="L2 Token Budget" mono>
-              Standard 8,192 tokens (Max ceiling: 32,768)
+              {data.summary.l2_tokens.toLocaleString()} tokens (Request ceiling: 32,768 max tokens, default 32,000)
+            </Field>
+          </dl>
+
+          <h2>Trust & Provenance</h2>
+          <dl className="fields">
+            <Field label="Trust level" mono>
+              {data.trust_level ?? "UNKNOWN"}
+            </Field>
+            <Field label="Provenance status" mono>
+              {data.summary.provenance_status}
+            </Field>
+            <Field label="Source type">
+              {data.summary.source_type ?? "None declared"}
+            </Field>
+            <Field label="Observed revision" mono>
+              {data.observed_source_revision ?? data.source_commit_sha ?? "Not recorded"}
+            </Field>
+            <Field label="Version history">
+              {data.history
+                ? `${data.history.state === "retained" ? "Retained historical versions" : "Not retained"} (${data.history.reason ?? "Single release pin"})`
+                : "Current release only"}
             </Field>
           </dl>
 
@@ -245,12 +350,19 @@ export function SkillDetailPage(): ReactNode {
           </dl>
 
           <h2>Sources</h2>
-          <DataTable<SkillDetail["sources"][number]>
-            caption={`Adopted sources for ${data.summary.skill_id}`}
-            columns={SOURCE_COLUMNS}
-            rows={data.sources}
-            rowKey={(row) => `${row.source_id}@${row.revision}:${row.path}`}
-          />
+          {data.sources.length === 0 ? (
+            <EmptyState
+              title="No adopted sources"
+              reason={data.sources_unavailable_reason ?? "No external repository sources are adopted for this skill."}
+            />
+          ) : (
+            <DataTable<SkillDetail["sources"][number]>
+              caption={`Adopted sources for ${data.summary.skill_id}`}
+              columns={SOURCE_COLUMNS}
+              rows={data.sources}
+              rowKey={(row) => `${row.source_id}@${row.revision}:${row.path}`}
+            />
+          )}
 
           <h2>Files (Companion Files)</h2>
           <DataTable<SkillDetail["files"][number]>
@@ -264,9 +376,3 @@ export function SkillDetailPage(): ReactNode {
     </ResourceSection>
   );
 }
-
-const SOURCE_COLUMNS: readonly Column<SkillDetail["sources"][number]>[] = [
-  { key: "source_id", label: "Source", mono: true, render: (row) => row.source_id },
-  { key: "revision", label: "Revision", mono: true, render: (row) => row.revision },
-  { key: "path", label: "Path", mono: true, render: (row) => row.path },
-];

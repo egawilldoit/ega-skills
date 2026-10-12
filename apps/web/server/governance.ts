@@ -116,6 +116,8 @@ import type {
   QuotaUsageRow,
   SecurityDenyRow,
   WorkspaceQuotaView,
+  UsageSummary,
+  McpTelemetrySummary,
 } from "../src/api/contracts.ts";
 
 /* -------------------------------------------------------------------------- */
@@ -730,6 +732,136 @@ export interface GovernanceRoutesOptions {
  * Registration order does not matter here: no path is a `:parameter` route, so
  * there is no literal-versus-pattern shadowing to get wrong.
  */
+/**
+ * `GET /analytics/usage` — quota accounting and CONTRACT-T1 read-path MCP telemetry.
+ */
+export async function handleAnalyticsUsage(
+  context: ApiRouteContext,
+  caller: CallerIdentity,
+  reader: ControlPlaneReader,
+): Promise<UsageSummary> {
+  assertBoundedQuery(context.query);
+  const limit = readLimit(context.query);
+  const offset = readOffset(context.query);
+  const workspaceId =
+    optionalUuidParam(context.query, "workspace_id") ??
+    optionalUuidParam(context.query, "workspace");
+  if (!workspaceId) {
+    throw new ConsoleApiError(400, "E_WEB_QUERY_INVALID", "workspace_id is required");
+  }
+  const filters: readonly ControlPlaneFilter[] = Object.freeze([
+    Object.freeze({ column: "workspace_id", values: Object.freeze([workspaceId]) }),
+  ]);
+
+  const [policyRows, usageRows, telemetryRows] = await Promise.all([
+    reader.readAsCaller(caller, "quota_policies", { filters, limit: 1, offset: 0 }).catch(() => []),
+    reader.readAsCaller(caller, "quota_usage", { filters, limit, offset }).catch(() => []),
+    reader.readAsCaller(caller, "mcp_tool_executions", { filters, limit: 100, offset: 0 }).catch(() => []),
+  ]);
+
+  const policyRowsSafe = policyRows.filter(isRecord);
+  const policy = policyRowsSafe[0] === undefined ? null : quotaPolicyRow(policyRowsSafe[0]);
+  const usage = Object.freeze(usageRows.filter(isRecord).map(quotaUsageRow));
+
+  let requestCount = 0;
+  let bandwidthBytes = 0;
+  let windowStarted = new Date().toISOString();
+  let windowEndsAt = new Date().toISOString();
+
+  if (usage.length > 0) {
+    windowStarted = usage[0]!.window_started;
+    windowEndsAt = new Date(new Date(usage[usage.length - 1]!.window_started).getTime() + 3600_000).toISOString();
+    for (const w of usage) {
+      requestCount += w.request_count;
+      bandwidthBytes += w.bandwidth_bytes;
+    }
+  }
+
+  let telemetry: McpTelemetrySummary | null = null;
+  if (telemetryRows.length > 0) {
+    let searched = 0;
+    let resolved = 0;
+    let inspected = 0;
+    let contentRetrieved = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    let totalLatency = 0;
+    const tools = { search: 0, resolve: 0, inspect: 0, get_content: 0 };
+
+    for (const raw of telemetryRows) {
+      if (!isRecord(raw)) continue;
+      const tool = String(raw.tool ?? "");
+      const resultClass = String(raw.result_class ?? "");
+      const latencyMs = typeof raw.latency_ms === "number" ? raw.latency_ms : 0;
+      totalLatency += latencyMs;
+
+      if (tool in tools) {
+        tools[tool as keyof typeof tools] += 1;
+      }
+
+      if (resultClass === "success") {
+        successCount += 1;
+        if (tool === "search") searched += 1;
+        else if (tool === "resolve") resolved += 1;
+        else if (tool === "inspect") inspected += 1;
+        else if (tool === "get_content") contentRetrieved += 1;
+      } else {
+        errorCount += 1;
+      }
+    }
+
+    const total = telemetryRows.length;
+    telemetry = Object.freeze({
+      total_executions: total,
+      success_count: successCount,
+      error_count: errorCount,
+      funnel: Object.freeze({
+        searched,
+        resolved,
+        inspected,
+        content_retrieved: contentRetrieved,
+      }),
+      tools: Object.freeze(tools),
+      total_latency_ms: totalLatency,
+      average_latency_ms: total > 0 ? Math.round(totalLatency / total) : 0,
+      telemetry_unavailable_reason: null,
+    });
+  } else {
+    telemetry = Object.freeze({
+      total_executions: 0,
+      success_count: 0,
+      error_count: 0,
+      funnel: Object.freeze({
+        searched: 0,
+        resolved: 0,
+        inspected: 0,
+        content_retrieved: 0,
+      }),
+      tools: Object.freeze({
+        search: 0,
+        resolve: 0,
+        inspect: 0,
+        get_content: 0,
+      }),
+      total_latency_ms: 0,
+      average_latency_ms: 0,
+      telemetry_unavailable_reason: "No read-path MCP telemetry records observed in this window.",
+    });
+  }
+
+  return Object.freeze({
+    workspace_id: workspaceId,
+    window_started: windowStarted,
+    window_ends_at: windowEndsAt,
+    request_count: requestCount,
+    bandwidth_bytes: bandwidthBytes,
+    windows: usage,
+    policy,
+    windows_unavailable_reason: usage.length === 0 ? EMPTY_USAGE_REASON : null,
+    telemetry,
+  });
+}
+
 export function createGovernanceRoutes(options: GovernanceRoutesOptions = {}): ApiRoute[] {
   const bounds = options.bounds ?? loadRequestBounds();
   // `controlPlaneRoute`'s `reader` parameter has a default of

@@ -141,6 +141,7 @@ async function startServer(env = {}) {
       EGA_WEB_ARTIFACT_DIR: "",
       EGA_WEB_RETAINED_MANIFEST: "",
       EGA_WEB_EXPECTED_RELEASE_DIGEST: "",
+      EGA_WEB_PUBLIC_POLICY: "public",
       ...env,
     },
   });
@@ -919,6 +920,7 @@ describe("response size, deadline and concurrency are bounded", () => {
     // workspace-members, workspace-quotas); the other eight come from the
     // verified artifact.
     assert.deepEqual([...ids].sort(), [
+      "analytics-usage",
       "audit-events",
       "catalog",
       "project-detail",

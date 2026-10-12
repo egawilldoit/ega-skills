@@ -26,6 +26,15 @@ import { runSearchTool, SEARCH_OUTPUT_SCHEMA } from "./search.js";
 import { toolSchema } from "./server.js";
 import { buildWwwAuthenticate, type HostedOAuthConfig } from "./hosted-oauth.js";
 import { McpContextError, type McpProjectContext } from "./project-context.js";
+import {
+  computeIdempotencyKey,
+  fireAndForgetTelemetry,
+  type McpContentLevel,
+  type McpResultClass,
+  type McpTelemetrySink,
+  type McpToolExecutionRecord,
+  type McpToolName,
+} from "./telemetry.js";
 
 export interface HostedReleaseSnapshot {
   readonly artifactDir: string;
@@ -62,6 +71,8 @@ export interface HostedRuntimeOptions {
   readonly resolveRelease?: (releaseDigest: string, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
   /** Resolve and authorize an exact Contract E context before tool execution. */
   readonly resolveContext?: (contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>;
+  /** Optional telemetry sink for CONTRACT-T1 read-path usage telemetry. */
+  readonly telemetrySink?: McpTelemetrySink;
 }
 
 export class HostedRuntimeError extends Error {
@@ -309,17 +320,47 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       return selectionPromise;
     };
     const server = new McpServer({ name: "ega-skills-hosted", version: "2.0.1" }, { capabilities: { tools: {} } });
+    let executionCounter = 0;
     const guard = async (tool: string, args: Record<string, unknown>, body: (context: McpProjectContext) => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> => {
+      const startTime = Date.now();
+      const executionId = `exec_${Date.now()}_${++executionCounter}_${Math.random().toString(36).slice(2, 8)}`;
+      let resultClass: McpResultClass = "success";
+      let errorClass: string | undefined;
+      let effectiveDigest: string | undefined;
+      let resultCount: number | undefined;
+      let contentLevel: McpContentLevel | undefined;
+
+      if (tool === "get_content") {
+        if (typeof args.file_path === "string" && args.file_path.length > 0) {
+          contentLevel = "companion";
+        } else if (args.level === "L1" || args.level === "L2") {
+          contentLevel = args.level as McpContentLevel;
+        }
+      }
+
       try {
         const effectiveSnapshot = await selectSnapshot(args);
-        if (!principal || deniedReleases.has(effectiveSnapshot.releaseDigest)) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        effectiveDigest = effectiveSnapshot.releaseDigest;
+        if (!principal || deniedReleases.has(effectiveSnapshot.releaseDigest)) {
+          resultClass = "denied";
+          throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        }
         const skillId = typeof args.skill_id === "string" ? args.skill_id : undefined;
         // Authorization precedes deny classification: an authenticated but
         // unauthorized principal must not be able to distinguish a denied
         // skill from a nonexistent one (both answer E_UNAUTHORIZED).
-        if (!(await authorizeResource(tool, skillId))) throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
-        if (skillId && deniedSkills.has(skillId)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
-        if (releaseSourceDenied(effectiveSnapshot.release, deniedSources)) throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested source is unavailable");
+        if (!(await authorizeResource(tool, skillId))) {
+          resultClass = "denied";
+          throw new HostedRuntimeError("E_UNAUTHORIZED", "Request is not authorized");
+        }
+        if (skillId && deniedSkills.has(skillId)) {
+          resultClass = "denied";
+          throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
+        }
+        if (releaseSourceDenied(effectiveSnapshot.release, deniedSources)) {
+          resultClass = "denied";
+          throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested source is unavailable");
+        }
         let requestContext = withDeniedSkills(effectiveSnapshot.context, deniedSkills);
         if (skillId === undefined && (tool === "search" || tool === "resolve")) {
           const resourceDenied = await deniedByAuthorization(principal, tool, Object.keys(effectiveSnapshot.release.payload.skill_versions), requestSignal, options.authorize);
@@ -327,10 +368,60 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
         }
         const result = await body(requestContext);
         if ((tool === "inspect" || tool === "get_content") && skillId && !(await authorizeResource(tool, skillId, true))) {
+          resultClass = "denied";
           throw new HostedRuntimeError("E_CONTENT_REVOKED", "Requested content is unavailable");
         }
-        return (tool === "search" || tool === "resolve") ? withEffectiveRelease(result, effectiveSnapshot.releaseDigest) : result;
-      } catch (error) { return errorResult(tool, error); }
+        const finalResult = (tool === "search" || tool === "resolve") ? withEffectiveRelease(result, effectiveSnapshot.releaseDigest) : result;
+
+        if (tool === "search" && Array.isArray((finalResult as any)?.content)) {
+          resultCount = (finalResult as any).content.length;
+        }
+
+        if (options.telemetrySink && principal) {
+          const record: McpToolExecutionRecord = {
+            workspace_id: (principal as any).workspaceId ?? (principal as any).workspace_id ?? "00000000-0000-0000-0000-000000000000",
+            subject: (principal as any).subject ?? (principal as any).id ?? "anonymous",
+            execution_id: executionId,
+            idempotency_key: computeIdempotencyKey(executionId, tool),
+            tool: tool as McpToolName,
+            release_digest: effectiveDigest,
+            latency_ms: Math.max(0, Date.now() - startTime),
+            result_class: resultClass,
+            result_count: resultCount,
+            content_level: contentLevel,
+            schema_version: 1,
+            observed_at: new Date().toISOString(),
+          };
+          fireAndForgetTelemetry(options.telemetrySink, record);
+        }
+
+        return finalResult;
+      } catch (error) {
+        if (resultClass === "success") {
+          resultClass = "error";
+        }
+        errorClass = error instanceof HostedRuntimeError ? error.code : "E_INTERNAL";
+
+        if (options.telemetrySink && principal) {
+          const record: McpToolExecutionRecord = {
+            workspace_id: (principal as any).workspaceId ?? (principal as any).workspace_id ?? "00000000-0000-0000-0000-000000000000",
+            subject: (principal as any).subject ?? (principal as any).id ?? "anonymous",
+            execution_id: executionId,
+            idempotency_key: computeIdempotencyKey(executionId, tool),
+            tool: tool as McpToolName,
+            release_digest: effectiveDigest,
+            latency_ms: Math.max(0, Date.now() - startTime),
+            result_class: resultClass,
+            error_class: errorClass,
+            content_level: contentLevel,
+            schema_version: 1,
+            observed_at: new Date().toISOString(),
+          };
+          fireAndForgetTelemetry(options.telemetrySink, record);
+        }
+
+        return errorResult(tool, error);
+      }
     };
     const rejectProject = (args: Record<string, unknown>): void => {
       if ("project_path" in args) throw new HostedRuntimeError("E_MCP_INPUT_INVALID", "project_path is not supported by hosted MCP");

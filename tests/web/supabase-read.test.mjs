@@ -450,6 +450,7 @@ describe("only allow-listed tables and columns are readable", () => {
       "hub_releases",
       "hub_stable_pointers",
       "hubs",
+      "mcp_tool_executions",
       "personal_workspaces",
       "project_contexts",
       "projects",

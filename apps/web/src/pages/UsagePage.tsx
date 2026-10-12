@@ -66,12 +66,64 @@ export function UsagePage(): ReactNode {
             <p className="page__lede">
               These are <strong>quota accounting counters</strong> recorded against this
               workspace&apos;s quota policy — total requests and bandwidth in a time window.
-              They are <strong>not</strong> per-tool MCP execution telemetry. Read-path MCP
-              telemetry (CONTRACT-T1) is not implemented in this deployment: no telemetry is
-              recorded, so per-tool activity is <strong>unavailable</strong>, not zero. An
-              absence of numbers here means nothing has been recorded against the quota,
-              and says nothing at all about which MCP tools ran.
+              They are <strong>not</strong> per-tool MCP execution telemetry. When read-path MCP
+              telemetry (CONTRACT-T1) is not recorded for a window, per-tool activity is{" "}
+              <strong>unavailable</strong>, not zero. An absence of numbers here means
+              nothing has been recorded against the quota, and says nothing at all about
+              which MCP tools ran.
             </p>
+          </section>
+
+          <section className="panel" aria-labelledby="telemetry-section">
+            <h2 id="telemetry-section">MCP Read-Path Usage Telemetry (CONTRACT-T1)</h2>
+            {data.telemetry && data.telemetry.total_executions > 0 ? (
+              <>
+                <div className="telemetry-funnel" style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
+                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
+                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>1. Searched (Discovery)</div>
+                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.searched}</div>
+                  </div>
+                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
+                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>2. Resolved (Resolution)</div>
+                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.resolved}</div>
+                  </div>
+                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
+                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>3. Inspected (Metadata)</div>
+                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.inspected}</div>
+                  </div>
+                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
+                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>4. Content Retrieved</div>
+                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.content_retrieved}</div>
+                  </div>
+                </div>
+
+                <dl className="fields">
+                  <Field label="Total Executions" mono>
+                    {data.telemetry.total_executions}
+                  </Field>
+                  <Field label="Successful Executions" mono>
+                    {data.telemetry.success_count}
+                  </Field>
+                  <Field label="Failed/Denied Executions" mono>
+                    {data.telemetry.error_count}
+                  </Field>
+                  <Field label="Average Latency" mono>
+                    {data.telemetry.average_latency_ms} ms
+                  </Field>
+                  <Field label="Tools Breakdown" mono>
+                    {`search: ${data.telemetry.tools.search}, resolve: ${data.telemetry.tools.resolve}, inspect: ${data.telemetry.tools.inspect}, get_content: ${data.telemetry.tools.get_content}`}
+                  </Field>
+                </dl>
+              </>
+            ) : (
+              <EmptyState
+                title="No tool telemetry recorded"
+                reason={
+                  data.telemetry?.telemetry_unavailable_reason ??
+                  "Read-path MCP telemetry (CONTRACT-T1) is unavailable, not zero."
+                }
+              />
+            )}
           </section>
 
           <section className="panel" aria-labelledby="usage-rollup">

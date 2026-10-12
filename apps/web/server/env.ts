@@ -52,6 +52,8 @@ export const SERVER_ENV_KEYS = [
   "EGA_SUPABASE_SECRET_KEY",
   "EGA_SUPABASE_PUBLISHABLE_KEY",
   "EGA_SUPABASE_ANON_KEY",
+  "EGA_WEB_PUBLIC_POLICY",
+  "EGA_WEB_ALLOW_ANONYMOUS",
 ] as const;
 
 export type ServerEnvKey = (typeof SERVER_ENV_KEYS)[number];
@@ -115,6 +117,8 @@ export interface ServerConfig {
   readonly hasExpectedReleaseDigest: boolean;
   /** True when at least one release source is configured at all. */
   readonly hasReleaseSource: boolean;
+  /** True when anonymous/public access policy is explicitly enabled. */
+  readonly isPublicPolicy: boolean;
 }
 
 /**
@@ -245,6 +249,10 @@ export function parseServerConfig(
     );
   }
 
+  const isPublicPolicy =
+    configured(env["EGA_WEB_PUBLIC_POLICY"]) === "public" ||
+    configured(env["EGA_WEB_ALLOW_ANONYMOUS"]) === "true";
+
   return Object.freeze({
     artifactDir,
     retainedManifestPath,
@@ -254,6 +262,7 @@ export function parseServerConfig(
     supabasePublishableKey,
     hasExpectedReleaseDigest: expectedReleaseDigest !== null,
     hasReleaseSource: artifactDir !== null || retainedManifestPath !== null,
+    isPublicPolicy,
   });
 }
 

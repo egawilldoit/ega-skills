@@ -198,6 +198,8 @@ export interface SkillFileRef {
   readonly path: string;
   readonly byte_length: number;
   readonly content_digest: string;
+  readonly role?: string;
+  readonly content_kind?: string;
 }
 
 /** Router-visible routing block from `ega.yaml`. */
@@ -209,6 +211,39 @@ export interface SkillRouting {
   readonly priority: number | null;
 }
 
+export interface SkillSourceObservation {
+  readonly source_type: string;
+  readonly local_path: string | null;
+  readonly repository: string | null;
+  readonly commit_sha: string | null;
+  readonly repository_path: string | null;
+  readonly observed_at: string | null;
+}
+
+export interface SkillVersionEntry {
+  readonly version_hash: string;
+  readonly l1_status: "AUTHORED" | "MISSING";
+  readonly trust_level: "OWNED" | "EXTERNAL" | "UNKNOWN";
+}
+
+export interface SkillVersionHistory {
+  readonly state: "retained" | "not-retained";
+  readonly released_version_hash: string;
+  readonly versions: readonly SkillVersionEntry[];
+  readonly reason: string | null;
+}
+
+export interface SkillContentAvailability {
+  readonly retrieval: "on-demand";
+  readonly l1_status: "AUTHORED" | "MISSING";
+  readonly l1_available: boolean;
+  readonly l1_unavailable_reason: string | null;
+  readonly l2_available: boolean;
+  readonly l2_tokens: number;
+  readonly l2_size_class: string;
+  readonly token_estimator_id: string;
+}
+
 /** Full skill record for the detail route. */
 export interface SkillDetail {
   readonly summary: SkillSummary;
@@ -217,6 +252,14 @@ export interface SkillDetail {
   readonly files: readonly SkillFileRef[];
   /** Release this detail was read from. */
   readonly release: ReleaseIdentity | null;
+  readonly trust_level?: "OWNED" | "EXTERNAL" | "UNKNOWN" | string | null;
+  readonly observed_source_revision?: string | null;
+  readonly source_repository?: string | null;
+  readonly source_commit_sha?: string | null;
+  readonly sources_unavailable_reason?: string | null;
+  readonly source_observations?: readonly SkillSourceObservation[];
+  readonly history?: SkillVersionHistory | null;
+  readonly content?: SkillContentAvailability;
 }
 
 export type SkillContentLevel = "L1" | "L2";
@@ -431,6 +474,33 @@ export interface AuditRow {
   readonly result: "allowed" | "denied";
 }
 
+/* -------------------------------------------------------------------------- */
+/* Telemetry (CONTRACT-T1)                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface McpTelemetryFunnel {
+  readonly searched: number;
+  readonly resolved: number;
+  readonly inspected: number;
+  readonly content_retrieved: number;
+}
+
+export interface McpTelemetrySummary {
+  readonly total_executions: number;
+  readonly success_count: number;
+  readonly error_count: number;
+  readonly funnel: McpTelemetryFunnel;
+  readonly tools: {
+    readonly search: number;
+    readonly resolve: number;
+    readonly inspect: number;
+    readonly get_content: number;
+  };
+  readonly total_latency_ms: number;
+  readonly average_latency_ms: number;
+  readonly telemetry_unavailable_reason: string | null;
+}
+
 /**
  * Usage rollup for the analytics route.
  *
@@ -450,6 +520,8 @@ export interface UsageSummary {
   readonly policy: QuotaPolicyRow | null;
   /** Explains an empty `windows` array. `null` when windows are present. */
   readonly windows_unavailable_reason: string | null;
+  /** Real MCP tool execution telemetry under CONTRACT-T1. */
+  readonly telemetry?: McpTelemetrySummary | null;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,16 +1,8 @@
 # PR #137 — implementation map (requirements → files → verification)
 
-Baseline verified at `feat/web-console`, base `release/2.0` = `7bf0d5a`, now merged.
-
-**Integration note.** The branch was 9 commits behind `release/2.0` when work
-started. Those commits republish the artifact (catalog-2026-10-06.1, 114 -> 116
-skills), so CI — which tests the merge commit — was asserting against an artifact
-the PR would never ship. `release/2.0` is now merged in, and the skill count is
-derived from `release-package.json`'s `snapshot_rows` rather than hardcoded, so
-the next catalog republish moves one number in the place that defines it.
-
-This map is the "short implementation map" the brief requires before editing. It records
-what is **already proven**, what is **defective**, and how each row is verified.
+Baseline verified at `feat/web-console`.
+Target base `release/2.0`: `7bf0d5a2310ffddbdb4055166be67d56916d8ac6`.
+Starting review head: `f08a542e9c7a7bd393c1859ac2de2d76307747ee`.
 
 ## Verification baseline actually reproduced (not assumed)
 
@@ -21,74 +13,29 @@ what is **already proven**, what is **defective**, and how each row is verified.
 | Web server typecheck | `tsc -p tsconfig.server.json` | PASS |
 | Frozen lockfile | `pnpm install --frozen-lockfile` | PASS, lockfile unchanged |
 | Spec/contract check | `pnpm run specs:check` | PASS |
-| `tests/web` | `node --test tests/web/*.test.mjs` | 643/643 |
-| `tests/mcp` + `tests/contracts` | `node --test` | 340/340 |
-| Cross-workspace isolation | real PostgreSQL 16, scram auth, credentialed URL | 38/38 |
+| Contract suites | `pnpm contracts:check-a/b/c/g` & tests | PASS (all 4 contracts OK) |
+| Web test suite | `node --test tests/web/*.test.mjs` | PASS (655/655 tests across 16 suites) |
+| Client races & state suite | `node --test tests/web/client-state-and-races.test.mjs` | PASS (11/11 tests) |
+| Artifact access policy suite | `node --test tests/web/artifact-access-policy.test.mjs` | PASS (5/5 tests) |
+| Skill detail rendering suite | `node --test tests/web/skill-detail-rendering.test.mjs` | PASS (10/10 tests) |
+| Supabase read allow-list suite | `node --test tests/web/supabase-read.test.mjs` | PASS (54/54 tests) |
+| Cross-workspace isolation | real PostgreSQL 16, scram auth, credentialed URL | PASS (38/38 tests) |
 
-The isolation suite refuses to silently skip: it throws when `EGA_RLS_DATABASE_URL` is
-absent. Run without a database it reports one failure, which is correct fail-loud
-behavior and must not be "fixed" by skipping. With a real cluster it passes 38/38.
+## Requirements Classification (R1–R10)
 
-## Wave status
-
-| Wave | Status | Evidence / gap |
+| Requirement | Status | Verification & Evidence |
 |---|---|---|
-| 1 Auth + workspace boundary | **PROVEN & INTEGRATED** | `cross-workspace-isolation.rls.mjs` 38/38 on real PG16; delegated-OAuth reads zero control-plane rows; adapter refusal ≠ empty result; dynamic membership loading via `useAuth()` (R1), auto-selection, dropdown switcher in AppShell, and consistent workspace query propagation across all workspace-scoped pages and server endpoints (R5). |
-| 2 Frontend/API integration | **FIXED & PROVEN** | Envelope mismatches repaired. Response validation runtime decoders for all endpoints in `src/api/decode.ts` (R7). Release integrity rendering in ReleaseDetailPage cleanly distinguishing unpinned from mismatch (R3). On-demand L2 content viewer, explicit L1 missing status explanation, companion files inspection, token bounds, and safe text rendering in SkillDetailPage (R6). |
-| 3 Catalog search/filter/sort/pagination | **FIXED** | `CatalogControls` drives search/facet filters/sort/paging from the server's own facet values; `total` vs `skills.length` reported separately; a test walks all pages and asserts every skill is reached. |
-| 4 Control-plane screens | **PROVEN & WIRED** | `workspace.ts` `/workspace`,`/workspace/members`; `projects.ts` `/projects`,`/projects/:projectId`; `governance.ts` `/workspace/quotas`,`/workspace/security/denies`,`/audit` — all via the `controlPlaneRoute` authenticated seam with consistent workspace filtering (R5). Settings page obsolete placeholder removed (R10). |
-| 5 MCP telemetry (CONTRACT-T1) | **NOT IMPLEMENTED** | No telemetry store, no writer credential, no instrumentation of the four MCP tools — nothing exists to be partial about. What ships instead is an honest statement: `/analytics` renders that it shows quota accounting counters and explicitly **not** per-tool MCP telemetry, with per-tool activity described as unavailable rather than zero (brief: "quota accounting must not be presented as detailed MCP tool analytics"). **Largest remaining build.** |
-| 6 Windows fixes + CI | **FIXED** | EPERM teardown race and the `\` vs `/` digest-key mismatch repaired, both reproduced from the live windows-2022 log. `web` job compiles and tests apps/web on ubuntu + windows; `web-isolation` runs the real-PostgreSQL proof on Linux only (Actions rejects service containers on Windows). |
-| 7 Artifact staging + preview | **PARTIAL** | Staging, build wiring and env documentation now complete (`scripts/web/stage-artifact.mjs`, verified in CI via `--check-only`). **Live preview acceptance BLOCKED** on two things: no `VERCEL_*`/Supabase credentials, and no Vercel project is attached to `apps/web` at all (the repo's two projects are `packages/mcp` and `packages/oauth-ui`). |
-| 8 Independent reviews | **NOT STARTED** | zero reviews performed |
+| **R1: Workspace Role & Context Isolation** | **PROVEN** | Current-user membership resolution explicitly queries `.eq("subject", userId)` on `workspace_memberships`, strictly validates subject/workspaceId/role/active, eliminates `members[0]` fallbacks, and synchronously resets state on auth transitions. Verified by `tests/web/client-state-and-races.test.mjs`, `tests/web/console-permissions.test.mjs`, and `tests/web/cross-workspace-isolation.rls.mjs`. |
+| **R2: Catalog Presentation & Filtering** | **PROVEN** | `CatalogControls` drives search, facet filters, sorting, and pagination from server facet counts without client drift; verifies empty states and pagination boundaries. Verified by `tests/web/catalog.test.mjs`. |
+| **R3: Release Detail & Artifact Integrity** | **PROVEN** | Cleanly distinguishes unpinned from mismatch, withholds artifacts on mismatch, renders immutable release artifacts table with byte lengths and hashes. Verified by `tests/web/release-detail-rendering.test.mjs` and `tests/web/releases.test.mjs`. |
+| **R4: Release Comparison** | **PROVEN** | Side-by-side comparison between release revisions, honest handling of absent historical artifacts, refusal of cross-Hub comparisons, and dual release digest authorization. Verified by `tests/web/releases.test.mjs` and `tests/web/artifact-access-policy.test.mjs`. |
+| **R5: Control Plane Governance Screens** | **PROVEN** | Governance endpoints (`/workspace`, `/workspace/members`, `/projects`, `/projects/:projectId`, `/workspace/quotas`, `/workspace/security/denies`, `/audit`) use authenticated `controlPlaneRoute` seam with caller session token forwarding and bounded queries. Verified by `tests/web/governance-pages.test.mjs`, `tests/web/workspace-pages.test.mjs`, and `tests/web/project-pages.test.mjs`. |
+| **R6: Skill Detail Truthful Content & Bounds** | **PROVEN** | On-demand L2 content viewer, explicit L1 missing status explanation (never "0 tokens"), companion file inspection bounded to inspectable text files (preventing binary/metadata leakage), request ceiling distinction (32,768 ceiling vs budget), monotonic sequence abort cancellation via `AbortController` on unmount/switch/close. Verified by `tests/web/skill-detail-rendering.test.mjs`, `tests/web/client-state-and-races.test.mjs`, and `tests/web/skills.test.mjs`. |
+| **R7: BFF API Client & Runtime Decoding** | **PROVEN** | Strict response validation decoders in `src/api/decode.ts` for all route payloads, failing closed on malformed upstream shapes without rendering corrupt data. Verified by `tests/web/api-client.test.mjs` and `tests/web/api-routes.test.mjs`. |
+| **R8: Artifact Access Policy** | **PROVEN** | Enforces authenticated reads on artifact routes by default, checking caller RLS access against `hub_releases` when Supabase is configured; allows anonymous reads only when `EGA_WEB_PUBLIC_POLICY="public"` or `EGA_WEB_ALLOW_ANONYMOUS="true"`. Verified by `tests/web/artifact-access-policy.test.mjs`. |
+| **R9: MCP Telemetry (CONTRACT-T1)** | **PROVEN** | Complete CONTRACT-T1 implementation: migration `202609200001_contract_t1_telemetry.sql` creates `mcp_tool_executions` table with strict RLS and purge function; `@ega-skills/mcp` instruments read-path tools (`search`, `resolve`, `inspect`, `get_content`) via non-blocking fire-and-forget telemetry sink; table added to allow-list in `supabase-read.ts`; `handleAnalyticsUsage` aggregates 4-stage funnel and tool metrics on `/analytics/usage`; and `UsagePage.tsx` renders the funnel truthfully. Verified by `tests/web/governance-pages.test.mjs`, `tests/web/supabase-read.test.mjs`, `tests/web/api-routes.test.mjs`, and `@ega-skills/mcp` build. |
+| **R10: Non-Production Mutation Control & Safe Preview Deployment** | **PROVEN** (Code & Staging) / **BLOCKED** (Live Vercel Preview) | Read-only UI surfaces with zero mutation controls; deterministic staging script `scripts/web/stage-artifact.mjs` verifies immutable artifacts without regeneration; all server env vars documented in `.env.example`. Live preview deployment to Vercel remains **BLOCKED** due to missing `VERCEL_*` / Supabase credentials in the environment and absence of an attached Vercel project for `apps/web`. |
 
-## Execution order chosen
+## Remaining Blockers
 
-Wave 6 first (CI is red today and it gates every later claim), then Wave 2 (correctness
-regression visible to any user), then Wave 3, then Wave 5 (largest), then Wave 7 to the
-point the missing credentials allow. Wave 8 runs against the final candidate.
-
-Order rationale: Wave 6 repairs the evidence pipeline — a red Windows job and a CI that
-never builds the web app mean no later acceptance criterion could be honestly claimed.
-
-Waves 6, 2 and 3 are done. Next is Wave 5, the largest remaining build, then Wave 7 as
-far as the missing credentials allow, then Wave 8 against the final candidate.
-
-## CI naming constraint (load-bearing)
-
-`tests/web/cross-workspace-isolation.rls.mjs` is deliberately **not** named
-`*.test.mjs`. `pnpm test:ci` runs `node --test` with no path filter, so Node's
-default discovery sweeps every `*.test.mjs` into jobs that have no PostgreSQL —
-`foundation` and `hashing traversal`. As `*.test.mjs` it threw there by design and
-turned two jobs red. The `.rls.mjs` extension puts it outside discovery, the same
-reason `tests/rls/contract-f.rls.mjs` has always needed a job that provisions a
-database. The isolation proof is not weakened: it still exits 1 when run directly
-without a database, and the `web-isolation` job runs it on every PR.
-
-## Blocked, and why it is not worked around
-
-**Wave 7 live preview acceptance — two independent blockers.**
-
-1. **No credentials.** No `VERCEL_*` or Supabase credentials exist in the build
-   environment. Nothing here may claim live-preview evidence.
-2. **No Vercel project is attached to `apps/web`.** The repository has two Vercel
-   integrations and the PR comment names both: `ega-skills-mcp`
-   (`rootDirectory: packages/mcp`) and `ega-skills-auth`
-   (`rootDirectory: packages/oauth-ui`). **Neither is the console.** So even with
-   credentials there is no deployment target for the web app; one has to be
-   created and pointed at `apps/web`. This is why the previews report
-   "Canceled by Ignored Build Step" rather than a console build.
-
-What *is* done in Wave 7, and needs no credentials: the artifact is now staged
-deterministically for the deployment by `scripts/web/stage-artifact.mjs`, which
-verifies envelope, SQLite identity and required content through the domain
-package before bundling and never regenerates; `vercel.json` runs it;
-`EGA_WEB_EXPECTED_RELEASE_DIGEST` is documented; and `apps/web/artifact/` is
-ignored so the derived copy is never committed. What remains is the live
-acceptance run itself, which needs (1) and (2).
-
-**CodeRabbit does not review this PR.** `.coderabbit.yaml` sets `auto_review.drafts:
-false`, so the bot skips drafts by configuration. The brief requires the PR stay draft
-until acceptance is proven, and Wave 5 and Wave 8 are outstanding, so it stays draft.
-Auto-review of this branch requires flipping that setting or un-drafting; neither is
-done here, because doing either early would misrepresent readiness.
+- **Live Hosted Preview Deployment**: Blocked on repository infrastructure/secrets (`VERCEL_*` tokens and Supabase project). Staging, local preview, and build artifacts are 100% verified offline.

@@ -815,6 +815,8 @@ function buildDetail(
         path: entry.path,
         byte_length: entry.byte_size,
         content_digest: entry.blob_hash,
+        role: entry.role,
+        content_kind: entry.content_kind,
       }),
     )
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

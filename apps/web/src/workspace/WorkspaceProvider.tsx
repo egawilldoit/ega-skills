@@ -14,6 +14,7 @@ import {
   deriveWorkspaceRoleState,
   describeWorkspaceRole,
   describeWorkspaceRoleState,
+  isWorkspaceRole,
   stateHasConsolePermission,
   workspaceRole,
   type ConsolePermission,
@@ -43,8 +44,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export interface WorkspaceProviderProps {
   readonly children: ReactNode;
   /**
-   * The viewer's own `workspace_memberships` row, if supplied statically.
-   * If omitted, resolved dynamically from the authenticated session.
+   * Statically injected membership row, for tests and preview harnesses that do
+   * not spin up Supabase. When supplied, overrides dynamic resolution.
    */
   readonly membership?: WorkspaceMembershipRef | null;
   /** Workspace the host selected statically. If omitted, resolved dynamically. */
@@ -58,8 +59,9 @@ export interface WorkspaceProviderProps {
  *
  * The role is never inferred, defaulted, or carried over between workspaces. It
  * only ever comes from a membership row read under the
- * `membership_self_or_admin_read` RLS policy. Until that row exists the state
- * is `not_loaded`, and every permission-gated view is withheld.
+ * `membership_self_or_admin_read` RLS policy for the exact authenticated user.
+ * Until that row exists the state is `not_loaded`, and every permission-gated view
+ * is withheld.
  */
 export function WorkspaceProvider({
   children,
@@ -78,9 +80,11 @@ export function WorkspaceProvider({
   useEffect(() => {
     if (isStatic) return;
 
+    // Clear old memberships immediately and synchronously on user or auth change
+    setResolvedMemberships([]);
+    setSelectedWorkspaceId(null);
+
     if (status !== "signed_in" || userId === null) {
-      setResolvedMemberships([]);
-      setSelectedWorkspaceId(null);
       setIsResolving(false);
       return;
     }
@@ -90,20 +94,42 @@ export function WorkspaceProvider({
 
     void (async () => {
       try {
-        let loaded: WorkspaceMembershipRef[] = [];
+        const seenWorkspaces = new Set<string>();
+        const loaded: WorkspaceMembershipRef[] = [];
 
         if (supabase) {
+          // Filter bootstrap query strictly by .eq("subject", userId) so owner/admin
+          // callers never derive roles from another member's row.
           const { data, error } = await supabase
             .from("workspace_memberships")
-            .select("workspace_id, role, active")
+            .select("workspace_id, role, active, subject")
+            .eq("subject", userId)
             .order("created_at", { ascending: true });
 
           if (!error && Array.isArray(data)) {
-            loaded = data.map((row) => ({
-              workspaceId: row.workspace_id as string,
-              role: row.role as WorkspaceRole,
-              active: Boolean(row.active),
-            }));
+            for (const item of data) {
+              if (item === null || typeof item !== "object") continue;
+              const row = item as Record<string, unknown>;
+              // Strict verification against caller subject, non-empty workspace_id, valid role, and boolean active
+              if (row["subject"] !== userId) continue;
+              const wsId = typeof row["workspace_id"] === "string" ? row["workspace_id"].trim() : "";
+              if (!wsId) continue;
+              const role = row["role"];
+              if (!isWorkspaceRole(role)) continue;
+              if (typeof row["active"] !== "boolean") continue;
+
+              // Deduplicate by workspace_id
+              if (seenWorkspaces.has(wsId)) continue;
+              seenWorkspaces.add(wsId);
+
+              loaded.push(
+                Object.freeze({
+                  workspaceId: wsId,
+                  role,
+                  active: row["active"],
+                }),
+              );
+            }
           }
         }
 
@@ -118,30 +144,44 @@ export function WorkspaceProvider({
               },
             });
             if (res.ok) {
-              const members = (await res.json()) as Array<{
-                subject: string;
-                role: WorkspaceRole;
-                active: boolean;
-              }>;
-              const myRow = members.find((m) => m.subject === userId) ?? members[0];
-              if (myRow) {
-                // If there's an active membership row, fetch workspace overview to get the id
-                const wsRes = await fetch("/api/workspace", {
-                  headers: {
-                    authorization: `Bearer ${token}`,
-                    accept: "application/json",
-                  },
-                });
-                if (wsRes.ok) {
-                  const wsData = (await wsRes.json()) as { workspace_id: string };
-                  if (wsData.workspace_id) {
-                    loaded = [
-                      {
-                        workspaceId: wsData.workspace_id,
-                        role: myRow.role,
-                        active: myRow.active,
-                      },
-                    ];
+              const membersRaw: unknown = await res.json();
+              if (Array.isArray(membersRaw)) {
+                // Strictly find the caller's row only. Never fallback to members[0].
+                const myRow = membersRaw.find(
+                  (m): m is { subject: string; role: WorkspaceRole; active: boolean } =>
+                    m !== null &&
+                    typeof m === "object" &&
+                    (m as Record<string, unknown>)["subject"] === userId &&
+                    isWorkspaceRole((m as Record<string, unknown>)["role"]) &&
+                    typeof (m as Record<string, unknown>)["active"] === "boolean",
+                );
+                if (myRow) {
+                  // If there's an active membership row, fetch workspace overview to get the id
+                  const wsRes = await fetch("/api/workspace", {
+                    headers: {
+                      authorization: `Bearer ${token}`,
+                      accept: "application/json",
+                    },
+                  });
+                  if (wsRes.ok) {
+                    const wsData: unknown = await wsRes.json();
+                    if (
+                      wsData !== null &&
+                      typeof wsData === "object" &&
+                      typeof (wsData as Record<string, unknown>)["workspace_id"] === "string"
+                    ) {
+                      const wsId = ((wsData as Record<string, unknown>)["workspace_id"] as string).trim();
+                      if (wsId && !seenWorkspaces.has(wsId)) {
+                        seenWorkspaces.add(wsId);
+                        loaded.push(
+                          Object.freeze({
+                            workspaceId: wsId,
+                            role: myRow.role,
+                            active: myRow.active,
+                          }),
+                        );
+                      }
+                    }
                   }
                 }
               }
@@ -149,9 +189,10 @@ export function WorkspaceProvider({
           }
         }
 
+        // Discard late responses from superseded auth states or previous users
         if (cancelled) return;
 
-        setResolvedMemberships(loaded);
+        setResolvedMemberships(Object.freeze(loaded));
 
         const active = loaded.filter((m) => m.active);
         setSelectedWorkspaceId((current) => {

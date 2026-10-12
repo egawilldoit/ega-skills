@@ -34,15 +34,14 @@ describe("SkillDetailPage rendering structure (R6)", () => {
     assert.match(pageSource, /L1 Content Status/);
     assert.match(pageSource, /SKILL\.core\.md was not authored in this release/);
     assert.match(pageSource, /L1 Token Budget/);
-    assert.match(pageSource, /0 tokens \(Unavailable\)/);
+    assert.match(pageSource, /Unavailable \(SKILL\.core\.md not authored in this release\)/);
   });
 
   test("contains explicit L2 content status and token budget bounds", () => {
     assert.match(pageSource, /L2 Content Status/);
     assert.match(pageSource, /Available \(Servable on demand\)/);
     assert.match(pageSource, /L2 Token Budget/);
-    assert.match(pageSource, /Standard 8,192 tokens/);
-    assert.match(pageSource, /Max ceiling: 32,768/);
+    assert.match(pageSource, /Request ceiling: 32,768 max tokens, default 32,000/);
   });
 
   test("provides on-demand content inspection controls for L2 and L1", () => {

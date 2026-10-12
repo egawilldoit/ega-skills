@@ -137,3 +137,18 @@ export type {
   SearchToolArgs,
   SearchToolOptions,
 } from "./search.js";
+
+export {
+  aggregateMcpTelemetry,
+  computeIdempotencyKey,
+  fireAndForgetTelemetry,
+} from "./telemetry.js";
+export type {
+  McpContentLevel,
+  McpResultClass,
+  McpTelemetryFunnel,
+  McpTelemetrySink,
+  McpTelemetrySummary,
+  McpToolExecutionRecord,
+  McpToolName,
+} from "./telemetry.js";
