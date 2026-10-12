@@ -416,3 +416,70 @@ describe("permitted fields are structurally enforced", () => {
     );
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Retention scheduling (CONTRACT-T1 §8)                                        */
+/* -------------------------------------------------------------------------- */
+
+describe("retention scheduling", () => {
+  test("the purge statement the scheduler runs is valid SQL", () => {
+    // Regression: the first draft embedded the call as
+    // `service_role.public.purge_expired_telemetry(90)`, which PostgreSQL parses
+    // as a CROSS-DATABASE reference and rejects. The scheduled statement has to
+    // SET the role instead, so the exact text the scheduler would use is
+    // executed here rather than merely written down.
+    admin(`
+      insert into public.mcp_tool_executions
+        (workspace_id, subject, execution_id, idempotency_key, tool, latency_ms, result_class, observed_at)
+      values ('${OWNER_WS}', 't1-owner', 'e-sched', 'k-sched', 'search', 1, 'success', now() - interval '200 days')
+    `);
+
+    const result = admin(`
+      set role service_role;
+      select public.purge_expired_telemetry(90);
+    `);
+    assert.ok(/^[0-9]+$/.test(result.trim()), `purge must return a count, got ${result}`);
+    assert.equal(Number(result.trim()), 1, "the aged row must be removed");
+  });
+
+  test("the scheduler migration applies cleanly and is idempotent", () => {
+    // `pg_cron` is absent on a stock PostgreSQL, which is exactly the path that
+    // must degrade to a NOTICE rather than failing the deploy.
+    const sql = readFileSync(join(MIGRATIONS, "202609200003_telemetry_retention_schedule.sql"), "utf8");
+    assert.doesNotThrow(() => psql(DB_URL, sql));
+    assert.doesNotThrow(() => psql(DB_URL, sql), "re-applying must be a no-op, not a second schedule");
+
+    // The skip path must be explicit, so an operator can tell "not scheduled"
+    // from "scheduled and idle".
+    assert.match(sql, /pg_cron is not installed/);
+    assert.match(sql, /cron\.unschedule/, "re-applying must unschedule by name, not stack a second job");
+  });
+
+  test("only service_role may run the scheduled purge", () => {
+    const state = assertDenied("t1-owner", "select public.purge_expired_telemetry(90)");
+    assert.ok(isPrivilegeDenied(state));
+  });
+
+  test("recent rows survive a maximal retention request", () => {
+    admin(`
+      insert into public.mcp_tool_executions
+        (workspace_id, subject, execution_id, idempotency_key, tool, latency_ms, result_class, observed_at)
+      values ('${OWNER_WS}', 't1-owner', 'e-fresh', 'k-fresh', 'search', 1, 'success', now() - interval '5 days')
+    `);
+    admin("set role service_role; select public.purge_expired_telemetry(3650); reset role;");
+    const survived = Number(
+      admin("select count(*) from public.mcp_tool_executions where idempotency_key = 'k-fresh'"),
+    );
+    assert.equal(survived, 1, "a 5-day-old row must survive even a clamped-maximum purge");
+  });
+
+  test("purge touches only telemetry", () => {
+    const before = Number(admin("select count(*) from public.personal_workspaces"));
+    admin("set role service_role; select public.purge_expired_telemetry(90); reset role;");
+    assert.equal(
+      Number(admin("select count(*) from public.personal_workspaces")),
+      before,
+      "retention must not delete control-plane rows",
+    );
+  });
+});
