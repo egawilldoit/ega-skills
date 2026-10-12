@@ -33,9 +33,34 @@ Starting review head: `f08a542e9c7a7bd393c1859ac2de2d76307747ee`.
 | **R6: Skill Detail Truthful Content & Bounds** | **PROVEN** | On-demand L2 content viewer, explicit L1 missing status explanation (never "0 tokens"), companion file inspection bounded to inspectable text files (preventing binary/metadata leakage), request ceiling distinction (32,768 ceiling vs budget), monotonic sequence abort cancellation via `AbortController` on unmount/switch/close. Verified by `tests/web/skill-detail-rendering.test.mjs`, `tests/web/client-state-and-races.test.mjs`, and `tests/web/skills.test.mjs`. |
 | **R7: BFF API Client & Runtime Decoding** | **PROVEN** | Strict response validation decoders in `src/api/decode.ts` for all route payloads, failing closed on malformed upstream shapes without rendering corrupt data. Verified by `tests/web/api-client.test.mjs` and `tests/web/api-routes.test.mjs`. |
 | **R8: Artifact Access Policy** | **PROVEN** | Enforces authenticated reads on artifact routes by default, checking caller RLS access against `hub_releases` when Supabase is configured; allows anonymous reads only when `EGA_WEB_PUBLIC_POLICY="public"` or `EGA_WEB_ALLOW_ANONYMOUS="true"`. Verified by `tests/web/artifact-access-policy.test.mjs`. |
-| **R9: MCP Telemetry (CONTRACT-T1)** | **PROVEN** | Complete CONTRACT-T1 implementation: migration `202609200001_contract_t1_telemetry.sql` creates `mcp_tool_executions` table with strict RLS and purge function; `@ega-skills/mcp` instruments read-path tools (`search`, `resolve`, `inspect`, `get_content`) via non-blocking fire-and-forget telemetry sink; table added to allow-list in `supabase-read.ts`; `handleAnalyticsUsage` aggregates 4-stage funnel and tool metrics on `/analytics/usage`; and `UsagePage.tsx` renders the funnel truthfully. Verified by `tests/web/governance-pages.test.mjs`, `tests/web/supabase-read.test.mjs`, `tests/web/api-routes.test.mjs`, and `@ega-skills/mcp` build. |
+| **R9: MCP Telemetry (CONTRACT-T1)** | **IMPLEMENTED BUT UNPROVEN (runtime)** | Implemented at `52fac2a`: migration `202609200001` (table + RLS + purge) and `202609200002` (SECURITY DEFINER entry point repairing `is_active_member` revocation, delegated-OAuth containment, 90-day retention clamp); `createSupabaseTelemetryWriter` (permitted-field projection, idempotent writes); `createSupabaseWorkspaceResolver` (real workspace identity, no zero-UUID); bounded queue and 250 ms deadline in `fireAndForgetTelemetry`; runtime wiring behind `EGA_HOSTED_TELEMETRY_ENABLED=true`; `handleAnalyticsUsage` with a database-enforced 90-day window and failures that never become zero. E2 real-PostgreSQL (30/30) and E2 local executed tests (38/38 writer, 10/10 analytics). **Not proven: E5 runtime.** No live MCP execution has been observed against a hosted Supabase in this environment, so the end-to-end chain `tool call -> stored event -> analytics number` is NOT demonstrated, and `UsagePage` must not be read as showing recorded production activity. |
 | **R10: Non-Production Mutation Control & Safe Preview Deployment** | **PROVEN** (Code & Staging) / **BLOCKED** (Live Vercel Preview) | Read-only UI surfaces with zero mutation controls; deterministic staging script `scripts/web/stage-artifact.mjs` verifies immutable artifacts without regeneration; all server env vars documented in `.env.example`. Live preview deployment to Vercel remains **BLOCKED** due to missing `VERCEL_*` / Supabase credentials in the environment and absence of an attached Vercel project for `apps/web`. |
+
+## Evidence classes used below
+
+Claims are labelled so a static check is never mistaken for runtime proof:
+
+- **E1 static** — source-text / regex assertion. Useful for a bound that cannot
+  otherwise drift; it proves the *statement* is present, not that the behavior runs.
+- **E2 local** — executed against a real process, real database, or real module.
+- **E3 CI** — executed in required checks on the final SHA.
+- **E4 artifact** — verified against the committed immutable release bytes.
+- **E5 runtime** — observed in a live deployment against hosted infrastructure.
+- **E6 browser** — driven in a real browser.
+
+No claim in this document is E5 or E6. Those require live preview access, which
+this environment does not have.
 
 ## Remaining Blockers
 
-- **Live Hosted Preview Deployment**: Blocked on repository infrastructure/secrets (`VERCEL_*` tokens and Supabase project). Staging, local preview, and build artifacts are 100% verified offline.
+- **Live Hosted Preview Deployment (blocks E5/E6, therefore blocks READY)**: two
+  independent causes. (1) No `VERCEL_*` or Supabase credentials exist in this
+  environment. (2) **No Vercel project is attached to `apps/web` at all** — the
+  repository's two integrations are `ega-skills-mcp` (`packages/mcp`) and
+  `ega-skills-auth` (`packages/oauth-ui`), so even with credentials there is no
+  deployment target. Owner action: create a Vercel project rooted at `apps/web`
+  and supply preview + first-party Supabase credentials. Nothing may claim live
+  acceptance until then.
+- **Telemetry runtime proof (E5)**: R9's code is implemented and covered by E2/E3,
+  but the chain `MCP tool call -> stored telemetry event -> analytics number` has
+  not been observed against hosted Supabase. It stays IMPLEMENTED BUT UNPROVEN.
