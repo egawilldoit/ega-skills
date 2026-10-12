@@ -500,6 +500,38 @@ const CONTROL_PLANE_TABLE_LITERALS: Readonly<Record<string, ControlPlaneTableSpe
   },
 };
 
+/**
+ * A fixed ASCENDING sort per table, used only to make offset pagination
+ * deterministic.
+ *
+ * Pagination over an unordered result is not merely slower — it is incorrect:
+ * without a total order the server may return a different row at the same
+ * offset between two requests, so a row can be skipped or counted twice.
+ *
+ * Chosen to end in the table's monotonic primary key, which makes the ordering
+ * STABLE under concurrent appends: a row inserted during a scan takes a higher
+ * id and sorts after everything already read, so it cannot shift an earlier
+ * page and cause a skip.
+ *
+ * Not caller-selectable. A caller choosing the sort could open a pagination
+ * path that is not stable, so the order is a property of the table.
+ */
+const TABLE_ORDER: Readonly<Record<string, string>> = Object.freeze({
+  mcp_tool_executions: "id.asc",
+  quota_usage: "window_started.asc,workspace_id.asc",
+  audit_events: "id.asc",
+  hubs: "id.asc",
+  hub_releases: "hub_id.asc,release_digest.asc",
+  hub_stable_pointers: "hub_id.asc",
+  personal_workspaces: "id.asc",
+  workspace_memberships: "workspace_id.asc,subject.asc",
+  projects: "id.asc",
+  project_contexts: "id.asc",
+  context_revocations: "context_id.asc",
+  quota_policies: "workspace_id.asc",
+  security_denies: "workspace_id.asc,kind.asc,identity.asc",
+});
+
 /** The eleven allow-listed tables, deep-frozen. This is the exported boundary. */
 export const CONTROL_PLANE_TABLES: Readonly<Record<string, ControlPlaneTableSpec>> = Object.freeze(
   Object.fromEntries(
@@ -847,6 +879,10 @@ export function buildControlPlaneUrl(baseUrl: URL, plan: PlannedControlPlaneQuer
     if (range.lte !== undefined) parts.push(`lte.${range.lte}`);
     if (parts.length > 0) url.searchParams.set(range.column, parts.join(","));
   }
+  // A fixed per-table total order, so offset pagination cannot skip or repeat a
+  // row between two requests. Never taken from the caller.
+  const order = TABLE_ORDER[plan.table];
+  if (order !== undefined) url.searchParams.set("order", order);
   url.searchParams.set("limit", String(plan.limit));
   // Only sent when non-zero, so the common first page carries no offset at all.
   if (plan.offset > 0) url.searchParams.set("offset", String(plan.offset));

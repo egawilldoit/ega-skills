@@ -514,6 +514,14 @@ export interface McpTelemetrySummary {
   readonly window_started: string;
   /** Inclusive end of the window these numbers describe. */
   readonly window_ends_at: string;
+  /**
+   * True when the window held more activity than one response carries, so these
+   * figures are a FLOOR rather than a total. The UI must say so; presenting a
+   * truncated sum as complete is the defect this field exists to prevent.
+   */
+  readonly partial: boolean;
+  /** Rows actually scanned, for cross-checking against `total_executions`. */
+  readonly rows_scanned: number;
 }
 
 /**

@@ -742,8 +742,25 @@ export interface GovernanceRoutesOptions {
  */
 export const ANALYTICS_WINDOW_DAYS = 90;
 
-/** How many telemetry rows are aggregated per window bucket. */
-const TELEMETRY_MAX_ROWS = 5_000;
+/**
+ * Page size for the aggregate scan.
+ *
+ * Bounded by `CONTROL_PLANE_MAX_LIMIT` (200): the reader REFUSES a larger limit
+ * outright, so the previous `limit: 5000` did not mean "aggregate 5,000 rows" —
+ * it meant analytics raised `E_WEB_READ_LIMIT_INVALID` on every real deployment,
+ * while passing against a stub reader that never validated the limit. A larger
+ * page is not available; completeness has to come from paginating.
+ */
+const TELEMETRY_PAGE_SIZE = 200;
+
+/**
+ * Hard ceiling on rows scanned for one analytics response.
+ *
+ * A safety bound, not a completeness claim. Reaching it means the window held
+ * more activity than one response will carry, and the response says so through
+ * `partial` instead of presenting a truncated sum as the total.
+ */
+const TELEMETRY_SCAN_CEILING = 50_000;
 
 /**
  * Why a telemetry read produced no summary.
@@ -758,6 +775,47 @@ export const TELEMETRY_EMPTY_REASON =
 export const TELEMETRY_DISABLED_REASON =
   "Read-path MCP telemetry is not enabled for this deployment, so per-tool activity " +
   "is UNAVAILABLE — not zero. Absence of records here says nothing about usage.";
+
+/**
+ * Read every row matching a query, paging until the window is exhausted.
+ *
+ * Returns the accumulated rows plus whether the scan was COMPLETE.
+ *
+ * ## A short page is NOT proof of exhaustion
+ *
+ * The obvious termination rule — "fewer rows than I asked for means the end" —
+ * is wrong whenever a gateway caps pages below the requested size (PostgREST's
+ * `max-rows` does exactly this). Under such a cap every page is short, so that
+ * rule would stop after the FIRST page and report one page's worth of activity
+ * as the window total, which is the same defect as a truncated single read.
+ *
+ * The scan therefore continues until a page comes back **empty**. A page that is
+ * short but non-empty is a hint that the cap is active, and the walk goes on.
+ *
+ * A scan that stops at the ceiling returns `partial: true` so the caller reports
+ * coverage instead of implying a total.
+ *
+ * Every page read is awaited through the caller's `readOrThrow`, so a failure on
+ * ANY page propagates instead of being folded into a short page — otherwise a
+ * mid-pagination error would look exactly like the end of the window, which is
+ * how an outage becomes a plausible-looking zero.
+ */
+async function readAllPages<T>(
+  readPage: (limit: number, offset: number) => Promise<readonly T[]>,
+  pageSize: number,
+  ceiling: number,
+): Promise<{ readonly rows: readonly T[]; readonly partial: boolean }> {
+  const rows: T[] = [];
+  let offset = 0;
+  while (rows.length < ceiling) {
+    const page = await readPage(pageSize, offset);
+    // Empty is the only reliable end-of-range signal under a gateway page cap.
+    if (page.length === 0) return { rows: Object.freeze(rows), partial: false };
+    for (const row of page) rows.push(row);
+    offset += page.length;
+  }
+  return { rows: Object.freeze(rows), partial: true };
+}
 
 /**
  * `GET /analytics/usage` — quota accounting and CONTRACT-T1 read-path MCP telemetry.
@@ -832,7 +890,7 @@ export async function handleAnalyticsUsage(
     }
   };
 
-  const [policyRows, usageRows, telemetryRows] = await Promise.all([
+  const [policyRows, usageRows, telemetryScan] = await Promise.all([
     readOrThrow("The quota policy", () =>
       reader.readAsCaller(caller, "quota_policies", { filters, limit: 1, offset: 0 }),
     ),
@@ -843,14 +901,30 @@ export async function handleAnalyticsUsage(
     // rows that fall outside the window can be excluded even if a reader
     // ignores the range, which keeps the aggregate honest under a degraded
     // transport instead of silently over-counting.
-    readOrThrow("MCP telemetry", () =>
-      reader.readAsCaller(caller, "mcp_tool_executions", {
-        columns: ["tool", "result_class", "latency_ms", "observed_at", "result_count"],
-        filters,
-        ranges,
-        limit: TELEMETRY_MAX_ROWS,
-        offset: 0,
-      }),
+    // Paginated rather than "one big page". Completeness is VERIFIED — a short
+    // page means the scan reached the end of the window — and exhausting the
+    // ceiling is reported as partial coverage rather than passed off as a total.
+    //
+    // Concurrent inserts cannot cause a skip: the reader applies a fixed
+    // per-table ascending order ending in the monotonic primary key, so a row
+    // written mid-scan sorts after everything already read and leaves earlier
+    // pages untouched.
+    readAllPages(
+      (pageLimit, pageOffset) =>
+        // Wrapped per PAGE, not just for the first: a failure on page 7 must be
+        // mapped and named exactly like one on page 1. Without this the raw
+        // transport message escaped with no indication of which surface failed.
+        readOrThrow("MCP telemetry", () =>
+          reader.readAsCaller(caller, "mcp_tool_executions", {
+            columns: ["tool", "result_class", "latency_ms", "observed_at", "result_count"],
+            filters,
+            ranges,
+            limit: pageLimit,
+            offset: pageOffset,
+          }),
+        ),
+      TELEMETRY_PAGE_SIZE,
+      TELEMETRY_SCAN_CEILING,
     ),
   ]);
 
@@ -895,7 +969,7 @@ export async function handleAnalyticsUsage(
     get_content: 0,
   };
 
-  for (const raw of telemetryRows) {
+  for (const raw of telemetryScan.rows) {
     if (!isRecord(raw) || !inWindow(raw)) continue;
     const tool = String(raw.tool ?? "");
     const resultClass = String(raw.result_class ?? "");
@@ -936,6 +1010,11 @@ export async function handleAnalyticsUsage(
     telemetry_unavailable_reason: countedRows === 0 ? TELEMETRY_EMPTY_REASON : null,
     window_started: windowStarted,
     window_ends_at: windowEndsAtIso,
+    // Explicit coverage. `true` means the window held more activity than one
+    // response will carry and these figures are a floor, not a total — which the
+    // UI must state rather than presenting a truncated sum as complete.
+    partial: telemetryScan.partial,
+    rows_scanned: telemetryScan.rows.length,
   });
 
   return Object.freeze({

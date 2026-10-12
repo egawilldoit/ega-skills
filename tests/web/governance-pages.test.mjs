@@ -218,7 +218,9 @@ function tableRespond(fixtures) {
     // returning the wrong rows.
     const filtered = rows.filter((row) => {
       for (const [column, expression] of url.searchParams) {
-        if (column === "select" || column === "limit" || column === "offset") continue;
+        // `order` is a total-order directive, not a filter. The adapter sets it
+        // from a fixed per-table table so offset pagination is deterministic.
+        if (column === "select" || column === "limit" || column === "offset" || column === "order") continue;
         const value = String(row[column]);
         if (expression.startsWith("eq.")) {
           if (value !== expression.slice(3)) return false;
@@ -230,7 +232,30 @@ function tableRespond(fixtures) {
       }
       return true;
     });
-    return jsonResponse(200, filtered);
+
+    // Apply limit/offset like a real gateway. The analytics aggregate pages
+    // until a page comes back EMPTY, so a fixture that ignored offset would
+    // serve page 1 forever and the scan would run to its ceiling.
+    const limit = Number(url.searchParams.get("limit") ?? "50");
+    const offset = Number(url.searchParams.get("offset") ?? "0");
+
+    // Modelled the way the real adapter detects it: the gateway honours the
+    // limit, so the row-count guard lives CLIENT-side in `readAsCaller`, which
+    // refuses when a response carries more rows than were requested. Returning
+    // an extra row here lets that guard fire, rather than the fixture inventing
+    // a transport error the gateway would never send.
+    const ordered = [...filtered].sort((a, b) => {
+      // Stable total order, mirroring the server's per-table ascending sort so
+      // offset pagination is deterministic here too.
+      const av = a.updated_at ?? a.observed_at ?? a.id ?? a.window_started ?? "";
+      const bv = b.updated_at ?? b.observed_at ?? b.id ?? b.window_started ?? "";
+      return String(av) < String(bv) ? -1 : String(av) > String(bv) ? 1 : 0;
+    });
+    // The requested window, plus one extra row when the underlying data has it:
+    // that is precisely the case the adapter's row-count guard exists to catch.
+    const page = ordered.slice(offset, offset + limit);
+    if (ordered.length > offset + limit) page.push({ ...ordered[offset + limit], __overflow: true });
+    return jsonResponse(200, page);
   };
 }
 

@@ -30,13 +30,24 @@ const context = (extra) => ({ query: query(extra) });
  * The failure modes are the point: a handler that swallows them into `[]` will
  * report zero, and that is exactly the defect under test.
  */
-function readerWith({ telemetry, quotaUsage = [], policy = [], failures = {} }) {
+function readerWith({ telemetry, quotaUsage = [], policy = [], failures = {}, maxRows = Infinity }) {
+  let served = 0;
   return {
     resolveCaller: async () => CALLER,
     describeAvailability: () => "fixture",
-    async readAsCaller(_caller, table) {
+    async readAsCaller(_caller, table, options = {}) {
       if (failures[table]) throw failures[table];
-      if (table === "mcp_tool_executions") return telemetry;
+      if (table === "mcp_tool_executions") {
+        // Honour limit AND offset so the aggregate's pagination is genuinely
+        // exercised. `maxRows` models a gateway that caps pages BELOW the
+        // requested size — the case where a short page does not mean "end of
+        // range" and the scan must keep going.
+        const requested = options.limit ?? 50;
+        const effective = Math.min(requested, maxRows);
+        const offset = options.offset ?? 0;
+        served += 1;
+        return telemetry.slice(offset, offset + effective);
+      }
       if (table === "quota_usage") return quotaUsage;
       if (table === "quota_policies") return policy;
       return [];
@@ -189,5 +200,115 @@ describe("the query is bounded", () => {
     assert.ok(telemetryCall?.options.ranges, "the window must be pushed into the query");
     assert.ok(telemetryCall.options.limit > 100, "the ceiling must exceed the old 100-row page");
     assert.ok((telemetryCall.options.columns ?? []).length < 20, "aggregate read must not fetch raw rows wholesale");
+  });
+});
+
+describe("pagination is complete and honestly reported", () => {
+  test("more than one page aggregates to the true total", async () => {
+    const telemetry = Array.from({ length: 250 }, (_, i) => telemetryRow({ execution_id: `e${i}` }));
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+    assert.equal(summary.telemetry?.total_executions, 250);
+    assert.equal(summary.telemetry?.partial, false, "a fully drained scan is complete");
+    assert.equal(summary.telemetry?.rows_scanned, 250);
+  });
+
+  test("a gateway capping pages below the requested size is still enumerated", async () => {
+    // PostgREST deployments set max-rows; a page can come back shorter than
+    // asked for WITHOUT that meaning "end of range". Enumerating until a page
+    // is genuinely empty is what makes the total correct here.
+    const telemetry = Array.from({ length: 300 }, (_, i) => telemetryRow({ execution_id: `e${i}` }));
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry, maxRows: 50 }));
+    assert.equal(summary.telemetry?.total_executions, 300, "a short page is not the end of the window");
+    assert.equal(summary.telemetry?.partial, false);
+  });
+
+  test("reaching the scan ceiling reports partial coverage rather than a total", async () => {
+    const telemetry = Array.from({ length: 60_000 }, (_, i) => telemetryRow({ execution_id: `e${i}` }));
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+    assert.equal(summary.telemetry?.partial, true, "an exhausted scan must not claim completeness");
+    assert.ok(
+      summary.telemetry?.rows_scanned <= 50_000,
+      "the safety ceiling must hold",
+    );
+  });
+
+  test("cross-workspace rows are excluded by the query scope", async () => {
+    const telemetry = [
+      telemetryRow({ execution_id: "mine" }),
+      telemetryRow({ execution_id: "theirs", observed_at: new Date(NOW - 1000).toISOString() }),
+    ];
+    // The workspace filter is part of the query, so a compliant reader returns
+    // only this workspace's rows; the handler must not widen it client-side.
+    const seen = [];
+    const reader = {
+      resolveCaller: async () => CALLER,
+      describeAvailability: () => "fixture",
+      async readAsCaller(_c, table, options) {
+        if (table === "mcp_tool_executions") {
+          seen.push(options.filters);
+          const mine = telemetry.filter((row) => row.execution_id === "mine");
+          const offset = options.offset ?? 0;
+          return mine.slice(offset, offset + (options.limit ?? 50));
+        }
+        return [];
+      },
+    };
+    const summary = await handleAnalyticsUsage(context(), CALLER, reader);
+    assert.equal(summary.telemetry?.total_executions, 1);
+    assert.equal(seen.every((f) => f.some((x) => x.column === "workspace_id")), true);
+  });
+
+  test("a failure on a LATER page propagates rather than looking like the end", async () => {
+    // The dangerous case: if a mid-scan failure were folded into a short page it
+    // would be indistinguishable from exhaustion, turning an outage into a zero.
+    const telemetry = Array.from({ length: 400 }, (_, i) => telemetryRow({ execution_id: `e${i}` }));
+    let served = 0;
+    const reader = {
+      resolveCaller: async () => CALLER,
+      describeAvailability: () => "fixture",
+      async readAsCaller(_c, table, options = {}) {
+        if (table !== "mcp_tool_executions") return [];
+        const limit = options.limit ?? 200;
+        if (served >= 200) throw new ConsoleApiError(503, "E_WEB_UPSTREAM_UNAVAILABLE", "gateway died");
+        const page = telemetry.slice(served, served + limit);
+        served += page.length;
+        return page;
+      },
+    };
+    await assert.rejects(handleAnalyticsUsage(context(), CALLER, reader), (error) => {
+      assert.equal(error.status, 503);
+      return true;
+    });
+  });
+
+  test("boundary timestamps at the window edges are included", async () => {
+    // Time is PINNED. The handler derives its window from `Date.now()`, so two
+    // un-pinned calls get windows a few milliseconds apart and a row placed on
+    // the first window's start falls BEFORE the second window's — which made this
+    // test fail intermittently under full-suite load for no real reason.
+    const pinned = Date.parse("2026-06-15T12:00:00.000Z");
+    const realNow = Date.now;
+    Date.now = () => pinned;
+    try {
+      const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry: [] }));
+      const startsAt = Date.parse(summary.window_started);
+      const endsAt = Date.parse(summary.window_ends_at);
+
+      const edges = readerWith({
+        telemetry: [
+          telemetryRow({ execution_id: "at-start", observed_at: new Date(startsAt).toISOString() }),
+          telemetryRow({ execution_id: "at-end", observed_at: new Date(endsAt).toISOString() }),
+          telemetryRow({ execution_id: "just-before", observed_at: new Date(startsAt - 1).toISOString() }),
+        ],
+      });
+      const withEdges = await handleAnalyticsUsage(context(), CALLER, edges);
+      assert.equal(
+        withEdges.telemetry?.total_executions,
+        2,
+        "both bounds are inclusive, one ms earlier is out",
+      );
+    } finally {
+      Date.now = realNow;
+    }
   });
 });

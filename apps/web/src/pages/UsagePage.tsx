@@ -152,6 +152,19 @@ export function UsagePage(): ReactNode {
             </dl>
           </section>
 
+          {/*
+            Partial coverage is stated in words, not implied by a smaller
+            number. Without this a truncated scan renders exactly like a complete
+            one, and an operator concludes usage dropped.
+          */}
+          {data.telemetry?.partial === true ? (
+            <p className="page__lede" role="status">
+              <strong>Partial coverage.</strong> This window holds more activity than one
+              response carries, so the figures below are a lower bound, not a total.{" "}
+              {data.telemetry.rows_scanned.toLocaleString()} events were scanned.
+            </p>
+          ) : null}
+
           <h2>Windows</h2>
           {data.windows.length === 0 ? (
             <EmptyState
