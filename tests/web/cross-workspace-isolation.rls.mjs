@@ -426,6 +426,13 @@ function translate(url) {
 
   const where = [];
   for (const [name, value] of parsed.searchParams) {
+    // `order` is a total-order directive, not a filter. The adapter sets it from a
+    // fixed per-table table (never from the caller) so offset pagination is
+    // deterministic; the fixture must honour it for the same reason.
+    if (name === "order") {
+      assert.match(value, /^[a-z_]+\.asc(,[a-z_]+\.asc)*$/, `unusable order clause ${value}`);
+      continue;
+    }
     if (["select", "limit", "offset"].includes(name)) continue;
     assert.ok(/^[a-z_]+$/.test(name), `unexpected query parameter ${name}`);
     if (value.startsWith("eq.")) {
