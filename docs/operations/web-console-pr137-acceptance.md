@@ -95,11 +95,61 @@ or hosted Auth acceptance.
 
 ## Missing external prerequisites and verdict
 
-Read-only Supabase/Vercel connector metadata did not identify an authorized
-isolated console preview or database branch. Available project
-`divriwexbijtojjulqtu` has no development branches and is not assumed safe for
-writes. No candidate-matching `apps/web` preview was identified. Collaborative
-browser automation is available; it is not the blocked prerequisite.
+Read-only connector/deployment inspection did not identify an authorized
+isolated console preview or database branch. The Supabase organization
+`EGA MCPS` (`wjaleuflynupwrwclhsu`) exposes only the known project
+`divriwexbijtojjulqtu` (EGA SKILLS), with **zero development branches**; this
+project was not assumed isolated or changed. On the matching Vercel team
+`ega's projects` (`team_e2x4kf12yL43qmBIs2t2YaD2`, Hobby plan), refreshed
+metadata exposes only the unrelated `ega-house-platform` GitHub project. The
+other two linked Vercel accounts expose unrelated repositories. No
+`ega-skills` project, candidate deployment, or `apps/web` root was found. No
+migrations, settings, project links, or deployments were changed.
+
+The collaborative browser `preview_status` and `preview_open` calls both
+returned `Authentication required`, so no real-browser session or evidence was
+available in this run. This is separate from the executed jsdom component suite.
+No hosted or real-browser scenarios are counted as passed. The Supabase branch
+cost estimate has not been queried, and no branch has been created.
+
+At this metadata capture, GitHub reported the PR OPEN and DRAFT at
+`770875b3290980707691bb42a7b3123501cc873b`, base
+`7bf0d5a2310ffddbdb4055166be67d56916d8ac6`. Both successful required workflow
+runs had `headSha` equal to that exact snapshot; all eight core jobs passed
+there. This acceptance-record update is a later documentation-only commit, so
+those results are not represented as checks on the resulting head. The current
+full SHA and its checks remain linked from the PR. At capture time, the review
+API reported no reviews and no review requests.
+
+### Prepared independent review briefs
+
+No reviewers have been contacted or assigned. These briefs are ready for two
+independent reviewers to apply to the final full SHA:
+
+**A — Security, authorization, writer authority, containment and retention.**
+Review the full diff from target base `7bf0d5a2310ffddbdb4055166be67d56916d8ac6`
+through the exact current PR head, and record that full SHA. Inspect delegated OAuth and
+workspace attribution boundaries; telemetry table RLS, dedicated writer role,
+grants, sequence access and authenticator switching; separation of application
+key from writer JWT; migration upgrade/idempotency and prior invalid cron-command
+replacement; least-privilege purge denial and 90-day cap. Decide whether executed
+PostgreSQL, pg_cron and isolated REST tests support the claims, and identify any
+remaining security issue.
+
+**B — Functional behavior, browser, deployment and evidence quality.**
+Review the same full candidate diff and current-head CI links, recording the
+exact reviewed SHA. Inspect production
+WorkspaceProvider/SkillDetailPage race coverage; Vercel root/build/server route
+configuration; login, membership, switching, content viewer, release states and
+analytics requirements; telemetry availability/error semantics; and whether the
+evidence distinguishes local component/database/CI proof from hosted runtime,
+real browser and scheduler proof. Decide whether the acceptance record and PR
+description make only claims supported by exact-head evidence, and identify the
+remaining functional or evidence gaps.
+
+Both reviews must be submitted separately by reviewers other than the author and
+must explicitly assess this final full SHA. Prior approvals do not cover these
+subsequent commits; self-review is not independent approval.
 
 The owner/operator must identify the authorized isolated preview/project, provide
 server configuration through the approved secret mechanism, verify deployed SHA,

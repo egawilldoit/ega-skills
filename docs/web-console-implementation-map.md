@@ -73,16 +73,21 @@ must never be described as installed or operational in that state.
 
 ## Hosted/browser/review gates
 
-Connector and deployment metadata were inspected read-only. The accessible
-Supabase project `divriwexbijtojjulqtu` (EGA SKILLS) has no development branches
-and has not been identified/authorized as isolated; no migrations or configuration
-were applied to it. Accessible Vercel account/team metadata yielded no console
-preview matching the candidate. Repository integrations for MCP/auth are not
-proof of an `apps/web` frontend/BFF deployment.
+Connector metadata was refreshed read-only on 2026-10-14. Supabase organization
+`EGA MCPS` (`wjaleuflynupwrwclhsu`) exposes project `EGA SKILLS`
+(`divriwexbijtojjulqtu`) with **zero development branches**. This project is not
+verified isolated and was not changed. On the matching Vercel team
+`ega's projects` (`team_e2x4kf12yL43qmBIs2t2YaD2`, Hobby plan), metadata exposes
+only the unrelated `ega-house-platform` GitHub project; the other linked Vercel
+accounts expose unrelated repositories. No `ega-skills` console project,
+candidate deployment, or `apps/web` root is available. No migrations, settings,
+or project links were changed.
 
-The native collaborative browser is automation-capable (opened successfully).
-The blocker is an identified authorized isolated application environment, not
-browser availability or a blanket claim that all connectors lack credentials.
+The collaborative browser's `preview_status` and `preview_open` calls both
+returned `Authentication required`; no real-browser session or browser evidence
+was available in this run. This is separate from the executed jsdom component
+suite. Hosted acceptance remains blocked on a verified isolated console and
+Supabase target, plus browser access.
 
 Owner/operator next actions:
 
@@ -98,6 +103,10 @@ Owner/operator next actions:
    scheduler-triggered execution with sanitized run identifiers.
 5. Obtain the required independent reviews on the final candidate. This repair
    pass and its self-review do not satisfy independent approval.
+
+Independent review briefs are prepared in the acceptance record. No review or
+review request for the current full head is recorded; prior approvals do not
+cover subsequent commits.
 
 No production deployment, production migration, merge or readiness promotion
 occurred. Keep the PR draft and **NOT READY** while these gates remain open.
