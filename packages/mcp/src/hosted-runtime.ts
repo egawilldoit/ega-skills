@@ -450,6 +450,7 @@ export function createHostedRuntimeFromEnv(
   // Workspace ATTRIBUTION is a read, so it legitimately uses the read
   // credential. Writes use the dedicated one.
   const telemetryWriterKey = env["EGA_HOSTED_TELEMETRY_WRITER_KEY"];
+  const telemetryApiKey = env["EGA_HOSTED_TELEMETRY_API_KEY"];
 
   if (telemetryEnabled && supabaseUrl && supabaseSecretKey) {
     resolveTelemetryWorkspace = createSupabaseWorkspaceResolver({
@@ -458,7 +459,7 @@ export function createHostedRuntimeFromEnv(
     });
   }
 
-  if (telemetryEnabled && supabaseUrl && telemetryWriterKey) {
+  if (telemetryEnabled && supabaseUrl && telemetryWriterKey && telemetryApiKey) {
     if (telemetryWriterKey === supabaseSecretKey) {
       // Explicitly rejected rather than accepted with a warning: §5.3 asks for
       // separation, and silently accepting the same secret would report a
@@ -471,18 +472,24 @@ export function createHostedRuntimeFromEnv(
           "telemetry is disabled for this deployment",
       );
     } else {
-      telemetryWriter = createSupabaseTelemetryWriter({
-        supabaseUrl,
-        secretKey: telemetryWriterKey,
-        reporter: onTelemetryFailure,
-      });
-      telemetrySink = new BoundedTelemetrySink(telemetryWriter, { reporter: onTelemetryFailure });
+      try {
+        telemetryWriter = createSupabaseTelemetryWriter({
+          supabaseUrl,
+          apiKey: telemetryApiKey,
+          writerToken: telemetryWriterKey,
+          reporter: onTelemetryFailure,
+        });
+        telemetrySink = new BoundedTelemetrySink(telemetryWriter, { reporter: onTelemetryFailure });
+      } catch {
+        telemetryFailures.push("disabled");
+        console.warn("[ega] telemetry credential configuration invalid; telemetry is disabled for this deployment");
+      }
     }
   } else if (telemetryEnabled) {
     telemetryFailures.push("disabled");
     console.warn(
       "[ega] EGA_HOSTED_TELEMETRY_ENABLED=true requires EGA_HOSTED_SUPABASE_URL and " +
-        "EGA_HOSTED_TELEMETRY_WRITER_KEY; telemetry is disabled for this deployment",
+        "EGA_HOSTED_TELEMETRY_API_KEY and EGA_HOSTED_TELEMETRY_WRITER_KEY; telemetry is disabled for this deployment",
     );
   }
 

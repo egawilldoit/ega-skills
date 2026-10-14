@@ -15,7 +15,7 @@
  * `202609200002` repairs it through a SECURITY DEFINER entry point.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -451,11 +451,16 @@ describe("retention scheduling", () => {
 
     // The skip path must be explicit, so an operator can tell "not scheduled"
     // from "scheduled and idle".
-    assert.match(sql, /pg_cron is not installed/);
+    const inactive = spawnSync("psql",["-X","-qAt","-v","ON_ERROR_STOP=1",DB_URL], {
+      input:sql+"select count(*) from pg_extension where extname='pg_cron';",encoding:"utf8",
+    });
+    assert.equal(inactive.status,0);
+    assert.match(inactive.stderr,/retention INACTIVE/);
+    assert.equal(inactive.stdout.trim(),"0","inactive setup must not claim installation");
     assert.match(sql, /cron\.unschedule/, "re-applying must unschedule by name, not stack a second job");
   });
 
-  test("only service_role may run the scheduled purge", () => {
+  test("ordinary clients cannot run the scheduled purge", () => {
     const state = assertDenied("t1-owner", "select public.purge_expired_telemetry(90)");
     assert.ok(isPrivilegeDenied(state));
   });
@@ -481,5 +486,49 @@ describe("retention scheduling", () => {
       before,
       "retention must not delete control-plane rows",
     );
+  });
+});
+
+
+describe("dedicated INSERT-only writer provisioning", () => {
+  const writer = (statement) => admin(`set role ega_telemetry_writer; ${statement}; reset role;`);
+  const insert = (key, workspace = OWNER_WS, latency = 1) => `insert into public.mcp_tool_executions
+    (workspace_id,subject,execution_id,idempotency_key,tool,latency_ms,result_class)
+    values ('${workspace}', 't1-owner', '${key}', '${key}', 'search', ${latency}, 'success')`;
+  test("provisioning is reproducible and idempotent", () => {
+    const source = readFileSync(join(MIGRATIONS, "202609200005_telemetry_writer_provisioning.sql"), "utf8");
+    admin(source); admin(source);
+    assert.equal(admin("select rolsuper or rolbypassrls or rolinherit or rolcanlogin from pg_roles where rolname='ega_telemetry_writer'"), 'f');
+  });
+  test("actual writer inserts using generated id and observer confirms persistence", () => {
+    writer(insert('dedicated-generated-id'));
+    assert.equal(admin("select count(*) from public.mcp_tool_executions where idempotency_key='dedicated-generated-id' and id > 0"), '1');
+  });
+  test("malformed records and invalid workspace references fail", () => {
+    assert.throws(() => writer(insert('dedicated-invalid', OWNER_WS, -1)), (e) => /check constraint/.test(String(e.stderr)));
+    assert.throws(() => writer(insert('dedicated-invalid-ws', '00000000-0000-4000-8000-000000000000')), (e) => /foreign key/.test(String(e.stderr)));
+  });
+  for (const statement of [
+    'select * from public.mcp_tool_executions',
+    'create table public.writer_forbidden(id integer)',
+    'select last_value from public.mcp_tool_executions_id_seq',
+    "select setval('public.mcp_tool_executions_id_seq',1)",
+    "update public.mcp_tool_executions set latency_ms=0",
+    'delete from public.mcp_tool_executions',
+    'truncate public.mcp_tool_executions',
+    'select * from public.personal_workspaces',
+    'select * from public.workspace_memberships',
+    'select * from public.audit_events',
+    'select public.purge_expired_telemetry(90)',
+    'set role authenticated',
+    'set role service_role',
+  ]) test(`writer cannot ${statement}`, () => {
+    // The session itself has writer authority, so it cannot escape with SET ROLE.
+    assert.throws(() => admin(`set session authorization ega_telemetry_writer; ${statement}`), (e) => /permission denied/.test(String(e.stderr)));
+  });
+  test("authenticator may switch to writer without inheriting writer privileges", () => {
+    assert.equal(admin("select has_table_privilege('authenticator','public.mcp_tool_executions','INSERT')"), 'f');
+    admin(`set session authorization authenticator; set role ega_telemetry_writer; ${insert('authenticator-generated')}`);
+    assert.equal(admin("select count(*) from public.mcp_tool_executions where idempotency_key='authenticator-generated'"), '1');
   });
 });

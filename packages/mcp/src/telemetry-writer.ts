@@ -16,10 +16,9 @@ import {
  * or RPC that accepts a caller-supplied row, and the table grants exclude every
  * client role.
  *
- * The credential is the same Supabase privileged key the hosted runtime already
- * uses for control-plane reads, scoped by role rather than by a separate secret.
- * It is never logged, never returned, and never reaches a browser bundle: it
- * lives only in this closure, and only as a request header.
+ * Application authentication and database authorization are separate headers.
+ * The API key is publishable (or legacy anon); the signed JWT selects only the
+ * dedicated INSERT role. Neither falls back to the runtime read credential.
  */
 
 export interface SupabaseRestResponse {
@@ -41,8 +40,10 @@ export type SupabaseRestFetch = (
 
 export interface SupabaseTelemetryWriterOptions {
   readonly supabaseUrl: string;
-  /** Dedicated privileged key. Never logged, never returned, never serialized. */
-  readonly secretKey: string;
+  /** Publishable application key (or legacy anon JWT). */
+  readonly apiKey: string;
+  /** Signed dedicated-role JWT. Server-only; never logged or returned. */
+  readonly writerToken: string;
   readonly fetch?: SupabaseRestFetch;
   readonly reporter?: TelemetryReporter;
   /** Table name; overridable so a test can point at a disposable schema. */
@@ -141,10 +142,8 @@ export interface SupabaseTelemetryWriter extends McpTelemetrySink {
 /**
  * Build the storage writer.
  *
- * Uses `Prefer: resolution=ignore-duplicates` so a retried write for one
- * logical execution is absorbed by the unique `idempotency_key` constraint
- * rather than raising: the retry must not inflate any count, and must not
- * surface an error into the runtime either.
+ * Plain INSERT needs no read authority. A unique-key rejection is absorbed
+ * without widening privileges; other conflicts remain observable failures.
  */
 export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOptions): SupabaseTelemetryWriter {
   let baseUrl: URL;
@@ -154,7 +153,22 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
     throw new Error("supabaseUrl must be a valid URL");
   }
   if (baseUrl.protocol !== "https:") throw new Error("supabaseUrl must use HTTPS");
-  if (!options.secretKey) throw new Error("secretKey is required");
+  const claims = (token: string): Record<string, unknown> | null => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3 || parts.some((part) => !part)) return null;
+      const parsed: unknown = JSON.parse(atob(parts[1]!.replace(/-/g, "+").replace(/_/g, "/")));
+      return parsed !== null && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+    } catch { return null; }
+  };
+  // Configuration containment only. The REST gateway verifies the signature.
+  const writerClaims = claims(options.writerToken);
+  if (writerClaims?.["role"] !== "ega_telemetry_writer" || writerClaims["client_id"] != null) {
+    throw new Error("writerToken must select the dedicated non-delegated writer role");
+  }
+  if (!options.apiKey?.startsWith("sb_publishable_") && claims(options.apiKey)?.["role"] !== "anon") {
+    throw new Error("apiKey must be a publishable application key or legacy anon key");
+  }
   const fetcher = options.fetch ?? (globalThis["fetch"] as unknown as SupabaseRestFetch | undefined);
   if (!fetcher) throw new Error("fetch is unavailable");
   const table = options.table ?? "mcp_tool_executions";
@@ -188,17 +202,12 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
       const url = new URL(`/rest/v1/${table}`, baseUrl);
       const headers: Record<string, string> = {
         accept: "application/json",
-        apikey: options.secretKey,
+        apikey: options.apiKey,
+        authorization: `Bearer ${options.writerToken}`,
         "content-type": "application/json",
-        // Absorb a duplicate idempotency_key instead of raising: a retried
-        // persistence attempt for one logical execution is not an error.
-        prefer: "resolution=ignore-duplicates,return=minimal",
+        prefer: "return=minimal",
       };
-      // Only JWT-shaped keys go on Authorization; see the credential-header
-      // note in hosted-supabase.ts. The key is never parsed or logged.
-      if (options.secretKey.split(".").length === 3) {
-        headers["authorization"] = `Bearer ${options.secretKey}`;
-      }
+      const writeSignal = signal ?? AbortSignal.timeout(TELEMETRY_DEADLINE_MS);
 
       try {
         const response = await fetcher(url.toString(), {
@@ -213,16 +222,32 @@ export function createSupabaseTelemetryWriter(options: SupabaseTelemetryWriterOp
           // actual HTTP request. `AbortSignal.timeout` was used alone before,
           // which meant the queue's deadline could abort nothing: the request
           // kept its own independent timer and the slot stayed occupied.
-          signal: signal ?? AbortSignal.timeout(TELEMETRY_DEADLINE_MS),
+          signal: writeSignal,
         });
         if (response.ok) {
           written += 1;
           return;
         }
-        // 409 is the unique-violation signal; anything else is a real failure.
+        // PostgREST also uses 409 for foreign-key violations. Inspect only the
+        // SQLSTATE, never log the body, and bound body reading by the deadline.
         if (response.status === 409) {
-          duplicate += 1;
-          return;
+          let abort: (() => void) | undefined;
+          try {
+            const body = await Promise.race([
+              response.json(),
+              new Promise<never>((_, reject) => {
+                abort = () => reject(new Error("telemetry deadline"));
+                if (writeSignal.aborted) abort();
+                else writeSignal.addEventListener("abort", abort, { once: true });
+              }),
+            ]);
+            if (body !== null && typeof body === "object" && "code" in body && body.code === "23505") {
+              duplicate += 1;
+              return;
+            }
+          } finally {
+            if (abort) writeSignal.removeEventListener("abort", abort);
+          }
         }
         failed += 1;
         report("write_failed");

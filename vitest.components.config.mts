@@ -48,6 +48,7 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      { find: /^react-router-dom$/, replacement: web("react-router-dom") },
       // Bare specifiers resolve to the package directory so Vite honours the
       // package's own export map. Subpaths point at the concrete file, because
       // `react/jsx-dev-runtime` is an export-map subpath with no directory of

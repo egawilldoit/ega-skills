@@ -31,6 +31,8 @@ import {
   validateTelemetryRecord,
 } from "../../packages/mcp/dist/index.js";
 
+const WRITER_TOKEN = `e30.${Buffer.from(JSON.stringify({ role: "ega_telemetry_writer" })).toString("base64url")}.synthetic-signature`;
+
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const ARTIFACT = join(ROOT, "packages", "mcp", "artifact");
 const WORKSPACES = [];
@@ -144,7 +146,7 @@ describe("the storage writer", () => {
     const posted = [];
     const writer = createSupabaseTelemetryWriter({
       supabaseUrl: "https://project.supabase.co",
-      secretKey: "sb_secret_test-key-not-a-jwt",
+      apiKey: "sb_publishable_test", writerToken: WRITER_TOKEN,
       // The body is a JSON string on the wire; parse it here so a test can
       // assert on the exact columns that would have been sent.
       fetch: async (url, init) => {
@@ -168,7 +170,7 @@ describe("the storage writer", () => {
     assert.equal(posted.length, 1);
     const { init, body } = posted[0];
     assert.equal(init.method, "POST");
-    assert.match(init.headers.prefer, /resolution=ignore-duplicates/);
+    assert.equal(init.headers.prefer, "return=minimal");
     // Absent optional fields must be ABSENT, not null or empty: an explicit null
     // would record "no release" for an execution that had one.
     assert.deepEqual(Object.keys(body).sort(), [
@@ -220,10 +222,27 @@ describe("the storage writer", () => {
   });
 
   test("a duplicate delivery is counted as a duplicate, not a second write", async () => {
-    const { writer } = writerWith(async () => ({ ok: false, status: 409, json: async () => null, text: async () => "" }));
+    const { writer } = writerWith(async () => ({ ok: false, status: 409, json: async () => ({code:"23505"}), text: async () => "" }));
     await writer.writeExecution(record());
     assert.equal(writer.stats.duplicate, 1);
     assert.equal(writer.stats.written, 0);
+  });
+
+  test("a foreign-key conflict remains a failure, never a duplicate", async () => {
+    const { writer } = writerWith(async () => ({ ok:false,status:409,json:async()=>({code:"23503"}),text:async()=>"" }));
+    await writer.writeExecution(record());
+    assert.equal(writer.stats.failed,1);
+    assert.equal(writer.stats.duplicate,0);
+  });
+
+  test("a stalled conflict body cannot outlive the writer deadline", async () => {
+    const { writer } = writerWith(async () => ({ok:false,status:409,json:()=>new Promise(()=>{}),text:async()=>""}));
+    const keepAlive = setTimeout(() => {}, 1000);
+    const started = Date.now();
+    try { await writer.writeExecution(record()); } finally { clearTimeout(keepAlive); }
+    assert.ok(Date.now()-started < 600, "body parsing must be cancelled at the 250 ms deadline");
+    assert.equal(writer.stats.failed,1);
+    assert.equal(writer.stats.duplicate,0);
   });
 
   test("two attempts with the same idempotency key produce one stored event", async () => {
@@ -232,7 +251,7 @@ describe("the storage writer", () => {
     const seen = new Set();
     const { writer } = writerWith(async (_url, _init, attempt) => {
       const key = `k1`;
-      if (seen.has(key)) return { ok: false, status: 409, json: async () => null, text: async () => "" };
+      if (seen.has(key)) return { ok: false, status: 409, json: async () => ({code:"23505"}), text: async () => "" };
       seen.add(key);
       void attempt;
       return { ok: true, status: 201, json: async () => null, text: async () => "" };
@@ -247,7 +266,7 @@ describe("the storage writer", () => {
     const classes = [];
     const writer = createSupabaseTelemetryWriter({
       supabaseUrl: "https://project.supabase.co",
-      secretKey: "sb_secret_test",
+      apiKey: "sb_publishable_test", writerToken: WRITER_TOKEN,
       reporter: (c) => classes.push(c),
       fetch: async () => {
         throw new Error("connect ECONNREFUSED 10.0.0.5:5432 password=hunter2");
@@ -263,7 +282,7 @@ describe("the storage writer", () => {
   test("a reporter that throws does not break the writer", async () => {
     const writer = createSupabaseTelemetryWriter({
       supabaseUrl: "https://project.supabase.co",
-      secretKey: "sb_secret_test",
+      apiKey: "sb_publishable_test", writerToken: WRITER_TOKEN,
       reporter: () => {
         throw new Error("reporter exploded");
       },
@@ -273,14 +292,30 @@ describe("the storage writer", () => {
     assert.equal(writer.stats.failed, 1);
   });
 
+  test("application key and dedicated-role token occupy separate headers", async () => {
+    const { writer, posted } = writerWith(async () => ({ ok: true, status: 201 }));
+    await writer.writeExecution(record());
+    assert.equal(posted[0].init.headers.apikey, "sb_publishable_test");
+    assert.equal(posted[0].init.headers.authorization, `Bearer ${WRITER_TOKEN}`);
+    assert.equal(posted[0].rawBody.includes(WRITER_TOKEN), false);
+    assert.equal(posted[0].rawBody.includes("sb_publishable_test"), false);
+  });
+
+  test("broad, unsigned-role, and delegated writer credentials are refused", () => {
+    for (const writerToken of ["sb_secret_broad", "not-a-jwt", `e30.${Buffer.from(JSON.stringify({role:"service_role"})).toString("base64url")}.signature`, `e30.${Buffer.from(JSON.stringify({role:"ega_telemetry_writer",client_id:"delegated"})).toString("base64url")}.signature`]) {
+      assert.throws(() => createSupabaseTelemetryWriter({ supabaseUrl: "https://x.supabase.co", apiKey: "sb_publishable_test", writerToken }), /dedicated/);
+    }
+    assert.throws(() => createSupabaseTelemetryWriter({ supabaseUrl: "https://x.supabase.co", apiKey: "sb_secret_broad", writerToken: WRITER_TOKEN }), /publishable/);
+  });
+
   test("the writer refuses a non-HTTPS URL and an empty credential", () => {
     assert.throws(
-      () => createSupabaseTelemetryWriter({ supabaseUrl: "http://insecure", secretKey: "k" }),
+      () => createSupabaseTelemetryWriter({ supabaseUrl: "http://insecure", apiKey: "sb_publishable_test", writerToken: WRITER_TOKEN }),
       /HTTPS/,
     );
     assert.throws(
-      () => createSupabaseTelemetryWriter({ supabaseUrl: "https://x.supabase.co", secretKey: "" }),
-      /secretKey/,
+      () => createSupabaseTelemetryWriter({ supabaseUrl: "https://x.supabase.co", apiKey: "", writerToken: WRITER_TOKEN }),
+      /apiKey/,
     );
   });
 

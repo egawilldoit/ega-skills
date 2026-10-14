@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import test, { describe } from "node:test";
 
+const WRITER_TOKEN = `e30.${Buffer.from(JSON.stringify({ role: "ega_telemetry_writer" })).toString("base64url")}.synthetic-signature`;
+
 const ROOT = join(fileURLToPath(new URL("../..", import.meta.url)));
 const ARTIFACT = join(ROOT, "packages", "mcp", "artifact");
 
@@ -34,6 +36,7 @@ function env(overrides = {}) {
     }),
     EGA_HOSTED_SUPABASE_URL: "https://project.supabase.co",
     EGA_HOSTED_SUPABASE_SECRET_KEY: "sb_secret_read_only_key",
+    EGA_HOSTED_TELEMETRY_API_KEY: "sb_publishable_test",
     ...overrides,
   };
 }
@@ -86,9 +89,21 @@ describe("the writer credential must be distinct from the read credential", () =
   test("a dedicated writer key enables telemetry", async () => {
     const runtime = await build({
       EGA_HOSTED_TELEMETRY_ENABLED: "true",
-      EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_telemetry_writer_key",
+      EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN,
     });
     assert.equal(runtime.telemetry.enabled, true, "a distinct key must be accepted");
+  });
+
+  test("missing application key and broad writer credentials disable only telemetry", async () => {
+    for (const config of [
+      { EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN, EGA_HOSTED_TELEMETRY_API_KEY: undefined },
+      { EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_broad_writer" },
+    ]) {
+      const { runtime } = await captureWarnings(() => build({ EGA_HOSTED_TELEMETRY_ENABLED: "true", ...config }));
+      assert.equal(runtime.telemetry.enabled, false);
+      assert.ok(runtime.handler);
+      assert.ok(runtime.telemetry.failure_classes.includes("disabled"));
+    }
   });
 
   test("reusing the read credential disables telemetry rather than accepting it", async () => {
@@ -120,7 +135,7 @@ describe("the writer credential must be distinct from the read credential", () =
     const withoutKey = await build({ EGA_HOSTED_TELEMETRY_ENABLED: "true" });
     const withKey = await build({
       EGA_HOSTED_TELEMETRY_ENABLED: "true",
-      EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_distinct_writer",
+      EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN,
     });
     assert.notEqual(withoutKey.telemetry.enabled, withKey.telemetry.enabled);
   });
@@ -143,7 +158,7 @@ describe("credentials never leak", () => {
   test("neither credential appears anywhere on the handle", async () => {
     const runtime = await build({
       EGA_HOSTED_TELEMETRY_ENABLED: "true",
-      EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_telemetry_writer_key",
+      EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN,
     });
     const serialized = JSON.stringify({
       enabled: runtime.telemetry.enabled,
@@ -152,7 +167,7 @@ describe("credentials never leak", () => {
       handler: typeof runtime.handler,
     });
     assert.equal(serialized.includes("sb_secret_read_only_key"), false);
-    assert.equal(serialized.includes("sb_secret_telemetry_writer_key"), false);
+    assert.equal(serialized.includes(WRITER_TOKEN), false);
   });
 
   test("a configuration warning names variables but never values", async () => {
@@ -190,7 +205,7 @@ describe("diagnostics are live, not frozen at startup", () => {
   test("the projection reflects later state rather than construction time", async () => {
     const runtime = await build({
       EGA_HOSTED_TELEMETRY_ENABLED: "true",
-      EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_telemetry_writer_key",
+      EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN,
     });
     const before = runtime.telemetry;
     // A getter must produce a fresh value each access, so an operator reading the
@@ -207,7 +222,7 @@ describe("diagnostics are live, not frozen at startup", () => {
   test("mutating a returned projection cannot alter internal state", async () => {
     const runtime = await build({
       EGA_HOSTED_TELEMETRY_ENABLED: "true",
-      EGA_HOSTED_TELEMETRY_WRITER_KEY: "sb_secret_telemetry_writer_key",
+      EGA_HOSTED_TELEMETRY_WRITER_KEY: WRITER_TOKEN,
     });
     const snapshot = runtime.telemetry;
     assert.throws(() => {

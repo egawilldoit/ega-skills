@@ -1,100 +1,79 @@
-# MCP telemetry retention
+# Telemetry retention
 
-CONTRACT-T1 §8 caps telemetry retention at 90 days. This document records what
-is implemented, what is configured, what has actually been observed, and how to
-verify each — because those are different claims and only one of them can be
-established without a hosted environment.
+CONTRACT-T1 §9.5 limits raw telemetry retention to 90 days. The purge function
+clamps its argument to [1, 90], deletes telemetry only and is idempotent.
 
-## Status, stated precisely
+## Four separate claims
 
-| Layer | Status | Evidence |
-|---|---|---|
-| **Purge implementation** | **PROVEN** | `purge_expired_telemetry` exists, is clamped to [1, 90] days, is idempotent, and deletes only telemetry. 35/35 `tests/rls/telemetry-authz.rls.mjs` against real PostgreSQL 16. |
-| **Scheduler configuration** | **PROVEN** | `202609200003_telemetry_retention_schedule.sql` installs a daily `pg_cron` job, idempotently. The migration applies cleanly on a real PostgreSQL and re-applies as a no-op. |
-| **Schedule activation** | **BLOCKED** | Requires a hosted Supabase instance where `pg_cron` is installed. No such instance was reachable from the build environment. |
-| **Observed scheduled execution** | **NOT OBSERVED** | Nothing may claim retention is operational until a real scheduled run has been seen deleting rows. |
+1. **Purge implementation:** migration `202609200002` clamps the bound and
+   restricts EXECUTE to maintenance authority; client and dedicated writer roles
+   cannot purge.
+2. **Scheduler configuration:** `202609200004` is the forward repair. It replaces
+   previously registered invalid commands and verifies command, database, active
+   state and execution identity independently. The stored SQL is exactly
+   `select public.purge_expired_telemetry(90);`.
+3. **Installation:** only inspection of the identified environment's `cron.job`
+   proves installation. A skipped migration does not install retention.
+4. **Observed execution:** a successful scheduler-triggered run in
+   `cron.job_run_details`, plus expired-row deletion and recent-row survival,
+   proves execution in that environment. A direct function call does not.
 
-The distinction matters: an installed schedule on a machine nobody has watched
-is a configuration, not evidence.
+The historical `202609200003` has minimal fresh-install corrections for ambiguous
+PL/pgSQL variable resolution and its invalid function qualification. Those edits
+alone cannot repair an already applied migration; the forward migration replaces
+the existing job. Apply the complete chain using the authorized migration
+operator. Setup requires an operator that can inspect all cron jobs, removes
+all previously named jobs, and verifies exactly one intended job. A restricted
+operator that cannot see other users' jobs is rejected, preventing hidden
+duplicates from being mistaken for idempotent installation.
 
-## The clamp is enforced in the function, not trusted to the caller
+## Identity, activation and inactive state
 
-`purge_expired_telemetry(retention_days integer default 90)` clamps its argument:
+pg_cron executes as the scheduling operator (`cron.job.username`), independently
+of SQL schema qualification. Apply as the platform's authorized maintenance
+operator, normally `postgres`, with EXECUTE on the purge. The migration verifies
+that stored execution username equals the operator and database equals the
+current database. No end-user, delegated or writer grants are added.
+
+Enable/preload pg_cron using the platform-supported setup. Local stock PostgreSQL
+requires `shared_preload_libraries=pg_cron` and a restart. pg_cron metadata belongs
+to one database per cluster. This migration installs jobs in that database; an
+unconfigured or other database emits an explicit **INACTIVE** notice. If pg_cron
+is unavailable, not preloaded or not installed, retention is inactive. Migration
+success in that state is not installation or operational retention. Disable
+telemetry or arrange an authorized bounded purge until scheduling is available.
+
+The production schedule is `17 3 * * *` (03:17 in the configured cron timezone;
+verify UTC/GMT). Background-worker mode or a correctly configured local database
+connection is required for jobs to start. Extension presence alone is insufficient.
+
+## Sanitized verification
+
+Run as the authorized maintenance observer:
 
 ```sql
-effective_days := least(greatest(coalesce(retention_days, 90), 1), 90);
+select jobid, jobname, schedule, command, database, username, active
+from cron.job where jobname = 'ega-telemetry-retention';
+
+select jobid, runid, username, status, start_time, end_time
+from cron.job_run_details
+where jobid in (select jobid from cron.job where jobname = 'ega-telemetry-retention')
+order by runid desc limit 5;
+
+select count(*) as expired_rows
+from public.mcp_tool_executions
+where observed_at < now() - interval '90 days';
 ```
 
-So `purge_expired_telemetry(3650)` — ten years — is a legal call that retains 90
-days. `NULL` resolves to the contract default rather than deleting the table.
-Verified in `tests/rls/telemetry-authz.rls.mjs` against real PostgreSQL.
+Success is the text status `succeeded`, not numeric zero. Record job/run IDs and
+start/end times, without telemetry rows or credentials. In an authorized isolated
+test, seed expired and recent synthetic rows, execute the exact stored command
+under its stored role, repeat setup, verify denied roles, then temporarily shorten
+the schedule and observe a clock-triggered run. Restore the daily schedule.
 
-## Authority
-
-Only `service_role` holds EXECUTE. Client roles — `authenticated`, `anon` — are
-revoked. This is deliberate: a member who could invoke the purge could erase the
-workspace's history and then read a clean-looking empty analytics window, which
-would look like a tenant that never used the product.
-
-## Verifying activation on a hosted instance
-
-1. Confirm the extension and the job exist:
-
-   ```sql
-   select extname, extversion from pg_extension where extname = 'pg_cron';
-   select jobid, jobname, schedule, command from cron.job
-    where jobname = 'ega-telemetry-retention';
-   ```
-
-   Exactly one row. Two rows means the idempotent unschedule did not run — apply
-   `202609200003` again.
-
-2. Confirm recent history of the job:
-
-   ```sql
-   select jobid, runid, status, start_time, end_time
-     from cron.job_run_details
-    where jobid = (select jobid from cron.job where jobname = 'ega-telemetry-retention')
-    order by start_time desc
-    limit 10;
-   ```
-
-   `status = 0` is success in `pg_cron`. A non-zero status here is the signal to
-   investigate; the job's own output is discarded, so a failing purge is silent
-   apart from this table. That is a real limitation of relying on `pg_cron` and
-   the reason to alert on row age rather than assume success.
-
-3. Prove rows actually expire. Insert a deliberately old row, wait for the next
-   03:17 UTC run, then confirm it is gone and a recent row is untouched:
-
-   ```sql
-   select count(*) filter (where observed_at < now() - interval '90 days') as expired,
-          count(*) filter (where observed_at >= now() - interval '90 days') as retained
-     from public.mcp_tool_executions;
-   ```
-
-   This is the only step that establishes *observed* execution. Until it has been
-   run against a hosted instance, report retention as configured, not operating.
-
-## Failure recovery
-
-| Symptom | Cause | Action |
-|---|---|---|
-| No row in `cron.job` | `pg_cron` absent | Enable the extension, then re-apply `202609200003` |
-| Two rows with the same name | Migration run outside the tracked path | Re-apply `202609200003`; it unschedules by name first |
-| `status <> 0` in `job_run_details` | Purge raised | Run the statement by hand as `service_role` to surface the real error |
-| Rows older than 90 days remain and the job looks healthy | Job runs but writes nothing | Confirm the job's role holds EXECUTE after any grant change |
-| Analytics show zero but rows exist | Rows were purged, or the writer is failing | Check `HostedRuntimeHandle.telemetry` (`dropped`, `expired`, `failed`) before concluding usage fell |
-
-## Monitoring
-
-Alert on `max(observed_at)` age rather than on job status. A healthy-looking job
-that deletes nothing is the failure this table cannot show, and row age is the
-only signal that distinguishes the two.
-
-## Recovery from an over-broad purge
-
-Retention deletes; it does not archive. There is no undelete. If a purge ran with
-a retention value beyond the contract maximum, the clamp in `202609200002`
-prevents it going forward, but already-deleted rows cannot be recovered except
-from a backup taken before the run.
+`tests/rls/telemetry-scheduler.rls.mjs` executes this acceptance against a disposable
+PostgreSQL 16 cluster with real pg_cron. `tests/rls/telemetry-authz.rls.mjs` tests
+purge bounds, isolation and the explicit inactive setup path. CI runs both paths.
+These establish local/CI evidence, not installation or execution in hosted
+Supabase. Hosted retention acceptance remains open until an isolated project and
+its actual scheduler run are identified in the implementation map.

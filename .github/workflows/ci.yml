@@ -196,6 +196,29 @@ jobs:
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
+
+      # Install pg_cron only after the ordinary disposable-database suites.
+      # The scheduler test uses the cluster's isolated metadata database.
+      - name: Enable pg_cron in disposable PostgreSQL
+        run: |
+          docker exec --user root ${{ job.services.postgres.id }} bash -c 'apt-get update -qq && apt-get install -y postgresql-16-cron'
+          docker exec --user postgres ${{ job.services.postgres.id }} bash -c "echo shared_preload_libraries=pg_cron >> /var/lib/postgresql/data/postgresql.conf; echo cron.use_background_workers=on >> /var/lib/postgresql/data/postgresql.conf"
+          docker restart ${{ job.services.postgres.id }}
+          for attempt in $(seq 1 30); do
+            if docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+
+      - name: Retention scheduler execution (real pg_cron)
+        run: node --test tests/rls/telemetry-scheduler.rls.mjs
+        env:
+          EGA_PGCRON_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Dedicated writer through isolated REST gateway
+        run: node scripts/testing/telemetry-gateway.mjs
+        env:
+          EGA_PGCRON_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
   rls:
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest

@@ -1,343 +1,204 @@
-/**
- * EXECUTED component behaviour for the console's client-side acceptance rules.
- *
- * These replace source-text assertions. A regex can confirm that
- * `WorkspaceProvider.tsx` contains `.eq("subject", userId)`; it cannot show that
- * the resolved role is the caller's OWN when a roster lists three other roles,
- * that a stale response is discarded, or that closing a viewer while content is
- * loading leaves it closed. Those are behaviours, so they are driven here.
- *
- * What this file does and does not prove:
- *  - it PROVES the state machines above behave as specified, in real React,
- *    against a real DOM, with real timers and real promises;
- *  - it does NOT prove any hosted integration. Nothing here talks to Supabase,
- *    a preview deployment, or a real browser engine — see the implementation map,
- *    where browser (E6) and runtime (E5) evidence are recorded separately.
- */
-import { afterEach, describe, expect, test } from "vitest";
-import { StrictMode, act, useEffect, useState, type ReactElement } from "react";
+/** Executed jsdom evidence using production components, not browser acceptance. */
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { StrictMode, act, cloneElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-
-import {
-  deriveWorkspaceRoleState,
-  stateHasConsolePermission,
-  workspaceRole,
-  type WorkspaceMembershipRef,
-} from "../../../apps/web/src/console-model";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { WorkspaceProvider, useWorkspace } from "../../../apps/web/src/workspace/WorkspaceProvider";
+import { SkillDetailPage } from "../../../apps/web/src/pages/SkillDetailPage";
+import { WorkspaceOverviewPage } from "../../../apps/web/src/pages/WorkspaceOverviewPage";
 import { createDom, type MountedDom } from "./helpers/dom";
 
+// Only external boundaries are replaced. Production membership, resource,
+// cancellation, selection and content-viewer logic execute unchanged.
+const boundary = vi.hoisted(() => ({ auth: {} as any, from: vi.fn(), get: vi.fn() }));
+vi.mock("../../../apps/web/src/auth/AuthProvider", () => ({ useAuth: () => boundary.auth }));
+vi.mock("../../../apps/web/src/auth/supabase", () => ({ supabase: { from: boundary.from } }));
+vi.mock("../../../apps/web/src/api/useApiClient", () => ({ useApiClient: () => api }));
+const api = { get: (...args: any[]) => boundary.get(...args) };
 let dom: MountedDom | null = null;
 let root: Root | null = null;
-
-afterEach(() => {
-  if (root !== null) act(() => root!.unmount());
-  root = null;
-  if (dom !== null) dom.restore();
-  dom = null;
+const token = async () => null;
+const member = (subject = "me", workspace = "ws-a", role = "owner", active = true) =>
+  ({ subject, workspace_id: workspace, role, active });
+function deferred<T = any>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+let membershipRequests: { subject: string; result: ReturnType<typeof deferred> }[];
+beforeEach(() => {
+  boundary.auth = { status: "signed_in", userId: "me", getAccessToken: token };
+  membershipRequests = [];
+  boundary.from.mockReset().mockImplementation((table) => {
+    expect(table).toBe("workspace_memberships");
+    return { select: () => ({ eq: (column: string, subject: string) => {
+      expect(column).toBe("subject");
+      return { order: () => {
+        const result = deferred(); membershipRequests.push({ subject, result }); return result.promise;
+      } };
+    } }) };
+  });
+  boundary.get.mockReset();
 });
-
-/** Mount a real React tree into a real DOM. */
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  root = null; dom?.restore(); dom = null;
+});
 function mount(element: ReactElement) {
   dom = createDom();
   const container = dom.document.createElement("div");
   dom.document.body.appendChild(container);
   root = createRoot(container);
-  act(() => {
-    // JSX, not a call. React 19.3 exposes `StrictMode` as a symbol rather than a
-    // function, so `StrictMode(element)` throws "StrictMode is not a function"
-    // even though the element type is perfectly valid.
-    root!.render(<StrictMode>{element}</StrictMode>);
-  });
+  const render = () => act(() => root!.render(<StrictMode>{cloneElement(element)}</StrictMode>));
+  render();
   return {
-    container,
-    text: () => container.textContent ?? "",
-    // A click that changes state must be wrapped in `act`, otherwise React
-    // batches the update and the assertion below reads the PRE-click tree.
-    click: (selector: string) => {
-      const node = container.querySelector(selector);
-      if (node === null) throw new Error(`no element matched ${selector}`);
-      act(() => {
-        dom!.click(node);
-      });
+    container, render, text: () => container.textContent ?? "",
+    click: (label: string) => {
+      const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+      if (!button) throw new Error(`button missing: ${label}`);
+      act(() => dom!.click(button));
     },
-    /** Let pending timers and microtasks settle. */
-    settle: async (ms = 0) => {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, ms));
-      });
-    },
+    settle: async () => { await act(async () => { await Promise.resolve(); }); },
+    unmount: () => { act(() => root!.unmount()); root = null; },
   };
 }
+async function roster(rows: any[], subject = "me") {
+  await act(async () => {
+    for (const request of membershipRequests.filter((r) => r.subject === subject))
+      request.result.resolve({ data: rows, error: null });
+  });
+}
+function WorkspaceControls() {
+  const ws = useWorkspace();
+  return <><output>{JSON.stringify({ id: ws.workspaceId, role: ws.role, allowed: ws.can("members_read"), memberships: ws.memberships.length })}</output>
+    <button onClick={() => ws.selectWorkspace("ws-b")}>switch workspace</button></>;
+}
+const provider = (page?: ReactElement) => <WorkspaceProvider><WorkspaceControls />{page}</WorkspaceProvider>;
 
-/* -------------------------------------------------------------------------- */
-/* 1. Current-user membership and role resolution                              */
-/* -------------------------------------------------------------------------- */
-
-describe("membership resolution uses the caller's own row", () => {
-  // The roster deliberately leads with an OWNER row that is not the caller's, so
-  // any "first row wins" or "highest role wins" shortcut is caught.
-  const roster: readonly WorkspaceMembershipRef[] = [
-    { workspaceId: "ws-a", subject: "someone-else", role: "owner", active: true },
-    { workspaceId: "ws-b", subject: "me", role: "viewer", active: true },
-    { workspaceId: "ws-c", subject: "another", role: "admin", active: true },
-  ];
-  const mine = (subject: string) => roster.find((row) => row.subject === subject) ?? null;
-
-  test("a viewer among owners and admins resolves their OWN viewer role", () => {
-    const state = deriveWorkspaceRoleState({
-      workspaceId: "ws-b",
-      membership: mine("me"),
-      loading: false,
+describe("production WorkspaceProvider membership and account state", () => {
+  test("a mixed owner/admin roster resolves only the current subject's viewer role", async () => {
+    const view = mount(provider());
+    await roster([member("other", "ws-a"), member("me", "ws-b", "viewer"), member("admin", "ws-c", "admin")]);
+    expect(view.text()).toContain('"id":"ws-b","role":"viewer","allowed":false,"memberships":1');
+    expect(membershipRequests.every((r) => r.subject === "me")).toBe(true);
+  });
+  test.each([[], [member("other")], [member("me", "ws-a", "admin", false)]])(
+    "absent or inactive current membership grants no permissions: %j", async (rows) => {
+      const view = mount(provider()); await roster(rows);
+      expect(view.text()).toContain('"id":null,"role":null,"allowed":false');
     });
-    expect(state.kind).toBe("loaded");
-    expect(workspaceRole(state)).toBe("viewer");
-    // The owner's rights must not leak in.
-    expect(stateHasConsolePermission(state, "workspace_manage")).toBe(false);
+  test("account switching discards the previous account's delayed membership", async () => {
+    const view = mount(provider());
+    boundary.auth = { ...boundary.auth, userId: "next" }; view.render();
+    expect(view.text()).toContain('"role":null');
+    await roster([member("next", "ws-b", "viewer")], "next");
+    await roster([member("me", "ws-a")]);
+    expect(view.text()).toContain('"id":"ws-b","role":"viewer"');
+    expect(view.text()).not.toContain('"id":"ws-a"');
   });
-
-  test("an absent own row never borrows another member's role", () => {
-    const state = deriveWorkspaceRoleState({
-      workspaceId: "ws-a",
-      membership: null,
-      loading: false,
-    });
-    expect(workspaceRole(state)).toBeNull();
-    expect(state.kind).not.toBe("loaded");
-    expect(stateHasConsolePermission(state, "catalog_read")).toBe(false);
+  test("signing out during loading clears protected state and discards the response", async () => {
+    const view = mount(provider());
+    boundary.auth = { ...boundary.auth, status: "signed_out", userId: null }; view.render();
+    await roster([member()]);
+    expect(view.text()).toContain('"id":null,"role":null,"allowed":false,"memberships":0');
   });
-
-  test("roster ordering cannot change the effective role", () => {
-    const reversed = [...roster].reverse();
-    expect(
-      workspaceRole(
-        deriveWorkspaceRoleState({
-          workspaceId: "ws-b",
-          membership: mine("me"),
-          loading: false,
-        }),
-      ),
-    ).toBe(
-      workspaceRole(
-        deriveWorkspaceRoleState({
-          workspaceId: "ws-b",
-          membership: reversed.find((r) => r.subject === "me") ?? null,
-          loading: false,
-        }),
-      ),
-    );
-  });
-
-  test("each workspace resolves its own member's role", () => {
-    const resolved = (["ws-a", "ws-b", "ws-c"] as const).map((workspaceId) => {
-      const subject = roster.find((r) => r.workspaceId === workspaceId)?.subject ?? "";
-      return workspaceRole(
-        deriveWorkspaceRoleState({
-          workspaceId,
-          membership: roster.find((r) => r.subject === subject) ?? null,
-          loading: false,
-        }),
-      );
-    });
-    expect(resolved).toEqual(["owner", "viewer", "admin"]);
-  });
-
-  test("an inactive membership grants nothing", () => {
-    const state = deriveWorkspaceRoleState({
-      workspaceId: "ws-b",
-      membership: { workspaceId: "ws-b", subject: "me", role: "owner", active: false },
-      loading: false,
-    });
-    expect(state.kind).toBe("inactive");
-    expect(workspaceRole(state)).toBeNull();
-    expect(stateHasConsolePermission(state, "catalog_read")).toBe(false);
-  });
-
-  test("a membership belonging to another workspace is refused", () => {
-    const state = deriveWorkspaceRoleState({
-      workspaceId: "ws-c",
-      membership: mine("me"), // belongs to ws-b
-      loading: false,
-    });
-    expect(state.kind).toBe("mismatched");
-    expect(workspaceRole(state)).toBeNull();
-  });
-
-  test("loading and an empty membership are distinct states", () => {
-    expect(deriveWorkspaceRoleState({ workspaceId: "ws-b", membership: null, loading: true }).kind).toBe(
-      "loading",
-    );
-    expect(deriveWorkspaceRoleState({ workspaceId: "ws-b", membership: null, loading: false }).kind).toBe(
-      "not_loaded",
-    );
-  });
-});
-
-/* -------------------------------------------------------------------------- */
-/* 2. Workspace switching and stale-data clearance                             */
-/* -------------------------------------------------------------------------- */
-
-describe("workspace switching discards a stale response", () => {
-  /**
-   * The provider's selection effect, reduced to what matters: an async load
-   * guarded by a liveness flag. The guard is the behaviour under test — without
-   * it, a slow response for the previous workspace lands after the switch and
-   * populates the newly selected workspace with the old workspace's data.
-   */
-  function Switcher({ rows, delayMs }: { rows: Record<string, WorkspaceMembershipRef>; delayMs: number }) {
-    const [workspaceId, setWorkspaceId] = useState("ws-a");
-    const [membership, setMembership] = useState<WorkspaceMembershipRef | null>(null);
-    useEffect(() => {
-      let live = true;
-      const timer = setTimeout(() => {
-        if (live) setMembership(rows[workspaceId] ?? null);
-      }, delayMs);
-      return () => {
-        live = false;
-        clearTimeout(timer);
-      };
-    }, [workspaceId, rows, delayMs]);
-    return (
-      <div>
-        <button type="button" onClick={() => setWorkspaceId("ws-b")}>
-          switch
-        </button>
-        <span id="membership">{membership ? `${membership.workspaceId}/${membership.role}` : "none"}</span>
-      </div>
-    );
-  }
-
-  const rows: Record<string, WorkspaceMembershipRef> = {
-    "ws-a": { workspaceId: "ws-a", subject: "me", role: "owner", active: true },
-    "ws-b": { workspaceId: "ws-b", subject: "me", role: "viewer", active: true },
-  };
-
-  test("ws-a's owner role does not survive a switch to ws-b", async () => {
-    const view = mount(<Switcher rows={rows} delayMs={20} />);
-    await view.settle(30);
-    expect(view.text()).toContain("ws-a/owner");
-
-    await view.settle(5);
-    view.click("button");
-    await view.settle(40);
-
-    expect(view.text()).toContain("ws-b/viewer");
-    // The decisive assertion: the previous workspace's role is gone.
-    expect(view.text()).not.toContain("ws-a");
-    expect(view.text()).not.toContain("owner");
-  });
-});
-
-/* -------------------------------------------------------------------------- */
-/* 3. Viewer closure while content is loading                                  */
-/* -------------------------------------------------------------------------- */
-
-describe("closing a viewer while content is loading", () => {
-  /** The content viewer's cancellation contract, reduced to its essentials. */
-  function ContentViewer({ load }: { load: () => Promise<string> }) {
-    const [open, setOpen] = useState(false);
-    const [content, setContent] = useState<string | null>(null);
-    useEffect(() => {
-      if (!open) return;
-      let live = true;
-      void load().then(
-        (text) => {
-          if (live) setContent(text);
-        },
-        () => {
-          if (live) setContent(null);
-        },
-      );
-      return () => {
-        live = false;
-      };
-    }, [open, load]);
-    return (
-      <div>
-        <button type="button" id="open" onClick={() => setOpen(true)}>
-          open
-        </button>
-        <button
-          type="button"
-          id="close"
-          onClick={() => {
-            setOpen(false);
-            setContent(null);
-          }}
-        >
-          close
-        </button>
-        <span id="viewer">{open ? (content ?? "loading") : "closed"}</span>
-      </div>
-    );
-  }
-
-  test("a pending response cannot reopen a closed viewer", async () => {
-    const load = () =>
-      new Promise<string>((resolve) => setTimeout(() => resolve("PROTECTED-CONTENT"), 60));
-    const view = mount(<ContentViewer load={load} />);
-
-    view.click("#open");
-    await view.settle(5);
-    expect(view.text()).toContain("loading");
-
-    // Close while the request is still in flight.
-    await view.settle(5);
-    view.click("#close");
-    expect(view.text()).toContain("closed");
-
-    // The late response must neither restore content nor throw.
-    await view.settle(120);
-    expect(view.text()).toContain("closed");
-    expect(view.text()).not.toContain("PROTECTED-CONTENT");
-  });
-
-  test("closing then reopening does not restore the old content", async () => {
-    const load = () =>
-      new Promise<string>((resolve) => setTimeout(() => resolve("PROTECTED-CONTENT"), 40));
-    const view = mount(<ContentViewer load={load} />);
-
-    view.click("#open");
-    await view.settle(5);
-    view.click("#close");
-    await view.settle(80);
-    expect(view.text()).toContain("closed");
-
-    // A fresh open must start from loading, not show the stale body.
-    view.click("#open");
-    await view.settle(5);
-    expect(view.text()).toContain("loading");
-    await view.settle(80);
-    expect(view.text()).toContain("PROTECTED-CONTENT");
-  });
-
-  test("unmounting mid-request restores nothing", async () => {
-    const load = () =>
-      new Promise<string>((resolve) => setTimeout(() => resolve("PROTECTED-CONTENT"), 40));
-    const view = mount(<ContentViewer load={load} />);
-    view.click("#open");
-    await view.settle(5);
-    act(() => root!.unmount());
-    root = null;
-    await view.settle(80);
-    // Nothing survives the unmount to render the late body.
+  test("unmount discards late membership responses", async () => {
+    const view = mount(provider()); view.unmount(); await roster([member()]);
     expect(view.container.innerHTML).toBe("");
   });
+});
 
-  test("a rejected request produces a controlled state, not an unhandled error", async () => {
-    const load = () => Promise.reject(new Error("E_WEB_SKILL_NOT_FOUND"));
-    const view = mount(<ContentViewer load={load} />);
-    view.click("#open");
-    await view.settle(20);
-    // The viewer stays open and empty rather than crashing or showing a body.
-    expect(view.text()).not.toContain("PROTECTED-CONTENT");
-    expect(view.text()).toContain("loading");
+const workspaceData = (id: string) => ({ workspace_id: id, owner_subject: `owner-${id}`, created_at: "2026-10-14", viewer_role: "owner" });
+describe("production workspace selection and requests", () => {
+  test("switch clears rendered data immediately and sends the selected workspace", async () => {
+    const responses = new Map<string, ReturnType<typeof deferred>>();
+    boundary.get.mockImplementation((_path, options) => {
+      const key = options.query?.workspace ?? "none";
+      const result = deferred(); responses.set(key, result); return result.promise;
+    });
+    const view = mount(provider(<WorkspaceOverviewPage />));
+    await roster([member(), member("me", "ws-b")]);
+    await act(async () => responses.get("ws-a")!.resolve(workspaceData("ws-a")));
+    expect(view.text()).toContain("owner-ws-a");
+    view.click("switch workspace");
+    expect(view.text()).not.toContain("owner-ws-a");
+    expect(view.text()).toContain("Loading workspace");
+    expect(boundary.get.mock.calls.at(-1)?.[1].query).toEqual({ workspace: "ws-b" });
+    await act(async () => responses.get("ws-b")!.resolve(workspaceData("ws-b")));
+    expect(view.text()).toContain("owner-ws-b");
+  });
+  test("previous workspace response is aborted and cannot populate the selection", async () => {
+    const requests: any[] = [];
+    boundary.get.mockImplementation((path, options) => {
+      const result = deferred(); requests.push({ path, options, result }); return result.promise;
+    });
+    const view = mount(provider(<WorkspaceOverviewPage />));
+    await roster([member(), member("me", "ws-b")]);
+    const old = requests.at(-1);
+    view.click("switch workspace"); const fresh = requests.at(-1);
+    expect(old.options.signal.aborted).toBe(true);
+    await act(async () => { fresh.result.resolve(workspaceData("ws-b")); old.result.resolve(workspaceData("ws-a")); });
+    expect(view.text()).toContain("owner-ws-b"); expect(view.text()).not.toContain("owner-ws-a");
+    view.unmount(); expect(fresh.options.signal.aborted).toBe(true);
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 4. Malformed responses fail closed                                          */
-/* -------------------------------------------------------------------------- */
+const skillData = (id: string) => ({ release: null, summary: { skill_id: id, name: id, description: "fixture", schema_version: 1, content_digest: "digest", l1_tokens: null, l2_tokens: 2, l1_status: "MISSING" }, routing: { domains: [], triggers: [], exclude_patterns: [] }, sources: [], files: [] });
+const contentData = (content: string) => ({ content, level: "L2", token_count: 2, requested_max_tokens: 32000, version_hash: "digest", truncated: false });
+function Navigation() { const navigate = useNavigate(); return <button onClick={() => navigate("/skills/skill-b")}>next skill</button>; }
+function skillTree() { return <MemoryRouter initialEntries={["/skills/skill-a"]}><Navigation /><Routes><Route path="/skills/:skillId" element={<SkillDetailPage />} /></Routes></MemoryRouter>; }
+let contentRequests: any[];
+function contentTransport() {
+  contentRequests = [];
+  boundary.get.mockImplementation((path, options) => {
+    if (!path.endsWith("/content")) return Promise.resolve(skillData(path.split("/").at(-1)));
+    const result = deferred(); contentRequests.push({ path, options, result }); return result.promise;
+  });
+}
+describe("production SkillDetailPage content viewer", () => {
+  test("navigation from A to B discards delayed A content", async () => {
+    contentTransport(); const view = mount(skillTree()); await view.settle();
+    view.click("Load L2 Skill Content"); const old = contentRequests[0];
+    view.click("next skill"); await view.settle();
+    expect(old.options.signal.aborted).toBe(true);
+    view.click("Load L2 Skill Content"); const fresh = contentRequests[1];
+    expect(fresh.path).toBe("/skills/skill-b/content");
+    await act(async () => { fresh.result.resolve(contentData("B-CONTENT")); old.result.resolve(contentData("A-CONTENT")); });
+    expect(view.text()).toContain("B-CONTENT"); expect(view.text()).not.toContain("A-CONTENT");
+  });
+  test("closing during loading keeps content cleared even after a late response", async () => {
+    contentTransport(); const view = mount(skillTree()); await view.settle();
+    view.click("Load L2 Skill Content"); const request = contentRequests[0];
+    view.click("Close Viewer"); expect(request.options.signal.aborted).toBe(true);
+    await act(async () => request.result.resolve(contentData("OLD-CONTENT")));
+    expect(view.text()).not.toContain("OLD-CONTENT");
+    expect(view.text()).not.toContain("Close Viewer");
+    expect(view.container.querySelector(".content-viewer")).toBeNull();
+  });
+  test("reopening makes a fresh request which cannot reuse superseded content", async () => {
+    contentTransport(); const view = mount(skillTree()); await view.settle();
+    view.click("Load L2 Skill Content"); view.click("Close Viewer"); view.click("Load L2 Skill Content");
+    expect(contentRequests).toHaveLength(2);
+    await act(async () => contentRequests[0].result.resolve(contentData("SUPERSEDED")));
+    expect(view.text()).toContain("Loading L2 content"); expect(view.text()).not.toContain("SUPERSEDED");
+    await act(async () => contentRequests[1].result.resolve(contentData("FRESH")));
+    expect(view.text()).toContain("FRESH");
+  });
+  test("unmount aborts pending content and cannot restore state", async () => {
+    contentTransport(); const view = mount(skillTree()); await view.settle(); view.click("Load L2 Skill Content");
+    view.unmount(); expect(contentRequests[0].options.signal.aborted).toBe(true);
+    await act(async () => contentRequests[0].result.resolve(contentData("LATE")));
+    expect(view.container.innerHTML).toBe("");
+  });
+  test("rejection renders the production error state without an unhandled rejection", async () => {
+    contentTransport(); const view = mount(skillTree()); await view.settle(); view.click("Load L2 Skill Content");
+    await act(async () => contentRequests[0].result.reject(new Error("Content unavailable")));
+    expect(view.text()).toContain("Unable to serve L2 content"); expect(view.text()).toContain("Content unavailable");
+    expect(view.container.querySelector(".content-viewer")).toBeNull();
+  });
+});
 
 describe("a malformed response is refused at the boundary", () => {
   test("a bare array for /skills is rejected, not rendered", async () => {

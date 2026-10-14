@@ -1,4 +1,4 @@
--- Contract T1 §8 retention scheduling.
+-- Contract T1 §9.5 retention scheduling.
 --
 -- `202609200002` clamps `purge_expired_telemetry` to [1, 90] days and restricts
 -- execution to `service_role`, but nothing ever CALLS it. Retention therefore
@@ -28,7 +28,11 @@
 -- harmlessly and the guard below turns that into a documented skip.
 do $$
 begin
-  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+  if current_setting('cron.database_name', true) is null then
+    raise notice 'retention INACTIVE: pg_cron is not preloaded; no schedule installed';
+  elsif current_setting('cron.database_name', true) <> current_database() then
+    raise notice 'retention INACTIVE in this database: pg_cron metadata belongs to another database';
+  elsif exists (select 1 from pg_available_extensions where name = 'pg_cron') then
     begin
       create extension if not exists pg_cron;
     exception when insufficient_privilege or undefined_file then
@@ -42,7 +46,7 @@ $$;
 
 do $$
 declare
-  jobid bigint;
+  previous_job_id bigint;
   daily text := '17 3 * * *';  -- 03:17 UTC daily, deliberately off the hour
 begin
   if not exists (select 1 from pg_extension where extname = 'pg_cron') then
@@ -54,22 +58,22 @@ begin
   -- Selecting by jobname (not jobid) is what makes this safe to re-run — the
   -- jobid changes when the extension is reinstalled, so a stored id would
   -- silently orphan the old schedule and purge twice per day.
-  for jobid in
-    select jobid from cron.job where jobname = 'ega-telemetry-retention'
+  for previous_job_id in
+    select j.jobid from cron.job as j where j.jobname = 'ega-telemetry-retention'
   loop
-    perform cron.unschedule(jobid);
+    perform cron.unschedule(previous_job_id);
   end loop;
 
-  -- `service_role` and `postgres` are the only roles with EXECUTE on the purge
-  -- function (202609200002), so the schedule cannot be pointed at a role that
-  -- would fail or, worse, that a client could assume.
+  -- The scheduling operator is the execution identity, independent of schema
+  -- qualification. Forward migration 202609200004 verifies that identity and
+  -- its purge authority, and repairs already registered invalid commands.
   -- The statement uses a DIFFERENT dollar-quote tag than the surrounding DO
   -- block. Reusing the same tag inside terminated the block early and produced
   -- a syntax error, so the distinct tag is load-bearing rather than stylistic.
   perform cron.schedule(
     'ega-telemetry-retention',
     daily,
-    $body$select service_role.public.purge_expired_telemetry(90);$body$
+    $body$select public.purge_expired_telemetry(90);$body$
   );
 end
 $$;
