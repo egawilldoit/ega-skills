@@ -1,96 +1,103 @@
-# PR #137 — implementation map (requirements → files → verification)
+# PR #137 implementation and evidence map
 
-Baseline verified at `feat/web-console`.
-Target base `release/2.0`: `7bf0d5a2310ffddbdb4055166be67d56916d8ac6`.
-Starting review head: `b5339c2636b1c347f14ac4ea40cef33417c9299f`.
-Final head: the PR's current `headRefOid` (read it with `gh pr view 137 --json
-headRefOid`; a copied SHA goes stale the moment a commit is added, and one
-earlier in this file was already wrong). Code-final commit for the nine
-repairs: `f30ffc8663a1e24fe88e0a61fa50ff51abd9823a`.
+**NOT READY — draft.** Repairs are committed and locally exercised; isolated
+hosted/browser acceptance and independent review remain mandatory gates.
 
-The earlier-recorded head `f08a542e9c7a7bd393c1859ac2de2d76307747ee` was wrong and
-is not used anywhere in this document.
+Starting reviewed head: `e1a2a21466ae7f7a1a32e0fca3d83f431c7123aa`.
+Verified target `release/2.0`: `7bf0d5a2310ffddbdb4055166be67d56916d8ac6`.
+Repair commit: `601a6fe0e74099d2f0f2ac9013c1add8635b9616`.
+The [PR description](https://github.com/egawilldoit/ega-skills/pull/137) records
+the final full head and exact-head CI job links after documentation commits.
+[Current-head checks](https://github.com/egawilldoit/ega-skills/pull/137/checks)
+are a separate gate from local execution and hosted acceptance. Earlier review
+approvals do not cover subsequent changes; self-review is not independent review.
 
-## Verification baseline actually reproduced (not assumed)
+## Requirements and evidence boundaries
 
-Run on the final head `f30ffc8`, each command executed rather than asserted:
-
-| Check | Command | Result |
+| Requirement | Implementation and relevant verification | Scope |
 |---|---|---|
-| Domain build | `pnpm exec tsc -b` | PASS |
-| Web frontend typecheck | `pnpm --filter @ega-skills/web typecheck` | PASS |
-| Web server typecheck | `pnpm --filter @ega-skills/web typecheck:server` | PASS |
-| Frozen lockfile | `pnpm install --frozen-lockfile` | PASS, lockfile unchanged |
-| Spec/contract check | `pnpm run specs:check` | PASS |
-| Full suite | `pnpm test:ci` | **1894/1894 pass, 7 pre-existing skips, exit 0** |
-| Contract F RLS (real PG 16) | `node --test tests/rls/contract-f.rls.mjs` | 15/15 |
-| Telemetry authorization, containment, retention (real PG 16) | `node --test tests/rls/telemetry-authz.rls.mjs` | 35/35 |
-| Cross-workspace isolation (real PG 16) | `node --test tests/web/cross-workspace-isolation.rls.mjs` | 38/38 |
-| Executed React component behaviour | `pnpm test:web:components` | 16/16 |
-| Analytics window & pagination | `node --test tests/web/analytics-window.test.mjs` | 16/16 |
-| Artifact staging | `node scripts/web/stage-artifact.mjs --check-only` | PASS, identity verified |
-| Web frontend build from `apps/web` | `pnpm --filter @ega-skills/web build` | PASS |
+| R1 Workspace role/context | Production `workspace/WorkspaceProvider.tsx` filters active current-subject memberships, clears account state, discards superseded responses. Mounted in StrictMode tests with external Auth/Supabase boundaries mocked. Cross-workspace PostgreSQL suite enforces isolation. | Executed component and database evidence; hosted switching open |
+| R2 Catalog | Catalog controls, facet counts, sorting and pagination; `tests/web/catalog.test.mjs` | Executed module/API evidence |
+| R3 Release integrity | Unpinned/mismatched identity and immutable artifact metadata; release tests and committed artifact verification | Executed module and artifact evidence |
+| R4 Release comparison | Retained releases, cross-Hub refusal and digest authorization; release/access-policy tests | Executed module/API evidence |
+| R5 Governance | Authenticated control-plane routes, forwarded caller sessions and bounded queries; governance/workspace/project tests | Executed module/API evidence |
+| R6 Content viewer | Production `SkillDetailPage` and resource hooks mounted with deferred API responses; A→B navigation, close/reopen, unmount and rejection | Executed component evidence; real-browser acceptance open |
+| R7 API decoding | Strict production decoders and API client/route tests reject malformed responses | Executed module/API evidence |
+| R8 Artifact access | Authenticated artifact access by default and explicit public-policy configuration; access-policy tests | Executed module/API and database evidence |
+| R9 Telemetry | CONTRACT-T1 closed projection; server-derived workspace ownership; delegated containment; 250 ms cancellation; bounded records/in-flight/bytes and drop-oldest; live diagnostics; paginated analytics bounded to 90 days. Writer now uses separate application key and restricted role JWT, INSERT-only RLS and sequence USAGE. | Executed module, database and isolated self-hosted REST evidence; hosted MCP→event→analytics open |
+| R10 Preview safety | Deterministic staging of committed release bytes; read-oriented console; deployment build and server typecheck | Local artifact/build evidence; identified isolated preview open |
 
-The 7 skips in `test:ci` are pre-existing and unrelated to this branch.
+## Repairs and executed regressions
 
-Confirmed in required CI at the final SHA, not only locally: `web console`
-(ubuntu + windows-2022) ran the executed React component suite at 16/16 and its
-web API/integration tests at 375/375; `web isolation` ran cross-workspace
-isolation at 38/38 and telemetry authorization/containment/retention at 35/35
-against the real PostgreSQL 16 service; `contract-f rls` 15/15; `foundation` and
-`hashing traversal` on both platforms, each with a frozen-lockfile install and an
-unchanged-lockfile check.
+All code repairs below are in `601a6fe0e74099d2f0f2ac9013c1add8635b9616`.
 
-## Requirements Classification (R1–R10)
-
-| Requirement | Status | Verification & Evidence |
+| Defect | Repair | Executed regression |
 |---|---|---|
-| **R1: Workspace Role & Context Isolation** | **PROVEN** | Current-user membership resolution explicitly queries `.eq("subject", userId)` on `workspace_memberships`, strictly validates subject/workspaceId/role/active, eliminates `members[0]` fallbacks, and synchronously resets state on auth transitions. Verified by `tests/web/client-state-and-races.test.mjs`, `tests/web/console-permissions.test.mjs`, and `tests/web/cross-workspace-isolation.rls.mjs`. |
-| **R2: Catalog Presentation & Filtering** | **PROVEN** | `CatalogControls` drives search, facet filters, sorting, and pagination from server facet counts without client drift; verifies empty states and pagination boundaries. Verified by `tests/web/catalog.test.mjs`. |
-| **R3: Release Detail & Artifact Integrity** | **PROVEN** | Cleanly distinguishes unpinned from mismatch, withholds artifacts on mismatch, renders immutable release artifacts table with byte lengths and hashes. Verified by `tests/web/release-detail-rendering.test.mjs` and `tests/web/releases.test.mjs`. |
-| **R4: Release Comparison** | **PROVEN** | Side-by-side comparison between release revisions, honest handling of absent historical artifacts, refusal of cross-Hub comparisons, and dual release digest authorization. Verified by `tests/web/releases.test.mjs` and `tests/web/artifact-access-policy.test.mjs`. |
-| **R5: Control Plane Governance Screens** | **PROVEN** | Governance endpoints (`/workspace`, `/workspace/members`, `/projects`, `/projects/:projectId`, `/workspace/quotas`, `/workspace/security/denies`, `/audit`) use authenticated `controlPlaneRoute` seam with caller session token forwarding and bounded queries. Verified by `tests/web/governance-pages.test.mjs`, `tests/web/workspace-pages.test.mjs`, and `tests/web/project-pages.test.mjs`. |
-| **R6: Skill Detail Truthful Content & Bounds** | **PROVEN** | On-demand L2 content viewer, explicit L1 missing status explanation (never "0 tokens"), companion file inspection bounded to inspectable text files (preventing binary/metadata leakage), request ceiling distinction (32,768 ceiling vs budget), monotonic sequence abort cancellation via `AbortController` on unmount/switch/close. Verified by `tests/web/skill-detail-rendering.test.mjs`, `tests/web/client-state-and-races.test.mjs`, and `tests/web/skills.test.mjs`. |
-| **R7: BFF API Client & Runtime Decoding** | **PROVEN** | Strict response validation decoders in `src/api/decode.ts` for all route payloads, failing closed on malformed upstream shapes without rendering corrupt data. Verified by `tests/web/api-client.test.mjs` and `tests/web/api-routes.test.mjs`. |
-| **R8: Artifact Access Policy** | **PROVEN** | Enforces authenticated reads on artifact routes by default, checking caller RLS access against `hub_releases` when Supabase is configured; allows anonymous reads only when `EGA_WEB_PUBLIC_POLICY="public"` or `EGA_WEB_ALLOW_ANONYMOUS="true"`. Verified by `tests/web/artifact-access-policy.test.mjs`. |
-| **R9: MCP Telemetry (CONTRACT-T1)** | **IMPLEMENTED BUT UNPROVEN (runtime)** | Implemented and tested at `f30ffc8`. Migration `202609200001` (table, RLS, purge), `202609200002` (SECURITY DEFINER entry point repairing the revoked `is_active_member`, delegated-OAuth containment, 90-day clamp), `202609200003` (retention schedule). Writer: `createSupabaseTelemetryWriter` with permitted-column projection and idempotent writes; `createSupabaseWorkspaceResolver` attributing both context-bound and context-free (Hub/release) executions through the verified ownership chain, never a zero-UUID or another member's workspace. Isolation: `fireAndForgetTelemetry` contains synchronous throws, passes an `AbortSignal` to the sink, enforces the 250 ms ceiling, and releases queue capacity exactly once. Buffer: bounds on records, in-flight writes, real serialized BYTES, and drop-oldest-first per CONTRACT-T1 §6.4. Diagnostics are live (a getter, not a startup snapshot). `handleAnalyticsUsage` paginates to a verified-empty page with a database-enforced 90-day window and reports `partial` rather than a truncated sum. Writer credential is separated behind `EGA_HOSTED_TELEMETRY_WRITER_KEY` with no fallback to the read key. **Still not proven: E5 runtime.** No live MCP execution against hosted Supabase, so `tool call -> stored event -> analytics number` is unobserved, and telemetry writer credential separation is proven as configuration behaviour but not as an observed provisioned deployment. |
-| **R10: Non-Production Mutation Control & Safe Preview Deployment** | **PROVEN** (Code & Staging) / **BLOCKED** (Live Vercel Preview) | Read-only UI surfaces with zero mutation controls; deterministic staging script `scripts/web/stage-artifact.mjs` verifies immutable artifacts without regeneration; all server env vars documented in `.env.example`. Live preview deployment to Vercel remains **BLOCKED** due to missing `VERCEL_*` / Supabase credentials in the environment and absence of an attached Vercel project for `apps/web`. |
+| Invalid three-part purge call and ambiguous job variable | Minimal fresh-chain corrections in migration 003; additive migration 004 replaces historic commands, verifies operator identity separately, requires visibility of all jobs, and leaves one named job | Real PostgreSQL 16 + pg_cron: seed historic invalid command, repeat setup, execute exact stored SQL as stored role, deny client/writer purge, observe clock-triggered success and row survival |
+| INSERT-only writer missing RLS/sequence authority | Additive migration 005 explicitly provisions NOLOGIN/NOINHERIT/NOBYPASSRLS role, INSERT policy, sequence USAGE and authenticator SET ROLE membership; rejects wider effective grants | 52 telemetry database tests: generated ID insertion, authorized observer, checks/FK failures, forbidden reads/mutations/DDL/sequence mutation/purge/unrelated tables/role escape; authenticated/delegated writes denied |
+| Custom role JWT incorrectly used as application key | `telemetry-writer.ts` and `hosted-runtime.ts` separate `apikey` from signed role Authorization, reject broad/delegated writer credentials and missing configuration; no read-key fallback | 67 writer/config tests plus real isolated Kong/PostgREST integration with JWT signature verification |
+| Conflict-resolution request incompatible with INSERT-only role | Plain `return=minimal` INSERT; absorb SQLSTATE 23505 only; foreign-key conflict remains failure; body parsing shares bounded cancellation | Real REST insert/retry and invalid-workspace failure; executed stalled-body deadline test |
+| Test-local race implementations | Replace Switcher/ContentViewer helpers with mounted production WorkspaceProvider, WorkspaceOverviewPage and SkillDetailPage; mock external boundaries only | 18 jsdom tests. Removing production provider cancellation guard caused account-switch and sign-out tests to fail (2 failures); restoring it returned 18 passes |
+| Overstated evidence/readiness | Rewrite implementation map and both runbooks, add separate application-key environment example; CI runs scheduler and gateway in its existing PostgreSQL job | Exact executed results below; isolated hosted/browser and independent review explicitly outstanding |
 
-## Evidence classes used below
+## Verification
 
-Claims are labelled so a static check is never mistaken for runtime proof:
+See the [acceptance record](operations/web-console-pr137-acceptance.md) for commands,
+sanitized job/run identifiers, skips and external prerequisites. Local results:
 
-- **E1 static** — source-text / regex assertion. Useful for a bound that cannot
-  otherwise drift; it proves the *statement* is present, not that the behavior runs.
-- **E2 local** — executed against a real process, real database, or real module.
-- **E3 CI** — executed in required checks on the final SHA.
-- **E4 artifact** — verified against the committed immutable release bytes.
-- **E5 runtime** — observed in a live deployment against hosted infrastructure.
-- **E6 browser** — driven in a real browser.
+- Domain/frontend/server typechecks and clean domain/frontend build: PASS.
+- Frozen-lockfile installation, unchanged lockfile, frozen specifications,
+  contract A/B/C/G checks, artifact validation/staging and whitespace check: PASS.
+- Production components: **18 passed**, jsdom; no real-browser acceptance claim.
+- Web API/module integration: **375 passed**, no skips.
+- Writer/configuration: **67 passed**, no skips.
+- PostgreSQL cross-workspace isolation **38 passed**; Contract F **15 passed**;
+  telemetry authorization/retention/writer **52 passed**, no skips.
+- Real pg_cron scheduler **1 passed**, no skips; real isolated REST gateway
+  **1 passed**, no skips. CI executes these in the existing eight core jobs.
+- Foundation/performance and final-head CI results are recorded in the linked
+  acceptance record and PR after execution; earlier-head green checks are not
+  substitutes for final-head checks.
 
-No claim in this document is E5 or E6. Those require live preview access, which
-this environment does not have.
+## Retention state by environment
 
-## Remaining Blockers
+| Claim | Disposable local PostgreSQL / CI harness | Hosted isolated Supabase |
+|---|---|---|
+| Purge implementation | Executed with expired/recent rows and 90-day bound | Not exercised here |
+| Scheduler configuration | Correct stored command and maintenance username verified | Forward repair available; not applied here |
+| Schedule installation | Exactly one active daily job inspected in isolated test DB | Unobserved |
+| Scheduler execution | Clock-triggered `succeeded` run and expired-row deletion observed | Unobserved |
 
-- **Live Hosted Preview Deployment (blocks E5/E6, therefore blocks READY)**: two
-  independent causes. (1) No `VERCEL_*` or Supabase credentials exist in this
-  environment. (2) **No Vercel project is attached to `apps/web` at all** — the
-  repository's two integrations are `ega-skills-mcp` (`packages/mcp`) and
-  `ega-skills-auth` (`packages/oauth-ui`), so even with credentials there is no
-  deployment target. Owner action: create a Vercel project rooted at `apps/web`
-  and supply preview + first-party Supabase credentials. Nothing may claim live
-  acceptance until then.
-- **Telemetry runtime proof (E5)**: R9's code is implemented and covered by E2/E3,
-  but the chain `MCP tool call -> stored telemetry event -> analytics number` has
-  not been observed against hosted Supabase. It stays IMPLEMENTED BUT UNPROVEN.
-- **Telemetry writer credential separation (deployment)**: the runtime REFUSES a
-  reused or missing writer credential, and that refusal is tested. That a hosted
-  deployment has actually been provisioned with two distinct credentials is NOT
-  observed here; it requires inspecting a live instance's role grants. See
-  `docs/operations/telemetry-writer-credential.md`.
-- **Retention schedule activation (E5)**: the purge function is proven against real
-  PostgreSQL, and `202609200003` installs a daily idempotent schedule that
-  degrades to a NOTICE on an instance without `pg_cron`. The installed schedule has
-  NOT been observed executing, because no hosted instance with `pg_cron` was
-  reachable. Retention is **configured, not operational**.
+Without installed/preloaded pg_cron, setup explicitly reports **INACTIVE**. It
+must never be described as installed or operational in that state.
+
+## Hosted/browser/review gates
+
+Connector and deployment metadata were inspected read-only. The accessible
+Supabase project `divriwexbijtojjulqtu` (EGA SKILLS) has no development branches
+and has not been identified/authorized as isolated; no migrations or configuration
+were applied to it. Accessible Vercel account/team metadata yielded no console
+preview matching the candidate. Repository integrations for MCP/auth are not
+proof of an `apps/web` frontend/BFF deployment.
+
+The native collaborative browser is automation-capable (opened successfully).
+The blocker is an identified authorized isolated application environment, not
+browser availability or a blanket claim that all connectors lack credentials.
+
+Owner/operator next actions:
+
+1. Identify the already authorized isolated console preview and Supabase project
+   or branch; verify deployed full SHA and both SPA/BFF routes.
+2. Apply the migration chain there, configure project-trusted short-lived writer
+   JWT and separate application key, and observe hosted REST persistence/denials
+   plus runtime diagnostics. Keep signing keys outside runtime.
+3. Run hosted Auth login→membership→dashboard, delayed account/workspace switching,
+   production viewer navigation/cancellation, MCP→attributed event→analytics,
+   writer-failure independence and delegated/cross-workspace containment.
+4. Observe that isolated project's retention job installation and successful
+   scheduler-triggered execution with sanitized run identifiers.
+5. Obtain the required independent reviews on the final candidate. This repair
+   pass and its self-review do not satisfy independent approval.
+
+No production deployment, production migration, merge or readiness promotion
+occurred. Keep the PR draft and **NOT READY** while these gates remain open.
