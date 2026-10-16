@@ -52,6 +52,12 @@ them**, so the handoff cannot silently drift.
 
 ## 2. Baseline discovery metrics
 
+> **Current numbers live in `tests/discovery/baseline.json`.** The table below
+> was recorded when the corpus held 79 measurable intents and reflects that
+> snapshot; EGA-722 later added the `release-certification-console` and
+> `write-pr-body` rows, so the committed baseline (81 measurable intents) and
+> its summary supersedes the counts here for current evaluation.
+
 ### What the window actually is
 
 The discovery ranking is **the resolver's own window only**: `selected`, then

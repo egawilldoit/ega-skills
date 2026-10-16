@@ -845,6 +845,24 @@
       ],
       "pending_skill": true,
       "pending_note": "egawilldoit/find-skill is the Phase C discovery orchestrator. It does not exist in release sha256:1efdbc3d..., so this intent proves the gap rather than measuring routing. Tracked in docs/DISCOVERY-FINDINGS.md."
+    },
+    {
+      "id": "release-certification-console",
+      "task": "software release readiness ship web console production rollout ci test security",
+      "expected_primary": "egawilldoit/certify-release",
+      "acceptable_alternatives": [],
+      "must_not_select": [
+        "mattpocock/pr"
+      ]
+    },
+    {
+      "id": "write-pr-body",
+      "task": "Write the PR body for this small refactor.",
+      "expected_primary": "mattpocock/pr",
+      "acceptable_alternatives": [
+        "egawilldoit/new-branch-and-pr"
+      ],
+      "must_not_select": []
     }
   ]
 }

@@ -67,6 +67,17 @@ function report() {
  *    SPEC-004 §5.1.11.2 substring NAME_DESCRIPTION matching makes the 2-character
  *    portable name "pr" match inside ordinary English words (e.g. "product",
  *    "production", "approach", "practice", etc.), auto-selecting `mattpocock/pr`.
+ *    - release-certification-console (EGA-722): the exact release-certification
+ *      prompt names no owned vocabulary ("software release readiness ship web
+ *      console production rollout ci test security"), so nothing outranks the
+ *      `pr` substring hit inside "production"; certify-release sits in tier C.
+ *      Recorded, not yet fixed: the owned-surface repair (truthful narrow
+ *      triggers "release readiness" and "certify this release" for
+ *      certify-release) is delivered as an egawilldoit/skills metadata change,
+ *      which can only re-route after a later recognized catalog release, and it
+ *      is phrase-gated — other members of the accepted pr-substring family stay
+ *      recorded. See docs/evidence/catalog/catalog-2026-10-06.1/routing.md
+ *      items 4 and 8 for the recorded adjudication.
  */
 const KNOWN_EXTERNAL_AUTO_ROUTES = [
   "certify-release",
@@ -81,6 +92,7 @@ const KNOWN_EXTERNAL_AUTO_ROUTES = [
   "novel-ui-no-precedent",
   "pr-stack",
   "production-target",
+  "release-certification-console",
   "prove-actually-true",
   "prove-really-deployed",
   "react-performance",
