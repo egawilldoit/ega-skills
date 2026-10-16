@@ -5,6 +5,7 @@ import { HubError } from "./errors.js";
 import {
   NAMESPACE_RE,
   assertRelativePosix,
+  assertSourceId,
   assertSortedUnique,
   isPlainObject,
   parseYamlMapping,
@@ -73,6 +74,7 @@ export function parseSourcesYaml(text: string): SourcesConfig {
   }
   const sources: Record<string, SourceConfig> = {};
   for (const [name, entry] of Object.entries(raw)) {
+    assertSourceId(name, `sources.yaml source ${name}`, "E_SOURCE_SCHEMA");
     if (!isPlainObject(entry)) {
       throw sourceFieldError(name, "must be a mapping");
     }
@@ -96,6 +98,9 @@ export function parseSourcesYaml(text: string): SourcesConfig {
     const selection = entry["selection"];
     if (!isPlainObject(selection) || !Array.isArray(selection["roots"]) || selection["roots"].length === 0) {
       throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} selection.roots must be a non-empty list`);
+    }
+    for (const key of Object.keys(selection)) {
+      if (key !== "roots") throw new HubError("E_SOURCE_SELECTION", `sources.yaml source ${name} selection unknown field "${key}"`);
     }
     const roots = selection["roots"].map((root) => {
       if (typeof root !== "string" || root.length === 0) {

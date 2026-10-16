@@ -18,11 +18,12 @@ import { createEnvelope } from "@ega-skills/hashing";
 import { importSkills, listSkillVersions, openRegistry, type RegistryHandle } from "@ega-skills/registry";
 import { HubError } from "./errors.js";
 import { fetchRefTip, resolveRefToCommit } from "./git.js";
-import { discoverUnselectedSkills, extractSelectedRoots } from "./quarantine.js";
+import { discoverSelectedSkillsFromGit, discoverUnselectedSkillsFromGit, extractSelectedRootsFromGit } from "./quarantine.js";
 import { sourceConfigDigest, type SourceConfig } from "./sources-config.js";
 
 export interface AdoptedSourceView {
   commit: string;
+  sourceConfigDigest?: string;
   treeDigest: string;
   snapshotDigest: string;
   versions: Record<string, string>;
@@ -86,7 +87,8 @@ function readSkillName(skillMdPath: string): string {
 export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
   const { sourceId, config, adopted, workDir } = input;
   const target = resolveRefToCommit(config.repository, config.ref);
-  if (target === adopted.commit) {
+  const configChanged = adopted.sourceConfigDigest !== undefined && adopted.sourceConfigDigest !== sourceConfigDigest(config);
+  if (target === adopted.commit && !configChanged) {
     // The same commit cannot yield changes: no fetch, no mutation, no plan.
     return { status: "NO_CHANGE", targetCommit: target };
   }
@@ -101,8 +103,8 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
     fetchRefTip(config.repository, config.ref, target, fetchDir);
     const quarantineDir = mkdtempSync(join(workDir, "quarantine-"));
     tempDirs.push(quarantineDir);
-    const tree = extractSelectedRoots(fetchDir, config.selection.roots, config.provenanceFiles, quarantineDir);
-    const unselected = discoverUnselectedSkills(fetchDir, config.selection.roots);
+    const tree = extractSelectedRootsFromGit(fetchDir, target, config.selection.roots, config.provenanceFiles, quarantineDir);
+    const unselected = discoverUnselectedSkillsFromGit(fetchDir, target, config.selection.roots);
     if (tree.treeDigest === adopted.treeDigest && tree.snapshotDigest === adopted.snapshotDigest) {
       return { status: "NO_CHANGE", targetCommit: target };
     }
@@ -118,8 +120,9 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       throw new HubError("E_PLAN_FETCH", `candidate tree failed V1 import: ${first ? first.error : "unknown"}`);
     }
     const candidate: Record<string, string> = {};
-    for (const root of config.selection.roots) {
-      const name = readSkillName(join(quarantineDir, ...root.split("/"), "SKILL.md"));
+    const selectedSkillDirs = discoverSelectedSkillsFromGit(fetchDir, target, config.selection.roots);
+    for (const skillDir of selectedSkillDirs) {
+      const name = readSkillName(join(quarantineDir, ...skillDir.split("/"), "SKILL.md"));
       const ref = `${config.namespace}/${name}`;
       const rows = listSkillVersions(registry.db, ref);
       const latest = rows[rows.length - 1];
@@ -137,20 +140,21 @@ export async function checkForUpdates(input: CheckInput): Promise<CheckResult> {
       .filter(([ref]) => !(ref in candidate))
       .map(([skill_ref, version_hash]) => ({ skill_ref, version_hash }))
       .sort(byRef);
+    const selectedTreeChanged = tree.treeDigest !== adopted.treeDigest;
     const changed: PlanSkillChange[] = Object.entries(candidate)
-      .filter(([ref, hash]) => ref in adopted.versions && adopted.versions[ref] !== hash)
+      .filter(([ref, hash]) => ref in adopted.versions && (selectedTreeChanged || adopted.versions[ref] !== hash))
       .map(([skill_ref, new_version]) => ({
-        canonical_changed: true,
+        canonical_changed: adopted.versions[skill_ref] !== new_version,
         new_version,
         old_version: adopted.versions[skill_ref] as string,
-        raw_changed: true,
+        raw_changed: selectedTreeChanged,
         skill_ref,
       }))
       .sort(byRef);
-    // Provenance-only change: the selected tree is identical but the snapshot
-    // (roots + provenance) moved, so the difference must be in provenance files.
+    // The plan reports provenance whenever the vendored snapshot moves. The
+    // selected skill change and provenance change are independent dimensions.
     const provenanceChanges =
-      tree.treeDigest === adopted.treeDigest && tree.snapshotDigest !== adopted.snapshotDigest
+      tree.snapshotDigest !== adopted.snapshotDigest
         ? [...config.provenanceFiles].sort()
         : [];
     const payload: UpdatePlanPayload = {

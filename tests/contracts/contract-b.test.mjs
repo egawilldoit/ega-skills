@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { canonicalizeJson, sha256Hex } from "../../packages/hashing/dist/identities.js";
 
@@ -23,27 +24,30 @@ function read(p) {
 }
 
 function withSwappedFiles(files, fn) {
-  const saved = new Map();
+  const directory = mkdtempSync(join(tmpdir(), "ega-contract-b-"));
+  cpSync(EXAMPLES, directory, { recursive: true });
   try {
     for (const [name, content] of Object.entries(files)) {
-      const p = join(EXAMPLES, name);
-      saved.set(name, readFileSync(p, "utf8"));
-      writeFileSync(p, content);
+      writeFileSync(join(directory, name), content);
     }
-    return fn();
+    return fn(directory);
   } finally {
-    for (const [name, content] of saved) writeFileSync(join(EXAMPLES, name), content);
+    rmSync(directory, { force: true, recursive: true });
   }
 }
 
-function runOk() {
-  const out = execFileSync("node", [VALIDATOR], { encoding: "utf8" });
+function runOk(examples = EXAMPLES) {
+  const out = execFileSync("node", [VALIDATOR], { encoding: "utf8", env: { ...process.env, EGA_CONTRACT_B_EXAMPLES: examples } });
   return out;
 }
 
-function runBad() {
+function runBad(examples = EXAMPLES) {
   try {
-    execFileSync("node", [VALIDATOR], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("node", [VALIDATOR], {
+      encoding: "utf8",
+      env: { ...process.env, EGA_CONTRACT_B_EXAMPLES: examples },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   } catch (e) {
     return `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
   }

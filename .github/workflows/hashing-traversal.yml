@@ -41,6 +41,8 @@ jobs:
         run: pnpm build
       - name: Typecheck
         run: pnpm typecheck
+      - name: Registry cold-import performance
+        run: pnpm test:perf:registry
       - name: Hashing traversal tests
         run: node --test tests/hashing-traversal.test.mjs tests/hashing-traversal-toctou.test.mjs
       - name: Full test suite
