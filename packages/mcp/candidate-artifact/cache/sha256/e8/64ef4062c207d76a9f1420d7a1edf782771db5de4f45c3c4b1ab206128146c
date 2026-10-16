@@ -1,0 +1,4 @@
+interface:
+  display_name: "Attack the Premise"
+  short_description: "Challenge the assumption the task is built on"
+  default_prompt: "Use $principle-attack-the-premise before building on this assumption."

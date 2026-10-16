@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "what did i get done"
+  - "status update"
+  - "what did i do"
+  - "summarize my commits"
+  - "what have i done"

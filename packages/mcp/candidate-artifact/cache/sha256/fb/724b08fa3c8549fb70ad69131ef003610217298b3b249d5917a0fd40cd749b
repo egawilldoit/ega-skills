@@ -1,0 +1,11 @@
+schema_version: 1
+aliases: [experience-first]
+triggers:
+  - "experience first"
+anti_triggers:
+  - "ui design"
+  - "ux design"
+  - "frontend"
+  - "web design"
+  - "user interface"
+  - "component"

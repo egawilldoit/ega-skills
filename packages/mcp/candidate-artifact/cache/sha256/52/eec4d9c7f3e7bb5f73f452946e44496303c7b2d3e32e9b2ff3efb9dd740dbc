@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integrate PR Stack"
+  short_description: "Land stacked PRs one at a time without drift"
+  default_prompt: "Use $integrate-pr-stack to land this stack."

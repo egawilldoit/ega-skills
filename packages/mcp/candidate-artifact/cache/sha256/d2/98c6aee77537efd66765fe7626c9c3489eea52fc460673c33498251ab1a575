@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repository Preflight"
+  short_description: "Establish exact repo reality before serious work"
+  default_prompt: "Use $preflight-repository before I start on this checkout."

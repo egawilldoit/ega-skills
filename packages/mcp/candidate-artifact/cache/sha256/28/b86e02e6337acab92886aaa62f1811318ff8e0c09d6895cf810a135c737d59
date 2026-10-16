@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Branch and PR"
+  short_description: "Branch, commit, push, and open a clean PR"
+  default_prompt: "Use $new-branch-and-pr to ship this fix."

@@ -1,0 +1,10 @@
+schema_version: 1
+triggers:
+  - "integrate pr stack"
+  - "land stacked prs"
+  - "stacked pull requests"
+  - "stack of prs"
+  - "integrate the stack"
+anti_triggers:
+  - "new branch and pr"
+  - "review and ship"

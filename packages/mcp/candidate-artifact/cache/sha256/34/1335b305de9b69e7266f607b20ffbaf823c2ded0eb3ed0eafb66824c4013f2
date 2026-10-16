@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify CLI"
+  short_description: "Verify CLI or TUI behavior with real execution"
+  default_prompt: "Use $verify-cli to prove this command works."

@@ -1,0 +1,10 @@
+schema_version: 1
+triggers:
+  - "deliver this"
+  - "deliver software"
+  - "route this engineering task"
+  - "end to end delivery"
+anti_triggers:
+  - "fix the failing check"
+  - "review and ship this"
+  - "fix ci"

@@ -1,0 +1,11 @@
+schema_version: 1
+aliases: [attack-the-premise]
+triggers:
+  - "attack the premise"
+anti_triggers:
+  - "debug"
+  - "fix this bug"
+  - "implement this"
+  - "refactor"
+  - "write tests"
+  - "add tests"

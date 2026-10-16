@@ -1,0 +1,4 @@
+interface:
+  display_name: "Record Evidence"
+  short_description: "Keep an auditable decision and evidence ledger"
+  default_prompt: "Use $record-evidence for this long autonomous run."

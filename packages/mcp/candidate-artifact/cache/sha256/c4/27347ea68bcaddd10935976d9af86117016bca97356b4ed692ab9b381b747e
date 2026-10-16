@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix CI"
+  short_description: "Diagnose and repair a failing CI check"
+  default_prompt: "Use $fix-ci to repair the failing build job."

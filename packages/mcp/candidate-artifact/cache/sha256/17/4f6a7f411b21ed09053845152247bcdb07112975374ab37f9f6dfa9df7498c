@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Rationale Recovery"
+  short_description: "Recover why code is shaped this way, with sources"
+  default_prompt: "Use $recover-design-rationale to find why this retry limit exists."

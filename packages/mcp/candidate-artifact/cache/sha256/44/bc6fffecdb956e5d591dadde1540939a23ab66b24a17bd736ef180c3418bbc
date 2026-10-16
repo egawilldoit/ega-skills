@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "certify release"
+  - "certify the release"
+  - "release certification"
+  - "is this release ready"
+anti_triggers:
+  - "certify pr head"
+  - "certify production target"
+  - "certify database rollout"
+  - "certify mcp production"

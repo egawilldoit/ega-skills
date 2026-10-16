@@ -1,0 +1,4 @@
+interface:
+  display_name: "Make PR Easy to Review"
+  short_description: "Improve reviewer ergonomics without behavior change"
+  default_prompt: "Use $make-pr-easy-to-review to split this diff for reviewers."

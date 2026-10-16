@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "certify production target"
+  - "certify the production target"
+  - "verify the production target"
+  - "confirm the production environment"
+  - "certify the target"
+anti_triggers:
+  - "certify release"
+  - "deploy"
+  - "certify pr head"

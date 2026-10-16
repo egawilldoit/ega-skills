@@ -1,0 +1,14 @@
+schema_version: 1
+domains: [parallelism]
+triggers:
+  - "parallelize"
+  - "fan out"
+  - "fan this out"
+  - "run in parallel"
+  - "parallelize this"
+  - "run these in parallel"
+anti_triggers:
+  - "context window"
+  - "context is filling up"
+  - "raw payloads"
+  - "summaries in the main thread"

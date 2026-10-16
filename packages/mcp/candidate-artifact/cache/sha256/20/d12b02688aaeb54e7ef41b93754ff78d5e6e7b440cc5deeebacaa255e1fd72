@@ -1,0 +1,8 @@
+schema_version: 1
+domains: [investigation]
+triggers:
+  - "design an investigation"
+  - "investigation plan"
+  - "audit plan"
+  - "design an audit"
+  - "plan an investigation"

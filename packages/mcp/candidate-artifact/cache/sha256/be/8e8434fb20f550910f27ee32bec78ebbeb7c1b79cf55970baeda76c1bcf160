@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Behavior, Not Implementation"
+  short_description: "Assert observable behavior, not internal structure"
+  default_prompt: "Use $principle-test-behavior-not-implementation to rewrite these tests."

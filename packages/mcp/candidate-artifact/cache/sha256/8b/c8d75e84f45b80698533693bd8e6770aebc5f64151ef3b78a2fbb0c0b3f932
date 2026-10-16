@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Verification Workflow"
+  short_description: "Audit a verification workflow against the current app"
+  default_prompt: "Use $maintain-verification-workflow to check our verification skill is still accurate."

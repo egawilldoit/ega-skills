@@ -1,0 +1,6 @@
+schema_version: 1
+triggers:
+  - "maintain verification workflow"
+  - "maintain the verification workflow"
+  - "audit verification workflow"
+  - "update verification workflow"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Boundary Discipline"
+  short_description: "Validate at system boundaries, trust internal types"
+  default_prompt: "Use $principle-boundary-discipline when wiring this validation."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Separate Before Serializing"
+  short_description: "Remove shared writes before adding locking"
+  default_prompt: "Use $principle-separate-before-serializing-shared-state when two writers share this file."

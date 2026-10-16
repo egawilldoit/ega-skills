@@ -1,0 +1,10 @@
+schema_version: 1
+aliases: [laziness-protocol]
+triggers:
+  - "laziness protocol"
+anti_triggers:
+  - "refactor"
+  - "abstract"
+  - "simplify"
+  - "clean up"
+  - "reduce complexity"

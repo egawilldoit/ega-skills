@@ -1,0 +1,4 @@
+interface:
+  display_name: "Weekly Review"
+  short_description: "Summarize a week of authored work"
+  default_prompt: "Use $weekly-review to summarize this week's work."

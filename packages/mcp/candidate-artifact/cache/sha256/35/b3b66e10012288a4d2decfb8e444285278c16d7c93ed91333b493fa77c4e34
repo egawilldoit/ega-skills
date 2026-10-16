@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "mine work patterns"
+  - "work patterns"
+  - "recurring work"
+  - "mine patterns"
+  - "recurring friction"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Head Certification"
+  short_description: "Prove PR evidence matches the exact current head"
+  default_prompt: "Use $certify-pr-head before calling this PR merge-ready."

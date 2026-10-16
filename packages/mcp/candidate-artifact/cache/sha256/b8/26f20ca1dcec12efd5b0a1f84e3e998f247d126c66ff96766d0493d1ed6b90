@@ -1,0 +1,10 @@
+schema_version: 1
+aliases: [build-the-lever]
+triggers:
+  - "build the lever"
+anti_triggers:
+  - "refactor"
+  - "migrate"
+  - "bulk edit"
+  - "rename"
+  - "rewrite"
