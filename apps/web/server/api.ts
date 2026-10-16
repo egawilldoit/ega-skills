@@ -413,10 +413,13 @@ export function createBoundedHandler(
     inFlight += 1;
     const startedAt = Date.now();
     try {
-      const pending = (async () => handle(context))();
+      const timer = deadlineSignal(bounds.requestTimeoutMs);
+      // A timed-out response does not release capacity until its work settles.
+      const pending = Promise.resolve()
+        .then(() => handle({ ...context, signal: timer }))
+        .finally(() => { inFlight -= 1; });
       // Consume the loser's rejection so a late failure is neither unhandled
       // nor reported to the client as a success.
-      const timer = deadlineSignal(bounds.requestTimeoutMs);
       const timed = pending.then(
         (value) => ({ kind: "value" as const, value }),
         (error: unknown) => ({ kind: "error" as const, error }),
@@ -429,7 +432,10 @@ export function createBoundedHandler(
         void pending.catch(() => undefined);
         throw deadlineExceeded(bounds.requestTimeoutMs);
       }
-      if (winner.kind === "error") throw winner.error;
+      if (winner.kind === "error") {
+        if (timer.aborted) throw deadlineExceeded(bounds.requestTimeoutMs);
+        throw winner.error;
+      }
       if (Date.now() - startedAt > bounds.requestTimeoutMs) {
         throw deadlineExceeded(bounds.requestTimeoutMs);
       }
@@ -445,8 +451,6 @@ export function createBoundedHandler(
       return winner.value ?? {};
     } catch (error) {
       throw toConsoleApiError(error);
-    } finally {
-      inFlight -= 1;
     }
   };
 }
@@ -892,6 +896,7 @@ export async function authorizeArtifactRequest(
     caller = await reader.resolveCaller({
       method: context.method,
       headers: context.request.headers,
+      signal: context.signal,
     });
   } catch (error) {
     throw toControlPlaneApiError(error);
@@ -1230,6 +1235,7 @@ export function createControlPlaneHandler(
       const caller = await reader.resolveCaller({
         method: context.method,
         headers: context.request.headers,
+        signal: context.signal,
       });
       return await handle(context, caller, reader);
     } catch (error) {
