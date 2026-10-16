@@ -407,7 +407,24 @@ mod.API_ROUTES.push({
     // Log boundary: the entire stderr stream of the real server process must be
     // free of the canary, top-level message and nested cause alike, while still
     // naming the failing route for diagnosis.
-    const stderr = stderrChunks.join("");
+    //
+    // The child's stderr writes to a pipe are not guaranteed to have been
+    // dispatched to this parent when the HTTP response arrives (POSIX pipe
+    // delivery is asynchronous on some platforms). Asserting on a still-empty
+    // capture would read as a flaky failure of the diagnostic assertion — and,
+    // in a hypothetical future refactor that logs after responding, a vacuous
+    // pass of the leak assertion. So wait, bounded, until the bounded
+    // diagnostic line itself has been delivered: the leak check is only sound
+    // once the very line that could carry the leak has arrived.
+    const logDeadline = Date.now() + 5000;
+    let stderr = stderrChunks.join("");
+    while (
+      !stderr.includes("ega-web route ega720-canary-throw failed: E_INTERNAL\n") &&
+      Date.now() < logDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      stderr = stderrChunks.join("");
+    }
     assert.ok(!stderr.includes(canary), `stderr leaked the canary:\n${stderr}`);
     assert.ok(
       stderr.includes("ega-web route ega720-canary-throw failed: E_INTERNAL\n"),
