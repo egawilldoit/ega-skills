@@ -192,3 +192,56 @@ test("unknown kid refresh storms are coalesced and rate limited", async () => {
   assert.ok(results.every((entry) => entry.status === "rejected"));
   assert.equal(fetches, 1, "unknown kid requests must not trigger a refresh storm");
 });
+
+test("JWKS verifier rejects a signing key removed after cache expiry", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "removed-k1", kty: "RSA" };
+  let jwks = { keys: [jwk] };
+  let reads = 0;
+  const verify = createJwksBearerVerifier({
+    issuer: "https://issuer.example",
+    audience: "https://ega.example/mcp",
+    jwksUrl: "https://issuer.example/.well-known/jwks.json",
+    jwksMaxAgeMs: 5,
+    jwksRefreshCooldownMs: 30_000,
+    fetchImpl: async () => {
+      reads += 1;
+      return { ok: true, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(jwks)).buffer };
+    },
+  });
+  const claims = { iss: "https://issuer.example", aud: "https://ega.example/mcp", sub: "user-1", exp: Math.floor(Date.now() / 1000) + 60 };
+  const token = rsaToken(privateKey, "removed-k1", claims);
+  await verify(token, new AbortController().signal);
+  jwks = { keys: [] };
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await assert.rejects(() => verify(token, new AbortController().signal), /token key unavailable/);
+  assert.equal(reads, 2);
+});
+
+test("JWKS verifier rejects old signatures when an identical kid is replaced", async () => {
+  const oldKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const newKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let jwks = { keys: [{ ...oldKey.publicKey.export({ format: "jwk" }), kid: "shared-kid", kty: "RSA" }] };
+  let reads = 0;
+  const verify = createJwksBearerVerifier({
+    issuer: "https://issuer.example",
+    audience: "https://ega.example/mcp",
+    jwksUrl: "https://issuer.example/.well-known/jwks.json",
+    jwksMaxAgeMs: 50,
+    jwksRefreshCooldownMs: 30_000,
+    fetchImpl: async () => {
+      reads += 1;
+      return { ok: true, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(jwks)).buffer };
+    },
+  });
+  const claims = { iss: "https://issuer.example", aud: "https://ega.example/mcp", sub: "user-1", exp: Math.floor(Date.now() / 1000) + 60 };
+  const oldToken = rsaToken(oldKey.privateKey, "shared-kid", claims);
+  await verify(oldToken, new AbortController().signal);
+  jwks = { keys: [{ ...newKey.publicKey.export({ format: "jwk" }), kid: "shared-kid", kty: "RSA" }] };
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  await assert.rejects(() => verify(oldToken, new AbortController().signal), /token signature rejected/);
+  const newToken = rsaToken(newKey.privateKey, "shared-kid", claims);
+  const principal = await verify(newToken, new AbortController().signal);
+  assert.equal(principal.subject, "user-1");
+  assert.equal(reads, 2);
+});
