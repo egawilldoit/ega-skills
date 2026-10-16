@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
+import { formatFindingsSummary } from "../../scripts/eval/discovery.mjs";
 import { openRegistry } from "../../packages/registry/dist/index.js";
 
 const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
@@ -46,14 +47,12 @@ test("docs/DISCOVERY-FINDINGS.md quotes triggers exactly as the registry declare
   // wrong data — and nothing else in the repo would catch it.
   const findings = await readFile(FINDINGS, "utf8");
   const start = findings.indexOf("| Skill | Declared triggers |");
-  const end = findings.indexOf("Intents whose expected skill does not appear");
-  assert.ok(start > 0 && end > start, "could not locate the declared-triggers table");
+  assert.ok(start > 0, "could not locate the declared-triggers table");
+  const table = findings.slice(start).split(/\r?\n\r?\n/u)[0];
 
   const triggers = triggersBySkill();
   const rows = [
-    ...findings
-      .slice(start, end)
-      .matchAll(/^\| `(principle-[a-z-]+)` \| (.+?) \|$/gmu),
+    ...table.matchAll(/^\| `(principle-[a-z-]+)` \| (.+?) \|$/gmu),
   ];
   assert.ok(rows.length > 0, "declared-triggers table is empty");
 
@@ -88,4 +87,12 @@ test("the name-only count quoted in the findings is still exact", async () => {
     nameOnly.length,
     `name-only count drifted; now ${nameOnly.length}: ${nameOnly.map((id) => id.split("/")[1]).join(", ")}`,
   );
+});
+
+test("findings metrics match the entire recorded discovery summary", async () => {
+  const findings = await readFile(FINDINGS, "utf8");
+  const baseline = JSON.parse(await readFile(join(process.cwd(), "tests/discovery/baseline.json"), "utf8"));
+  const blocks = [...findings.matchAll(/<!-- discovery-summary:start -->[\s\S]*?<!-- discovery-summary:end -->/gu)];
+  assert.equal(blocks.length, 1, "findings must contain exactly one generated discovery summary");
+  assert.equal(blocks[0][0], formatFindingsSummary(baseline), "findings summary is stale; regenerate with eval:discovery --findings");
 });

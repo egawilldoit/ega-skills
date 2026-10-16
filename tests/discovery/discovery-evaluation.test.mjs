@@ -359,6 +359,14 @@ test("automatic misroutes are limited to the documented external-metadata defect
   }
 });
 
+test("the recorded baseline summary matches the full pinned-catalog evaluation", async () => {
+  const actual = await report();
+  const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));
+  for (const key of ["schema_version", "corpus_id", "release_digest", "catalog_skill_count", "summary", "pending_skill_intents"]) {
+    assert.deepEqual(actual[key], baseline[key], `recorded baseline ${key} is stale`);
+  }
+});
+
 test("discovery quality does not regress below the recorded baseline", async () => {
   const { summary } = await report();
   const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));

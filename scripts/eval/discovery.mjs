@@ -21,7 +21,7 @@
  * registry, and never re-hashes or regenerates release state.
  *
  * Usage:
- *   node scripts/eval/discovery.mjs <corpus.json> [--artifact <dir>] [--json]
+ *   node scripts/eval/discovery.mjs <corpus.json> [--artifact <dir>] [--json | --findings]
  */
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -302,12 +302,40 @@ export async function evaluateDiscovery(corpus, options = {}) {
   }
 }
 
+/** Baseline-derived Markdown shared by the findings document and drift guard. */
+export function formatFindingsSummary(report) {
+  const s = report.summary;
+  const percent = (count, total) => `${(total === 0 ? 0 : count / total * 100).toFixed(1)}%`;
+  const status = (met) => met ? "met" : "**not met**";
+  return [
+    "<!-- discovery-summary:start -->",
+    `Release: \`${report.release_digest}\`; catalog: ${report.catalog_skill_count} skills; corpus: \`${report.corpus_id}\`.`,
+    "",
+    "| Metric | Value | Target | Status |",
+    "| --- | --- | --- | --- |",
+    `| Intents evaluated | ${s.intent_count} | >= ${MIN_MEASURABLE_INTENTS} | ${status(s.intent_count >= MIN_MEASURABLE_INTENTS)} |`,
+    `| Automatic selection attempts | ${s.auto_select_attempts}/${s.intent_count} | — | informational |`,
+    `| Wrong automatic selections | ${s.wrong_automatic_selection_count} across ${s.auto_select_attempts} attempts (${percent(s.wrong_automatic_selection_intents, s.auto_select_attempts)} of attempts) | 0 | ${status(s.targets.wrong_automatic_selections)} |`,
+    `| Excluded skill **auto-selected** | ${s.catastrophic_auto_selected_count} | 0 | ${status(s.targets.no_catastrophic_auto_selection)} |`,
+    `| Excluded skill in a suggestion slot only | ${s.catastrophic_suggested_only_count} | — | presentation issue, not safety |`,
+    `| Expected skill ranked #1 | ${s.top1_count}/${s.intent_count} = ${percent(s.top1_count, s.intent_count)} | >= 90% | ${status(s.targets.top1)} |`,
+    `| Expected skill in top 3 (resolver window) | ${s.top3_count}/${s.intent_count} = ${percent(s.top3_count, s.intent_count)} | >= 98% | ${status(s.targets.top3)} |`,
+    `| Expected skill in top 3 of raw \`search\` | ${s.search_reachable_count}/${s.intent_count} = ${percent(s.search_reachable_count, s.intent_count)} | — | fallback path only |`,
+    `| LOW-confidence results | ${s.low_confidence_count}/${s.intent_count} | — | informational |`,
+    "",
+    `Wrong-selection rate uses the ${s.auto_select_attempts} attempted automatic selections as its denominator, not all ${s.intent_count} intents.`,
+    `Excluded skills appear in ${s.catastrophic_top3_count} windows: ${s.catastrophic_auto_selected_count} auto-selected and ${s.catastrophic_suggested_only_count} suggestion-only.`,
+    `Pending skills: ${report.pending_skill_intents.length} intent(s), excluded from the measured rates above.`,
+    "<!-- discovery-summary:end -->",
+  ].join("\n");
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const corpusPath = args[0];
   if (corpusPath === undefined) {
     process.stderr.write(
-      "Usage: node scripts/eval/discovery.mjs <corpus.json> [--artifact <dir>] [--json]\n",
+      "Usage: node scripts/eval/discovery.mjs <corpus.json> [--artifact <dir>] [--json | --findings]\n",
     );
     process.exitCode = 2;
     return;
@@ -330,6 +358,12 @@ async function main() {
   }
 
   const report = await evaluateDiscovery(corpus, { artifactDir });
+
+  if (args.includes("--findings")) {
+    process.stdout.write(`${formatFindingsSummary(report)}\n`);
+    if (!report.summary.exec_ok) process.exitCode = 1;
+    return;
+  }
 
   if (!args.includes("--json")) {
     const s = report.summary;
