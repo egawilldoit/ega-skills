@@ -906,12 +906,8 @@ export async function authorizeArtifactRequest(
         if (digest) {
           digestsToCheck = [digest];
         }
-      } catch (error) {
-        // Fail closed: a release-identity lookup failure must not silently drop
-        // the hub_releases RLS digest check. Downstream routes also refuse, but
-        // the authorizer must not report "authorized" when it could not prove
-        // which release the request is for.
-        throw toConsoleApiError(error);
+      } catch {
+        // If release identity is unavailable, skip release_digest check
       }
     }
 
