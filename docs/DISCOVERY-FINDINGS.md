@@ -48,15 +48,15 @@ rebuild the release → re-verify.** That work is out of scope here.
 
 `tests/discovery/findings-accuracy.test.mjs` additionally verifies that this
 document quotes each skill's declared triggers **exactly as the registry records
-them**, so the handoff cannot silently drift.
+them**, and that the generated summary matches the entire recorded baseline,
+so the handoff cannot silently drift.
 
 ## 2. Baseline discovery metrics
 
-> **Current numbers live in `tests/discovery/baseline.json`.** The table below
-> was recorded when the corpus held 79 measurable intents and reflects that
-> snapshot; EGA-722 later added the `release-certification-console` and
-> `write-pr-body` rows, so the committed baseline (81 measurable intents) and
-> its summary supersedes the counts here for current evaluation.
+The summary below is generated from the full committed baseline. Regenerate it
+with `pnpm eval:discovery --findings`; the evaluator exits 1 while the recorded
+execution-safety failures remain. This is truthful baseline evidence, not a
+passing routing-quality certificate.
 
 ### What the window actually is
 
@@ -67,49 +67,45 @@ An earlier revision of this harness appended them, and that inflated top-3 from
 skills per task, so concatenating it pads the window with rows that carry no
 ranking signal. Search reachability is therefore reported on its own.
 
+<!-- discovery-summary:start -->
+Release: `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`; catalog: 116 skills; corpus: `personal-intents-v1`.
+
 | Metric | Value | Target | Status |
 | --- | --- | --- | --- |
-| Intents evaluated | 79 | >= 50 | met |
-| Wrong automatic selections | 25 (of 33 that selected anything = 75.8%) | 0 | **not met** (§3) |
-| Excluded skill **auto-selected** | 1 | 0 | **not met** (§4) |
+| Intents evaluated | 81 | >= 50 | met |
+| Automatic selection attempts | 35/81 | — | informational |
+| Wrong automatic selections | 26 across 35 attempts (74.3% of attempts) | 0 | **not met** |
+| Excluded skill **auto-selected** | 2 | 0 | **not met** |
 | Excluded skill in a suggestion slot only | 16 | — | presentation issue, not safety |
-| Expected skill ranked #1 | 36/79 = 45.6% | >= 90% | **not met** (§5) |
-| Expected skill in top 3 (resolver window) | 65/79 = 82.3% | >= 98% | **not met** (§5) |
-| Expected skill in top 3 of raw `search` | 68/79 = 86.1% | — | fallback path only |
-| LOW-confidence results | 46/79 | — | informational |
+| Expected skill ranked #1 | 37/81 = 45.7% | >= 90% | **not met** |
+| Expected skill in top 3 (resolver window) | 67/81 = 82.7% | >= 98% | **not met** |
+| Expected skill in top 3 of raw `search` | 70/81 = 86.4% | — | fallback path only |
+| LOW-confidence results | 46/81 | — | informational |
 
-Two numbers deserve emphasis because the raw counts alone are misleading:
-
-- Only **9 of 79** intents auto-selected anything at all; the rest are LOW and
-  correctly selected nothing. So "2 wrong selections" is a **22.2% error rate
-  over attempts**, not 2/79.
-- Of the excluded-skill hits, **1 would have executed** and 18 were merely
-  suggestion slots a user must actively choose. Only the first is a safety
-  failure, and only the first is gated on.
-
-Per expected namespace:
-
-Per expected namespace (top-1 / top-3 within the resolver window):
-
-| Namespace | top-1 | top-3 |
-| --- | --- | --- |
-| `egawilldoit` | 49/69 | 56/69 |
-| `anthropic` | 2/3 | 3/3 |
-| `mattpocock` | 5/5 | 5/5 |
-| `vercel` | 1/2 | 1/2 |
+Wrong-selection rate uses the 35 attempted automatic selections as its denominator, not all 81 intents.
+Excluded skills appear in 18 windows: 2 auto-selected and 16 suggestion-only.
+Pending skills: 1 intent(s), excluded from the measured rates above.
+<!-- discovery-summary:end -->
 
 `ROUTER_SEMANTICS_UNCHANGED`. The resolver is untouched: every number above comes
-from calling `resolveSkills` exactly as SPEC-004 freezes it. No router algorithm
-change is justified, because every observed failure is explained by missing or
-over-broad *metadata*, not by the ranking algorithm.
+from calling `resolveSkills` exactly as SPEC-004 freezes it. This reporting repair
+does not change routing. The current baseline also includes the accepted
+`mattpocock/pr` substring-matching defect documented in
+[`catalog-2026-10-06.1/routing.md`](evidence/catalog/catalog-2026-10-06.1/routing.md)
+§4 and §8; metadata examples below do not explain away that platform defect.
 
 Scope of the measurement: intents are evaluated against a **bare temporary
 project**, so these figures reflect default routing policy only. They do not
 cover project-configured namespace allow/deny or lock-scoped routing.
 
-## 3. Wrong automatic selections (execution safety) — 2 cases
+## 3. Wrong automatic selections (execution safety) — selected examples
 
-Both are the **same defect class**: an over-broad `domains` entry producing strong
+The two examples below are retained from the original investigation. They are
+not the full current failure set: the baseline's `known_external_auto_routes`
+records every current automatic misroute, including the accepted `mattpocock/pr`
+substring family and EGA-722's `release-certification-console` case.
+
+These two examples share an over-broad `domains` entry producing strong
 `DOMAIN_MATCH` evidence under SPEC-004 §5.1.17.
 
 ### 3.1 `reconcile-conflicting-truth`
@@ -155,35 +151,36 @@ Suggested fix in `egawilldoit/skills`:
 + domains: []
 ```
 
-Both cases confirm the mission's predicted failure mode is real and reproducible
-on the current release, and that it is broader than the single skill first
-observed: **two skills in two namespaces show the same pattern.**
+These examples explain one metadata defect class. They do not establish a
+complete root-cause analysis for the current baseline.
 
-## 4. Excluded skills surfacing in the window — 19 intents
+## 4. Excluded skills surfacing in the window
 
-These surface a skill the intent explicitly excludes. Only **1 of the 19** would
-have executed; the other 18 sat in a suggestion slot. The dominant cause is the
-one in §5; the noisiest occupants across all 79 intents are:
+The generated summary above separates automatic exclusions (execution safety)
+from suggestion-only exclusions (presentation). Both current automatic
+exclusions remain visible: `reconcile-conflicting-truth` selects
+`get-pr-comments`, and `release-certification-console` selects `mattpocock/pr`. The latter belongs
+to the accepted substring-matching defect linked in §2.
 
-| Skill | Times in the window | Why it is wrong there |
-| --- | --- | --- |
-| `anthropic/academy-guide` | 18 | Very broad description ("how do I", "teach me", "what can X do") |
-| `egawilldoit/recover-work-context` | 15 | Matches almost any "what is the state of X" phrasing |
-| `egawilldoit/what-did-i-get-done` | 10 | Competes directly with `recover-work-context` |
-| `egawilldoit/blast-radius` | 7 | Broad "could this break" surface |
+The original investigation also identified these candidate-window neighbours:
 
-The single auto-selected exclusion is `reconcile-conflicting-truth` selecting
-`get-pr-comments`, which is the §3 bug.
+| Skill | Investigation finding |
+| --- | --- |
+| `anthropic/academy-guide` | Very broad description ("how do I", "teach me", "what can X do") |
+| `egawilldoit/recover-work-context` | Matches broad "what is the state of X" phrasing |
+| `egawilldoit/what-did-i-get-done` | Competes with `recover-work-context` |
+| `egawilldoit/blast-radius` | Broad "could this break" surface |
 
-`anthropic/academy-guide` is the clearest offender: it appears in the top-3 of
-18 of 79 windows across unrelated domains. It needs narrower trigger text in the
-`anthropic/skills` source, and that is outside this repository.
+These are qualitative handoff examples, not an exhaustive current frequency
+ranking. Re-evaluate individual rows before applying upstream metadata changes;
+this issue changes reporting only.
 
 ## 5. Root cause of the top-1 / top-3 gap — missing triggers
 
-14 intents rank the expected skill outside the 3-slot window. **5 of the 14
-expect a `principle-*` skill**, and 4 more expect a skill with a closely-named
-sibling (`fix-ci`/`loop-on-ci`, `verify-*`, `unslop`/`deslop`).
+The original investigation found missing-trigger and closely-named-sibling
+patterns (`fix-ci`/`loop-on-ci`, `verify-*`, `unslop`/`deslop`). The examples
+below are retained as metadata investigation leads; the generated summary in
+§2 is authoritative for current full-corpus rates.
 
 The reason is systematic: **20 of the 66 `egawilldoit` skills have a trigger set
 that is entirely a rephrasing of their own name** — every declared trigger is a
@@ -217,7 +214,8 @@ the count are both checked mechanically:
 | `principle-migrate-callers-then-delete-legacy-apis` | `migrate callers then delete legacy apis`, `delete legacy apis` (2) |
 | `principle-encode-lessons-in-structure` | `encode lessons in structure` |
 
-Intents whose expected skill does not appear in the 3-slot window at all:
+Selected investigation examples of intents whose expected skill did not appear
+in the 3-slot window (not an exhaustive current list):
 
 | Intent | Expected |
 | --- | --- |
@@ -269,13 +267,14 @@ Adding triggers there is not evidence-justified by this corpus.
 
 ## 6. Anti-trigger gaps that pollute the candidate window
 
-In every case below the **expected skill already ranks #1**, so execution routing
-is not wrong and no automatic selection is at risk. The defect is that an
-explicitly excluded neighbour still occupies a slot in the 3-candidate discovery
-window, which is what a human is shown. The fix is anti-trigger text, so the
-window shows only plausible alternatives.
+The original investigation proposed the following anti-trigger changes for
+excluded neighbours in the discovery window. These are historical candidate
+metadata fixes, not claims that every row currently ranks the expected skill
+first or has safe automatic selection. The current automatic exclusions are
+listed in §4. Re-evaluate each row on the intended candidate
+catalog before accepting a metadata fix.
 
-| Intent (expected skill is #1) | Excluded neighbour also in window | Missing anti-trigger |
+| Intent (original investigation) | Excluded neighbour also in window | Candidate anti-trigger |
 | --- | --- | --- |
 | `single-ci-failure` (`fix-ci`) | `loop-on-ci` | "one known failing check" |
 | `ci-until-green` (`loop-on-ci`) | `fix-ci` | "until all checks are green" |
@@ -285,9 +284,9 @@ window shows only plausible alternatives.
 | `preflight-repository` | `recover-work-context` | "exact repository state" |
 | `handoff-context` (`handoff`) | `recover-work-context` | "write a handoff document" |
 
-The `fix-ci` / `loop-on-ci` pair is genuinely bidirectional and is the clearest
-case: each is #1 for its own intent and each is #2 for the other's. Both need
-anti-triggers to separate them.
+The original `fix-ci` / `loop-on-ci` investigation motivated bidirectional
+anti-trigger candidates. Their current positions must be checked against a
+fresh report before changing either source.
 
 ## 7. `egawilldoit/find-skill` (Phase C) — not implementable here
 
@@ -312,10 +311,14 @@ under **Not sure which skill?** alongside `egawilldoit/deliver-software`.
 
 ## 8. Expected effect
 
-Sections 3–6 are metadata-only changes in one external repository. Per mission
-§11, they are the correct first-line fix: repair metadata rather than weaken
-deterministic routing. After re-vendoring, re-run `pnpm eval:discovery` and
-update `tests/discovery/baseline.json`. The two known-external misroutes in
-`tests/discovery/discovery-evaluation.test.mjs`
-(`KNOWN_EXTERNAL_AUTO_ROUTES`) must be updated in the same change, or the
-regression guard will fail — which is intentional.
+Sections 3–6 contain metadata investigation leads, not implemented repairs.
+Owned metadata changes, the accepted platform substring defect, catalog
+adoption, and catalog publication are separate work. No routing quality fix or
+new catalog release is claimed here.
+
+After an authorized catalog adoption, re-run `pnpm eval:discovery`, update
+`tests/discovery/baseline.json`, and regenerate the findings summary with
+`pnpm eval:discovery --findings`. Reconcile the complete
+`KNOWN_EXTERNAL_AUTO_ROUTES` set in
+`tests/discovery/discovery-evaluation.test.mjs` with observed results; do not
+remove failures or weaken thresholds to make the report pass.
