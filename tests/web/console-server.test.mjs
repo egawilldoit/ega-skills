@@ -14,7 +14,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after, before } from "node:test";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -331,4 +331,111 @@ test("the served index.html is the one in dist/, confirming cwd-relative resolut
   const response = await fetch(`${BASE}/index.html`);
   assert.equal(response.status, 200);
   assert.equal(await response.text(), await readFileText(join(distDir, "index.html")));
+});
+
+/**
+ * EGA-720 regression: an unexpected exception inside a real BFF route must be
+ * diagnosable without printing its text to stderr.
+ *
+ * The old catch block wrote `cause.message` (or `String(cause)`) into stderr
+ * under a "sanitized" comment; such text can embed request URLs or credentials,
+ * including through a nested `cause`. The repair logs only the route id and the
+ * fixed internal code, so this test drives the REAL server process and asserts
+ * the whole stderr stream — not just one matched line.
+ *
+ * The throwing route is injected through the exported `API_ROUTES` seam by a
+ * small child-side harness module, so the exercise is the genuine HTTP handler
+ * (`server.mts`'s catch block) rather than a re-implementation of it.
+ */
+test("an unexpected route failure logs no exception text: 500 stays generic (EGA-720)", async () => {
+  const canary = "SYNTHETIC_SECRET_CANARY";
+  const port = PORT + 200;
+  const base = `http://127.0.0.1:${port}`;
+  const harness = join(workdir, "ega720-throw-route.mjs");
+  writeFileSync(
+    harness,
+    `const mod = await import(${JSON.stringify(pathToFileURL(SERVER).href)});
+mod.API_ROUTES.push({
+  id: "ega720-canary-throw",
+  path: "/__ega720_canary_throw",
+  methods: ["GET"],
+  handle() {
+    throw new Error(
+      "unexpected handler failure: upstream call to http://127.0.0.1:${port}/api/secret?token=${canary} failed",
+      { cause: new Error("ECONNREFUSED 127.0.0.1:${port}; Authorization: Bearer ${canary}") },
+    );
+  },
+});
+`,
+  );
+
+  const proc = spawn(process.execPath, [harness], {
+    cwd: workdir,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PORT: String(port), EGA_WEB_ARTIFACT_DIR: "", EGA_WEB_RETAINED_MANIFEST: "" },
+  });
+  proc.stdout.resume();
+  proc.stderr.setEncoding("utf8");
+  const stderrChunks = [];
+  proc.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+
+  try {
+    // Wait for the injected route itself: /healthz only proves the process is
+    // up, but the route must be registered before the probe can exercise the
+    // catch block.
+    let response;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      try {
+        response = await fetch(`${base}/api/__ega720_canary_throw`);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    assert.ok(response, "the canary server never answered");
+
+    // HTTP boundary: the caller gets a generic 500 whose body carries no detail.
+    assert.equal(response.status, 500);
+    const body = await response.json();
+    assert.deepEqual(body, {
+      error: { code: "E_INTERNAL", message: "The console API failed to handle this request." },
+    });
+    assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.ok(!JSON.stringify(body).includes(canary), "the HTTP body must not echo the canary");
+
+    // Log boundary: the entire stderr stream of the real server process must be
+    // free of the canary, top-level message and nested cause alike, while still
+    // naming the failing route for diagnosis.
+    //
+    // The child's stderr writes to a pipe are not guaranteed to have been
+    // dispatched to this parent when the HTTP response arrives (POSIX pipe
+    // delivery is asynchronous on some platforms). Asserting on a still-empty
+    // capture would read as a flaky failure of the diagnostic assertion — and,
+    // in a hypothetical future refactor that logs after responding, a vacuous
+    // pass of the leak assertion. So wait, bounded, until the bounded
+    // diagnostic line itself has been delivered: the leak check is only sound
+    // once the very line that could carry the leak has arrived.
+    const logDeadline = Date.now() + 5000;
+    let stderr = stderrChunks.join("");
+    while (
+      !stderr.includes("ega-web route ega720-canary-throw failed: E_INTERNAL\n") &&
+      Date.now() < logDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      stderr = stderrChunks.join("");
+    }
+    assert.ok(!stderr.includes(canary), `stderr leaked the canary:\n${stderr}`);
+    assert.ok(
+      stderr.includes("ega-web route ega720-canary-throw failed: E_INTERNAL\n"),
+      `stderr must carry only the bounded diagnostic line, got:\n${stderr}`,
+    );
+
+    // An ordinary successful route on the same process is unchanged.
+    const healthy = await fetch(`${base}/healthz`);
+    assert.equal(healthy.status, 200);
+    assert.deepEqual(await healthy.json(), { status: "ok" });
+  } finally {
+    await stopChild(proc);
+  }
 });

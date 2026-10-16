@@ -324,11 +324,12 @@ async function handleApi(
       json(outgoing, cause.status, errorBody(cause.code, cause.message));
       return;
     }
-    // Unexpected failure: log a sanitized line server-side, return nothing
-    // specific to the client.
-    process.stderr.write(
-      `ega-web route ${route.id} failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
-    );
+    // Unexpected failure: log a bounded, secret-free line — the route id and the
+    // fixed internal code, and nothing else. Exception text (`cause.message`,
+    // `String(cause)`) can embed request URLs or credentials, including through a
+    // nested `cause`, so it is never written to stderr; diagnosability comes from
+    // the route id plus the code. The client keeps the generic 500.
+    process.stderr.write(`ega-web route ${route.id} failed: E_INTERNAL\n`);
     json(outgoing, 500, errorBody("E_INTERNAL", "The console API failed to handle this request."));
   }
 }
