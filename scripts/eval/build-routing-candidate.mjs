@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cacheBlobPathForHash, openRegistry, prepareSkillRoot } from "../../packages/registry/dist/index.js";
 import { buildHubRelease } from "../../packages/project/dist/index.js";
@@ -38,8 +38,19 @@ export async function buildRoutingCandidate() {
       assert.ok(row, `missing manifest ${id}`);
       const manifest = JSON.parse(row.manifest_json);
       for (const file of manifest.files) {
+        assert.ok(typeof file?.path === "string" && file.path.length > 0, "manifest path missing");
+        assert.ok(!isAbsolute(file.path), "manifest path must be relative");
+        assert.ok(!file.path.split(/[\\/]/).includes(".."), "manifest path escapes skill");
         const target = resolve(root, file.path);
-        assert.ok(target.startsWith(`${root}/`), "manifest path escapes skill");
+        const contained = relative(root, target);
+        const firstSegment = contained.split(/[\\/]/)[0];
+        assert.ok(
+          contained !== "" &&
+            contained !== "." &&
+            firstSegment !== ".." &&
+            !isAbsolute(contained),
+          "manifest path escapes skill",
+        );
         const bytes = await readFile(cacheBlobPathForHash(join(baseline, "cache/sha256"), file.blob_hash));
         assert.equal(`sha256:${createHash("sha256").update(bytes).digest("hex")}`, file.blob_hash);
         await mkdir(dirname(target), { recursive: true });
