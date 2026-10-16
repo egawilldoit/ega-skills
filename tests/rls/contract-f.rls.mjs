@@ -377,6 +377,11 @@ const CONTROL_PLANE_TABLES = [
   "source_credentials",
   "quota_usage",
   "public_hub_publications",
+  // Contract T1 telemetry. Present here so the count assertion below and the
+  // delegated-token loop both cover it: a new control-plane table that misses
+  // the containment migration would otherwise read as "no restrictive policy"
+  // and pass a test that never looked at it.
+  "mcp_tool_executions",
 ];
 
 function asDelegated(subject, clientId, sql) {

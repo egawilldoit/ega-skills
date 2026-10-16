@@ -55,6 +55,10 @@ jobs:
       - name: Check generated catalog is not stale
         run: pnpm catalog:check
 
+      # Verify the exact immutable artifact staged for the console.
+      - name: Verify the web deployment artifact stages and verifies
+        run: node scripts/web/stage-artifact.mjs --check-only
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -69,6 +73,151 @@ jobs:
 
       - name: Check frozen specs
         run: pnpm specs:check
+
+  web:
+    name: web console (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile is unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      # The root `tsconfig.json` references the domain packages only, so
+      # `pnpm build` and `pnpm typecheck` never touch apps/web. Without this step
+      # the console is never compiled by CI at all, and a type error in the SPA
+      # or the BFF would merge green.
+      - name: Build domain packages
+        run: pnpm build
+
+      - name: Typecheck web frontend
+        run: pnpm --filter @ega-skills/web typecheck
+
+      # `server.mts` and the server modules are outside the frontend tsconfig,
+      # so they are typechecked separately. A BFF-only type error is invisible to
+      # the check above.
+      - name: Typecheck web server
+        run: pnpm --filter @ega-skills/web typecheck:server
+
+      # The real SPA build. This is what proves the bundle compiles and that no
+      # server-only package leaks into it.
+      - name: Build web frontend
+        run: pnpm --filter @ega-skills/web build
+
+      # Deliberately NOT the isolation suite: that one needs a real PostgreSQL,
+      # which needs a service container, and GitHub Actions rejects service
+      # containers on Windows runners
+      # ("Container operations are only supported on Linux runners"). It runs in
+      # the `web-isolation` job below instead, so the Windows leg of this matrix
+      # stays runnable.
+      # Executed React component behaviour. Separate from `node --test` because
+      # .tsx is not something Node's type stripping transforms, and kept separate
+      # so the `pnpm test:ci` count is unchanged and this gate is reported on its
+      # own rather than folded into a total that also means something else.
+      - name: Web component behaviour (executed React)
+        run: pnpm test:web:components
+
+      - name: Web API and integration tests
+        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
+
+  web-isolation:
+    name: web isolation (real PostgreSQL 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Linux only, and not because of a preference: Actions supports service
+    # containers on Linux runners exclusively. The cross-workspace isolation
+    # proof is worthless without a real database — the suite throws rather than
+    # skipping when `EGA_RLS_DATABASE_URL` is unset — so it gets its own
+    # Linux-only job rather than being dropped to make Windows pass.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build domain packages
+        run: pnpm build
+
+      - name: Cross-workspace isolation (real PostgreSQL 16)
+        run: node --test tests/web/cross-workspace-isolation.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      # Telemetry authorization, delegated containment, retention and the
+      # permitted-field constraints. Real PostgreSQL: the properties are
+      # properties of RLS resolution and function privilege, not of TypeScript.
+      - name: Telemetry authorization and retention (real PostgreSQL 16)
+        run: node --test tests/rls/telemetry-authz.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+
+      # Install pg_cron only after the ordinary disposable-database suites.
+      # The scheduler test uses the cluster's isolated metadata database.
+      - name: Enable pg_cron in disposable PostgreSQL
+        run: |
+          docker exec --user root ${{ job.services.postgres.id }} bash -c 'apt-get update -qq && apt-get install -y postgresql-16-cron'
+          docker exec --user postgres ${{ job.services.postgres.id }} bash -c "echo shared_preload_libraries=pg_cron >> /var/lib/postgresql/data/postgresql.conf; echo cron.use_background_workers=on >> /var/lib/postgresql/data/postgresql.conf"
+          docker restart ${{ job.services.postgres.id }}
+          for attempt in $(seq 1 30); do
+            if docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+
+      - name: Retention scheduler execution (real pg_cron)
+        run: node --test tests/rls/telemetry-scheduler.rls.mjs
+        env:
+          EGA_PGCRON_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Dedicated writer through isolated REST gateway
+        run: node scripts/testing/telemetry-gateway.mjs
+        env:
+          EGA_PGCRON_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
   rls:
     name: contract-f rls (ubuntu-latest)
