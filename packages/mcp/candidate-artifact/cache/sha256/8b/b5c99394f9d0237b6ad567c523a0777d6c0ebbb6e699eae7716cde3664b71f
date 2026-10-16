@@ -1,8 +1,0 @@
-schema_version: 1
-domains: [github]
-triggers:
-  - "pr comments"
-  - "review comments"
-  - "what did reviewers say"
-  - "reviewer feedback"
-  - "pull request comments"

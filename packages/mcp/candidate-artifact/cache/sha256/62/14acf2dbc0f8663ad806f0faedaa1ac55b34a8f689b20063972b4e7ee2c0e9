@@ -1,8 +1,0 @@
-schema_version: 1
-triggers:
-  - "compiler errors"
-  - "type check"
-  - "typecheck"
-  - "compile errors"
-  - "run the typecheck"
-  - "type errors"

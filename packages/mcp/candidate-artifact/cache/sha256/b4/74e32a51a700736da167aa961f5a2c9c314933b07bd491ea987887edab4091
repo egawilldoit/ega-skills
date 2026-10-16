@@ -1,7 +1,0 @@
-schema_version: 1
-triggers:
-  - "run smoke tests"
-  - "smoke test"
-  - "smoke suite"
-  - "smoke tests"
-  - "run the smoke suite"

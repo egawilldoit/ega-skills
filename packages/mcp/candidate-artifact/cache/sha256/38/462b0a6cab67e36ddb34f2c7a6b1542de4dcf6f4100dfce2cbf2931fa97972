@@ -1,7 +1,0 @@
-schema_version: 1
-triggers:
-  - "adversarial review"
-  - "challenge this change"
-  - "red team this"
-  - "attack this design"
-  - "independent challenge"

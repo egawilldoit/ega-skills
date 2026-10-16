@@ -1,9 +1,0 @@
-schema_version: 1
-triggers:
-  - "blast radius"
-  - "what could this break"
-  - "what could this change break"
-  - "could this change break"
-  - "what does this change break"
-  - "impact of this change"
-  - "what else does this affect"

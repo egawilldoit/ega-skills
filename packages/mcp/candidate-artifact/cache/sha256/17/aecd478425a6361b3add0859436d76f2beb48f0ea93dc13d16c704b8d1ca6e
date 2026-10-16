@@ -1,7 +1,0 @@
-schema_version: 1
-triggers:
-  - "compare designs"
-  - "compare options"
-  - "arena"
-  - "compare approaches"
-  - "compare two designs"

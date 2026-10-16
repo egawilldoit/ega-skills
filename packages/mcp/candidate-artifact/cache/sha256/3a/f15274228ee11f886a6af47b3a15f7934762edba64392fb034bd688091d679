@@ -1,8 +1,0 @@
-schema_version: 1
-domains: [provenance]
-triggers:
-  - "artifact provenance"
-  - "provenance manifest"
-  - "trace artifact"
-  - "source to artifact lineage"
-  - "provenance"

@@ -1,9 +1,0 @@
-schema_version: 1
-triggers:
-  - "deploy my app"
-  - "give me the link"
-  - "push this live"
-  - "create a preview deployment"
-anti_triggers:
-  - "access token"
-  - "cache"
