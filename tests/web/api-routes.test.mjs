@@ -35,7 +35,8 @@
  */
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import { createServer as createHttpsServer } from "node:https";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -892,6 +893,81 @@ describe("response size, deadline and concurrency are bounded", () => {
     // The slot is released, so the next request is served normally.
     await inFlight;
     assert.deepEqual(await slow(context), { ok: true });
+  });
+
+  test("EGA-721: BFF auth deadline aborts the real transport and frees capacity", async () => {
+    const key = join(workdir, "deadline-key.pem");
+    const cert = join(workdir, "deadline-cert.pem");
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes",
+      "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=localhost"], { stdio: "ignore" });
+    let active = 0;
+    let maximumActive = 0;
+    let requests = 0;
+    let entered;
+    let closed;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const aborted = new Promise((resolve) => { closed = resolve; });
+    const upstream = createHttpsServer({ key: readFileSync(key), cert: readFileSync(cert) }, (req, res) => {
+      assert.equal(req.url, "/auth/v1/user");
+      requests += 1;
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      res.once("close", () => { active -= 1; closed(); });
+      if (requests === 1) entered(); // Intentionally leave the auth read stalled.
+      else { res.writeHead(401); res.end("{}"); }
+    });
+    await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => { upstream.closeAllConnections(); upstream.close(); });
+    const server = await startServer({
+      EGA_WEB_ARTIFACT_DIR: artifactCopy,
+      EGA_WEB_PUBLIC_POLICY: "",
+      EGA_SUPABASE_URL: `https://127.0.0.1:${upstream.address().port}`,
+      EGA_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_deadline_fixture",
+      EGA_WEB_REQUEST_TIMEOUT_MS: "1000",
+      EGA_WEB_MAX_CONCURRENT_REQUESTS: "1",
+      NODE_TLS_REJECT_UNAUTHORIZED: "0", // Disposable localhost issuer only.
+    });
+    const init = { headers: { authorization: "Bearer disposable-deadline-token" } };
+    const first = request(server, "/api/catalog", init);
+    await Promise.race([started, new Promise((_, reject) => setTimeout(() => reject(new Error("auth request never started")), 5000))]);
+    const overlapping = await request(server, "/api/catalog", init);
+    assert.equal(overlapping.status, 503);
+    assert.equal(overlapping.body.error.code, "E_WEB_TOO_MANY_REQUESTS");
+    assert.equal(requests, 1);
+    const timedOut = await first;
+    assert.equal(timedOut.status, 504);
+    assert.equal(timedOut.body.error.code, "E_WEB_REQUEST_TIMEOUT");
+    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error("abandoned auth socket remained active")), 2000))]);
+    assert.equal(active, 0, "abort must close the pending downstream auth I/O");
+    const next = await request(server, "/api/catalog", init);
+    assert.equal(next.status, 401);
+    assert.equal(next.body.error.code, "E_WEB_UNAUTHENTICATED");
+    assert.equal(requests, 2);
+    assert.equal(maximumActive, 1);
+  });
+
+  test("EGA-721: uncanceled late work retains its slot and rejection is handled", async () => {
+    const bounds = { maxResponseBytes: 1024, requestTimeoutMs: 30, maxConcurrentRequests: 1 };
+    let rejectWork;
+    let observedSignal;
+    let calls = 0;
+    const bounded = createBoundedHandler(bounds, (context) => {
+      calls += 1;
+      observedSignal = context.signal;
+      if (calls === 1) return new Promise((_, reject) => { rejectWork = reject; });
+      return { ok: true };
+    });
+    const context = { method: "GET", pathname: "/catalog", query: new URLSearchParams(), request: {}, params: {} };
+    // Keep the event loop live while AbortSignal.timeout's unref timer expires.
+    const keepAlive = setTimeout(() => {}, 1000);
+    try {
+      await assert.rejects(bounded(context), { code: "E_WEB_REQUEST_TIMEOUT", status: 504 });
+      assert.equal(observedSignal.aborted, true);
+      await assert.rejects(bounded(context), { code: "E_WEB_TOO_MANY_REQUESTS", status: 503 });
+      rejectWork(new Error("late transport rejection"));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(await bounded(context), { ok: true });
+    } finally { clearTimeout(keepAlive); }
   });
 
   test("a live server with a cap of one never returns a 500 under concurrency", async () => {
