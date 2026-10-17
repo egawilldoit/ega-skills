@@ -108,3 +108,13 @@ jobs:
         run: node --test tests/rls/contract-f.rls.mjs
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: EGA-718 live membership regression (unscoped hosted search)
+        run: node --test tests/rls/hosted-live-membership.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: EGA-755 live membership regression (skill-scoped hosted inspect/get_content)
+        run: node --test tests/rls/hosted-skill-scoped-live-membership.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
