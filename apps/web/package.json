@@ -21,6 +21,7 @@
     "@ega-skills/project": "workspace:*",
     "@ega-skills/registry": "workspace:*",
     "@supabase/supabase-js": "2.116.0",
+    "yaml": "2.9.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router-dom": "7.18.4"
