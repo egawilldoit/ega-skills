@@ -6,6 +6,13 @@ dist/
 build/
 *.tsbuildinfo
 
+# Staged web-deployment artifact. This is a byte-for-byte copy of
+# `packages/mcp/artifact`, produced by `scripts/web/stage-artifact.mjs` at build
+# time. It is derived data: committing it would duplicate the immutable release
+# artifact under a second path, where the two could drift and where a reviewer
+# would have to diff 850 files to see that nothing changed.
+apps/web/artifact/
+
 # Local EGA Skills home (never commit a developer registry/cache)
 .ega-skills/
 registry.sqlite*
