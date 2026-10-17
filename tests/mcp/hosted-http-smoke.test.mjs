@@ -18,15 +18,26 @@ function makeHub() {
   return hubDir;
 }
 
-async function waitForReady(child, port) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+const READINESS_TIMEOUT_MS = 10_000;
+const READINESS_POLL_MS = 20;
+
+async function waitForReady(child, port, timeoutMs = READINESS_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "";
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`hosted server exited before ready (code ${child.exitCode}): ${child.stderrText ?? ""}`);
+    }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/readyz`);
       if (response.status === 200) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 20));
+      lastError = `readyz returned ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, READINESS_POLL_MS));
   }
-  throw new Error(`hosted server did not become ready: ${child.stderrText ?? ""}`);
+  throw new Error(`hosted server did not become ready within ${timeoutMs} ms: ${child.stderrText ?? lastError}`);
 }
 
 test("hosted CLI serves a real built release over HTTP", async (t) => {
