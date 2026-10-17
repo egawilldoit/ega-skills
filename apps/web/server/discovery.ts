@@ -88,11 +88,14 @@ export function getDiscoveryInspection(config: ServerConfig): Record<string, unk
   }
   const report = parsed as Record<string, unknown>;
 
+  // Only the digest keys the real report producer emits are accepted.
+  // `catalog_release_digest` was never produced by any committed report and
+  // is intentionally not accepted: accepting unknown variants would let an
+  // unrelated report shape pass the digest gate.
   const evaluated =
     report["release_digest"] ??
     report["evaluated_release_digest"] ??
     report["evaluated_catalog_digest"] ??
-    report["catalog_release_digest"] ??
     report["artifact_digest"];
   if (typeof evaluated !== "string" || evaluated !== servedDigest) {
     throw new DiscoveryInspectionError(

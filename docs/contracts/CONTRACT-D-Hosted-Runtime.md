@@ -41,6 +41,9 @@ personal stable pointer exactly once, pin that immutable release for the
 request, and return `effective_release_digest`. No later operation in the
 request performs an implicit second stable-pointer lookup.
 
+Personal catalog mode responses explicitly report `project_context: NONE` and
+`fingerprint_status: NONE`.
+
 `inspect` and `get_content` require `release_digest` or `context_id`. A
 `project_path` field is rejected. A supplied release digest MUST identify the
 verified release selected for the request. A context is reserved for Contract

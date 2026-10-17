@@ -8,13 +8,14 @@ import {
   createHostedMcpHandler,
   createHostedRuntimeFromEnv,
   loadHostedReleaseSnapshot,
+  HostedRuntimeError,
 } from "../../packages/mcp/dist/index.js";
 
-function makeHub() {
+function makeHub(variant = "") {
   const hubDir = mkdtempSync(join(tmpdir(), "ega-hosted-hub-"));
   const skillDir = join(hubDir, "owned", "ega", "alpha");
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, "SKILL.md"), "---\nname: alpha\ndescription: Alpha hosted skill.\n---\n\nUse alpha when needed.\n");
+  writeFileSync(join(skillDir, "SKILL.md"), `---\nname: alpha\ndescription: Alpha hosted skill${variant}.\n---\n\nUse alpha when needed${variant}.\n`);
   writeFileSync(join(skillDir, "ega.yaml"), "schema_version: 1\ndomains:\n  - engineering\ntriggers:\n  - alpha\n");
   writeFileSync(join(hubDir, "hub.yaml"), "schema_version: 1\nhub:\n  id: hosted-test\nowned:\n  - path: owned/ega\n    namespace: ega\nexternal: []\n");
   writeFileSync(join(hubDir, "sources.yaml"), "schema_version: 1\nsources: {}\n");
@@ -205,4 +206,149 @@ test("hosted authorization removes denied skills before search selection", async
   assert.doesNotMatch(JSON.stringify(searched.result), /ega\/beta/);
   assert.match(JSON.stringify(searched.result), /ega\/alpha/);
   assert.ok(calls.some(([tool, skillId]) => tool === "search" && skillId === "ega/beta"));
+});
+
+test("principal-aware context resolves inspect and get_content", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const vhash = build.skills.find((skill) => skill.skillId === "ega/alpha").versionHash;
+  let resolveCalls = 0;
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+    resolveContext: async (contextId, principal, signal) => {
+      resolveCalls += 1;
+      assert.equal(principal.subject, "user-1");
+      assert.ok(signal instanceof AbortSignal);
+      assert.equal(contextId, "ctx-ok");
+      if (contextId !== "ctx-ok") throw new HostedRuntimeError("E_UNAUTHORIZED", "foreign/revoked");
+      return snapshot;
+    },
+  });
+
+  const inspected = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: { skill_id: "ega/alpha", context_id: "ctx-ok" } });
+  assert.notEqual(inspected.result.isError, true);
+  assert.match(JSON.stringify(inspected.result), /ega\/alpha/);
+  assert.equal(resolveCalls, 1);
+
+  resolveCalls = 0;
+  const content = await rpc(handler, 2, "tools/call", { name: "get_content", arguments: {
+    skill_id: "ega/alpha",
+    version_hash: vhash,
+    level: "L2",
+    max_tokens: 1000,
+    context_id: "ctx-ok",
+  } });
+  assert.notEqual(content.result.isError, true);
+  assert.match(JSON.stringify(content.result), /Use alpha when needed/);
+  assert.equal(resolveCalls, 1);
+});
+
+test("foreign context is denied with zero protected bytes", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const vhash = build.skills.find((skill) => skill.skillId === "ega/alpha").versionHash;
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+    resolveContext: async (contextId, principal) => {
+      assert.equal(principal.subject, "user-1");
+      if (contextId === "foreign") throw new HostedRuntimeError("E_UNAUTHORIZED", "foreign context");
+      return snapshot;
+    },
+  });
+
+  const inspected = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: { skill_id: "ega/alpha", context_id: "foreign" } });
+  assert.equal(inspected.result.isError, true);
+  assert.match(JSON.stringify(inspected.result), /E_UNAUTHORIZED/);
+  assert.doesNotMatch(JSON.stringify(inspected.result), /Use alpha when needed/);
+
+  const content = await rpc(handler, 2, "tools/call", { name: "get_content", arguments: {
+    skill_id: "ega/alpha",
+    version_hash: vhash,
+    level: "L2",
+    max_tokens: 1000,
+    context_id: "foreign",
+  } });
+  assert.equal(content.result.isError, true);
+  assert.doesNotMatch(JSON.stringify(content.result), /Use alpha when needed/);
+});
+
+test("revoked context is denied with zero protected bytes", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const vhash = build.skills.find((skill) => skill.skillId === "ega/alpha").versionHash;
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+    resolveContext: async (contextId, principal, signal) => {
+      assert.equal(principal.subject, "user-1");
+      assert.ok(signal instanceof AbortSignal);
+      if (contextId === "revoked") throw new HostedRuntimeError("E_UNAUTHORIZED", "revoked context");
+      return snapshot;
+    },
+  });
+
+  const inspected = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: { skill_id: "ega/alpha", context_id: "revoked" } });
+  assert.equal(inspected.result.isError, true);
+  assert.match(JSON.stringify(inspected.result), /E_UNAUTHORIZED/);
+  assert.doesNotMatch(JSON.stringify(inspected.result), /Use alpha when needed/);
+
+  const content = await rpc(handler, 2, "tools/call", { name: "get_content", arguments: {
+    skill_id: "ega/alpha",
+    version_hash: vhash,
+    level: "L2",
+    max_tokens: 1000,
+    context_id: "revoked",
+  } });
+  assert.equal(content.result.isError, true);
+  assert.doesNotMatch(JSON.stringify(content.result), /Use alpha when needed/);
+});
+
+test("context release_digest mismatch is checked against the selected context", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const otherBuild = await buildHubRelease(makeHub(" other"));
+  const otherSnapshot = loadHostedReleaseSnapshot(otherBuild.registryHome);
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+    resolveContext: async (_contextId, principal) => {
+      assert.equal(principal.subject, "user-1");
+      return otherSnapshot;
+    },
+  });
+
+  const mismatched = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: {
+    skill_id: "ega/alpha",
+    context_id: "ctx",
+    release_digest: snapshot.releaseDigest,
+  } });
+  assert.equal(mismatched.result.isError, true);
+  assert.match(JSON.stringify(mismatched.result), /E_RELEASE_MISMATCH/);
+
+  const matched = await rpc(handler, 2, "tools/call", { name: "inspect", arguments: {
+    skill_id: "ega/alpha",
+    context_id: "ctx",
+    release_digest: otherSnapshot.releaseDigest,
+  } });
+  assert.notEqual(matched.result.isError, true);
+});
+
+test("missing context resolver fails closed", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+  });
+
+  const result = await rpc(handler, 1, "tools/call", { name: "inspect", arguments: { skill_id: "ega/alpha", context_id: "ctx" } });
+  assert.equal(result.result.isError, true);
+  assert.match(JSON.stringify(result.result), /E_CONTEXT_UNAVAILABLE/);
 });

@@ -183,6 +183,8 @@ export function setReleaseReadinessProbe(probe: ReleaseReadinessProbe): void {
 /* -------------------------------------------------------------------------- */
 
 export interface ApiRouteContext {
+  /** Deadline shared with cancellable downstream reads. */
+  readonly signal?: AbortSignal;
   readonly method: string;
   readonly pathname: string;
   readonly query: URLSearchParams;
