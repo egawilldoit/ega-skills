@@ -46,8 +46,8 @@ export type {
   HostedOAuthConfigInput,
   HostedProtectedResourceMetadata,
 } from "./hosted-oauth.js";
-export { createSupabaseContextResolver, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
-export type { SupabaseContextResolverOptions, SupabaseWorkspaceResolver } from "./hosted-supabase.js";
+export { createSupabaseContextResolver, createSupabaseMembershipAuthorizer, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
+export type { SupabaseContextResolverOptions, SupabaseMembershipAuthorizerOptions, SupabaseWorkspaceResolver } from "./hosted-supabase.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,
