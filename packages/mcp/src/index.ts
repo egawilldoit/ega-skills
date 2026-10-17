@@ -7,9 +7,22 @@
 export {
   createMcpServer,
   startStdioServer,
+  toolSchema,
   TOOL_NAMES,
   TOOL_NOT_IMPLEMENTED_ERROR,
 } from "./server.js";
+export {
+  createHostedMcpHandler,
+  loadHostedReleaseSnapshot,
+  HostedRuntimeError,
+} from "./hosted.js";
+export { createJwksBearerVerifier } from "./hosted-auth.js";
+export type { JwksBearerVerifierOptions } from "./hosted-auth.js";
+export type {
+  HostedPrincipal,
+  HostedReleaseSnapshot,
+  HostedRuntimeOptions,
+} from "./hosted.js";
 export type { McpToolError, McpToolErrorEnvelope } from "./server.js";
 export {
   GET_CONTENT_LEVELS,

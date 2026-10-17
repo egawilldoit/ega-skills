@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "ega-mcp": "./bin/ega-mcp.mjs"
+    "ega-mcp": "./bin/ega-mcp.mjs",
+    "ega-mcp-hosted": "./bin/ega-mcp-hosted.mjs"
   },
   "exports": {
     ".": {

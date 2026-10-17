@@ -116,6 +116,12 @@ function checkDigest(value: unknown, field: string, code: "E_RELEASE_SCHEMA" | "
   if (typeof value !== "string" || !SHA256_RE.test(value)) fail(code, `${field} must match sha256:<64 lowercase hex>`);
 }
 
+function checkExactKeys(value: Record<string, unknown>, expected: readonly string[], field: string, code: "E_RELEASE_SCHEMA" | "E_BUILD_ATTESTATION"): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail(code, `${field} has unknown or missing fields`);
+}
+
 function checkReleasePayload(payload: unknown): asserts payload is HubReleasePayload {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) fail("E_RELEASE_SCHEMA", "HubRelease payload must be an object");
   const value = payload as Record<string, unknown>;
@@ -137,6 +143,10 @@ function checkReleasePayload(payload: unknown): asserts payload is HubReleasePay
     fail("E_RELEASE_SCHEMA", "skill_versions must be a mapping");
   }
   const versions = value["skill_versions"] as Record<string, unknown>;
+  const skillIds = Object.keys(versions);
+  if (JSON.stringify(skillIds) !== JSON.stringify([...skillIds].sort())) {
+    fail("E_RELEASE_SCHEMA", "skill_versions keys must be sorted");
+  }
   for (const [skillId, version] of Object.entries(versions)) checkDigest(version, `skill_versions.${skillId}`, "E_RELEASE_SCHEMA");
   checkDigest(value["alias_map_digest"], "alias_map_digest", "E_RELEASE_SCHEMA");
   checkDigest(value["search_index_input_digest"], "search_index_input_digest", "E_RELEASE_SCHEMA");
@@ -164,10 +174,8 @@ function checkReleasePayload(payload: unknown): asserts payload is HubReleasePay
   if (value["build"] === null || typeof value["build"] !== "object" || Array.isArray(value["build"])) fail("E_RELEASE_SCHEMA", "build must be an object");
   const build = value["build"] as Record<string, unknown>;
   const buildFields = ["expected_catalog_match", "fresh_registry", "import_failures"];
-  if (JSON.stringify(Object.keys(build).sort()) !== JSON.stringify([...buildFields].sort())) {
-    fail("E_BUILD_ATTESTATION", "HubRelease build attestation has unknown or missing fields");
-  }
-  if (typeof build["fresh_registry"] !== "boolean" || typeof build["expected_catalog_match"] !== "boolean" || typeof build["import_failures"] !== "number") {
+  checkExactKeys(build, buildFields, "HubRelease build attestation", "E_BUILD_ATTESTATION");
+  if (typeof build["fresh_registry"] !== "boolean" || typeof build["expected_catalog_match"] !== "boolean" || !Number.isSafeInteger(build["import_failures"])) {
     fail("E_BUILD_ATTESTATION", "HubRelease build attestation has invalid field types");
   }
   if (build["fresh_registry"] !== true || build["import_failures"] !== 0 || build["expected_catalog_match"] !== true) fail("E_BUILD_ATTESTATION", "HubRelease build attestation is not complete");

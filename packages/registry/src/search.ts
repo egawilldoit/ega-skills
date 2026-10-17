@@ -38,6 +38,8 @@ export interface SearchHit {
 export interface SearchOptions {
   /** Locked project versions: exact (skill_id, version_hash) pairs only. */
   readonly locked?: ReadonlyMap<string, string>;
+  /** Optional release-scoped FTS table. */
+  readonly ftsTable?: string;
 }
 
 const TERM_RE = /[\p{L}\p{N}]+/gu;
@@ -137,6 +139,10 @@ export function searchSkills(
   rawQuery: string,
   options: SearchOptions = {},
 ): SearchHit[] {
+  const ftsTable = options.ftsTable ?? "skill_fts";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ftsTable)) {
+    throw new Error("Invalid FTS table name");
+  }
   const matchInput = buildMatchInput(normalizeSearchQuery(rawQuery));
   if (matchInput === null) return [];
 
@@ -148,7 +154,7 @@ export function searchSkills(
     for (const [skillId, versionHash] of pairs) params.push(skillId, versionHash);
     const rows = db
       .prepare(
-        `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f WHERE skill_fts MATCH ? AND (f.skill_id, f.version_hash) IN (${placeholders}) ORDER BY bm25(skill_fts), f.skill_id, f.version_hash`,
+        `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM ${ftsTable} AS f WHERE ${ftsTable} MATCH ? AND (f.skill_id, f.version_hash) IN (${placeholders}) ORDER BY bm25(${ftsTable}), f.skill_id, f.version_hash`,
       )
       .all<{ skillId: string; versionHash: string }>(...params) as Array<{
       skillId: string;
@@ -159,7 +165,7 @@ export function searchSkills(
 
   const rows = db
     .prepare(
-      "SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM skill_fts AS f JOIN skills AS s ON s.skill_id = f.skill_id AND s.current_version_hash = f.version_hash WHERE skill_fts MATCH ? ORDER BY bm25(skill_fts), f.skill_id, f.version_hash",
+      `SELECT f.skill_id AS skillId, f.version_hash AS versionHash FROM ${ftsTable} AS f JOIN skills AS s ON s.skill_id = f.skill_id AND s.current_version_hash = f.version_hash WHERE ${ftsTable} MATCH ? ORDER BY bm25(${ftsTable}), f.skill_id, f.version_hash`,
     )
     .all<{ skillId: string; versionHash: string }>(matchInput) as Array<{
     skillId: string;

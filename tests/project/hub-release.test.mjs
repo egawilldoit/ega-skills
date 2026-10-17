@@ -126,6 +126,21 @@ test("HubRelease rejects forged envelope and build shapes after digest recomputa
   });
 });
 
+test("HubRelease rejects malformed nested catalog and attestation values after resigning", () => {
+  return fixture().then((value) => {
+    const release = createHubRelease(value, value.artifacts);
+    const resign = (payload) => createEnvelope({
+      object_type: release.object_type,
+      schema_version: release.schema_version,
+      payload,
+    });
+    const unsorted = { "ega/beta": release.payload.skill_versions["ega/beta"], "ega/alpha": release.payload.skill_versions["ega/alpha"] };
+    assert.throws(() => verifyHubRelease(resign({ ...release.payload, skill_versions: unsorted })), (error) => error.code === "E_RELEASE_SCHEMA");
+    assert.throws(() => verifyHubRelease(resign({ ...release.payload, skill_versions: { ...release.payload.skill_versions, "ega/alpha": "sha256:bad" } })), (error) => error.code === "E_RELEASE_SCHEMA");
+    assert.throws(() => verifyHubRelease(resign({ ...release.payload, build: { ...release.payload.build, import_failures: 0.5 } })), (error) => error.code === "E_BUILD_ATTESTATION");
+  });
+});
+
 test("HubRelease rejects a semantically forged token artifact", () => {
   return fixture().then((value) => {
     const forgedTokens = {
