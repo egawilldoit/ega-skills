@@ -289,6 +289,7 @@ describe("every console route answers against the real artifact", () => {
       namespace: "anthropic",
       domain: null,
       framework: null,
+      group: null,
       source: null,
       l1: "MISSING",
     });

@@ -14,23 +14,23 @@ import type { CatalogFacets, CatalogFacetValue } from "../api/contracts";
  * - It holds no skill registry, no skill id, and no label the server did not
  *   send, so it cannot invent a category or a member skill.
  * - Every category maps onto a filter `/skills` already accepts (`namespace`,
- *   `domain`, `framework`), so choosing one re-reads the list from the same
+ *   `domain`, `framework`, `group`), so choosing one re-reads the list from the same
  *   authoritative catalog module. There is no second enumeration path and no
  *   second authority; this module is presentation only.
  * - Counts are the server's real per-category counts over the filtered set, so a
  *   category that covers one skill reads as one skill. The shipped release is
- *   genuinely sparse (only 7 of 114 skills carry a domain), and this panel shows
+ *   genuinely sparse (only 7 of 116 skills carry a domain), and this panel shows
  *   that sparseness rather than hiding it behind fabricated groupings.
  *
- * The human-intent grouping authored in PR #138's `catalog/presentation.yaml`
- * is not present on this branch's base, so it is not projected here. When it
- * lands, it belongs behind this same seam: an extra axis whose values are
- * validated against the release's `skill_versions` and resolved to catalog rows
- * by the existing catalog reader. It must never become a second catalog.
+ * The human-intent grouping from `catalog/presentation.yaml` is projected here
+ * as one more axis behind this same seam: the server validates every member
+ * against the release's `skill_versions` and resolves the selection to catalog
+ * rows with the existing catalog reader. It never becomes a second catalog,
+ * and this module carries no routing metadata (no triggers, domains, aliases).
  */
 
 /** The catalog filter each presentation axis is served by. */
-export type CategoryAxisKey = "namespace" | "domain" | "framework";
+export type CategoryAxisKey = "namespace" | "domain" | "framework" | "group";
 
 /** One presentation axis and the server's own values for it. */
 export interface CategoryAxis {
@@ -54,6 +54,7 @@ const AXES: readonly {
   { key: "namespace", label: "Publisher", facet: "namespaces" },
   { key: "domain", label: "Domain", facet: "domains" },
   { key: "framework", label: "Framework", facet: "frameworks" },
+  { key: "group", label: "Use case", facet: "groups" },
 ];
 
 /**

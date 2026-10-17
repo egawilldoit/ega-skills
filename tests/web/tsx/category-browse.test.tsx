@@ -71,6 +71,7 @@ const FACETS = {
   ],
   domains: [],
   frameworks: [],
+  groups: [{ value: "verify", skill_count: 2 }],
   platforms: [],
   triggers: [],
   aliases: [],
@@ -79,7 +80,12 @@ const FACETS = {
   trust_levels: [],
 };
 
-const page = (skills: readonly unknown[], total: number, namespace: string | null) => ({
+const page = (
+  skills: readonly unknown[],
+  total: number,
+  namespace: string | null,
+  group: string | null = null,
+) => ({
   workspace_id: "unscoped-release",
   hub_id: "hub-1",
   release: RELEASE,
@@ -94,7 +100,7 @@ const page = (skills: readonly unknown[], total: number, namespace: string | nul
   offset: 0,
   sort: "name",
   sort_direction: "asc",
-  applied_filters: { q: null, namespace, domain: null, framework: null, source: null, l1: null },
+  applied_filters: { q: null, namespace, domain: null, framework: null, group, source: null, l1: null },
 });
 
 let dom: MountedDom | null = null;
@@ -173,13 +179,15 @@ describe("category browsing on the Skills page", () => {
     expect(view.text()).toContain("Publisher");
     expect(view.text()).toContain("mattpocock (2)");
     expect(view.text()).toContain("egawilldoit (1)");
+    expect(view.text()).toContain("Use case");
+    expect(view.text()).toContain("verify (2)");
     // No domain or framework value exists in this release, so those axes are not
     // offered in the panel at all rather than rendered empty. (The catalog's own
     // filter controls still list every axis; that is the existing control.)
     const axisTitles = [...view.container.querySelectorAll(".category-browse__axis-title")].map(
       (node) => node.textContent,
     );
-    expect(axisTitles).toEqual(["Publisher"]);
+    expect(axisTitles).toEqual(["Publisher", "Use case"]);
     // The only request is the catalog itself; the panel reads no endpoint.
     expect(client.get.mock.calls.at(-1)?.[0]).toBe("/skills");
     expect(view.text()).toContain("mattpocock/alpha");
@@ -211,6 +219,31 @@ describe("category browsing on the Skills page", () => {
     // And the active category is attributed to the readable release digest.
     expect(view.text()).toContain("Category Publisher: mattpocock");
     expect(view.text()).toContain(shortDigest(RELEASE_DIGEST));
+  });
+
+  test("choosing a use-case group re-reads the list through the catalog's own group filter", async () => {
+    client.get.mockImplementation((_path: string, options: { query: Record<string, unknown> }) =>
+      Promise.resolve(
+        options.query.group === "verify"
+          ? page([MATTPOCOCK], 1, null, "verify")
+          : page([MATTPOCOCK, EGA], 3, null),
+      ),
+    );
+    const view = mount(tree());
+    await settle();
+    expect(view.text()).toContain("egawilldoit/beta");
+
+    view.click("verify (2)");
+    await settle();
+
+    const last = client.get.mock.calls.at(-1) as [string, { query: Record<string, unknown> }];
+    expect(last[0]).toBe("/skills");
+    expect(last[1].query).toEqual({ sort: "name", limit: 50, offset: 0, group: "verify" });
+    expect(view.button("verify (2)").getAttribute("aria-pressed")).toBe("true");
+    // The list is the server's answer for that group, not a client-side slice.
+    expect(view.text()).toContain("mattpocock/alpha");
+    expect(view.text()).not.toContain("egawilldoit/beta");
+    expect(view.text()).toContain("Category Use case: verify");
   });
 
   test("choosing the active category again clears it", async () => {
