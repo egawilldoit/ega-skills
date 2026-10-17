@@ -275,13 +275,20 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
       authorizationMemo.set(key, result);
       return result;
     };
+    let stableSnapshotPromise: Promise<HostedReleaseSnapshot> | undefined;
     let selectionPromise: Promise<HostedReleaseSnapshot> | undefined;
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
       // One request selects exactly one release handle. Every tool phase
       // (guard, body, post-checks) reuses this promise, so a context is
       // resolved once and no phase can observe a different snapshot.
       selectionPromise ??= (async () => {
-        const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
+        let contextId: string | undefined;
+        if (args.context_id !== undefined) {
+          if (typeof args.context_id !== "string" || args.context_id.trim() === "") {
+            throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id must be a non-empty string");
+          }
+          contextId = args.context_id;
+        }
         const requestedDigest = typeof args.release_digest === "string" ? args.release_digest : undefined;
         let resolved: HostedReleaseSnapshot;
         if (contextId !== undefined) {
@@ -297,7 +304,7 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
             throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not available");
           }
         } else if (options.resolveStableRelease) {
-          resolved = await options.resolveStableRelease(requestSignal);
+          resolved = await (stableSnapshotPromise ??= options.resolveStableRelease(requestSignal));
         } else {
           resolved = snapshot;
         }
@@ -421,7 +428,13 @@ function checkRelease(args: Record<string, unknown>, snapshot: HostedReleaseSnap
   if (args.release_digest !== undefined && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not the verified release");
 }
 function requirePinned(args: Record<string, unknown>, snapshot: HostedReleaseSnapshot): void {
-  if (typeof args.context_id !== "string" && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
+  if (typeof args.context_id === "string") {
+    if (typeof args.release_digest === "string" && args.release_digest !== snapshot.releaseDigest) {
+      throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
+    }
+    return;
+  }
+  if (args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
 }
 function releaseSourceDenied(release: HubRelease, denied: ReadonlySet<string>): boolean {
   return release.payload.adopted_sources.some((source) => denied.has(source.source_id));
