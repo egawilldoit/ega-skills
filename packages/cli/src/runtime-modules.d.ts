@@ -16,15 +16,23 @@ declare module "node:fs" {
   export function closeSync(fd: number): void;
   export function writeSync(fd: number, data: string | Uint8Array): number;
   export function readFileSync(path: string, encoding: "utf8"): string;
+  /** Raw-bytes overload, used to validate UTF-8 before parsing. */
+  export function readFileSync(path: string): Buffer;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
   export function statSync(path: string): Stats;
   export function writeFileSync(path: string, data: string): void;
 }
 
+interface Buffer extends Uint8Array {
+  equals(other: Uint8Array): boolean;
+  /** Optional so the signature stays compatible with `Uint8Array.toString()`. */
+  toString(encoding?: "utf8"): string;
+}
+
 declare const Buffer: {
   byteLength(text: string, encoding: "utf8"): number;
-  from(text: string, encoding: "utf8"): Uint8Array;
+  from(text: string, encoding: "utf8"): Buffer;
 };
 
 declare module "node:path" {

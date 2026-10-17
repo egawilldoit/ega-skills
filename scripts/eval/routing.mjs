@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { canonicalizeJson, hashBytes } from "../../packages/hashing/dist/index.js";
 import { importSkills, openRegistry, searchSkills } from "../../packages/registry/dist/index.js";
@@ -127,4 +128,9 @@ async function main() {
   if (report.failed_count > 0) process.exitCode = 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+// `file://${process.argv[1]}` never matches on Windows, where `process.argv[1]`
+// uses backslashes; that made this script exit 0 without writing a report.
+// `pathToFileURL` normalizes the platform path.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
