@@ -219,6 +219,9 @@ export function SkillDetailPage(): ReactNode {
             <Field label="Schema version" mono>
               {data.summary.schema_version}
             </Field>
+            <Field label="Release-pinned version hash" mono>
+              <span title={data.summary.version_hash}>{shortDigest(data.summary.version_hash)}</span>
+            </Field>
             <Field label="Content digest" mono>
               {data.summary.content_digest}
             </Field>

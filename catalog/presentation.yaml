@@ -1,0 +1,226 @@
+# EGA Skills pocket catalog — PRESENTATION METADATA ONLY.
+#
+# This file is NOT a skill registry and NOT a routing authority. It contains
+# no routing metadata of any kind (no triggers, domains, platforms,
+# anti-triggers). It only decides how the generated human catalog is grouped
+# and labelled.
+#
+# The generated catalog is a PROJECTION of the Hub release:
+#
+#     HubRelease + L0 metadata + THIS FILE  ->  docs/generated/SKILL-CATALOG.md
+#
+# Therefore:
+#   - changing this file can never change resolver ranking or Hub identity;
+#   - a skill id here that does not exist in the release is a hard build error;
+#   - `pnpm catalog:check` fails when this file and the release disagree.
+#
+# Regenerate with: pnpm generate:catalog
+
+catalog_version: 1
+
+# "START HERE" — a deliberately SHORT list for memory recognition, not routing.
+# Keep this small. It is a recognition aid, never an execution decision.
+favorites:
+  - egawilldoit/deliver-software
+  - egawilldoit/understand-codebase
+  - egawilldoit/design-architecture
+  - egawilldoit/compare-designs
+  - egawilldoit/principle-fix-root-causes
+  - egawilldoit/verify-this
+  - egawilldoit/adversarial-review
+  - egawilldoit/blast-radius
+  - egawilldoit/review-and-ship
+  - egawilldoit/recover-work-context
+  - egawilldoit/reconcile-project-truth
+  - egawilldoit/parallelize-work
+  - egawilldoit/certify-release
+  - egawilldoit/mine-work-patterns
+
+# Human-intent groups. Order here is the order rendered; skills inside a group
+# are always sorted by id so output stays deterministic.
+groups:
+  - id: notsure
+    title: Not sure which skill?
+    blurb: When you only know what you want, not which skill does it.
+    skills:
+      - mattpocock/ask-matt
+      - egawilldoit/deliver-software
+
+  - id: understand
+    title: Understand
+    blurb: Work out what exists and what the code actually does.
+    skills:
+      - egawilldoit/preflight-repository
+      - egawilldoit/understand-codebase
+      - egawilldoit/recover-design-rationale
+      - egawilldoit/principle-minimize-reader-load
+      - mattpocock/codebase-design
+      - mattpocock/domain-modeling
+      - mattpocock/research
+
+  - id: design
+    title: Design
+    blurb: Decide the shape of the thing before anyone writes code.
+    skills:
+      - egawilldoit/design-architecture
+      - egawilldoit/compare-designs
+      - egawilldoit/build-execution-contract
+      - egawilldoit/design-investigation
+      - egawilldoit/principle-foundational-thinking
+      - egawilldoit/principle-exhaust-the-design-space
+      - egawilldoit/principle-redesign-from-first-principles
+      - egawilldoit/principle-experience-first
+      - mattpocock/grill-me
+      - mattpocock/wayfinder
+      - mattpocock/grilling
+      - mattpocock/grill-with-docs
+      - mattpocock/prototype
+
+  - id: build
+    title: Build / Delegate
+    blurb: Get the work actually done, by one agent or many.
+    skills:
+      - egawilldoit/parallelize-work
+      - egawilldoit/principle-build-the-lever
+      - egawilldoit/principle-sequence-verifiable-units
+      - egawilldoit/principle-outcome-oriented-execution
+      - egawilldoit/principle-subtract-before-you-add
+      - egawilldoit/principle-laziness-protocol
+      - egawilldoit/principle-boundary-discipline
+      - egawilldoit/principle-type-system-discipline
+      - egawilldoit/principle-model-the-domain
+      - egawilldoit/principle-migrate-callers-then-delete-legacy-apis
+      - egawilldoit/principle-separate-before-serializing-shared-state
+      - egawilldoit/principle-make-operations-idempotent
+      - egawilldoit/typescript-best-practices
+      - mattpocock/implement
+      - mattpocock/implement-spec
+      - mattpocock/wizard
+      - mattpocock/setup-matt-pocock-skills
+      - vercel/react-best-practices
+      - vercel/composition-patterns
+      - vercel/react-view-transitions
+      - vercel/react-native-skills
+      - anthropic/mcp-builder
+
+  - id: debug
+    title: Debug
+    blurb: Find the real cause instead of treating the symptom.
+    skills:
+      - egawilldoit/principle-fix-root-causes
+      - egawilldoit/principle-attack-the-premise
+      - mattpocock/diagnosing-bugs
+
+  - id: verify
+    title: Verify
+    blurb: Prove a specific claim with real, fresh evidence.
+    skills:
+      - egawilldoit/verify-this
+      - egawilldoit/verify-ui
+      - egawilldoit/verify-cli
+      - egawilldoit/run-smoke-tests
+      - egawilldoit/principle-prove-it-works
+      - egawilldoit/principle-test-behavior-not-implementation
+      - egawilldoit/create-verification-workflow
+      - egawilldoit/maintain-verification-workflow
+      - egawilldoit/check-compiler-errors
+      - anthropic/webapp-testing
+      - egawilldoit/tdd
+      - mattpocock/tdd
+
+  - id: review
+    title: Review
+    blurb: Challenge a change before it reaches anyone else.
+    skills:
+      - egawilldoit/adversarial-review
+      - egawilldoit/blast-radius
+      - egawilldoit/review-and-ship
+      - egawilldoit/get-pr-comments
+      - egawilldoit/deslop
+      - egawilldoit/principle-minimize-reader-load
+      - mattpocock/code-review
+      - vercel/web-design-guidelines
+
+  - id: cipr
+    title: CI / PR
+    blurb: Move a branch through checks, review, and merge safely.
+    skills:
+      - egawilldoit/new-branch-and-pr
+      - egawilldoit/fix-ci
+      - egawilldoit/loop-on-ci
+      - egawilldoit/make-pr-easy-to-review
+      - egawilldoit/integrate-pr-stack
+      - egawilldoit/fix-merge-conflicts
+      - mattpocock/pr
+      - mattpocock/triage
+
+  - id: release
+    title: Release
+    blurb: Ship it, then prove that what you shipped is genuinely the thing you built.
+    skills:
+      - vercel/deploy-to-vercel
+      - vercel/vercel-cli-with-tokens
+      - vercel/vercel-optimize
+      - egawilldoit/certify-release
+      - egawilldoit/certify-pr-head
+      - egawilldoit/certify-production-target
+      - egawilldoit/certify-database-rollout
+      - egawilldoit/certify-mcp-production
+      - egawilldoit/trace-artifact-provenance
+
+  - id: recover
+    title: Recover
+    blurb: Reconstruct state that was lost, ambiguous, or contested.
+    skills:
+      - egawilldoit/recover-work-context
+      - egawilldoit/reconcile-project-truth
+      - egawilldoit/what-did-i-get-done
+      - egawilldoit/weekly-review
+      - mattpocock/handoff
+
+  - id: improve
+    title: Improve
+    blurb: Turn what happened into something that lasts.
+    skills:
+      - egawilldoit/mine-work-patterns
+      - egawilldoit/work-retrospective
+      - mattpocock/retro
+      - egawilldoit/record-evidence
+      - egawilldoit/unslop
+      - egawilldoit/technical-writing
+      - egawilldoit/principle-encode-lessons-in-structure
+      - egawilldoit/principle-guard-the-context-window
+      - anthropic/skill-creator
+      - mattpocock/writing-for-agents
+      - mattpocock/improve-codebase-architecture
+      - vercel/writing-guidelines
+      - anthropic/internal-comms
+
+  - id: teach
+    title: Teach / Communicate
+    blurb: Explain something clearly, to a person or to an agent.
+    skills:
+      - mattpocock/teach
+      - mattpocock/to-spec
+      - mattpocock/to-tickets
+      - mattpocock/to-questionnaire
+      - anthropic/academy-guide
+      - anthropic/discernment-nudge
+      - anthropic/claude-api
+      - mattpocock/wait-what
+
+  - id: visual
+    title: Visual / Creative
+    blurb: Making something look deliberate, on purpose.
+    skills:
+      - anthropic/frontend-design
+      - anthropic/canvas-design
+      - anthropic/algorithmic-art
+      - anthropic/web-artifacts-builder
+      - anthropic/slack-gif-creator
+      - anthropic/brand-guidelines
+      - anthropic/theme-factory
+
+# Skills not placed above are still listed, under this heading, so the
+# catalog always accounts for every skill in the release.
+ungrouped_title: Everything else

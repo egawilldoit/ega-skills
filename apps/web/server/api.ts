@@ -732,6 +732,7 @@ function catalogOptions(query: URLSearchParams): CatalogOptions {
     ["namespace", "namespace"],
     ["domain", "domain"],
     ["framework", "framework"],
+    ["group", "group"],
     ["source", "source"],
     ["l1", "l1"],
     ["sort", "sort"],
