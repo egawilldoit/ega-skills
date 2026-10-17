@@ -422,6 +422,29 @@ export function decodeUsageSummary(value: unknown): Record<string, unknown> {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Discovery inspection (/discovery)                                           */
+/* -------------------------------------------------------------------------- */
+
+export function decodeDiscoveryInspection(value: unknown): Record<string, unknown> {
+  const what = "discovery inspection";
+  if (!isRecord(value)) fail(what, `expected an object, received ${describe(value)}`);
+  const digest =
+    value.release_digest ??
+    value.evaluated_release_digest ??
+    value.evaluated_catalog_digest ??
+    value.catalog_release_digest ??
+    value.artifact_digest ??
+    value.served_release_digest;
+  if (typeof digest !== "string") {
+    fail(what, "release_digest: expected a string");
+  }
+  if (!isRecord(value.case) && value.case !== undefined) {
+    fail(what, `case: expected an object, received ${describe(value.case)}`);
+  }
+  return value;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Endpoint map                                                                */
 /* -------------------------------------------------------------------------- */
 
@@ -440,6 +463,7 @@ export const RESPONSE_DECODERS: Readonly<Record<string, (value: unknown) => unkn
   "/workspace/security/denies": decodeSecurityDenies,
   "/audit": decodeAuditList,
   "/analytics/usage": decodeUsageSummary,
+  "/discovery": decodeDiscoveryInspection,
 });
 
 /**

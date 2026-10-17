@@ -121,6 +121,8 @@ export const API_ENDPOINTS = {
   securityDenies: "/workspace/security/denies",
   analyticsUsage: () => "/analytics/usage",
   auditEvents: "/audit",
+  discovery: "/discovery",
+  intentInspection: "/discovery",
 } as const;
 
 /* -------------------------------------------------------------------------- */

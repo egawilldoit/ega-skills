@@ -18,6 +18,8 @@ import { SecurityPage } from "./SecurityPage";
 import { SettingsPage } from "./SettingsPage";
 import { SkillDetailPage } from "./SkillDetailPage";
 import { SkillsPage } from "./SkillsPage";
+import { DiscoveryPage } from "./DiscoveryPage";
+import { IntentInspectionPage } from "./IntentInspectionPage";
 import { UsagePage } from "./UsagePage";
 import { WorkspaceOverviewPage } from "./WorkspaceOverviewPage";
 
@@ -64,6 +66,22 @@ export function AppRoutes(): ReactNode {
                   element={
                     <RequirePermission permission="catalog_read">
                       <SkillDetailPage />
+                    </RequirePermission>
+                  }
+                />
+                <Route
+                  path="/discovery"
+                  element={
+                    <RequirePermission permission="catalog_read">
+                      <DiscoveryPage />
+                    </RequirePermission>
+                  }
+                />
+                <Route
+                  path="/intent-inspection"
+                  element={
+                    <RequirePermission permission="catalog_read">
+                      <IntentInspectionPage />
                     </RequirePermission>
                   }
                 />

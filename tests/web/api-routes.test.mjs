@@ -923,6 +923,7 @@ describe("response size, deadline and concurrency are bounded", () => {
       "analytics-usage",
       "audit-events",
       "catalog",
+      "discovery-inspection",
       "project-detail",
       "projects",
       "release-detail",
