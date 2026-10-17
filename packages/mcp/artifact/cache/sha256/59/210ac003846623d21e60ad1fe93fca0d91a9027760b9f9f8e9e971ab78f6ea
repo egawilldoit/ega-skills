@@ -1,0 +1,4 @@
+interface:
+  display_name: "TypeScript Best Practices"
+  short_description: "Apply TypeScript typing and design conventions"
+  default_prompt: "Use $typescript-best-practices when editing these .ts files."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loop on CI"
+  short_description: "Drive CI to green on the current head"
+  default_prompt: "Use $loop-on-ci to get this PR's checks passing."

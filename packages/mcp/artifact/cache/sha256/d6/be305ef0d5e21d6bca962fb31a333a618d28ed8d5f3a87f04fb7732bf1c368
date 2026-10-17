@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mine Work Patterns"
+  short_description: "Find recurring work worth encoding as a skill"
+  default_prompt: "Use $mine-work-patterns over the last month of work."

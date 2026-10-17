@@ -1,0 +1,8 @@
+schema_version: 1
+aliases: [encode-lessons-in-structure]
+triggers:
+  - "encode lessons in structure"
+anti_triggers:
+  - "add a lint"
+  - "add a check"
+  - "refactor"

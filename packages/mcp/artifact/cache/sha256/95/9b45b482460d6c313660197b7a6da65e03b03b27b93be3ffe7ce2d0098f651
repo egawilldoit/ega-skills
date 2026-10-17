@@ -1,0 +1,6 @@
+schema_version: 1
+triggers:
+  - "test-first"
+  - "red green refactor"
+  - "red-green-refactor"
+anti_triggers: []

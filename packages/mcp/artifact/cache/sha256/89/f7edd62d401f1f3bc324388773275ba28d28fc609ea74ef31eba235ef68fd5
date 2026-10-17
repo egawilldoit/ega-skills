@@ -1,0 +1,12 @@
+schema_version: 1
+triggers:
+  - "how does this work"
+  - "how does x work"
+  - "codebase walkthrough"
+  - "explain this code"
+  - "understand this codebase"
+  - "walk me through this code"
+  - "explain how this subsystem works"
+  - "how does this subsystem work"
+  - "explain this subsystem"
+  - "understand this subsystem"

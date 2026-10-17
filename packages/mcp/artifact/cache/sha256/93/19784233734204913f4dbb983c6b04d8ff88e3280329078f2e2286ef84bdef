@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify UI"
+  short_description: "Verify real browser or UI behavior with evidence"
+  default_prompt: "Use $verify-ui to check this checkout flow in a browser."

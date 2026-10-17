@@ -1,0 +1,4 @@
+interface:
+  display_name: "Get PR Comments"
+  short_description: "Collect and triage review comments on a PR"
+  default_prompt: "Use $get-pr-comments to gather what reviewers asked for."

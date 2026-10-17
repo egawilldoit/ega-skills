@@ -3,3 +3,9 @@
 # committed bytes compare identically on Linux and Windows. `text=auto`
 # leaves git's binary detection intact (no conversion for binary files).
 * text=auto eol=lf
+
+# Vercel deployment artifact: committed binary bytes must never be
+# normalized on any platform. (registry.sqlite* and cache/ stay git-ignored
+# everywhere else; these files are force-added explicitly.)
+packages/mcp/artifact/registry.sqlite -text
+packages/mcp/artifact/cache/** -text

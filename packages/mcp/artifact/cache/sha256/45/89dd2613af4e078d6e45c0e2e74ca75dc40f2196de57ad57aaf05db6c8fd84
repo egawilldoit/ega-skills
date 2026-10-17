@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Execution Contract"
+  short_description: "Turn a requirement into a bounded agent contract"
+  default_prompt: "Use $build-execution-contract to brief a delegate agent."

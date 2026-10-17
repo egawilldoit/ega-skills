@@ -1,0 +1,11 @@
+schema_version: 1
+triggers:
+  - "certify database rollout"
+  - "certify the database rollout"
+  - "certify the migration"
+  - "database rollout certification"
+  - "certify database migration"
+anti_triggers:
+  - "certify release"
+  - "certify production target"
+  - "certify pr head"

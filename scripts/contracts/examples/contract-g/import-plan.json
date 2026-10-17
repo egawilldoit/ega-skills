@@ -1,0 +1,29 @@
+{
+  "digest": "sha256:f7e1b715368fc33546c02779584d4ad7390736ed88fc10f2aee8992165400068",
+  "object_type": "ega.import-plan",
+  "payload": {
+    "intake_contract": "G1",
+    "namespace": "example",
+    "source": {
+      "type": "local",
+      "snapshot_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "extraction_policy": 1
+    },
+    "selected_roots": [],
+    "policy_revision": "intake-policy-v1",
+    "target": {
+      "mode": "EMPTY",
+      "state_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "discovery_diagnostics": [],
+    "candidates": [],
+    "summary": {
+      "candidate_count": 0,
+      "valid_count": 0,
+      "invalid_count": 0,
+      "blocked_count": 0,
+      "warning_count": 0
+    }
+  },
+  "schema_version": 1
+}

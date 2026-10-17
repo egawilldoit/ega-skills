@@ -1,0 +1,9 @@
+schema_version: 1
+triggers:
+  - "new branch and pr"
+  - "create a branch and open a pr"
+  - "branch and pr"
+  - "open a pr"
+anti_triggers:
+  - "integrate pr stack"
+  - "review and ship"

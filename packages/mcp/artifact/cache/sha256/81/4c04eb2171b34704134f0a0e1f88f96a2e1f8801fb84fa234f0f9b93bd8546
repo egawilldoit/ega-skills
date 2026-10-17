@@ -1,0 +1,4 @@
+interface:
+  display_name: "Type System Discipline"
+  short_description: "Make illegal states unrepresentable in the types"
+  default_prompt: "Use $principle-type-system-discipline when shaping this API."

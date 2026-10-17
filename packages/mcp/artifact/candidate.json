@@ -1,0 +1,28 @@
+{
+  "digest": "sha256:49fbb6658ee800a7df74314b4227642015251b34b3fac2e1801cf4dab1b1204f",
+  "object_type": "ega.release-candidate",
+  "payload": {
+    "files": {
+      "alias_map": "alias-map.json",
+      "cache": "cache/sha256",
+      "hub_release": "hub-release.json",
+      "registry": "registry.sqlite",
+      "release_package": "release-package.json",
+      "search_index_input": "search-index-input.json",
+      "token_artifact": "token-artifact.json"
+    },
+    "fts_table": "release_fts_3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
+    "hub_id": "personal",
+    "release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
+    "snapshot_rows": 116,
+    "sqlite_artifact_digest": "sha256:de3ab40cfb13adf05f420cae72d5f7d18add82331d593ff3bf6e5f5f468f6e1d",
+    "publication": {
+      "approval_set_digest": "sha256:7dd05f4ee567ea47c74be53ab70110d86c2d4916737f3df403a9d298cb174bfa",
+      "preflight_digest": "sha256:93547211302347c13c7febeb1750b93a19de977ba4cbf3979c0df6262c55928b",
+      "previous_release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+      "publication_policy_revision": "R1-approval-v2",
+      "release_diff_digest": "sha256:d84db18c91fc3af78c9bbce7124c6b49d73af1b25d41f62fb78582cddc6476cb"
+    }
+  },
+  "schema_version": 2
+}

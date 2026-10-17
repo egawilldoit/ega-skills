@@ -1,0 +1,9 @@
+schema_version: 1
+aliases: [separate-before-serializing-shared-state]
+triggers:
+  - "separate before serializing shared state"
+anti_triggers:
+  - "concurrent writes"
+  - "race condition"
+  - "same file"
+  - "merge conflict"

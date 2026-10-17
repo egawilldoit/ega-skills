@@ -1,0 +1,4 @@
+interface:
+  display_name: "Parallelize Work"
+  short_description: "Fan out work that can be split without conflict"
+  default_prompt: "Use $parallelize-work to cover these modules in parallel."

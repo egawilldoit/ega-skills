@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reconcile Project Truth"
+  short_description: "Resolve contradictions across project sources"
+  default_prompt: "Use $reconcile-project-truth to settle what is actually deployed."

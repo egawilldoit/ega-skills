@@ -7,18 +7,23 @@
 // SPEC-005 §5.1.5 rule 3 project config and touches no registry state.
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
   RegistryError,
+  createImportPlan,
+  emptyRegistryTarget,
   importSkills,
   listSkillAliases,
   listSkillVersions,
   listVersionSources,
   openRegistry,
+  registryTargetFromDatabase,
   resolveRegistryHome,
+  resolveRegistryPaths,
   type ImportSummary,
+  type ImportPlanDocument,
   type RegistryHandle,
 } from "@ega-skills/registry";
 import { resolveSkills, type ResolutionResult } from "@ega-skills/router";
@@ -29,8 +34,16 @@ import {
   serializeLockfile,
   validateLockfile,
   applyUpdatePlan,
+  applyRemoteLockPlan,
+  createRemoteLockPlan,
   buildHub,
+  discoverSkillDirs,
+  digestStagedTree,
   buildHubRelease,
+  createReleaseCandidate,
+  createReleaseDiff,
+  exportLegacyReleaseCandidate,
+  exportReleaseCandidate,
   checkForUpdates,
   extractSelectedRootsFromGit,
   fetchExactCommit,
@@ -39,9 +52,38 @@ import {
   parseSourcesYaml,
   adoptedSourcePath,
   verifySourcesLock,
+  createProjectContext,
+  digestProjectLock,
+  hashNormalizedConfig,
+  verifyHubRelease,
+  writeReleaseCandidate,
+  acquireSource,
+  applyAdoptionPlan,
+  createAdoptionPlan,
+  createOwnedDerivativeCandidate,
+  deriveCandidate,
+  readHubIntakeState,
+  resolveCandidateDocument,
+  releaseAcquiredSource,
+  stageAdoptionPlan,
+  preflightPublication,
+  validateCollections,
+  createQualityReport,
+  writeCandidateReview,
+  verifyDerivationPatch,
+  verifyAdoptionPlan,
+  writeOwnedDerivativeCandidate,
+  type AdoptionPlanDocument,
+  type IntakeCandidateDocument,
+  type ProjectContextDocument,
+  type HubRelease,
+  type ReleaseCandidateDocument,
+  type ReleaseDiffDocument,
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
+  type RemoteLockPlan,
+  type ReviewDecision,
 } from "@ega-skills/project";
 import { parse as parseYaml } from "yaml";
 import { validatePortableSkillName } from "@ega-skills/schema";
@@ -72,20 +114,39 @@ function readHubContracts(hub: string) {
   return { config, hubDir, lock };
 }
 
-async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string): Promise<Record<string, string>> {
+async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Promise<{
+  versions: Record<string, string>;
+  skillTreeDigests: Record<string, string>;
+}> {
   const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
   try {
     const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
     if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
     const versions: Record<string, string> = {};
+    const skillTreeDigests: Record<string, string> = {};
     const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
     for (const row of rows) versions[row.skill_id] = row.current_version_hash;
-    return versions;
+    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+    for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+      const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+      skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+    }
+    return { skillTreeDigests, versions };
   } finally {
     registry.close();
     rmSync(registryHome, { force: true, recursive: true });
   }
+}
+
+function readAdoptedSkillTreeDigests(hubDir: string, sourceId: string, namespace: string, roots: readonly string[]): Record<string, string> {
+  const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+  const skillTreeDigests: Record<string, string> = {};
+  for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+    const skillId = `${namespace}/${rel.split("/").pop() as string}`;
+    skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
+  }
+  return skillTreeDigests;
 }
 
 /** Run the complete Contract C build through the public CLI API. */
@@ -114,6 +175,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
   const prefix = `${source.namespace}/`;
   const versions: Record<string, string> = {};
+  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, source.namespace, source.selection.roots);
   try {
     verifySourcesLock(config, lock);
     const build = await buildHub(hubDir);
@@ -124,7 +186,9 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
     // A deliberate sources.yaml selection change is a proposal input. The
     // adopted lock remains the old authority until its plan is applied.
     if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
-    Object.assign(versions, await readAdoptedVersions(hubDir, options.sourceId, source.namespace));
+    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, source.namespace, source.selection.roots);
+    Object.assign(versions, adoptedView.versions);
+    Object.assign(skillTreeDigests, adoptedView.skillTreeDigests);
   }
   const workDir = mkdtempSync(join(tmpdir(), "ega-cli-hub-check-"));
   try {
@@ -135,6 +199,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
       snapshotDigest: adopted.vendored_snapshot_digest,
         treeDigest: adopted.selected_skill_tree_digest,
         versions,
+        skillTreeDigests,
       },
       config: source,
       sourceId: options.sourceId,
@@ -177,6 +242,116 @@ export async function runHubUpdate(options: HubUpdateCommandOptions) {
       }
     },
   });
+}
+
+export interface RemoteLockApplyCommandOptions {
+  readonly plan: string;
+  readonly project?: string;
+}
+
+export interface RemoteLockPlanCommandOptions {
+  readonly project?: string;
+  /** Exact HubRelease digest, or a local HubRelease artifact path. */
+  readonly release: string;
+  /** Local artifact to use when release is supplied as a digest. */
+  readonly releaseFile?: string;
+  readonly output?: string;
+}
+
+/** Create a reviewed remote-lock plan against one exact HubRelease. */
+export function runRemoteLockPlan(options: RemoteLockPlanCommandOptions): RemoteLockPlan {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock plan requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const current = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const releasePath = options.release.startsWith("sha256:") ? options.releaseFile : options.release;
+  if (!releasePath) throw new Error("remote-lock plan requires --release-file when --release is a digest");
+  const release = JSON.parse(readFileSync(resolve(releasePath), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  if (options.release.startsWith("sha256:") && release.digest !== options.release) {
+    throw new Error(`HubRelease digest does not match requested release ${options.release}`);
+  }
+  const candidate: ProjectLockV1 = {
+    lockfile_version: current.lockfile_version,
+    token_estimator: current.token_estimator,
+    generated_from: current.generated_from,
+    skills: Object.fromEntries(Object.entries(current.skills)
+      .filter(([skillId]) => release.payload.skill_versions[skillId] !== undefined)
+      .map(([skillId, entry]) => [skillId, { ...entry, version_hash: release.payload.skill_versions[skillId]! }])),
+  };
+  const plan = createRemoteLockPlan({
+    projectConfigDigest: configDigest,
+    existingLockDigest: digestProjectLock(current),
+    targetReleaseDigest: release.digest,
+    current,
+    candidate,
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(plan, null, 2)}\n`);
+  return plan;
+}
+
+/** Apply a reviewed, exact-release-bound remote lock plan to the discovered project. */
+export function runRemoteLockApply(options: RemoteLockApplyCommandOptions) {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("remote-lock apply requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const currentLock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as RemoteLockPlan;
+  applyRemoteLockPlan(plan, discovery.lockPath, {
+    currentLock,
+    projectConfigDigest: configDigest,
+  });
+  return { applied: true, path: discovery.lockPath, target_release_digest: plan.payload.target_release_digest };
+}
+
+export interface ContextPublishCommandOptions {
+  readonly project?: string;
+  readonly workspace: string;
+  readonly projectId: string;
+  readonly release: string;
+  readonly output?: string;
+  readonly fingerprint?: string;
+}
+
+/** Build a local immutable ProjectContext handoff from validated project files.
+ * Publication/authentication remains a control-plane operation; this command
+ * never writes the project or release and requires an explicit release artifact.
+ */
+export function runContextPublish(options: ContextPublishCommandOptions): ProjectContextDocument {
+  const projectDir = resolve(options.project ?? ".");
+  const discovery = discoverConfig(projectDir);
+  if (discovery.configPath === null || discovery.lockPath === null) {
+    throw new Error("context publish requires .egaskills.yaml and .egaskills.lock");
+  }
+  const config = parseProjectConfig(readFileSync(discovery.configPath, "utf8"));
+  const configDigest = hashNormalizedConfig(config);
+  const lock = validateLockfile(parseYaml(readFileSync(discovery.lockPath, "utf8")), configDigest);
+  const release = JSON.parse(readFileSync(resolve(options.release), "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  for (const [skillId, entry] of Object.entries(lock.skills)) {
+    if (release.payload.skill_versions[skillId] !== entry.version_hash) {
+      throw new Error(`locked skill ${skillId} is not present at the same version in the declared HubRelease`);
+    }
+  }
+  const context = createProjectContext({
+    workspace_id: options.workspace,
+    project_id: options.projectId,
+    config_digest: configDigest,
+    lock_digest: digestProjectLock(lock),
+    release_digest: release.digest,
+    fingerprint_digest: options.fingerprint ?? null,
+    context_contract: "E1",
+  });
+  if (options.output) writeFileSync(resolve(options.output), `${JSON.stringify(context, null, 2)}\n`);
+  return context;
 }
 
 export interface ResolveCommandOptions {
@@ -283,6 +458,276 @@ export async function runImport(
   } finally {
     registry.close();
   }
+}
+
+export interface ImportPlanCommandOptions {
+  readonly sourcePath: string;
+  readonly namespace: string;
+  readonly output: string;
+  readonly env: Record<string, string | undefined>;
+}
+
+/** Build a zero-mutation Contract G import plan against an existing target. */
+export async function runImportPlan(options: ImportPlanCommandOptions): Promise<ImportPlanDocument> {
+  const sourcePath = resolve(options.sourcePath);
+  const outputPath = resolve(options.output);
+  const outputRelativeToSource = relative(sourcePath, outputPath);
+  if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+    const error = new Error("Import plan output must be outside the intake source tree.");
+    Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+    throw error;
+  }
+  const paths = resolveRegistryPaths(options.env);
+  let registry: RegistryHandle | undefined;
+  try {
+    const target = existsSync(paths.database)
+      ? (() => {
+          registry = openRegistry({ env: options.env, readonly: true });
+          return registryTargetFromDatabase(registry.db);
+        })()
+      : emptyRegistryTarget();
+    const plan = await createImportPlan({
+      sourcePath,
+      namespace: options.namespace,
+      target,
+    });
+    writeFileSync(outputPath, `${JSON.stringify(plan, null, 2)}\n`);
+    return plan;
+  } finally {
+    registry?.close();
+  }
+}
+
+export interface IntakeQualityCommandOptions {
+  readonly sourcePath: string;
+  readonly namespace: string;
+  readonly output: string;
+}
+
+/** Build a zero-mutation Contract Q1 quality report. */
+export async function runIntakeQuality(options: IntakeQualityCommandOptions) {
+  const sourcePath = resolve(options.sourcePath);
+  const outputPath = resolve(options.output);
+  const outputRelativeToSource = relative(sourcePath, outputPath);
+  if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+    const error = new Error("Quality report output must be outside the intake source tree.");
+    Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+    throw error;
+  }
+  const report = await createQualityReport({ sourcePath, namespace: options.namespace });
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+export interface HubIntakePlanCommandOptions {
+  readonly source: string;
+  readonly sourceId: string;
+  readonly namespace: string;
+  readonly commit?: string;
+  readonly ref?: string;
+  readonly roots: readonly string[];
+  readonly provenanceFiles?: readonly string[];
+  readonly hub?: string;
+  readonly output: string;
+}
+
+/** Acquire an exact source snapshot and write a reviewable Contract A1 plan. */
+export async function runHubIntakePlan(options: HubIntakePlanCommandOptions): Promise<AdoptionPlanDocument> {
+  const hubDir = resolve(options.hub ?? ".");
+  const outputPath = resolve(options.output);
+  if (existsSync(options.source)) {
+    const sourcePath = resolve(options.source);
+    const outputRelativeToSource = relative(sourcePath, outputPath);
+    if (outputRelativeToSource === "" || (!isAbsolute(outputRelativeToSource) && !outputRelativeToSource.startsWith(`..${sep}`) && outputRelativeToSource !== "..")) {
+      const error = new Error("Intake plan output must be outside the local source tree.");
+      Object.assign(error, { code: "E_INTAKE_OUTPUT" });
+      throw error;
+    }
+  }
+  const acquireOptions = {
+    roots: options.roots,
+    source: options.source,
+    ...(options.commit === undefined ? {} : { commit: options.commit }),
+    ...(options.provenanceFiles === undefined ? {} : { provenanceFiles: options.provenanceFiles }),
+    ...(options.ref === undefined ? {} : { ref: options.ref }),
+  };
+  const acquired = acquireSource(acquireOptions);
+  try {
+    const importPlan = await createImportPlan({
+      sourcePath: acquired.snapshotDir,
+      namespace: options.namespace,
+      target: emptyRegistryTarget(),
+    });
+    const plan = createAdoptionPlan({
+      hub: readHubIntakeState(hubDir),
+      importPlan,
+      namespace: options.namespace,
+      source: acquired,
+      sourceId: options.sourceId,
+    });
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, `${JSON.stringify(plan, null, 2)}\n`);
+    return plan;
+  } finally {
+    releaseAcquiredSource(acquired);
+  }
+}
+
+export interface HubIntakeStageCommandOptions {
+  readonly plan: string;
+  readonly hub?: string;
+}
+
+export interface HubIntakeApplyCommandOptions {
+  readonly plan?: string;
+  readonly candidate?: string;
+  readonly hub?: string;
+}
+
+export interface HubIntakeDeriveCommandOptions {
+  readonly candidate: string;
+  readonly patch: string;
+  readonly ownedId: string;
+  readonly hub?: string;
+}
+
+export interface HubIntakeReviewCommandOptions {
+  readonly candidate: string;
+  readonly decision: ReviewDecision;
+  readonly expectedRevision?: number;
+  readonly expectedRevisions?: Readonly<Record<string, number>>;
+  readonly actor?: string;
+  readonly reason?: string;
+  readonly hub?: string;
+}
+
+export interface HubReleasePreflightCommandOptions extends HubCommandOptions {}
+
+export interface HubReleasePreviewCommandOptions extends HubCommandOptions {
+  readonly against: string;
+  readonly outputDirectory: string;
+}
+
+export interface HubReleaseExportCommandOptions {
+  readonly candidate: string;
+  readonly outputDirectory: string;
+  readonly legacy?: boolean;
+}
+
+export interface HubCollectionsValidateCommandOptions extends HubCommandOptions {}
+
+/** Reacquire and persist only the immutable operator stage for an A1 plan. */
+export async function runHubIntakeStage(options: HubIntakeStageCommandOptions): Promise<{ readonly path: string; readonly digest: string }> {
+  const plan = JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument;
+  return stageAdoptionPlan(plan, resolve(options.hub ?? "."));
+}
+
+/** Apply a staged, reviewed A1 plan to the Hub through the A2 transaction. */
+export async function runHubIntakeApply(options: HubIntakeApplyCommandOptions) {
+  const hubDir = resolve(options.hub ?? ".");
+  const reference = options.candidate ?? options.plan;
+  if (reference === undefined) throw new Error("Missing required --plan or --candidate.");
+  const candidate = resolveCandidateDocument(reference, hubDir);
+  return applyAdoptionPlan({ hubDir, plan: candidate });
+}
+
+/** Apply one exact compatibility patch to an immutable staged candidate. */
+export async function runHubIntakeDerive(options: HubIntakeDeriveCommandOptions) {
+  const hubDir = resolve(options.hub ?? ".");
+  const candidatePath = existsSync(resolve(options.candidate))
+    ? resolve(options.candidate)
+    : join(hubDir, ".intake-staging", options.candidate.replace(/^sha256:/, ""), "adoption-plan.json");
+  const candidate = verifyAdoptionPlan(JSON.parse(readFileSync(candidatePath, "utf8")));
+  const patch = verifyDerivationPatch(JSON.parse(readFileSync(resolve(options.patch), "utf8")));
+  const result = await deriveCandidate({ candidate, hubDir, ownedId: options.ownedId, patch });
+  const ownedCandidate = createOwnedDerivativeCandidate({ hubDir, proposal: result.proposal });
+  const ownedCandidatePath = writeOwnedDerivativeCandidate(hubDir, ownedCandidate);
+  return { ...result, candidate: ownedCandidate, candidate_path: ownedCandidatePath };
+}
+
+function readStagedAdoptionCandidate(candidate: string, hubDir: string): IntakeCandidateDocument {
+  return resolveCandidateDocument(candidate, hubDir);
+}
+
+/** Append a decision bound to the exact staged A1 candidate versions. */
+export function runHubIntakeReview(options: HubIntakeReviewCommandOptions) {
+  const hubDir = resolve(options.hub ?? ".");
+  const candidate = readStagedAdoptionCandidate(options.candidate, hubDir);
+  return writeCandidateReview({
+    candidate,
+    decision: options.decision,
+    ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
+    ...(options.expectedRevisions === undefined ? {} : { expectedRevisions: options.expectedRevisions }),
+    hubDir,
+    ...(options.actor === undefined ? {} : { actor: options.actor }),
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  });
+}
+
+/** Read-only publication gate over the fresh exact Hub catalog. */
+export function runHubReleasePreflight(options: HubReleasePreflightCommandOptions) {
+  return preflightPublication(resolve(options.hub ?? "."));
+}
+
+function readReleaseReference(reference: string): HubRelease {
+  const path = resolve(reference);
+  const artifactPath = existsSync(path) && lstatSync(path).isDirectory() ? join(path, "hub-release.json") : path.endsWith("candidate.json") ? join(dirname(path), "hub-release.json") : path;
+  const release = JSON.parse(readFileSync(artifactPath, "utf8")) as HubRelease;
+  verifyHubRelease(release);
+  return release;
+}
+
+function releasePreviewBarrier(name: string): void {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  if (env?.EGA_TEST_RELEASE_PREVIEW_BARRIER !== name) return;
+  const marker = env.EGA_TEST_RELEASE_PREVIEW_BARRIER_FILE;
+  const release = env.EGA_TEST_RELEASE_PREVIEW_BARRIER_RELEASE;
+  if (marker === undefined || release === undefined) throw new Error("release preview barrier requires marker and release files");
+  writeFileSync(marker, `${name}\n`);
+  while (!existsSync(release)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+}
+
+/** Build and materialize one approved candidate, without publishing it. */
+export async function runHubReleasePreview(options: HubReleasePreviewCommandOptions): Promise<{
+  readonly status: "READY" | "BLOCKED";
+  readonly preflight: Awaited<ReturnType<typeof preflightPublication>>;
+  readonly candidate?: ReleaseCandidateDocument;
+  readonly diff?: ReleaseDiffDocument;
+}> {
+  const hub = resolve(options.hub ?? ".");
+  const preflight = await preflightPublication(hub);
+  if (preflight.payload.status === "BLOCKED") return { preflight, status: "BLOCKED" };
+  const build = await buildHubRelease(hub);
+  releasePreviewBarrier("AFTER_BUILD_BEFORE_FINAL_PREFLIGHT");
+  const finalizedPreflight = await preflightPublication(hub, build);
+  if (finalizedPreflight.digest !== preflight.digest || JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(finalizedPreflight.payload.skill_versions)) {
+    throw new Error("publication preflight became stale before release preview");
+  }
+  const base = readReleaseReference(options.against);
+  const diff = createReleaseDiff(base, build.release);
+  const candidate = createReleaseCandidate(build, { preflight: finalizedPreflight, previousReleaseDigest: base.digest, releaseDiff: diff });
+  writeReleaseCandidate(build, resolve(options.outputDirectory), candidate, { preflight: finalizedPreflight, releaseDiff: diff });
+  return { candidate, diff, preflight: finalizedPreflight, status: "READY" };
+}
+
+/** Export an already verified candidate; no Hub or upstream source is read. */
+export function runHubReleaseExport(options: HubReleaseExportCommandOptions) {
+  const verified = options.legacy === true
+    ? exportLegacyReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory))
+    : exportReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory));
+  return {
+    candidate: verified.candidate,
+    hub_id: verified.release.payload.hub_id,
+    release_digest: verified.release.digest,
+    status: "EXPORTED" as const,
+    output_directory: resolve(options.outputDirectory),
+  };
+}
+
+/** Read-only validation and browse projection for Hub-local collections. */
+export function runHubCollectionsValidate(options: HubCollectionsValidateCommandOptions) {
+  return validateCollections(resolve(options.hub ?? "."));
 }
 
 /** Convenience: canonical IDs with current versions, lexical order. Read-only. */

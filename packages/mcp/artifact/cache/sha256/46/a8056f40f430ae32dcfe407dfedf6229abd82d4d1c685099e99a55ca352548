@@ -1,0 +1,4 @@
+interface:
+  display_name: "What Did I Get Done"
+  short_description: "Summarize the commits you authored recently"
+  default_prompt: "Use $what-did-i-get-done to summarize my last few commits."

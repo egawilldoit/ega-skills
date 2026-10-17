@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Investigation"
+  short_description: "Plan an investigation when no narrower workflow fits"
+  default_prompt: "Use $design-investigation to plan this large migration."

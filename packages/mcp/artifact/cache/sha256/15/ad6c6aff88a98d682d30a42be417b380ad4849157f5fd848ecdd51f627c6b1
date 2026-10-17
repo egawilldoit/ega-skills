@@ -1,0 +1,7 @@
+schema_version: 1
+triggers:
+  - "reconcile project truth"
+  - "sources disagree"
+  - "what actually shipped"
+  - "reconcile contradictions"
+  - "which source is right"

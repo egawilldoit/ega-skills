@@ -1,0 +1,72 @@
+{
+  "digest": "sha256:d84db18c91fc3af78c9bbce7124c6b49d73af1b25d41f62fb78582cddc6476cb",
+  "object_type": "ega.release-diff",
+  "payload": {
+    "added_skill_ids": [
+      "mattpocock/implement-spec",
+      "mattpocock/pr",
+      "mattpocock/retro"
+    ],
+    "artifact_changes": {
+      "adopted_sources": false,
+      "alias_map": false,
+      "search_index_input": true,
+      "token_artifact": true
+    },
+    "base_release_digest": "sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77",
+    "candidate_release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
+    "hub_id": "personal",
+    "removed_skill_ids": [
+      "mattpocock/resolving-merge-conflicts"
+    ],
+    "status": "CHANGED",
+    "updated_skills": [
+      {
+        "candidate_version_hash": "sha256:55d181571d5ddf74c155c58ba8b97d5606f53bb862c9bbc8568a1b7adc4f7dd3",
+        "previous_version_hash": "sha256:a4e87261199b3641a3b4a4a05d30e8aa7847b5362b297a9677213229eba44e60",
+        "skill_id": "mattpocock/ask-matt"
+      },
+      {
+        "candidate_version_hash": "sha256:cc7fced2a48571ab9f334dbe018015efa931e3b4421c9d99660fe54a108feff3",
+        "previous_version_hash": "sha256:265858fa4b2be410c0b73b14f327bba1d7bf3735648fc0562ef4c843b78c098f",
+        "skill_id": "mattpocock/codebase-design"
+      },
+      {
+        "candidate_version_hash": "sha256:2544b52d53191d433c72c48786a974c4bfb9464336ed6005e19c1e9ef0ce2eab",
+        "previous_version_hash": "sha256:f56e6a33a7200be2f172c455ca35718a3345deb3e65ffb250b2c4fe6718ebf48",
+        "skill_id": "mattpocock/diagnosing-bugs"
+      },
+      {
+        "candidate_version_hash": "sha256:3d1b9f181597d95507ab95e330647774ab6fe3bb7d68fbbf0ac486e856dbfc44",
+        "previous_version_hash": "sha256:fbe160a645e7ef7b4cfd5dcab8610e705b15670a99e56724072430ba0d0c0150",
+        "skill_id": "mattpocock/domain-modeling"
+      },
+      {
+        "candidate_version_hash": "sha256:f00dca636d8bf54a46009f2379663aed1a865261e55d7d1a84720f78b76d34d1",
+        "previous_version_hash": "sha256:707c0647c9c91bb291e2968f9bb65e8b5d274ad3932003994f408f1a6d86f01e",
+        "skill_id": "mattpocock/improve-codebase-architecture"
+      },
+      {
+        "candidate_version_hash": "sha256:5a80979a5d4281e6f964c50bcdb6144580e25c8f4093883c224669e3142c1e25",
+        "previous_version_hash": "sha256:31121702fdba56d0f94ebd5069cb66148e9b5626175fc40290f090db3ae53a7a",
+        "skill_id": "mattpocock/setup-matt-pocock-skills"
+      },
+      {
+        "candidate_version_hash": "sha256:8a80a764a11952e45b6937eb0e7fa1cc4013325bf0246e47a653d3ae1755f130",
+        "previous_version_hash": "sha256:881b83c96da9481d5646b4ce10d88d0434787e540e57d73621838b56c0188e32",
+        "skill_id": "mattpocock/tdd"
+      },
+      {
+        "candidate_version_hash": "sha256:34325b72c9d502647f5624b65f25c01ba6368ae058c576dfcb0eed9daac02cf7",
+        "previous_version_hash": "sha256:3e8d4ae488b09036bb25f8843c4aad78dbf066bdd9c5f3e7d7d368815fae783f",
+        "skill_id": "mattpocock/triage"
+      },
+      {
+        "candidate_version_hash": "sha256:23bbecb0162c44ad63952f875da90d3ec9b2e6d0a9dcfefdcf5cab79b3986803",
+        "previous_version_hash": "sha256:18a2e20abc3801b3cedbef43e318331ed3fed531dd5af9af9fbac89d10725611",
+        "skill_id": "mattpocock/wait-what"
+      }
+    ]
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,9 @@
+schema_version: 1
+triggers:
+  - "loop on ci"
+  - "watch the checks"
+  - "keep fixing until green"
+  - "iterate on ci failures"
+anti_triggers:
+  - "fix ci"
+  - "fix the failing check"

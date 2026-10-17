@@ -1,0 +1,8 @@
+schema_version: 1
+triggers:
+  - "fix merge conflicts"
+  - "resolve merge conflicts"
+  - "merge conflict"
+  - "merge conflicts"
+  - "resolve conflicts"
+  - "rebase conflict"

@@ -9,7 +9,9 @@ on:
       - '.github/workflows/hashing-traversal.yml'
   push:
     branches:
-      - abmortaki/ega-559-w2spec-002-implement-safe-realpath-traversal-for-symlinks
+      - main
+      - release/2.0
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,12 +20,13 @@ jobs:
   verify:
     name: hashing traversal (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os:
           - ubuntu-latest
-          - windows-latest
+          - windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -46,7 +49,7 @@ jobs:
       - name: Hashing traversal tests
         run: node --test tests/hashing-traversal.test.mjs tests/hashing-traversal-toctou.test.mjs
       - name: Full test suite
-        run: pnpm test
+        run: pnpm test:ci
       - name: Check frozen specs
         run: pnpm specs:check
       - name: Check whitespace errors

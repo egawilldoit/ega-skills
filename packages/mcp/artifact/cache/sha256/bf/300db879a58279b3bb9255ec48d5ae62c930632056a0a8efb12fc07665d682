@@ -1,0 +1,4 @@
+interface:
+  display_name: "Outcome-Oriented Execution"
+  short_description: "Converge on the target, skip throwaway states"
+  default_prompt: "Use $principle-outcome-oriented-execution to plan this migration."

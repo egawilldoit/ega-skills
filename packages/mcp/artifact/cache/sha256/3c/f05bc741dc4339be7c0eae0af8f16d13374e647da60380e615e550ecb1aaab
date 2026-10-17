@@ -1,0 +1,6 @@
+schema_version: 1
+triggers:
+  - "unnecessary rerenders"
+  - "render waterfall"
+  - "slow page"
+anti_triggers: []

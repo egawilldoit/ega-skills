@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unslop"
+  short_description: "Cut AI tells and filler from any writing"
+  default_prompt: "Use $unslop to strip the AI tells from this text."

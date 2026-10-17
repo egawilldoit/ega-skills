@@ -172,7 +172,14 @@ test("CLI inspect: metadata, versions, L1, tokens and provenance without mutatio
   assert.ok(l2.tokenCounts.some((c) => c.estimatorId === "ega-o200k-v1" && c.tokenCount > 0));
   assert.equal(version.sources.length, 1);
   assert.equal(version.sources[0].sourceType, "local");
-  assert.ok(version.sources[0].localPath.endsWith(join("src", "probed")));
+  // A local source records a deterministic, host-free identity rather than the
+  // absolute directory the importer happened to read from. Exporting the build
+  // host's path would disclose the build machine (see #123).
+  assert.equal(version.sources[0].localPath, "ega/probed");
+  assert.ok(
+    !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(version.sources[0].localPath),
+    "a local source must not persist a host-absolute path",
+  );
   // No instruction rewriting: SKILL.md bytes round-trip through the cache path only;
   // inspect carries metadata, never the body text.
   assert.ok(!first.stdout.includes("Guidance text for probed"));

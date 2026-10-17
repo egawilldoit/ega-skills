@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recover Work Context"
+  short_description: "Reconstruct the current state of ongoing work"
+  default_prompt: "Use $recover-work-context to catch me up on this project."

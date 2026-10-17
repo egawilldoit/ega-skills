@@ -1,0 +1,1682 @@
+{
+  "rows": [
+    {
+      "skill_id": "anthropic/academy-guide",
+      "version_hash": "sha256:650d71eb50374c950157d727a317d5cd71d58dcc683ff72a441159cc5256a5d2",
+      "name": "academy-guide",
+      "description": "Stop and check this skill before finishing any reply to a question about how to use Claude or a Claude product — it recommends matching courses, tutorials, and use cases from Claude Academy (academy.claude.com), Anthropic's learning hub. Trigger on: \"how do I\", \"how can I\", \"getting started with\", \"what can Claude do\", \"teach me\", \"learn to use\"; questions about artifacts, projects, skills, plugins, connectors, MCP; requests about rolling Claude out to a team, class, or organization; and any ask for training materials, onboarding content, or learning resources. Use it when the user is learning how to use a feature or product — not when they are mid-task and just want the task done. This skill composes with other skills: after consulting product documentation to answer how a Claude feature works, also check here for a matching course or tutorial — a docs-grounded answer and an Academy recommendation belong together. Only recommend on a strong match; never invent Academy content.\n",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/algorithmic-art",
+      "version_hash": "sha256:a495a2da00d06628db17f9962ee7114035fcc6969132a0422a10ead0ca739c1a",
+      "name": "algorithmic-art",
+      "description": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/brand-guidelines",
+      "version_hash": "sha256:b195bf16da72a90e09afd501c8fbe4fc2f69e5022c9ffb40b9679e87456cfb07",
+      "name": "brand-guidelines",
+      "description": "Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/canvas-design",
+      "version_hash": "sha256:63a0f7e5a96a965f6c06b7dc3ae01e65e8453893c7f7c01f5938899cdb5ded3d",
+      "name": "canvas-design",
+      "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/claude-api",
+      "version_hash": "sha256:955e02c6879a4fd2cbc48a25c526b27f6e5447aa4e9c909bc1a4b6fd182bbdc8",
+      "name": "claude-api",
+      "description": "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.\nTRIGGER — read BEFORE opening the target file whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).\nSKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/discernment-nudge",
+      "version_hash": "sha256:c9de755dd75b9f68d3224c7952cab148f5ff07c090f7b599796b9fb8fc3d9121",
+      "name": "discernment-nudge",
+      "description": "After you give a substantive answer or draft that the user may act on — advice or recommendations, drafted artifacts such as goals, plans, pitches, proposals, or emails, estimates or projections, analysis or interpretation of data, factual claims they may rely on, or a multi-step argument — invoke this skill BEFORE finalizing your reply and then, if it applies, append 2-3 short follow-up questions, each tied to something specific in what you just produced, that help the user check key facts, probe the reasoning or assumptions, and notice missing context. Do this at most once per conversation. Skip it when the user asked a trivial how-to or simple lookup, wants a purely educational explanation, asked you only to format, convert, or assemble a file from content they provided, is writing code they will run, is doing creative writing or casual chat, or already asked you to double-check, cite, or review — the skill file explains these boundaries and the exact output format.\n",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/frontend-design",
+      "version_hash": "sha256:ad110017fbe652800952e07f36fc6f687055faf1c762a69b6ed1723a7204692f",
+      "name": "frontend-design",
+      "description": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/internal-comms",
+      "version_hash": "sha256:e3279f122b6f80baecd4c5d8273b2d9fa7cb3e905eb287503ed24f6fee3f6d96",
+      "name": "internal-comms",
+      "description": "A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.).",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/mcp-builder",
+      "version_hash": "sha256:039eac54616f60ae8ae0840603710e10eded7ac357a6c3f1d47c27484dd3474e",
+      "name": "mcp-builder",
+      "description": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services, whether in Python (FastMCP) or Node/TypeScript (MCP SDK).",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "build an mcp server",
+        "implement an mcp server",
+        "mcp server exposing"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/skill-creator",
+      "version_hash": "sha256:6c44d276d645bc6aac596209629c3f56cf263f423d2986be76678a9c866263e5",
+      "name": "skill-creator",
+      "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/slack-gif-creator",
+      "version_hash": "sha256:9c0873c03abd1f790c1a2ab2cb3337055615e94427f49a6619931692516379bd",
+      "name": "slack-gif-creator",
+      "description": "Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and animation concepts. Use when users request animated GIFs for Slack like \"make me a GIF of X doing Y for Slack.\"",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/theme-factory",
+      "version_hash": "sha256:04ef06daa0528054c296c505a412c012d061f28e34790a4e25df387a3c403d93",
+      "name": "theme-factory",
+      "description": "Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to any artifact that has been creating, or can generate a new theme on-the-fly.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/web-artifacts-builder",
+      "version_hash": "sha256:69dfba6d7ed815498fdfba2f8488c0d0eedd88848e81cb2b72f0f7bc723b5abd",
+      "name": "web-artifacts-builder",
+      "description": "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "anthropic/webapp-testing",
+      "version_hash": "sha256:bdac8ed56ad37f44b2adb3959c45052d364c2b523117990305c917aa9ac6fc9a",
+      "name": "webapp-testing",
+      "description": "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/adversarial-review",
+      "version_hash": "sha256:ba9f40b467dea54f16913a12f8cfd9df0d045967b2e77ac989d1d49ff079f6f6",
+      "name": "adversarial-review",
+      "description": "Independently challenge a completed or proposed change for correctness, security, and maintainability before it ships. Use for 'adversarial review', 'stress test this', 'find blind spots', 'tear this apart', or when an important change needs a deep independent review rather than a normal pass. Findings use severity CRITICAL, IMPORTANT, MINOR, UNPROVEN, or FALSE_POSITIVE, and every real finding carries claim, evidence, affected surface, impact, reproduction or reasoning, originating change, minimal repair, verification required, and confidence. Does not auto-apply fixes. Use blast-radius for what a change could break elsewhere; use review-and-ship to finish an ordinary branch or PR.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "adversarial review",
+        "attack this design",
+        "challenge this change",
+        "independent challenge",
+        "red team this"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/blast-radius",
+      "version_hash": "sha256:8976b4b0171ee0abe3c38eff20b6fba7446b31293e8047114b39a41583408fc8",
+      "name": "blast-radius",
+      "description": "Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real code instead of writing it up. Use for 'blast radius of X', 'what could this break', or reviewing a small diff you don't trust.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "blast radius",
+        "could this change break",
+        "impact of this change",
+        "what could this break",
+        "what could this change break",
+        "what does this change break",
+        "what else does this affect"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/build-execution-contract",
+      "version_hash": "sha256:3d8c57918aeeb14ab4595371ea232004fcccc9a58798633ec263c7e5d31c5de3",
+      "name": "build-execution-contract",
+      "description": "Turn a requirement, analysis, or design into a bounded implementation contract another agent can execute without guessing. Use when delegating a substantial change, handing work to a subagent, or converting a plan into an authorized, scoped, and verifiable task. Emits fixed sections from MISSION through FINAL REPORT FORMAT, with base and head SHAs, authorized mutation level, must-preserve invariants, forbidden scope, validation ladder, required evidence, stop conditions, and merge and production authority. Use preflight-repository to establish the facts it pins; this skill writes the contract.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "bounded task",
+        "delegate to a subagent",
+        "execution contract",
+        "implementation contract",
+        "scoped task for a subagent",
+        "subagent contract"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/certify-database-rollout",
+      "version_hash": "sha256:2064223c9545d2fc31cce08e1090ef5a983a8b63f30d511206aad74f73ae3d4d",
+      "name": "certify-database-rollout",
+      "description": "Certify a database migration across its real lifecycle: target, lineage, ordering, fresh-database behavior, upgrade path, schema, constraints, RLS and security, cross-user denial, service-role behavior, production application, and post-migration runtime. Use before or after shipping a migration, or when someone claims a migration is deployed. Distinguishes a migration file that exists from a migration that is successfully deployed.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "certify database migration",
+        "certify database rollout",
+        "certify the database rollout",
+        "certify the migration",
+        "database rollout certification"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/certify-mcp-production",
+      "version_hash": "sha256:476e900e5080134a4328a9c0ff85350bdf584c1b0f92ff4dc1f6b52528d114a3",
+      "name": "certify-mcp-production",
+      "description": "Certify a production MCP server end to end: endpoint, protocol negotiation, OAuth, tool discovery, tool schemas, permission and profile mapping, read and write operations, idempotency, denial behavior, auditability, and real client compatibility. Use before declaring an MCP integration production-ready or client-compatible. Do not claim client compatibility from curl or server-local tests alone; compatibility requires evidence from the actual client.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "certify mcp production",
+        "certify the mcp server",
+        "mcp production certification"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/certify-pr-head",
+      "version_hash": "sha256:09732212913804055b494dd8408b490199cd94f19df38628cd33b43bfebd3334",
+      "name": "certify-pr-head",
+      "description": "Verify that acceptance evidence belongs to the exact current head of a pull request. Use before declaring a PR merge-ready, after pushing fixes to a reviewed PR, after a rebase or restack, or whenever review, test, or CI evidence may refer to an older commit. Checks the current PR head SHA against the reviewed, tested, and CI SHAs, distinguishing the CI-associated head SHA from the SHA the CI job actually executed, and confirms the branch has not moved afterward. Returns EXACT_HEAD_CERTIFIED, STALE_EVIDENCE, HEAD_MOVED, or INCOMPLETE. For source-to-artifact lineage use trace-artifact-provenance; for a full release gate use certify-release.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "certify pr evidence",
+        "certify pr head",
+        "certify the pr head",
+        "pr head certification"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/certify-production-target",
+      "version_hash": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
+      "name": "certify-production-target",
+      "description": "Verify the exact production target before a high-impact mutation: project, database, server, environment, deployment, branch, SHA, and account or organization. Return TARGET_CERTIFIED, AMBIGUOUS_TARGET, WRONG_TARGET, or INSUFFICIENT_EVIDENCE. Use before deploys, destructive commands, production data changes, or any operation where hitting the wrong target is costly. AMBIGUOUS_TARGET is a hard stop for destructive or production mutation.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "certify production target",
+        "certify the production target",
+        "certify the target",
+        "confirm the production environment",
+        "verify the production target"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/certify-release",
+      "version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "name": "certify-release",
+      "description": "Certify a release against three separate gates, CODE, RUNTIME, and PRODUCT, and report the highest gate actually reached as CODE_READY, RUNTIME_READY, PRODUCT_READY, or BLOCKED. Use before calling a build production-ready, after a deploy, or when a release claim spans implementation, the running environment, and the real end-user path. This is the whole-release gate; use certify-pr-head for freshness of PR evidence, trace-artifact-provenance for source-to-artifact lineage, and certify-production-target for target identity before mutation.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "certify release",
+        "certify the release",
+        "is this release ready",
+        "release certification"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/check-compiler-errors",
+      "version_hash": "sha256:e82a100da644bfa36fd64cc3060081fd56d162cdf095b9727ba10f097ddfebac",
+      "name": "check-compiler-errors",
+      "description": "Run the repository's compile and type-check commands, summarize failures by file and category, and report what needs fixing without changing code unless edits are authorized. Use after edits, when a build or type-check breaks, or before review. If repair is explicitly requested or already authorized, fix the highest-confidence issues one at a time and rerun the checks.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "compile errors",
+        "compiler errors",
+        "run the typecheck",
+        "type check",
+        "type errors",
+        "typecheck"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/compare-designs",
+      "version_hash": "sha256:373ae7ad0891a1d20f1e5564dfd823d5fef87ff9c2697d220e54bb8e19f97267",
+      "name": "compare-designs",
+      "description": "Compare materially different designs for a non-trivial artifact before committing, by generating independent candidates, judging them against explicit criteria, and picking a base to graft the strongest ideas into. Use when multiple reasonable solutions exist and picking the first would lock in the wrong shape, or for 'compare designs' or 'throw it in the arena'. Not for mechanical changes with one obvious solution.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "arena",
+        "compare approaches",
+        "compare designs",
+        "compare options",
+        "compare two designs"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/create-verification-workflow",
+      "version_hash": "sha256:7fe911b26a352d9bf4123e84ffc97a07098f54186a5dde05c2d8136120b8e388",
+      "name": "create-verification-workflow",
+      "description": "Generate a project-local verification workflow that drives a real application and captures proof. Use when a repository has no scripted way to verify user-facing behavior, or for requests like 'set up verification for this app', 'make a control harness', or 'prove the app works end to end'. Covers web, CLI, API, mobile, desktop, and library surfaces. The generated workflow must define Launch, Doctor, Drive, Evidence, and Cleanup, and it must be run once before handover. Use verify-ui or verify-cli to verify a specific change now; use maintain-verification-workflow to keep an existing workflow honest.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "create a verification skill",
+        "create verification workflow",
+        "make a verification skill",
+        "no verification workflow exists"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/deliver-software",
+      "version_hash": "sha256:e9849b1bdfddc0095eda4463f5c09eaba95b606a49679624abae83dd75c3872f",
+      "name": "deliver-software",
+      "description": "Route non-trivial engineering work to the right workflow instead of improvising. Use at the start of a task that spans investigation, design, a bug, review, integration, a release, resuming prior work, or an autonomous run, to pick the narrowest skill that fits and hand off to it. For a small change with one obvious shape, skip this skill and just do the work.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "deliver software",
+        "deliver this",
+        "end to end delivery",
+        "route this engineering task"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/design-architecture",
+      "version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "name": "design-architecture",
+      "description": "Design an architecture before implementation: current verified state, desired state, invariants, source of truth, state ownership, failure behavior, concurrency, migration path, backward compatibility, and validation strategy. Use for 'design this', 'architect this', a cross-cutting change, or non-trivial work where jumping straight to code would lock in the wrong shape.",
+      "domains": [
+        "architecture"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "architect this",
+        "design an architecture",
+        "design the architecture",
+        "design this",
+        "system design"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/design-investigation",
+      "version_hash": "sha256:2a3da9fec92367e6a17ded250d1399ede7d5d76ec5143b0ae69251eba8fe3414",
+      "name": "design-investigation",
+      "description": "Design an auditable investigation when no narrower workflow fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Use for 'figure this out', 'investigate this', or when a task has unknowns, unclear scope, or no known playbook. Before substantial work it establishes a falsifiable definition of done, scope, unknowns, risk, an investigation strategy, and an evidence plan, then runs a hypothesis loop and keeps a decision trail. Use verify-this to prove one claim; use this to design the whole approach.",
+      "domains": [
+        "investigation"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "audit plan",
+        "design an audit",
+        "design an investigation",
+        "investigation plan",
+        "plan an investigation"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/deslop",
+      "version_hash": "sha256:d69f6706c0195f52734c4b999dd30213feb6497df92f18b568f3dd99dc526ef5",
+      "name": "deslop",
+      "description": "Remove AI-generated code slop from a branch's diff and restore local style: stray comments, defensive checks on trusted paths, any-casts, and needless nesting. Use before review or after rapid generation. Resolve the branch's actual base branch rather than assuming main. Keeps behavior unchanged.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "clean up this diff",
+        "code slop",
+        "deslop",
+        "remove code slop",
+        "slop in this diff"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/fix-ci",
+      "version_hash": "sha256:3f1c46c757786ab3b083bd6a6b73ae217f45c41a0a90f7842346981a4fcddcfd",
+      "name": "fix-ci",
+      "description": "Find a failing pull-request check, inspect the actual logs or check link, and apply the smallest fix that turns it green, one failure cause at a time. Use when CI is red and needs focused repair. Resolve checks and logs through a native connector, MCP tool, or authenticated gh; follow external CI evidence where accessible and report inaccessible logs honestly.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "fix ci",
+        "fix ci failure",
+        "fix the build",
+        "fix the failing check",
+        "turn the checks green"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/fix-merge-conflicts",
+      "version_hash": "sha256:757aeffd4943d14e03409ae77434a84b695a4a673122ce369c20603bde31a233",
+      "name": "fix-merge-conflicts",
+      "description": "Resolve merge or rebase conflicts non-interactively, preserving both sides where safe, regenerating lockfiles with the package manager, and validating with compile, lint, and tests. Use when a branch has unresolved conflict markers and must reach a buildable state. Do not push during resolution.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "fix merge conflicts",
+        "merge conflict",
+        "merge conflicts",
+        "rebase conflict",
+        "resolve conflicts",
+        "resolve merge conflicts"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/get-pr-comments",
+      "version_hash": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+      "name": "get-pr-comments",
+      "description": "Fetch and summarize review comments on the active pull request, grouped by severity and actionability, with an ordered action list and open questions. Use when review feedback needs triage, or when you need to know exactly what reviewers asked for.",
+      "domains": [
+        "github"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "pr comments",
+        "pull request comments",
+        "review comments",
+        "reviewer feedback",
+        "what did reviewers say"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/integrate-pr-stack",
+      "version_hash": "sha256:b4da73d7dd5282e201a403256bd13c735d8681262345712963783d13e41e38de",
+      "name": "integrate-pr-stack",
+      "description": "Safely land stacked pull requests one at a time. Use for a stack or chain of dependent PRs, when a finding must be fixed in the PR that introduced it, or when descendants need restacking after a base branch changes. Discovers the stack, verifies ancestry, maps each PR base and head, detects drift, repairs findings in the owning PR, restacks descendants by semantic intent rather than ours or theirs, recalculates diffs, revalidates, merges exactly one PR, then refreshes the remainder against the updated base branch. Parallel preparation is allowed; parallel integration is not. For a single ordinary PR use review-and-ship.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "integrate pr stack",
+        "integrate the stack",
+        "land stacked prs",
+        "stack of prs",
+        "stacked pull requests"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/loop-on-ci",
+      "version_hash": "sha256:58333b4ca32527b74681cb72fed45061e8e826554ec4b597c1edf6a62bc5a8cb",
+      "name": "loop-on-ci",
+      "description": "Watch a pull request's attached checks and iterate on failures until all required checks are green, treating the complete PR-attached check set as the source of truth. Use when a PR must be driven to green across repeated pushes. Resolve checks through a native connector, MCP tool, or authenticated gh, and confirm they match the current head. For a single failing check, use fix-ci.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "iterate on ci failures",
+        "keep fixing until green",
+        "loop on ci",
+        "watch the checks"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/maintain-verification-workflow",
+      "version_hash": "sha256:a8d313aa678cfdf0d94ce9c25b40f822892e5081a3a2646a4617139afcde44f2",
+      "name": "maintain-verification-workflow",
+      "description": "Audit an existing project-local verification workflow against current source, product behavior, runtime, and feature map, and ship only proven corrections. Use for 'audit the verification skill', 'refresh the feature map', or after product changes may have made a verification workflow stale. Returns one outcome: CLEAN, CHANGED, or BLOCKED. It edits only the verification workflow's own files, never product code, so drift in the docs is fixed while a real product regression is reported, not hidden. Use create-verification-workflow when no verification workflow exists yet.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "audit verification workflow",
+        "maintain the verification workflow",
+        "maintain verification workflow",
+        "update verification workflow"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/make-pr-easy-to-review",
+      "version_hash": "sha256:33cef12e5cdd1993a4009bd6a2cf561c0617e469fb389864297c33bf52e63111",
+      "name": "make-pr-easy-to-review",
+      "description": "Prepare a pull request for review by cleaning noisy history, improving its description, and adding reviewer guidance without changing code behavior. Use for 'make this easy to review', 'tidy this PR', 'clean up commits', or 'annotate the diff'. Resolve GitHub access from a native connector, MCP tool, or authenticated gh. Preserve tree identity: reviewability cleanup must not change behavior.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "annotate the diff",
+        "clean up commits",
+        "make pr easy to review",
+        "make this easy to review",
+        "make this pr easy to review",
+        "tidy this pr"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/mine-work-patterns",
+      "version_hash": "sha256:1ef20da1fb25498a8e356bf2712680a5383329c298ef7a153e8f788465ed8354",
+      "name": "mine-work-patterns",
+      "description": "Mine a meaningful history window for recurring work and decide what to encode, so repeated friction becomes a skill, script, or policy instead of being re-solved each time. Use for 'mine my work patterns', 'automate me', 'what should we automate', 'turn this into a skill', or periodically as the repository self-improvement loop. Each candidate is classified as REUSE_EXISTING_SKILL, ADAPT_EXISTING_SKILL, BUILD_NEW_SKILL, BUILD_SCRIPT, BUILD_WORKFLOW, BUILD_POLICY, BUILD_TEMPLATE, or DO_NOT_ENCODE. Searches the existing catalog before proposing anything new, and does not duplicate a skill just because the wording differs. Use work-retrospective for lessons from one finished session.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "mine patterns",
+        "mine work patterns",
+        "recurring friction",
+        "recurring work",
+        "work patterns"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/new-branch-and-pr",
+      "version_hash": "sha256:a198fda5283a2a20ea025fa98b7145485f164ef63cac9b4b23db5facc9cc090f",
+      "name": "new-branch-and-pr",
+      "description": "Create a focused branch from the repository's actual default branch, complete the work, commit, push, and open a concise pull request with summary and test notes. Use when starting work that should ship through a clean branch and PR. Resolve the base branch and the GitHub capability from the environment instead of assuming main or a local gh. For an existing branch use review-and-ship; for a chain of dependent PRs use integrate-pr-stack.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "branch and pr",
+        "create a branch and open a pr",
+        "new branch and pr",
+        "open a pr"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/parallelize-work",
+      "version_hash": "sha256:1f6c7b9c13d0d07de88e2d61a96ea065807b106de9b7f6215fc41e5cd2710178",
+      "name": "parallelize-work",
+      "description": "Parallelize work only when it can be split safely, then aggregate deterministically. Use for 'parallelize this', 'fan this out', 'run these in parallel', or a large sweep of independent slices, races, or coverage. Requires a clear decomposition, no conflicting mutable ownership, isolated branches, worktrees, files, or state, and explicit aggregation. Parallel execution never implies parallel merge or integration: integration stays serial and ordered. Use design-investigation when the task shape is unknown; use this once the seams are clear.",
+      "domains": [
+        "parallelism"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "fan out",
+        "fan this out",
+        "parallelize",
+        "parallelize this",
+        "run in parallel",
+        "run these in parallel"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/preflight-repository",
+      "version_hash": "sha256:c4ff711086df8b9631e8790b9fadddc8d804ab408f68349ac8799b422a5a3180",
+      "name": "preflight-repository",
+      "description": "Establish the exact current reality of a repository before substantial work: identity, root, default and current branch, HEAD SHA, merge base, dirty state, ahead/behind, worktree, remote parity, associated PR, PR base/head, and CI or deployment identity when relevant. Use at the start of serious repo work, when resuming on an unfamiliar checkout, or before branching, pushing, or merging. Returns READY, READY_WITH_NOTES, BLOCKED, WRONG_REPOSITORY, or INSUFFICIENT_EVIDENCE. For freshness of PR evidence against an exact head use certify-pr-head; for stacked PRs use integrate-pr-stack.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "preflight",
+        "preflight repository",
+        "repo status",
+        "repository state",
+        "what branch am i on",
+        "where am i"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/principle-attack-the-premise",
+      "version_hash": "sha256:0069441e028d3ae441995a1d65ef613245dea06411156abcfdc819e2a85d0b5c",
+      "name": "principle-attack-the-premise",
+      "description": "Apply when two or more fixes that share one premise have failed the same gate. Take a census of which actors hold the imbalance before the next fix, then question the premise instead of writing another fix that assumes it.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "attack the premise"
+      ],
+      "aliases": [
+        "attack-the-premise"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-boundary-discipline",
+      "version_hash": "sha256:e4a297b30de428cd1d8933c17a5b207967a18a5f88cfb82e6bd96038121280f0",
+      "name": "principle-boundary-discipline",
+      "description": "Apply when wiring validation, error handling, or framework adapters. Concentrate guards at system boundaries (CLI, config, network, external APIs); trust internal types and keep business logic in pure functions.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "boundary discipline"
+      ],
+      "aliases": [
+        "boundary-discipline"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-build-the-lever",
+      "version_hash": "sha256:4780b76ad7f3eb10757e4bf1a603c72313bcb704b9bfe77050a202cb2730707d",
+      "name": "principle-build-the-lever",
+      "description": "Apply to any non-trivial work, not just bulk work: edits, migrations, analyses, checks. Build the tool that does it or proves it (codemod, script, generator, or a skill your subagents follow) instead of working by hand. The tool is the artifact a reviewer can rerun.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "build the lever"
+      ],
+      "aliases": [
+        "build-the-lever"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-encode-lessons-in-structure",
+      "version_hash": "sha256:ad1b3beec602ff28029d62b1150c9f3b3ec4480d77da6e4fa67482b616a5b6af",
+      "name": "principle-encode-lessons-in-structure",
+      "description": "Apply when you catch yourself writing the same instruction a second time, or notice a recurring correction. Encode the rule as a lint, metadata flag, runtime check, or script instead of more text.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "encode lessons in structure"
+      ],
+      "aliases": [
+        "encode-lessons-in-structure"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-exhaust-the-design-space",
+      "version_hash": "sha256:1a9e4e81fa5af126f6ffb66554c87b7997611b9657fcbf21168b14bbf4ab9daf",
+      "name": "principle-exhaust-the-design-space",
+      "description": "Apply when facing a novel UI interaction or architectural decision with no precedent in the codebase. Build 2-3 competing prototypes and compare side by side before committing.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "exhaust the design space"
+      ],
+      "aliases": [
+        "exhaust-the-design-space"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-experience-first",
+      "version_hash": "sha256:eded67fea61f68569d4c2a6fccf03a0745f92d1417d772a826f24668e7dfbd1d",
+      "name": "principle-experience-first",
+      "description": "Apply when product, UX, or feature-scope tradeoffs come up. Choose user delight over implementation convenience; ship fewer polished features over more rough ones.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "experience first"
+      ],
+      "aliases": [
+        "experience-first"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-fix-root-causes",
+      "version_hash": "sha256:20cf008f1cb43474c5ca5ac9799d9c902c6315b30e1d9c9fded9472e5a1c1356",
+      "name": "principle-fix-root-causes",
+      "description": "Apply when debugging. Trace each symptom to its root cause and fix it there; reproduce first, ask why until you reach it, resist nil-check guards that silence crashes.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "don't patch the symptom",
+        "fix root causes",
+        "root cause",
+        "root cause principle",
+        "trace to the root cause"
+      ],
+      "aliases": [
+        "fix-root-causes"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-foundational-thinking",
+      "version_hash": "sha256:665e90ba8020059c94f01a37a3e8e8995ffcbe439ce3237cc04debb9816882ea",
+      "name": "principle-foundational-thinking",
+      "description": "Apply before writing logic: choosing core types and data structures, sequencing scaffold-vs-feature work, asking what concurrent actors share. Get the data structures right so downstream code becomes obvious.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "foundational thinking"
+      ],
+      "aliases": [
+        "foundational-thinking"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-guard-the-context-window",
+      "version_hash": "sha256:17ce8399740d46dd92b3e6ab5128b99e143ad6ad864d16b67494bec07149443f",
+      "name": "principle-guard-the-context-window",
+      "description": "Apply when context is filling up: large outputs, long files, repeated reads, fan-out planning. Route bulk to subagents; keep summaries in the main thread, not raw payloads.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "guard the context window"
+      ],
+      "aliases": [
+        "guard-the-context-window"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-laziness-protocol",
+      "version_hash": "sha256:ba0b20e80da8ee61b5fc66e151945395184ae7353d6ffb0102148b3fe7de1946",
+      "name": "principle-laziness-protocol",
+      "description": "Apply when refactoring, evaluating diff size, or tempted to add abstractions, layers, or signal threading. Bias toward deletion and the smallest change that solves the problem.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "laziness protocol"
+      ],
+      "aliases": [
+        "laziness-protocol"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-make-operations-idempotent",
+      "version_hash": "sha256:f15dfd3e0119ceec7761efc57deabec1b26779c36d94ec417712da784d9560f6",
+      "name": "principle-make-operations-idempotent",
+      "description": "Apply when designing commands, lifecycle steps, or processing loops that run amid crashes, restarts, and retries. Converge to the same end state regardless of partial prior runs.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "idempotency",
+        "idempotent",
+        "make operations idempotent"
+      ],
+      "aliases": [
+        "make-operations-idempotent"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+      "version_hash": "sha256:981529b6cf487d8aefaad6b7e3785685637b01b66605467ec5a946c60375cb87",
+      "name": "principle-migrate-callers-then-delete-legacy-apis",
+      "description": "Apply when introducing a new internal API while old callers still exist. Migrate callers and delete the old API in the same wave instead of preserving compatibility layers.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "delete legacy apis",
+        "migrate callers then delete legacy apis"
+      ],
+      "aliases": [
+        "migrate-callers-then-delete-legacy-apis"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-minimize-reader-load",
+      "version_hash": "sha256:1e5b2e3f314ffee466f4662e9e1679f03fc3183325e4e96ffc1b6a5291ecdce5",
+      "name": "principle-minimize-reader-load",
+      "description": "Apply when reviewing or shaping code that's hard to trace. Count layers between question and answer, and hidden state in the reader's head; collapse one-caller wrappers and shrink mutable scope.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "minimize reader load"
+      ],
+      "aliases": [
+        "minimize-reader-load"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-model-the-domain",
+      "version_hash": "sha256:161ed410aaf963e339d1fca1a15c205c629977b5a8843a68ccb633a84d61353f",
+      "name": "principle-model-the-domain",
+      "description": "Apply when writing stateful logic, or when code branches a lot or repeats a shape assumption across files. Encode the domain in a structure instead of scattered conditionals.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "model the domain"
+      ],
+      "aliases": [
+        "model-the-domain"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-outcome-oriented-execution",
+      "version_hash": "sha256:c76de47c814625e4db630feb4f60209a6d852faaab1c7af5b525be1795f3a325",
+      "name": "principle-outcome-oriented-execution",
+      "description": "Apply during planned rewrites and migrations with explicit phase boundaries. Converge on the target architecture; don't preserve smooth intermediate states with throwaway compatibility code.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "outcome oriented execution"
+      ],
+      "aliases": [
+        "outcome-oriented-execution"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-prove-it-works",
+      "version_hash": "sha256:da8423af23d09c7b1b371732c93ce3e82f8464960ff4096d0b27bc8fe3dcda2f",
+      "name": "principle-prove-it-works",
+      "description": "Apply after completing a task, before declaring done. Verify against the real artifact (run the feature, read the actual value, inspect the diff), not a proxy, self-report, or 'it compiles.'",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "prove it works"
+      ],
+      "aliases": [
+        "prove-it-works"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-redesign-from-first-principles",
+      "version_hash": "sha256:86a38de139a656eff80c09b34aed55cb412b0927a45e7b71760e7477a41ca2d1",
+      "name": "principle-redesign-from-first-principles",
+      "description": "Apply when integrating a new requirement into an existing design. Redesign as if the requirement had been a foundational assumption from day one, instead of bolting it on.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "first principles",
+        "redesign from first principles"
+      ],
+      "aliases": [
+        "first-principles",
+        "redesign-from-first-principles"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-separate-before-serializing-shared-state",
+      "version_hash": "sha256:c637cdc30750c1743334d02898daed4453d25f748b73724ef826c3f8cb683eba",
+      "name": "principle-separate-before-serializing-shared-state",
+      "description": "Apply when concurrent actors might write to the same file, branch, key, or state object. Eliminate the sharing first; serialize structurally only when one shared writer is a real invariant.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "separate before serializing shared state"
+      ],
+      "aliases": [
+        "separate-before-serializing-shared-state"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-sequence-verifiable-units",
+      "version_hash": "sha256:80cf4d02c70f5f15f70a56b22c97f482806024da97656a712703d2096e2ac66d",
+      "name": "principle-sequence-verifiable-units",
+      "description": "Apply to multi-step work (sweeps, migrations, runs of similar edits) and to how you stack commits and PRs. Break work into small units that each end in a verifiable state, check each before the next, and order delivery so the sequence proves itself to a reviewer.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "sequence verifiable units",
+        "verifiable units"
+      ],
+      "aliases": [
+        "sequence-verifiable-units"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-subtract-before-you-add",
+      "version_hash": "sha256:866e5f4bc1b5eaa86b15f1a8e25804a281c17f5c2740b01998fc60168b7c677b",
+      "name": "principle-subtract-before-you-add",
+      "description": "Apply when sequencing an addition, refactor, or rewrite. Remove dead code, redundant validators, and stub references first, then build on the simpler base.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "subtract before you add"
+      ],
+      "aliases": [
+        "subtract-before-you-add"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-test-behavior-not-implementation",
+      "version_hash": "sha256:99f4880da51b11f6773438b0f2aada1aebd1f461f8d9eeddcd2978314e9b6966",
+      "name": "principle-test-behavior-not-implementation",
+      "description": "Apply when you write, change, or keep a test. Call the code the way its users do and assert the result they observe against a literal expected value. If the test would still pass when every imported function returns undefined, rewrite the assertion or delete the test.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "test behavior not implementation"
+      ],
+      "aliases": [
+        "test-behavior-not-implementation"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/principle-type-system-discipline",
+      "version_hash": "sha256:c7086713c773f29fc3cde8e531f29b94519d4c439e505883cd69f43b05436f61",
+      "name": "principle-type-system-discipline",
+      "description": "Apply when designing types, reviewing a function signature, or writing code in any statically-typed language. Make illegal states unrepresentable, brand semantic primitives, parse external data at boundaries, refuse to lie to the compiler, exhaust variants, derive from authoritative schemas.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "type system discipline"
+      ],
+      "aliases": [
+        "type-system-discipline"
+      ]
+    },
+    {
+      "skill_id": "egawilldoit/reconcile-project-truth",
+      "version_hash": "sha256:358ebca341b32ee06ec26f29e3c9a2017e1d8b00e401017bdb555af9dac36bc2",
+      "name": "reconcile-project-truth",
+      "description": "Reconcile contradictions about the same project across Git, GitHub, CI, deployment, runtime, trackers, documentation, and agent reports by resolving each claim against its authoritative source. Use when sources disagree about what shipped, what passed, what is deployed, or what status work is in. Read-only by default; do not mutate trackers or external systems unless the current task authorizes external writes.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "reconcile contradictions",
+        "reconcile project truth",
+        "sources disagree",
+        "what actually shipped",
+        "which source is right"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/record-evidence",
+      "version_hash": "sha256:21a033a44efa4d5589681f5e5f3c31ab2dc0bc48eb768e80faf3b18f0bdc89a9",
+      "name": "record-evidence",
+      "description": "Maintain a compact auditable decision and evidence ledger for long-running, autonomous, or multi-phase work, so a human who steps away can later trust the result. Use at the start of an unattended run, when several efforts run at once, or whenever a reviewer will need the trail to trust the outcome. Records one row per consequential decision with timestamp, phase, decision, why, evidence pointer, result, repository, base SHA, head SHA, and environment when relevant. Append-only and deterministic, with a helper script and a fixed TSV format. Use design-investigation to design the run; this skill keeps its ledger.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "decision ledger",
+        "evidence ledger",
+        "log a decision",
+        "record a decision",
+        "record evidence"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/recover-design-rationale",
+      "version_hash": "sha256:d652ea34026db956035b8803f2a41c4f588b76306146a6c92d8149d3700e0523",
+      "name": "recover-design-rationale",
+      "description": "Recover why code, a design, or a threshold has its current shape, using version-control history, pull requests, issues, project docs, comments, the current code, and incident records. Classify every claim PROVEN, SUPPORTED, INFERRED, or UNKNOWN and never manufacture rationale. Use understand-codebase for how it works; this skill is for why.",
+      "domains": [
+        "rationale"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "design rationale",
+        "why does this look like this",
+        "why is this designed this way",
+        "why is this shaped this way",
+        "why was this built this way"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/recover-work-context",
+      "version_hash": "sha256:5ccbbaf2a9b7b06b0a779e954fc23b6a777ffdcb21fb4df6d0f6fd71906d2e03",
+      "name": "recover-work-context",
+      "description": "Reconstruct the current state of ongoing work so it can be resumed without re-reading everything. Use for 'catch me up', 'where did I leave off', 'what is the state of X', 'resume this', or before starting or taking over work. Pulls from conversation history, the repository, pull requests and issues, project trackers, docs, CI, and deployment state, then prioritizes current verified truth over historical narrative. Returns objective, current verified state, important decisions, what is done, what remains, what is blocked, and the next exact action. Use what-did-i-get-done to summarize authored commits; use work-retrospective to learn from one finished session.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "catch me up",
+        "resume this work",
+        "resume work",
+        "what was i working on",
+        "where did i leave off"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/review-and-ship",
+      "version_hash": "sha256:41b8878c752b4dfbc79ff2b1de0d35f9c29876488aba4c26839910acb9c1fdad",
+      "name": "review-and-ship",
+      "description": "Review the current branch or pull request for bugs, regressions, security, and intent fit, run or add focused tests, commit selected files, and open or update the PR. Use to finish one ordinary independent PR. Resolve GitHub capability from a native connector, MCP tool, or authenticated gh, and resolve the actual base branch rather than assuming main. For stacked PRs use integrate-pr-stack; for independent challenge use adversarial-review.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "finish this pr",
+        "review and merge",
+        "review and ship",
+        "ship this branch"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/run-smoke-tests",
+      "version_hash": "sha256:6765e4861c9ee3816a0d0731d42c3719711efc7a708dce8c43d4eaaaaadad10a",
+      "name": "run-smoke-tests",
+      "description": "Run the project's existing end-to-end smoke suite, capture failures from traces and logs, and report the result. Use for pre- or post-change smoke verification, or when an existing suite needs to be driven. Running the suite is read-only by default; edit product or test code only when repair is explicitly requested or already authorized. Prefer deterministic waits over timeouts.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "run smoke tests",
+        "run the smoke suite",
+        "smoke suite",
+        "smoke test",
+        "smoke tests"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/tdd",
+      "version_hash": "sha256:6433651b951231949bb78b59f0300003d32274f114bfc99e5e82cc14b4ca053b",
+      "name": "tdd",
+      "description": "Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. Skip when the test path is unclear, expensive, integration-heavy, or not requested.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "failing test first",
+        "red green refactor",
+        "tdd",
+        "test driven development",
+        "write a failing test"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/technical-writing",
+      "version_hash": "sha256:ad6ebde9c0ef0f03f87371c0e41bbcaf7c02c5bb7023153164521e7ca86b35ae",
+      "name": "technical-writing",
+      "description": "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages.",
+      "domains": [
+        "documentation"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "document this",
+        "pr description",
+        "technical writing",
+        "write a doc",
+        "write an rfc",
+        "write documentation"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/trace-artifact-provenance",
+      "version_hash": "sha256:d4ce1b8ecd935a78d26674390b5bf9734c9e854beb8bc92795fda51085072087",
+      "name": "trace-artifact-provenance",
+      "description": "Establish immutable lineage from source commit to build to artifact to digest to release to deployment, and emit a provenance manifest another reviewer can independently check. Use for APK, container image, release archive, package, Vercel deployment, server deployment, or generated bundle when asked where an artifact came from, whether a deployment matches a commit, or which build produced a release. Produces checksum-pinned evidence at E4 or higher. For PR evidence freshness use certify-pr-head; for the complete release gate use certify-release.",
+      "domains": [
+        "provenance"
+      ],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "artifact provenance",
+        "provenance",
+        "provenance manifest",
+        "source to artifact lineage",
+        "trace artifact"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/typescript-best-practices",
+      "version_hash": "sha256:3663c344e99b41c600049db4c17680a1e9c1458343d47c79170f7494a6db0a53",
+      "name": "typescript-best-practices",
+      "description": "Apply TypeScript typing and design conventions when reading or editing any .ts or .tsx file, reviewing types, or choosing between discriminated unions, branded types, schemas, casts, and exhaustiveness checks. Grounds the type-system-discipline and boundary-discipline principles in concrete TypeScript syntax.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [
+        "typescript"
+      ],
+      "triggers": [
+        "tsx",
+        "type safety",
+        "typescript",
+        "typescript best practices"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/understand-codebase",
+      "version_hash": "sha256:9f9d48f6d4cb13fe278afed725d8618274753a79f61c81a3a46b830de315ce9d",
+      "name": "understand-codebase",
+      "description": "Build a senior-engineer mental model of a subsystem: entry points, runtime path, modules, state ownership, dependencies, data flow, boundaries, and where a future change belongs. Use for 'how does X work', code walkthroughs before changing something, and placement or ownership questions. Use recover-design-rationale for why it is shaped that way.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "codebase walkthrough",
+        "explain how this subsystem works",
+        "explain this code",
+        "explain this subsystem",
+        "how does this subsystem work",
+        "how does this work",
+        "how does x work",
+        "understand this codebase",
+        "understand this subsystem",
+        "walk me through this code"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/unslop",
+      "version_hash": "sha256:a0e4e1b4dda08dc2744489bfcac728a131c26e69bf723ef1744e9c5d9488830a",
+      "name": "unslop",
+      "description": "Remove AI writing tells from any prose: em dashes, forced triads, filler transitions, hedging, chatbot phrases, and stock vocabulary. Apply to every piece of writing, including docs, pull requests, commit messages, and replies. Treat this skill as always on rather than opt-in.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "ai tells",
+        "clean up this writing",
+        "de-ai this text",
+        "remove ai tells",
+        "unslop"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/verify-cli",
+      "version_hash": "sha256:903d8bdb53c9fa2b48661162692aa87682aa3e3a0897af73a45062ace7e708a6",
+      "name": "verify-cli",
+      "description": "Verify CLI or TUI behavior with real command execution and terminal evidence. Use for CLI UX checks, prompt and keyboard flows, interrupts, resize behavior, startup regressions, hangs, memory growth, or recording a terminal demo. Prefer the repository's existing test or CLI harness; otherwise use a PTY, tmux, or expect harness. Capture stdout, stderr, exit codes, terminal transcripts, and timing where relevant. Use verify-ui for browser behavior; use verify-this to prove one falsifiable claim; use run-smoke-tests to run an existing suite.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "cli verification",
+        "test the cli",
+        "verify cli",
+        "verify the cli",
+        "verify the command line"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/verify-this",
+      "version_hash": "sha256:a9b7c09213820b50f65eff94322bf5f4f8158f842e2b22398b9d38893f2bcfa4",
+      "name": "verify-this",
+      "description": "Verify a claim with fresh local evidence: restate it falsifiably, capture baseline and treatment, compare artifacts, and return VERIFIED, NOT VERIFIED, or INCONCLUSIVE.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "fact check this",
+        "is this claim true",
+        "prove or disprove",
+        "verify this",
+        "verify this claim"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/verify-ui",
+      "version_hash": "sha256:986ba44db995194bd02763b03862f0e8bd0311562216167ed6b3168a8570bfc7",
+      "name": "verify-ui",
+      "description": "Verify web, IDE, desktop, or Electron UI behavior with real browser evidence. Use for UI verification, screenshots, accessibility snapshots, console or network logs, browser traces, performance profiles, visual diffs, or reproducing a UI bug that depends on real focus, input, scrolling, or rendering. Prefer the repository's existing Playwright, Cypress, browser, or Electron harness before creating a temporary one. Use verify-this to prove one falsifiable claim; use verify-cli for terminal behavior; use run-smoke-tests to run an existing end-to-end suite.",
+      "domains": [],
+      "platforms": [
+        "web"
+      ],
+      "frameworks": [],
+      "triggers": [
+        "ui verification",
+        "verify the ui",
+        "verify the user interface",
+        "verify ui"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/weekly-review",
+      "version_hash": "sha256:303a88b032be80840bd095afde6eab5c092138a2adab864d107e5de8686ae815",
+      "name": "weekly-review",
+      "description": "Produce a weekly synthesis of authored commits, grouped into a few highlights and classified into bug fixes, tech debt, and net-new work. Use for weekly recaps, retros, or planning. Base every claim on commit history and diffs only.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "week in review",
+        "weekly recap",
+        "weekly review",
+        "weekly synthesis"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/what-did-i-get-done",
+      "version_hash": "sha256:a293e22ff211f7bd116b6db7f905084cd76cfdbb01bf47981783c4c15800a13a",
+      "name": "what-did-i-get-done",
+      "description": "Summarize authored commits over a requested time window (yesterday, last 3 days, last week) into a short, high-signal update, excluding merges and cosmetic changes. Use for status updates. Use weekly-review for a classified weekly synthesis, or recover-work-context to reconstruct overall project state.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "status update",
+        "summarize my commits",
+        "what did i do",
+        "what did i get done",
+        "what have i done"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/work-retrospective",
+      "version_hash": "sha256:5f5daf8def6bb3ef7d023d6f5eb5c549c2444d6e22400472ccc0cd9bd9c1855a",
+      "name": "work-retrospective",
+      "description": "Review a completed work session for durable lessons and route each one to the right artifact. Use after finishing a session, or for 'retrospective', 'reflect on this', 'what should we learn from this', or 'how do we avoid this next time'. Detects repeated mistakes, manual friction, bad instructions, missing validation, repeated prompts, missing tools, missing skills, and workflow weaknesses. Classifies each recommendation as SCRIPT, SKILL, SKILL_UPDATE, POLICY, WORKFLOW, DOCUMENTATION, or NOTHING, and refuses to turn a one-off into a skill. Use mine-work-patterns to mine recurring behavior across a longer history window; this skill reviews one session.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "lessons from this session",
+        "retro",
+        "retrospective",
+        "session retrospective",
+        "work retrospective"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/ask-matt",
+      "version_hash": "sha256:55d181571d5ddf74c155c58ba8b97d5606f53bb862c9bbc8568a1b7adc4f7dd3",
+      "name": "ask-matt",
+      "description": "Ask which skill or flow fits your situation. A router over the skills in this repo.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/code-review",
+      "version_hash": "sha256:a31138c9d823ef6c5ec7209e6fbb07f552630ede9670eabb53515673125e9635",
+      "name": "code-review",
+      "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/codebase-design",
+      "version_hash": "sha256:cc7fced2a48571ab9f334dbe018015efa931e3b4421c9d99660fe54a108feff3",
+      "name": "codebase-design",
+      "description": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/diagnosing-bugs",
+      "version_hash": "sha256:2544b52d53191d433c72c48786a974c4bfb9464336ed6005e19c1e9ef0ce2eab",
+      "name": "diagnosing-bugs",
+      "description": "Diagnosis loop for hard bugs and performance regressions. Use when the user says \"diagnose\"/\"debug this\", or reports something broken/throwing/failing/slow.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "hangs",
+        "never exits",
+        "root cause"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/domain-modeling",
+      "version_hash": "sha256:3d1b9f181597d95507ab95e330647774ab6fe3bb7d68fbbf0ac486e856dbfc44",
+      "name": "domain-modeling",
+      "description": "Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a GLOSSARY.md, or recording or editing an ADR.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/grill-me",
+      "version_hash": "sha256:b4eb607c40c254f74247c0ba2323e4517befc6a6b70c8b4d41f191c15e056259",
+      "name": "grill-me",
+      "description": "A relentless interview to sharpen a plan or design.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/grill-with-docs",
+      "version_hash": "sha256:115eab5e9c915531b5f13d843a0e99694baa8ed9597246a29af048a533773ddc",
+      "name": "grill-with-docs",
+      "description": "A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/grilling",
+      "version_hash": "sha256:4fb83b5b91e81b51244fbb4a2f056ed6e64303e20080f2d67a1cf9ddc90403cd",
+      "name": "grilling",
+      "description": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/handoff",
+      "version_hash": "sha256:35e1ad404e47c7653ff3df344f5e33857066419aff660b26321b27db0de6287c",
+      "name": "handoff",
+      "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/implement",
+      "version_hash": "sha256:bf660265938777f6138a5c33edc23329e893b4fc683a60ea85271bc6c2e9846e",
+      "name": "implement",
+      "description": "Implement a piece of work based on a spec or set of tickets.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/implement-spec",
+      "version_hash": "sha256:c7d721f475e4479b700c1d102e9dbd7f233a9848a47c0ed6f759344ffd247f6c",
+      "name": "implement-spec",
+      "description": "Implement the result of /to-spec and /to-tickets in code.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/improve-codebase-architecture",
+      "version_hash": "sha256:f00dca636d8bf54a46009f2379663aed1a865261e55d7d1a84720f78b76d34d1",
+      "name": "improve-codebase-architecture",
+      "description": "Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/pr",
+      "version_hash": "sha256:43174df8327ef089949f5dce65bc2bc893d8aa280f3efdb91092a67633f59adc",
+      "name": "pr",
+      "description": "Use when writing a PR body.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/prototype",
+      "version_hash": "sha256:c3d6b0bc45bd4a77b21fb00b54523af84697c1cbd8069a0ae048880eba3cbec5",
+      "name": "prototype",
+      "description": "Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/research",
+      "version_hash": "sha256:728d3198b6cd5e195d346fea3e9aeec2e18ea15b25a28cf82afb9b29c38bbb58",
+      "name": "research",
+      "description": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/retro",
+      "version_hash": "sha256:dca6546731967b94e6f2e8392c29d1ebe91345719f478edea8b0ea9999bc6983",
+      "name": "retro",
+      "description": "Conduct a retrospective on a coding session.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/setup-matt-pocock-skills",
+      "version_hash": "sha256:5a80979a5d4281e6f964c50bcdb6144580e25c8f4093883c224669e3142c1e25",
+      "name": "setup-matt-pocock-skills",
+      "description": "Configure this repo for the engineering skills: set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/tdd",
+      "version_hash": "sha256:8a80a764a11952e45b6937eb0e7fa1cc4013325bf0246e47a653d3ae1755f130",
+      "name": "tdd",
+      "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "red green refactor",
+        "red-green-refactor",
+        "test-first"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/teach",
+      "version_hash": "sha256:a7a63d3c16ae857b6de0adf91fe07be5a3007519d0693cf79f1ef0fe6fdc1362",
+      "name": "teach",
+      "description": "Teach the user a new skill or concept, within this workspace.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/to-questionnaire",
+      "version_hash": "sha256:a6209cff9ba2d83a789e450e37677a66f9b3556e22c2a230929cb427918a82f9",
+      "name": "to-questionnaire",
+      "description": "Turn a decision you can't fully answer into a questionnaire for someone else to fill in.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/to-spec",
+      "version_hash": "sha256:abfbefcd66d260b31389cebbd2bb9fe11e4121a48a388b0e3cc040d0033733fb",
+      "name": "to-spec",
+      "description": "Turn the current conversation into a spec and publish it to the project issue tracker: no interview, just synthesis of what you've already discussed.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/to-tickets",
+      "version_hash": "sha256:e13a764057b6d7e5ac37abc8c7e435f21ed4d59c5da37a6272258d9fa3dfb89f",
+      "name": "to-tickets",
+      "description": "Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker (edges as text in one file per ticket locally, or native blocking links on a real tracker).",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/triage",
+      "version_hash": "sha256:34325b72c9d502647f5624b65f25c01ba6368ae058c576dfcb0eed9daac02cf7",
+      "name": "triage",
+      "description": "Move issues and external PRs through a state machine of triage roles, categorise, verify, grill if needed, and write agent-ready briefs.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/wait-what",
+      "version_hash": "sha256:23bbecb0162c44ad63952f875da90d3ec9b2e6d0a9dcfefdcf5cab79b3986803",
+      "name": "wait-what",
+      "description": "Stop. That last message did not land: re-pitch it.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/wayfinder",
+      "version_hash": "sha256:6596ee6ad94133449b4c91474234e1b863209e8cf18b50269de0dfe0e2de8177",
+      "name": "wayfinder",
+      "description": "Plan a huge chunk of work (more than one agent session can hold) as a shared map of decision tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/wizard",
+      "version_hash": "sha256:a0db405d4a299f296c0ed6da4ad700822f02285cdda59d4f0770a95bf86208b6",
+      "name": "wizard",
+      "description": "Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or running a one-off migration or cutover. Don't invoke this for steps the agent can perform itself.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "mattpocock/writing-for-agents",
+      "version_hash": "sha256:5296e833a83f9775e7abc0c81ec21e94e63ad4860ba94d7ba71f585f80d1cd53",
+      "name": "writing-for-agents",
+      "description": "Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/composition-patterns",
+      "version_hash": "sha256:bb7b0f9e6c022f9e38efcb7d2533059a7a3a584c13235561ae443d0e8312f711",
+      "name": "composition-patterns",
+      "description": "React composition patterns that scale. Use when refactoring components with boolean prop proliferation, building flexible component libraries, or designing reusable APIs. Triggers on tasks involving compound components, render props, context providers, or component architecture. Includes React 19 API changes.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/deploy-to-vercel",
+      "version_hash": "sha256:9b55712ae84cf97ac165e059d933622850864c6e88520971200e31f130485b45",
+      "name": "deploy-to-vercel",
+      "description": "Deploy applications and websites to Vercel. Use when the user requests deployment actions like \"deploy my app\", \"deploy and give me the link\", \"push this live\", or \"create a preview deployment\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "create a preview deployment",
+        "deploy my app",
+        "give me the link",
+        "push this live"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/react-best-practices",
+      "version_hash": "sha256:31856c5e77fb6ef39a8d44195453e0e3ad53bcb77827c16af9c0242f7f5c46bc",
+      "name": "react-best-practices",
+      "description": "React and Next.js performance optimization guidelines from Vercel Engineering. This skill should be used when writing, reviewing, or refactoring React/Next.js code to ensure optimal performance patterns. Triggers on tasks involving React components, Next.js pages, data fetching, bundle optimization, or performance improvements.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "render waterfall",
+        "slow page",
+        "unnecessary rerenders"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/react-native-skills",
+      "version_hash": "sha256:e06ef3ccc7b65da05531f0282b14f528b7b25f72ccabda05c0d84a848d4522ed",
+      "name": "react-native-skills",
+      "description": "React Native and Expo best practices for building performant mobile apps. Use when building React Native components, optimizing list performance, implementing animations, or working with native modules. Triggers on tasks involving React Native, Expo, mobile performance, or native platform APIs.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/react-view-transitions",
+      "version_hash": "sha256:65e55f557320661b32311f3a8a5942ed1cfa0543083d3ba913ad158a31806621",
+      "name": "react-view-transitions",
+      "description": "Guide for implementing smooth, native-feeling animations using React's View Transition API (`<ViewTransition>` component, `addTransitionType`, and CSS view transition pseudo-elements). Use this skill whenever the user wants to add page transitions, animate route changes, create shared element animations, animate enter/exit of components, animate list reorder, implement directional (forward/back) navigation animations, or integrate view transitions in Next.js. Also use when the user mentions view transitions, `startViewTransition`, `ViewTransition`, transition types, or asks about animating between UI states in React without third-party animation libraries.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/vercel-cli-with-tokens",
+      "version_hash": "sha256:e0d2721d72afb6c05ded0b2dc52f5aa7dfe1cd6e9bd1e503c08bbe7cec059677",
+      "name": "vercel-cli-with-tokens",
+      "description": "Deploy and manage projects on Vercel using token-based authentication. Use when working with Vercel CLI using access tokens rather than interactive login — e.g. \"deploy to vercel\", \"set up vercel\", \"add environment variables to vercel\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/vercel-optimize",
+      "version_hash": "sha256:468bcf09d08f80a568687f231c4fc00736441ae91f807e4628f6725cfa44753f",
+      "name": "vercel-optimize",
+      "description": "Use for Vercel cost and performance optimization on deployed projects, especially Next.js, SvelteKit, Nuxt, and limited Astro apps. Collect Vercel metrics, usage, project config, and code scan results first; investigate only metric-backed candidates; produce ranked recommendations grounded in verified files and version-aware Vercel/framework docs. Trigger for Vercel bill reduction, slow or expensive routes, caching opportunities, Function Invocations, Build Minutes, Fast Data Transfer, Core Web Vitals, Bot Management, Fluid compute, or cost breakdown requests.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/web-design-guidelines",
+      "version_hash": "sha256:fb18cfe95a3067e333ee4877850e063d2e30095395df7021bdad22d684ed10cd",
+      "name": "web-design-guidelines",
+      "description": "Review UI code for Web Interface Guidelines compliance. Use when asked to \"review my UI\", \"check accessibility\", \"audit design\", \"review UX\", or \"check my site against best practices\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "vercel/writing-guidelines",
+      "version_hash": "sha256:a8eb83093df92886215b483f576f51c068dad41e30cdcb655f9dba437012ce47",
+      "name": "writing-guidelines",
+      "description": "Review docs/prose for Writing Guidelines compliance. Use when asked to \"review my docs\", \"check writing style\", \"audit prose\", \"review docs voice and tone\", or \"check this page against the writing handbook\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review and Ship"
+  short_description: "Finish one ordinary branch or PR cleanly"
+  default_prompt: "Use $review-and-ship to take this branch to a merge-ready PR."
