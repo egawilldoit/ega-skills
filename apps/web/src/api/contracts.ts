@@ -697,7 +697,6 @@ export interface PinnedIntentInspectionReport {
   readonly release_digest?: string;
   readonly evaluated_release_digest?: string;
   readonly evaluated_catalog_digest?: string;
-  readonly catalog_release_digest?: string;
   readonly artifact_digest?: string;
   readonly served_release_digest?: string;
   readonly source_artifact?: string;
