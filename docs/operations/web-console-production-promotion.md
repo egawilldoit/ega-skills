@@ -92,7 +92,9 @@ git status --short                     # must be empty
 # CI at the exact SHA
 gh run list --repo egawilldoit/ega-skills --branch release/2.0 --limit 5
 gh run view <run-id> --repo egawilldoit/ega-skills
-# Required green: linux, windows, contract-f, web console, web isolation, hashing.
+# Required green at that SHA: foundation (ubuntu-latest), foundation (windows-2022),
+# contract-f rls (ubuntu-latest), web console (ubuntu-latest),
+# web console (windows-2022), web isolation (real PostgreSQL 16).
 
 # Release identity (immutable artifact)
 node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
