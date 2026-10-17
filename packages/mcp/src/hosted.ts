@@ -264,7 +264,13 @@ export function createHostedMcpHandler(snapshot: HostedReleaseSnapshot, options:
     let selectionPromise: Promise<HostedReleaseSnapshot> | undefined;
     const selectSnapshot = (args: Record<string, unknown>): Promise<HostedReleaseSnapshot> => {
       selectionPromise ??= (async () => {
-        const contextId = typeof args.context_id === "string" ? args.context_id : undefined;
+        let contextId: string | undefined;
+        if (args.context_id !== undefined) {
+          if (typeof args.context_id !== "string" || args.context_id.trim() === "") {
+            throw new HostedRuntimeError("E_CONTEXT_UNAVAILABLE", "context_id must be a non-empty string");
+          }
+          contextId = args.context_id;
+        }
         const requestedDigest = typeof args.release_digest === "string" ? args.release_digest : undefined;
         let resolved: HostedReleaseSnapshot;
         if (contextId !== undefined) {
@@ -364,7 +370,12 @@ function checkRelease(args: Record<string, unknown>, snapshot: HostedReleaseSnap
   if (args.release_digest !== undefined && args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "Requested release is not the verified release");
 }
 function requirePinned(args: Record<string, unknown>, snapshot: HostedReleaseSnapshot): void {
-  if (typeof args.context_id === "string") return;
+  if (typeof args.context_id === "string") {
+    if (typeof args.release_digest === "string" && args.release_digest !== snapshot.releaseDigest) {
+      throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
+    }
+    return;
+  }
   if (args.release_digest !== snapshot.releaseDigest) throw new HostedRuntimeError("E_RELEASE_MISMATCH", "inspect/get_content require a verified release or context");
 }
 function releaseSourceDenied(release: HubRelease, denied: ReadonlySet<string>): boolean {
