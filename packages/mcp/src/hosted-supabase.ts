@@ -184,8 +184,8 @@ function membershipRole(role: string): WorkspaceRole | null {
 }
 
 /**
- * Live membership authorization for UNSCOPED hosted reads (`search`,
- * `resolve`).
+ * Live membership authorization for hosted reads (`search`, `resolve`,
+ * `inspect`, `get_content`).
  *
  * The static authorization document remains the source of the resource shape
  * (workspace, visibility, owner, explicit private grants, emergency denies),
