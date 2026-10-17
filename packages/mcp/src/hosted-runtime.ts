@@ -33,7 +33,7 @@ import {
 } from "./hosted.js";
 import { createJwksBearerVerifier } from "./hosted-auth.js";
 import { buildProtectedResourceMetadata, parseHostedOAuthConfig, type HostedOAuthConfig } from "./hosted-oauth.js";
-import { createSupabaseContextResolver, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
+import { createSupabaseContextResolver, createSupabaseMembershipAuthorizer, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
 import { BoundedTelemetrySink, type TelemetryFailureClass } from "./telemetry.js";
 import { createSupabaseTelemetryWriter } from "./telemetry-writer.js";
 import { loadRetainedReleaseSet, resolveRetainedRelease, type RetainedReleaseSet } from "./retained.js";
@@ -56,6 +56,13 @@ const ALLOWED_POLICY_KEYS = [
 ].sort();
 
 const WORKSPACE_ROLE_SET: ReadonlySet<string> = new Set<string>(WORKSPACE_ROLES);
+
+/**
+ * Hosted tools that authorize one skill rather than the resource as a whole.
+ * These must consult the live membership store (when configured) so a revoked
+ * membership takes effect immediately for a still-valid token.
+ */
+const SKILL_SCOPED_READ_TOOLS: ReadonlySet<string> = new Set<string>(["inspect", "get_content"]);
 
 export interface HostedAuthzPolicy {
   readonly workspace_id: string;
@@ -406,6 +413,12 @@ export function createHostedRuntimeFromEnv(
     ? async (releaseDigest: string): Promise<HostedReleaseSnapshot> => resolveRetainedRelease(loadRetainedReleaseSet(retained.manifestPath), releaseDigest)
     : undefined;
   let resolveContext: ((contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>) | undefined;
+  // Resource-level reads (`search`, `resolve`) and skill-scoped reads
+  // (`inspect`, `get_content`) must honor live membership when a live
+  // membership store is configured: the static document fixes the resource
+  // shape, the database fixes who currently belongs. The same authorizer is
+  // reused for both scopes; no second control plane is introduced.
+  let authorizeLiveMembership: ((subject: string, signal?: AbortSignal) => Promise<boolean>) | undefined;
   if (supabaseUrl && supabaseSecretKey) {
     resolveContext = createSupabaseContextResolver({
       supabaseUrl,
@@ -415,6 +428,15 @@ export function createHostedRuntimeFromEnv(
         if (releaseDigest !== snapshot.releaseDigest) throw new Error("release unavailable");
         return snapshot;
       },
+    });
+    authorizeLiveMembership = createSupabaseMembershipAuthorizer({
+      supabaseUrl,
+      secretKey: supabaseSecretKey,
+      workspaceId: policy.workspace_id,
+      visibility: policy.visibility,
+      ownerSubject: policy.owner_subject,
+      ...(policy.authorized_subjects ? { authorizedSubjects: [...policy.authorized_subjects] } : {}),
+      denied: policy.denies.includes(hubId),
     });
   }
 
@@ -532,7 +554,20 @@ export function createHostedRuntimeFromEnv(
           if (token !== expectedToken) throw new Error("invalid token");
           return { subject: "local-smoke", scopes: ["ega:read"] };
         },
-    authorize: async (principal) => controlPlane.authorize(hubId, principal.subject, "read_hub"),
+    authorize: async (principal, tool, skillId, signal) => {
+      // A live membership store makes hosted reads fail closed against
+      // `workspace_memberships`: a still-valid token cannot outlive a revoked
+      // membership. Resource-level reads (`search`, `resolve`) and skill-scoped
+      // reads (`inspect`, `get_content`) both consult the live store. The
+      // per-skill projection inside an unscoped search keeps the static
+      // control-plane decision (the resource-level check already ran live), so
+      // a search does not fan out into one live read per skill. Without a live
+      // store, the static control plane stays authoritative.
+      if (authorizeLiveMembership && (skillId === undefined || SKILL_SCOPED_READ_TOOLS.has(tool))) {
+        return authorizeLiveMembership(principal.subject, signal);
+      }
+      return controlPlane.authorize(hubId, principal.subject, "read_hub");
+    },
     ...(resolveContext ? { resolveContext } : {}),
     ...(retained
       ? {

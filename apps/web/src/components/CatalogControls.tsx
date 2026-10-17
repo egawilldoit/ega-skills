@@ -16,6 +16,7 @@ export interface CatalogQuery {
   readonly namespace: string;
   readonly domain: string;
   readonly framework: string;
+  readonly group: string;
   readonly source: string;
   readonly l1: string;
   /**
@@ -38,6 +39,7 @@ export function emptyCatalogQuery(): CatalogQuery {
     namespace: "",
     domain: "",
     framework: "",
+    group: "",
     source: "",
     l1: "",
     sort: "name",
@@ -57,6 +59,7 @@ export function catalogQueryParams(query: CatalogQuery): Record<string, string |
   if (query.namespace !== "") params["namespace"] = query.namespace;
   if (query.domain !== "") params["domain"] = query.domain;
   if (query.framework !== "") params["framework"] = query.framework;
+  if (query.group !== "") params["group"] = query.group;
   if (query.source !== "") params["source"] = query.source;
   if (query.l1 !== "") params["l1"] = query.l1;
   return params;
@@ -69,6 +72,7 @@ export function hasActiveFilters(query: CatalogQuery): boolean {
     query.namespace !== "" ||
     query.domain !== "" ||
     query.framework !== "" ||
+    query.group !== "" ||
     query.source !== "" ||
     query.l1 !== ""
   );
@@ -90,6 +94,7 @@ const APPLIED_FILTER_FIELDS: readonly AppliedFilterView[] = [
   { label: "Namespace", field: "namespace" },
   { label: "Domain", field: "domain" },
   { label: "Framework", field: "framework" },
+  { label: "Use case", field: "group" },
   { label: "Source", field: "source" },
   { label: "L1", field: "l1" },
 ];

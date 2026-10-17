@@ -109,6 +109,8 @@ export interface CatalogFacets {
   readonly platforms: readonly CatalogFacetValue[];
   readonly triggers: readonly CatalogFacetValue[];
   readonly aliases: readonly CatalogFacetValue[];
+  /** Human-intent presentation group ids with real counts. Empty when no presentation file is present. */
+  readonly groups: readonly CatalogFacetValue[];
   readonly sources: readonly CatalogFacetValue[];
   readonly l1_statuses: readonly CatalogFacetValue[];
   /** Trust levels present in the filtered set. */
@@ -121,6 +123,7 @@ export interface CatalogAppliedFilters {
   readonly namespace: string | null;
   readonly domain: string | null;
   readonly framework: string | null;
+  readonly group: string | null;
   readonly source: string | null;
   readonly l1: string | null;
 }
@@ -727,7 +730,6 @@ export interface PinnedIntentInspectionReport {
   readonly release_digest?: string;
   readonly evaluated_release_digest?: string;
   readonly evaluated_catalog_digest?: string;
-  readonly catalog_release_digest?: string;
   readonly artifact_digest?: string;
   readonly served_release_digest?: string;
   readonly source_artifact?: string;

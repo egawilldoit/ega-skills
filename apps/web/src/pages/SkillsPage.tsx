@@ -73,7 +73,7 @@ const COLUMNS: readonly Column<SkillSummary>[] = [
  * `SkillSummary[]` and called `.map` on an object, throwing during render.
  *
  * Search, filters, sort and paging are all performed by the server: the catalog
- * is 114 skills against a default page ceiling of 50, so a client-side slice
+ * is 116 skills against a default page ceiling of 50, so a client-side slice
  * would both hide most of the catalog and disagree with the server's own
  * totals. `total` counts every match; `skills.length` counts this page.
  *
@@ -119,6 +119,7 @@ export function SkillsPage(): ReactNode {
       namespace: "",
       domain: "",
       framework: "",
+      group: "",
       offset: 0,
     }));
   }, []);
@@ -136,6 +137,7 @@ export function SkillsPage(): ReactNode {
             namespace: query.namespace,
             domain: query.domain,
             framework: query.framework,
+            group: query.group,
           };
           const active = axes.flatMap((axis) =>
             selected[axis.key] === "" ? [] : [{ label: axis.label, value: selected[axis.key] }],

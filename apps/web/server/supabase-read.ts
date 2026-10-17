@@ -576,6 +576,7 @@ export function assertTableAllowed(table: string): ControlPlaneTableSpec {
  * `IncomingMessage`, whose `headers` index signature is compatible.
  */
 export interface ControlPlaneRequest {
+  readonly signal?: AbortSignal | undefined;
   readonly method?: string | undefined;
   readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
 }
@@ -1089,7 +1090,7 @@ export function createControlPlaneReader(options: ControlPlaneReaderOptions): Co
       response = await transport(new URL("/auth/v1/user", url).toString(), {
         method: "GET",
         headers,
-        signal: undefined,
+        signal: request.signal,
       });
     } catch {
       // The cause is discarded rather than wrapped: a fetch rejection message can

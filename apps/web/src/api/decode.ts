@@ -445,11 +445,13 @@ export function decodeUsageSummary(value: unknown): Record<string, unknown> {
 export function decodeDiscoveryInspection(value: unknown): Record<string, unknown> {
   const what = "discovery inspection";
   if (!isRecord(value)) fail(what, `expected an object, received ${describe(value)}`);
+  // Only the digest keys the real producer emits, plus the BFF-added
+  // `served_release_digest` for round-tripped BFF output. Unknown variants
+  // (e.g. `catalog_release_digest`) are intentionally not accepted.
   const digest =
     value.release_digest ??
     value.evaluated_release_digest ??
     value.evaluated_catalog_digest ??
-    value.catalog_release_digest ??
     value.artifact_digest ??
     value.served_release_digest;
   if (typeof digest !== "string") {
