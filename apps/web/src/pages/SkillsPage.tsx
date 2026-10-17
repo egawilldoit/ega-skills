@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from "../api/client";
 import type { CatalogPage, SkillSummary } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
+import { categoryAxes, CategoryBrowse, type CategoryAxisKey } from "../components/CategoryBrowse";
 import {
   catalogQueryParams,
   CatalogControls,
@@ -96,54 +97,116 @@ export function SkillsPage(): ReactNode {
   // The query is part of the dependency list, so changing a filter re-reads.
   const resource = useApiResource(load, [client, query]);
 
+  /**
+   * Choosing a category selects the catalog's own filter for that axis.
+   *
+   * The value becomes the matching query parameter and the same server-side
+   * catalog answers, so a category can never become a second enumeration path.
+   * `""` is the catalog's own "no filter" encoding. Choosing the active category
+   * again clears it, so the panel is also the way back to the whole catalog.
+   */
+  const selectCategory = useCallback((key: CategoryAxisKey, value: string) => {
+    setQuery((previous) => ({
+      ...previous,
+      [key]: previous[key] === value ? "" : value,
+      offset: 0,
+    }));
+  }, []);
+
+  const clearCategory = useCallback(() => {
+    setQuery((previous) => ({
+      ...previous,
+      namespace: "",
+      domain: "",
+      framework: "",
+      offset: 0,
+    }));
+  }, []);
+
   return (
     <>
       <ResourceSection
         state={resource.state}
         reload={resource.reload}
         loadingLabel="Loading skills…"
-        empty={(data) =>
-          data.total === 0 ? (
-            <EmptyState
-              title="No skills match"
-              reason="The verified release snapshot for this deployment contains no skills matching these filters."
-            />
-          ) : null
-        }
       >
-        {(data) => (
-          <>
-            <CatalogControls
-              query={query}
-              facets={data.facets}
-              applied={data.applied_filters}
-              sortKeys={SORT_KEYS}
-              onChange={setQuery}
-            />
+        {(data) => {
+          const axes = categoryAxes(data.facets);
+          const selected = {
+            namespace: query.namespace,
+            domain: query.domain,
+            framework: query.framework,
+          };
+          const active = axes.flatMap((axis) =>
+            selected[axis.key] === "" ? [] : [{ label: axis.label, value: selected[axis.key] }],
+          );
+          const releaseDigest = data.release === null ? null : data.release.release_digest;
 
-            {/*
-              `total` is every match in the release; `skills.length` is this
-              page. Showing both keeps the page from implying it lists
-              everything.
-            */}
-            <p className="page__lede">
-              {data.total} {data.total === 1 ? "skill matches" : "skills match"} in the readable
-              release.
-            </p>
-            <DataTable
-              caption="Skills in the readable Hub release"
-              columns={COLUMNS}
-              rows={data.skills as readonly SkillSummary[]}
-              rowKey={(row) => row.skill_id}
-            />
-            <CatalogPagination
-              total={data.total}
-              offset={data.offset}
-              limit={data.limit}
-              onOffset={(offset) => setQuery((previous) => ({ ...previous, offset }))}
-            />
-          </>
-        )}
+          return (
+            <>
+              {/*
+                The category panel and the controls stay mounted when nothing
+                matches, so a filter the server refuses to satisfy — including one
+                typed into the URL by hand — is always recoverable in place. The
+                list below reports the honest zero.
+              */}
+              <CategoryBrowse
+                axes={axes}
+                selected={selected}
+                onSelect={selectCategory}
+                onClear={clearCategory}
+              />
+
+              {active.length > 0 ? (
+                <p className="category-browse__active">
+                  Category {active.map((entry) => `${entry.label}: ${entry.value}`).join(" · ")} —{" "}
+                  {data.total} {data.total === 1 ? "skill" : "skills"} from the readable release
+                  {releaseDigest === null ? "" : ` (${shortDigest(releaseDigest)})`}.
+                </p>
+              ) : null}
+
+              <CatalogControls
+                query={query}
+                facets={data.facets}
+                applied={data.applied_filters}
+                sortKeys={SORT_KEYS}
+                onChange={setQuery}
+              />
+
+              {/*
+                `total` is every match in the release; `skills.length` is this
+                page. Showing both keeps the page from implying it lists
+                everything.
+              */}
+              <p className="page__lede">
+                {data.total} {data.total === 1 ? "skill matches" : "skills match"} in the readable
+                release.
+              </p>
+
+              {data.total === 0 ? (
+                <EmptyState
+                  title="No skills match"
+                  reason="The verified release snapshot for this deployment contains no skills matching these filters."
+                />
+              ) : (
+                <>
+                  <DataTable
+                    caption="Skills in the readable Hub release"
+                    columns={COLUMNS}
+                    rows={data.skills as readonly SkillSummary[]}
+                    rowKey={(row) => row.skill_id}
+                  />
+                  <CatalogPagination
+                    total={data.total}
+                    offset={data.offset}
+                    limit={data.limit}
+                    onOffset={(offset) => setQuery((previous) => ({ ...previous, offset }))}
+                  />
+                </>
+              )}
+            </>
+          );
+        }}
       </ResourceSection>
     </>
   );
