@@ -27,10 +27,13 @@ Companion documents (reused, not replaced):
   rollback conventions and hard invariants.
 - [packages/mcp/VERCEL.md](../../packages/mcp/VERCEL.md) — authoritative
   deployment architecture and rollback (immutable deployments).
-- [web-console-pr137-acceptance.md](./web-console-pr137-acceptance.md) — the
-  console's executed local/CI acceptance record.
-- [../evidence/web-console/BASELINE.md](../evidence/web-console/BASELINE.md) —
-  baseline gate results.
+- Console-candidate evidence, which lives only on the console branch
+  (`prepare/ega-741-integrated-review`), not on `release/2.0`: the console's
+  executed local/CI acceptance record
+  `docs/operations/web-console-pr137-acceptance.md` and the baseline gate
+  results `docs/evidence/web-console/BASELINE.md`. Neither path exists on this
+  base, so they would 404 as relative links from this document; read them at the
+  candidate SHA instead.
 
 This plan follows the same shape as the MCP runbook: verify identity and the
 release identity first, capture the previous known-good deployment, deploy,
@@ -94,7 +97,9 @@ gh run list --repo egawilldoit/ega-skills --branch release/2.0 --limit 5
 gh run view <run-id> --repo egawilldoit/ega-skills
 # Required green at that SHA: foundation (ubuntu-latest), foundation (windows-2022),
 # contract-f rls (ubuntu-latest), web console (ubuntu-latest),
-# web console (windows-2022), web isolation (real PostgreSQL 16).
+# web console (windows-2022), web isolation (real PostgreSQL 16),
+# hashing traversal (ubuntu-latest), hashing traversal (windows-2022).
+# RELEASE-2.0-RUNBOOK.md § Pre-deployment requires hashing PASS.
 
 # Release identity (immutable artifact)
 node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
@@ -178,21 +183,33 @@ vercel whoami            --token "$VERCEL_TOKEN"
 vercel project ls        --scope <team> --token "$VERCEL_TOKEN"
 vercel projects inspect <project> --scope <team> --token "$VERCEL_TOKEN"
 
-# 1. Capture the previous known-good console deployment (see § 4)
+# 1. Select (or create) the dedicated apps/web project and link the working copy
+#    Run every project-scoped command below from the repository root with
+#    `--cwd apps/web`: the project Root Directory is apps/web and the committed
+#    apps/web/vercel.json expects that cwd (its buildCommand resolves
+#    ../../scripts/web/stage-artifact.mjs).
+#    If the project does not exist yet: `vercel project add <project> --scope <team>`
+#    (or create it in the dashboard) and set Root Directory to apps/web first.
+vercel link --yes --cwd apps/web --project <project> \
+  --scope <team> --token "$VERCEL_TOKEN"
+
+# 2. Capture the previous known-good console deployment (see § 4)
 vercel ls <project> --scope <team> --token "$VERCEL_TOKEN"
 #    Record: deployment URL + ID, source SHA, release digest served.
 
-# 2. Build and deploy the exact candidate at the promotion SHA
-vercel pull --yes --environment=production --scope <team> --token "$VERCEL_TOKEN"
-vercel build --prod --scope <team> --token "$VERCEL_TOKEN"
-vercel deploy --prebuilt --prod --scope <team> --token "$VERCEL_TOKEN"
+# 3. Build and deploy the exact candidate at the promotion SHA
+vercel pull --yes --environment=production --cwd apps/web \
+  --scope <team> --token "$VERCEL_TOKEN"
+vercel build --prod --cwd apps/web --scope <team> --token "$VERCEL_TOKEN"
+vercel deploy --prebuilt --prod --cwd apps/web \
+  --scope <team> --token "$VERCEL_TOKEN"
 #    Record the returned deployment URL + deployment ID.
 
-# 3. Bind the owner-approved production hostname (if not the project default)
+# 4. Bind the owner-approved production hostname (if not the project default)
 vercel alias set <deployment-url> <owner-approved-hostname> \
   --scope <team> --token "$VERCEL_TOKEN"
 
-# 4. Read back what is actually served
+# 5. Read back what is actually served
 vercel inspect <deployment-url> --scope <team> --token "$VERCEL_TOKEN"
 curl -fsS https://<owner-approved-hostname>/  # SPA shell
 ```
@@ -211,7 +228,7 @@ Recorded rollback reference (separate application, for awareness only):
   SHA `7bf0d5a…` (alias `ega-skills-mcp.vercel.app`). This is **not** the console
   rollback target.
 
-Console rollback target (captured in step 1 above): the previous known-good
+Console rollback target (captured in step 2 above): the previous known-good
 console deployment URL/ID and the release digest it served. If no prior console
 deployment exists, the rollback is "remove/retire the console alias" and the
 target is recorded as `NONE (first deployment)`.
@@ -227,7 +244,7 @@ vercel alias set <previous-deployment-url> <owner-approved-hostname> \
 # previous revision's SHA/digest is served.
 ```
 
-Restore-to-new (re-promote the candidate) is the same as § 3 step 2–4 and
+Restore-to-new (re-promote the candidate) is the same as § 3 step 3–5 and
 re-runs the checklist.
 
 ## 5. Acceptance checklist (owner-run)
