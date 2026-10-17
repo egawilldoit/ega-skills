@@ -116,10 +116,67 @@ before(async () => {
 });
 
 after(async () => {
-  if (webChild) webChild.kill("SIGKILL");
-  if (mockServer) mockServer.close();
-  if (workdir) rmSync(workdir, { recursive: true, force: true });
+  // Windows-safe teardown: `kill()` only requests termination, and the child
+  // holds `workdir` as its cwd until it is reaped. Removing the directory
+  // before the `exit` event raises EPERM on Windows (CI run 39072855176).
+  // Await the exit, drain the mock server, then remove with bounded retries
+  // for transient AV/scanner handles. No assertion is touched.
+  if (mockServer) {
+    mockServer.closeAllConnections?.();
+    await new Promise((resolve) => mockServer.close(resolve));
+  }
+  await stopChild(webChild);
+  webChild = undefined;
+  if (workdir) removeTreeWithRetries(workdir);
 });
+
+/**
+ * Terminate a spawned server and wait for it to actually be gone.
+ * `kill("SIGKILL")` only *requests* termination; on Windows the process, and
+ * any handle it still holds on the working directory, outlives the call, so
+ * removing that directory immediately after it raises EPERM. `exit` is the
+ * only reliable signal that the handle is released. Mirrors the helper in
+ * tests/web/console-server.test.mjs.
+ */
+function stopChild(proc, timeoutMs = 10_000) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      proc.off("exit", done);
+      resolve();
+    };
+    // SIGKILL is not implemented on Windows; Node maps it to TerminateProcess.
+    proc.once("exit", done);
+    proc.once("error", done);
+    const timer = setTimeout(done, timeoutMs);
+    // Do not let a stuck child keep the event loop alive past teardown.
+    timer.unref?.();
+    proc.kill("SIGKILL");
+  });
+}
+
+/**
+ * Remove a tree, retrying while the OS still reports handles as busy.
+ * On Windows an antivirus scanner or a just-exited child can hold a transient
+ * handle that `rmSync` cannot take on the first attempt. Only EPERM/EBUSY are
+ * retried, bounded (10 x 100ms); the last attempt's error still propagates,
+ * so a genuine failure is never hidden. Mirrors console-server.test.mjs.
+ */
+function removeTreeWithRetries(path, attempts = 10, delayMs = 100) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const retryable = error?.code === "EPERM" || error?.code === "EBUSY";
+      if (!retryable || attempt >= attempts) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+}
 
 async function req(base, path, token) {
   const res = await fetch(`${base}${path}`, {
@@ -144,7 +201,9 @@ test("EGA-719: missing release identity is denied with zero artifact bytes (503)
   assert.equal(r.status, 503, r.text);
   assert.equal(r.body?.error?.code, "E_WEB_RELEASE_UNVERIFIED");
   assert.equal(r.body?.content, undefined, "no artifact bytes may be served");
-  child.kill("SIGKILL");
+  // Await the exit: this server also runs with cwd inside `workdir`, and a
+  // bare `kill()` would race the suite `after()` removal on Windows (EPERM).
+  await stopChild(child);
 });
 
 test("EGA-719: caller that cannot read the release is denied (403)", async () => {
