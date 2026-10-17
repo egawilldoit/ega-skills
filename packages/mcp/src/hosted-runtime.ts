@@ -33,7 +33,7 @@ import {
 } from "./hosted.js";
 import { createJwksBearerVerifier } from "./hosted-auth.js";
 import { buildProtectedResourceMetadata, parseHostedOAuthConfig, type HostedOAuthConfig } from "./hosted-oauth.js";
-import { createSupabaseContextResolver } from "./hosted-supabase.js";
+import { createSupabaseContextResolver, createSupabaseMembershipAuthorizer } from "./hosted-supabase.js";
 import { loadRetainedReleaseSet, resolveRetainedRelease, type RetainedReleaseSet } from "./retained.js";
 
 export const DEFAULT_HOSTED_MAX_BODY_BYTES = 1_048_576;
@@ -352,6 +352,11 @@ export function createHostedRuntimeFromEnv(
     ? async (releaseDigest: string): Promise<HostedReleaseSnapshot> => resolveRetainedRelease(loadRetainedReleaseSet(retained.manifestPath), releaseDigest)
     : undefined;
   let resolveContext: ((contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>) | undefined;
+  // Unscoped reads (`search`, `resolve`) must honor live membership when a
+  // live membership store is configured: the static document fixes the
+  // resource shape, the database fixes who currently belongs. Skill-scoped
+  // reads keep the existing control-plane semantics.
+  let authorizeUnscoped: ((subject: string, signal?: AbortSignal) => Promise<boolean>) | undefined;
   if (supabaseUrl && supabaseSecretKey) {
     resolveContext = createSupabaseContextResolver({
       supabaseUrl,
@@ -361,6 +366,15 @@ export function createHostedRuntimeFromEnv(
         if (releaseDigest !== snapshot.releaseDigest) throw new Error("release unavailable");
         return snapshot;
       },
+    });
+    authorizeUnscoped = createSupabaseMembershipAuthorizer({
+      supabaseUrl,
+      secretKey: supabaseSecretKey,
+      workspaceId: policy.workspace_id,
+      visibility: policy.visibility,
+      ownerSubject: policy.owner_subject,
+      ...(policy.authorized_subjects ? { authorizedSubjects: [...policy.authorized_subjects] } : {}),
+      denied: policy.denies.includes(hubId),
     });
   }
 
@@ -398,7 +412,13 @@ export function createHostedRuntimeFromEnv(
           if (token !== expectedToken) throw new Error("invalid token");
           return { subject: "local-smoke", scopes: ["ega:read"] };
         },
-    authorize: async (principal) => controlPlane.authorize(hubId, principal.subject, "read_hub"),
+    authorize: async (principal, _tool, skillId, signal) => {
+      // A live membership store makes unscoped reads fail closed against
+      // `workspace_memberships`: a still-valid token cannot outlive a revoked
+      // membership. Without one, the static control plane stays authoritative.
+      if (skillId === undefined && authorizeUnscoped) return authorizeUnscoped(principal.subject, signal);
+      return controlPlane.authorize(hubId, principal.subject, "read_hub");
+    },
     ...(resolveContext ? { resolveContext } : {}),
     ...(retained
       ? {

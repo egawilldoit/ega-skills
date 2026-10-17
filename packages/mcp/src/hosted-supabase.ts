@@ -1,4 +1,9 @@
 import {
+  authorizeWorkspace,
+  type HubVisibility,
+  type WorkspaceRole,
+} from "@ega-skills/control-plane";
+import {
   HostedRuntimeError,
   type HostedPrincipal,
   type HostedReleaseSnapshot,
@@ -62,11 +67,21 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-export function createSupabaseContextResolver(options: SupabaseContextResolverOptions): (
-  contextId: string,
-  principal: HostedPrincipal,
+type ReadRows = (
+  table: string,
+  select: string,
+  filters: Readonly<Record<string, string>>,
   signal: AbortSignal,
-) => Promise<HostedReleaseSnapshot> {
+) => Promise<unknown[]>;
+
+interface SupabaseReadOptions {
+  readonly supabaseUrl: string;
+  readonly secretKey: string;
+  readonly fetch?: SupabaseFetch;
+}
+
+/** Shared validated Supabase REST reader. */
+function createSupabaseRows(options: SupabaseReadOptions): ReadRows {
   let baseUrl: URL;
   try {
     baseUrl = new URL(options.supabaseUrl);
@@ -79,12 +94,7 @@ export function createSupabaseContextResolver(options: SupabaseContextResolverOp
   if (!fetcher) throw new Error("fetch is unavailable");
   const headers = credentialHeaders(options.secretKey);
 
-  const readRows = async (
-    table: string,
-    select: string,
-    filters: Readonly<Record<string, string>>,
-    signal: AbortSignal,
-  ): Promise<unknown[]> => {
+  return async (table, select, filters, signal) => {
     const url = new URL(`/rest/v1/${table}`, baseUrl);
     url.searchParams.set("select", select);
     for (const [key, value] of Object.entries(filters)) url.searchParams.set(key, value);
@@ -95,6 +105,14 @@ export function createSupabaseContextResolver(options: SupabaseContextResolverOp
     if (!Array.isArray(body)) throw new Error("Supabase response is invalid");
     return body;
   };
+}
+
+export function createSupabaseContextResolver(options: SupabaseContextResolverOptions): (
+  contextId: string,
+  principal: HostedPrincipal,
+  signal: AbortSignal,
+) => Promise<HostedReleaseSnapshot> {
+  const readRows = createSupabaseRows(options);
 
   return async (contextId, principal, signal) => {
     try {
@@ -142,6 +160,73 @@ export function createSupabaseContextResolver(options: SupabaseContextResolverOp
       }
       if (error instanceof HostedRuntimeError && error.code === "E_CONTEXT_UNAVAILABLE") throw error;
       throw unavailable();
+    }
+  };
+}
+
+export interface SupabaseMembershipAuthorizerOptions {
+  readonly supabaseUrl: string;
+  readonly secretKey: string;
+  readonly fetch?: SupabaseFetch;
+  /** Workspace whose hub is being read (the hosted authorization document's workspace). */
+  readonly workspaceId: string;
+  /** Hub visibility; resource shape stays owned by the static authorization document. */
+  readonly visibility: HubVisibility;
+  readonly ownerSubject: string;
+  readonly authorizedSubjects?: readonly string[];
+  /** Static emergency deny for the resource id. */
+  readonly denied: boolean;
+}
+
+/** Evaluate the active workspace role in the schema's canonical order. */
+function membershipRole(role: string): WorkspaceRole | null {
+  return WORKSPACE_ROLES.has(role) ? (role as WorkspaceRole) : null;
+}
+
+/**
+ * Live membership authorization for UNSCOPED hosted reads (`search`,
+ * `resolve`).
+ *
+ * The static authorization document remains the source of the resource shape
+ * (workspace, visibility, owner, explicit private grants, emergency denies),
+ * but membership is read from the live store on every call, so a real
+ * `workspace_memberships` revocation takes effect immediately for a token that
+ * is still valid. Lookup failure, malformed rows, and duplicates all fail
+ * closed, matching the context resolver's contract.
+ */
+export function createSupabaseMembershipAuthorizer(options: SupabaseMembershipAuthorizerOptions): (
+  subject: string,
+  signal?: AbortSignal,
+) => Promise<boolean> {
+  const readRows = createSupabaseRows(options);
+  const resource = {
+    workspaceId: options.workspaceId,
+    visibility: options.visibility,
+    ownerSubject: options.ownerSubject,
+    ...(options.authorizedSubjects ? { authorizedSubjects: [...options.authorizedSubjects] } : {}),
+  };
+  return async (subject, signal) => {
+    try {
+      if (!subject || !options.workspaceId || signal?.aborted) return false;
+      if (options.denied) return false;
+      const rows = await readRows("workspace_memberships", "workspace_id,subject,role,active", {
+        workspace_id: `eq.${options.workspaceId}`,
+        subject: `eq.${subject}`,
+        active: "eq.true",
+      }, signal ?? new AbortController().signal);
+      if (rows.length > 1) return false;
+      const row = rows.length === 1 ? record(rows[0]) : null;
+      if (row && (row.workspace_id !== options.workspaceId || row.subject !== subject || row.active !== true)) return false;
+      const role = row && typeof row.role === "string" ? membershipRole(row.role) : null;
+      if (row && role === null) return false;
+      return authorizeWorkspace({
+        subject,
+        membership: role === null ? undefined : { subject, role, active: true },
+        resource,
+        permission: "read_hub",
+      });
+    } catch {
+      return false;
     }
   };
 }
