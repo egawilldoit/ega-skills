@@ -418,6 +418,23 @@ export function decodeUsageSummary(value: unknown): Record<string, unknown> {
   requireFiniteNumber(value.request_count, what, "request_count");
   requireFiniteNumber(value.bandwidth_bytes, what, "bandwidth_bytes");
   requireArray(value.windows, what, "windows");
+  // CONTRACT-T1 telemetry is optional, but when present its daily series is the
+  // one the chart plots. Validated here so a malformed bucket is a controlled
+  // error panel rather than a chart drawn from an unvalidated value.
+  if (value.telemetry !== null && value.telemetry !== undefined) {
+    if (!isRecord(value.telemetry)) {
+      fail(what, `telemetry: expected an object or null, received ${describe(value.telemetry)}`);
+    }
+    requireFiniteNumber(value.telemetry.total_executions, what, "telemetry.total_executions");
+    const daily = requireArray(value.telemetry.daily, what, "telemetry.daily");
+    for (const [index, bucket] of daily.entries()) {
+      if (!isRecord(bucket)) {
+        fail(what, `telemetry.daily[${index}]: expected an object, received ${describe(bucket)}`);
+      }
+      requireString(bucket.date, what, `telemetry.daily[${index}].date`);
+      requireFiniteNumber(bucket.executions, what, `telemetry.daily[${index}].executions`);
+    }
+  }
   return value;
 }
 
