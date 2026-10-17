@@ -950,3 +950,44 @@ a:hover {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* EGA-727: daily MCP execution counts chart on the Usage page. */
+.daily-chart {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.daily-chart__caption {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.daily-chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.daily-chart__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.daily-chart__bar {
+  fill: var(--accent);
+}
+
+.daily-chart__summary {
+  margin: 8px 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.daily-chart__note {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}

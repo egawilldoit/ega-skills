@@ -8,6 +8,7 @@ import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { DataTable, Field, type Column } from "../components/DataTable";
+import { DailyMcpExecutionsChart } from "../components/DailyMcpExecutionsChart";
 import { EmptyState, ResourceSection, UnavailableState } from "../components/StatePanel";
 
 /**
@@ -31,10 +32,11 @@ import { EmptyState, ResourceSection, UnavailableState } from "../components/Sta
  * the server's own reason rather than showing zeros, so an absent series is
  * never presented as genuine zero usage.
  *
- * The console draws no chart. A chart needs a series it can trust, and this
- * deployment has no verified series yet; the numbers below are the raw rows the
- * API returned, and the totals are the API's own rollup, not a client
- * computation.
+ * The console draws one chart — a daily execution-count series for the
+ * CONTRACT-T1 telemetry section, and only when the server actually returned
+ * points. It is never a placeholder: a window with no recorded executions
+ * renders the empty state, not an axis. The chart is paired with an accessible
+ * table carrying the same points, so the series is never chart-only.
  */
 export function UsagePage(): ReactNode {
   const client = useApiClient();
@@ -114,6 +116,15 @@ export function UsagePage(): ReactNode {
                     {`search: ${data.telemetry.tools.search}, resolve: ${data.telemetry.tools.resolve}, inspect: ${data.telemetry.tools.inspect}, get_content: ${data.telemetry.tools.get_content}`}
                   </Field>
                 </dl>
+
+                {data.telemetry.daily.length > 0 ? (
+                  <DailyMcpExecutionsChart
+                    daily={data.telemetry.daily}
+                    partial={data.telemetry.partial}
+                    windowStarted={data.telemetry.window_started}
+                    windowEndsAt={data.telemetry.window_ends_at}
+                  />
+                ) : null}
               </>
             ) : (
               <EmptyState
