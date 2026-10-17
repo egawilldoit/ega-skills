@@ -7,6 +7,7 @@ import {
   createProjectContext,
   createProjectContextStore,
   FileProjectContextPersistence,
+  verifyProjectContext,
 } from "../../packages/project/dist/index.js";
 
 const digest = (char) => `sha256:${char.repeat(64)}`;
@@ -205,4 +206,35 @@ test("republishing an existing identity is rejected and does not rewrite persist
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the retained context is deep-frozen and independent of the caller's nested payload", () => {
+  const store = createProjectContextStore();
+  const original = context("project-a");
+  // The caller keeps its own reference to the nested payload object.
+  const callerPayload = original.payload;
+  const published = store.publish({ contextId: "ctx-main", context: original });
+  const retained = store.get("ctx-main");
+  assert.ok(retained);
+
+  // Positive: mutating the caller's ORIGINAL nested payload does not change the
+  // retained context, and the digest still describes the retained payload.
+  callerPayload.project_id = "project-mutated";
+  assert.equal(callerPayload.project_id, "project-mutated");
+  assert.equal(retained.context.payload.project_id, "project-a");
+  assert.equal(store.get("ctx-main")?.context.payload.project_id, "project-a");
+  assert.equal(retained.context.digest, published.context.digest);
+  assert.equal(verifyProjectContext(retained.context).digest, published.context.digest);
+
+  // Negative: every level of the returned context is frozen, so a mutation
+  // attempt fails instead of corrupting a published record.
+  assert.ok(Object.isFrozen(retained.context));
+  assert.ok(Object.isFrozen(retained.context.payload));
+  assert.throws(() => { retained.context.payload.workspace_id = "workspace-mutated"; }, TypeError);
+  assert.throws(() => { delete retained.context.payload.project_id; }, TypeError);
+  // The failed attempts left the retained state and its digest intact.
+  assert.equal(retained.context.payload.workspace_id, "workspace-a");
+  assert.equal(retained.context.payload.project_id, "project-a");
+  assert.equal(store.get("ctx-main")?.context.payload.workspace_id, "workspace-a");
+  assert.equal(verifyProjectContext(store.get("ctx-main")?.context).digest, published.context.digest);
 });

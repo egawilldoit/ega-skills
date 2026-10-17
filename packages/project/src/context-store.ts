@@ -35,6 +35,20 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+/** Deep-copy a JSON-shaped value and freeze every level of the copy. Retaining
+ * a deep copy means the store shares no mutable object with the caller (not
+ * even the nested `payload`), and freezing every level means no returned
+ * nested object or array can be mutated after publication. */
+function freezeContext<T>(value: T): T {
+  if (Array.isArray(value)) return Object.freeze(value.map((item) => freezeContext(item))) as T;
+  if (value !== null && typeof value === "object") {
+    const copy: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) copy[key] = freezeContext(nested);
+    return Object.freeze(copy) as T;
+  }
+  return value;
+}
+
 function assertContextId(contextId: string): void {
   if (typeof contextId !== "string" || contextId.length === 0 || contextId.includes("\u0000")) {
     fail("contextId must be a non-empty text identity");
@@ -57,7 +71,7 @@ export class ProjectContextStore {
       if (this.#contexts.has(record.contextId)) {
         fail(`context ${record.contextId} is duplicated in persistence`);
       }
-      this.#contexts.set(record.contextId, Object.freeze({ ...record.context }));
+      this.#contexts.set(record.contextId, freezeContext(record.context));
       if (record.revoked) this.#revoked.add(record.contextId);
     }
   }
@@ -68,9 +82,12 @@ export class ProjectContextStore {
     if (this.#contexts.has(input.contextId)) {
       fail(`context ${input.contextId} is already published`);
     }
-    // Context artifacts are immutable records. Retain a fresh frozen record so
-    // a caller cannot mutate a structurally valid object after publication.
-    const context = Object.freeze({ ...input.context });
+    // Context artifacts are immutable records. Retain a deep-frozen copy so a
+    // caller cannot mutate a structurally valid object after publication: the
+    // retained context shares no object with the caller's input graph, every
+    // nested field (including `payload`) is frozen, and no returned nested
+    // object can be mutated.
+    const context = freezeContext(input.context);
     const record = Object.freeze({ contextId: input.contextId, context, revoked: false });
     // Persistence is the visibility boundary. A failed durable write must not
     // leave a context addressable in this process.
