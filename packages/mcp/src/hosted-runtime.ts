@@ -55,6 +55,13 @@ const ALLOWED_POLICY_KEYS = [
 
 const WORKSPACE_ROLE_SET: ReadonlySet<string> = new Set<string>(WORKSPACE_ROLES);
 
+/**
+ * Hosted tools that authorize one skill rather than the resource as a whole.
+ * These must consult the live membership store (when configured) so a revoked
+ * membership takes effect immediately for a still-valid token.
+ */
+const SKILL_SCOPED_READ_TOOLS: ReadonlySet<string> = new Set<string>(["inspect", "get_content"]);
+
 export interface HostedAuthzPolicy {
   readonly workspace_id: string;
   readonly visibility: "private" | "workspace" | "public";
@@ -352,11 +359,12 @@ export function createHostedRuntimeFromEnv(
     ? async (releaseDigest: string): Promise<HostedReleaseSnapshot> => resolveRetainedRelease(loadRetainedReleaseSet(retained.manifestPath), releaseDigest)
     : undefined;
   let resolveContext: ((contextId: string, principal: HostedPrincipal, signal: AbortSignal) => Promise<HostedReleaseSnapshot>) | undefined;
-  // Unscoped reads (`search`, `resolve`) must honor live membership when a
-  // live membership store is configured: the static document fixes the
-  // resource shape, the database fixes who currently belongs. Skill-scoped
-  // reads keep the existing control-plane semantics.
-  let authorizeUnscoped: ((subject: string, signal?: AbortSignal) => Promise<boolean>) | undefined;
+  // Resource-level reads (`search`, `resolve`) and skill-scoped reads
+  // (`inspect`, `get_content`) must honor live membership when a live
+  // membership store is configured: the static document fixes the resource
+  // shape, the database fixes who currently belongs. The same authorizer is
+  // reused for both scopes; no second control plane is introduced.
+  let authorizeLiveMembership: ((subject: string, signal?: AbortSignal) => Promise<boolean>) | undefined;
   if (supabaseUrl && supabaseSecretKey) {
     resolveContext = createSupabaseContextResolver({
       supabaseUrl,
@@ -367,7 +375,7 @@ export function createHostedRuntimeFromEnv(
         return snapshot;
       },
     });
-    authorizeUnscoped = createSupabaseMembershipAuthorizer({
+    authorizeLiveMembership = createSupabaseMembershipAuthorizer({
       supabaseUrl,
       secretKey: supabaseSecretKey,
       workspaceId: policy.workspace_id,
@@ -412,11 +420,18 @@ export function createHostedRuntimeFromEnv(
           if (token !== expectedToken) throw new Error("invalid token");
           return { subject: "local-smoke", scopes: ["ega:read"] };
         },
-    authorize: async (principal, _tool, skillId, signal) => {
-      // A live membership store makes unscoped reads fail closed against
+    authorize: async (principal, tool, skillId, signal) => {
+      // A live membership store makes hosted reads fail closed against
       // `workspace_memberships`: a still-valid token cannot outlive a revoked
-      // membership. Without one, the static control plane stays authoritative.
-      if (skillId === undefined && authorizeUnscoped) return authorizeUnscoped(principal.subject, signal);
+      // membership. Resource-level reads (`search`, `resolve`) and skill-scoped
+      // reads (`inspect`, `get_content`) both consult the live store. The
+      // per-skill projection inside an unscoped search keeps the static
+      // control-plane decision (the resource-level check already ran live), so
+      // a search does not fan out into one live read per skill. Without a live
+      // store, the static control plane stays authoritative.
+      if (authorizeLiveMembership && (skillId === undefined || SKILL_SCOPED_READ_TOOLS.has(tool))) {
+        return authorizeLiveMembership(principal.subject, signal);
+      }
       return controlPlane.authorize(hubId, principal.subject, "read_hub");
     },
     ...(resolveContext ? { resolveContext } : {}),
