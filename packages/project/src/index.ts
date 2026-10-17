@@ -215,6 +215,8 @@ export {
   verifyProjectContext,
 } from "./remote-projects.js";
 export type { ProjectContextDocument, ProjectContextPayload, RemoteLockPlan, RemoteLockPlanPayload, RemoteLockChange } from "./remote-projects.js";
+export { createProjectContextStore, FileProjectContextPersistence, ProjectContextStore } from "./context-store.js";
+export type { ProjectContextPersistence, ProjectContextStoreRecord, PublishedProjectContext } from "./context-store.js";
 export {
   casUpdateStable,
   createHubRelease,
