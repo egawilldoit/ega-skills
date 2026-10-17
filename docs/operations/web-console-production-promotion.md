@@ -77,7 +77,9 @@ candidate and reconcile it with PR #137:
   only.
 
 The promotion is valid only against a single recorded full SHA whose CI is green
-at that exact SHA.
+at that exact SHA. At plan time the candidate is a clean descendant of
+`release/2.0` (0 commits behind, 116 ahead), so it needs no rebase before
+promotion.
 
 ### Pre-promotion identity verification (planned commands)
 
@@ -106,7 +108,9 @@ different release.
 ## 2. Required Vercel project, domain and environment (names only)
 
 No verified dedicated production `apps/web` project or alias exists today. The
-production MCP alias `ega-skills-mcp.vercel.app` serves deployment
+Vercel checks observed on this repository expose only the `ega-skills-auth` and
+`ega-skills-mcp` projects. The production MCP alias `ega-skills-mcp.vercel.app`
+serves deployment
 `dpl_BJNrmsRuTEN1cbDJHBtnANUrre6G` at `release/2.0` SHA `7bf0d5a…` and is a
 **different application**; it is not the console target and must not be changed.
 The Auth/OAuth UI alias is likewise a separate project.
