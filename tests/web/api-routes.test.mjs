@@ -121,6 +121,8 @@ const ARTIFACT_DIGESTS_BEFORE = digestEveryFile(ARTIFACT);
 /* -------------------------------------------------------------------------- */
 
 const cleanups = [];
+/** Every spawned server, so teardown can await each exit before removing `workdir`. */
+const spawnedChildren = [];
 let workdir;
 let artifactCopy;
 let baseline;
@@ -153,6 +155,11 @@ async function startServer(env = {}) {
   child.stdout.on("data", (chunk) => stdout.push(chunk));
   child.stderr.on("data", (chunk) => stderr.push(chunk));
   cleanups.push(() => child.kill("SIGKILL"));
+  // Tracked separately so `after` can await the `exit` event: `kill()` only
+  // requests termination, and a child that still holds `workdir` as its cwd
+  // makes the later removal raise EPERM on Windows. Mirrors
+  // tests/web/console-server.test.mjs.
+  spawnedChildren.push(child);
 
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 30_000;
@@ -206,18 +213,71 @@ async function request(server, path, init = {}) {
   return { status: response.status, headers: response.headers, text, body };
 }
 
+/**
+ * Terminate a spawned server and wait for it to actually be gone.
+ * `kill("SIGKILL")` only *requests* termination; on Windows the process, and
+ * any handle it still holds on the working directory, outlives the call.
+ * `exit` is the only reliable signal that the handle is released. Mirrors
+ * tests/web/console-server.test.mjs.
+ */
+function stopChild(proc, timeoutMs = 10_000) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      proc.off("exit", done);
+      resolve();
+    };
+    proc.once("exit", done);
+    proc.once("error", done);
+    const timer = setTimeout(done, timeoutMs);
+    timer.unref?.();
+    proc.kill("SIGKILL");
+  });
+}
+
+/**
+ * Remove a tree, retrying transient Windows handle-busy failures.
+ * Only EPERM/EBUSY are retried, bounded (10 x 100ms); the last attempt's
+ * error still propagates, so a genuine failure is never hidden. Mirrors
+ * tests/web/console-server.test.mjs.
+ */
+function removeTreeWithRetries(path, attempts = 10, delayMs = 100) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const retryable = error?.code === "EPERM" || error?.code === "EBUSY";
+      if (!retryable || attempt >= attempts) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+}
+
 before(async () => {
   workdir = mkdtempSync(join(tmpdir(), "ega-web-api-"));
-  cleanups.push(() => rmSync(workdir, { recursive: true, force: true }));
+  cleanups.push(() => removeTreeWithRetries(workdir));
   mkdirSync(join(workdir, "dist"), { recursive: true });
   writeFileSync(join(workdir, "dist", "index.html"), "<!doctype html><div id=root></div>");
   artifactCopy = join(workdir, "artifact");
   cpSync(ARTIFACT, artifactCopy, { recursive: true });
-  cleanups.push(() => rmSync(artifactCopy, { recursive: true, force: true }));
+  cleanups.push(() => removeTreeWithRetries(artifactCopy));
   baseline = await startServer({ EGA_WEB_ARTIFACT_DIR: artifactCopy });
 });
 
-after(() => {
+after(async () => {
+  // Phase 1: every spawned server must be reaped before any path under
+  // `workdir` is removed; otherwise Windows reports EPERM on the open handle.
+  for (const child of spawnedChildren.reverse()) {
+    try {
+      await stopChild(child);
+    } catch {
+      // A cleanup failure must not mask a test result.
+    }
+  }
   for (const cleanup of cleanups.reverse()) {
     try {
       cleanup();
@@ -1068,7 +1128,7 @@ describe("readiness distinguishes configured, verified and mismatched", () => {
   test("a retained manifest alone is not enough to be ready", async () => {
     const manifest = join(workdir, "retained.json");
     writeFileSync(manifest, "{}\n");
-    cleanups.push(() => rmSync(manifest, { force: true }));
+    cleanups.push(() => removeTreeWithRetries(manifest));
     const server = await startServer({ EGA_WEB_RETAINED_MANIFEST: manifest });
     const { status, body } = await request(server, "/readyz");
     assert.equal(status, 503);
