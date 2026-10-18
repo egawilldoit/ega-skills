@@ -178,6 +178,12 @@ describe("the deployment is wired to stage", () => {
       "the local test/development adapter must not start inside the Vercel function");
   });
 
+  test("Vercel static files resolve beside the function module, not the bundle working directory", () => {
+    const server = readFileSync(join(WEB_ROOT, "server.mts"), "utf8");
+    assert.match(server, /process\.env\["VERCEL"\] === "1"\s*\?\s*resolve\(dirname\(fileURLToPath\(import\.meta\.url\)\), "dist"\)/,
+      "Vercel's dist and included artifacts are rooted beside apps/web/server.mjs");
+  });
+
   test("the staged directory is not committed", () => {
     const ignored = readFileSync(join(REPO_ROOT, ".gitignore"), "utf8");
     assert.match(ignored, /apps\/web\/artifact\//);

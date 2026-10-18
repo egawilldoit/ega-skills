@@ -34,15 +34,15 @@
 //
 // Security posture mirrors `packages/mcp`: env validation at startup, no
 // secrets logged, no stack traces returned, fail-closed JSON instead of crashes.
-// Build: Vercel runs `pnpm --filter @ega-skills/web build` (see vercel.json) so
-// `dist/` exists before this file is bundled. `config.includeFiles` ships both
-// `dist/**` and `artifact/**` so the SPA and the release artifacts are present
-// at runtime.
+// Build: the Vercel package hook builds workspace exports, stages the release,
+// then builds the SPA (see package.json). `config.includeFiles` ships both
+// `dist/**` and `artifact/**`; Vercel resolves them beside this function module.
 
 import { createReadStream, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve, sep } from "node:path";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ConsoleApiError, installConsoleApi } from "./server/api.ts";
 
@@ -355,7 +355,9 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".woff2": "font/woff2",
 };
 
-const DIST_DIR = resolve(process.cwd(), "dist");
+const DIST_DIR = process.env["VERCEL"] === "1"
+  ? resolve(dirname(fileURLToPath(import.meta.url)), "dist")
+  : resolve(process.cwd(), "dist");
 
 /**
  * Resolve a URL path inside `dist/`, refusing anything that escapes the
