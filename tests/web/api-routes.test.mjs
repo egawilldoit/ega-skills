@@ -37,6 +37,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer as createHttpsServer } from "node:https";
+import { createServer as createNetServer } from "node:net";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,17 +75,21 @@ const SECRET_MARKERS = Object.freeze({
   bearer: "b4-fixture-delegated-bearer-token",
 });
 
-/**
- * Base port for the servers this file spawns.
- *
- * Node's test runner executes test FILES in parallel, so this range must not
- * overlap the one in console-server.test.mjs (which uses 34117 for its main
- * server and 34217+ for readiness probes). The previous base of 34210 DID
- * overlap 34217+, so the two files could collide on a port and fail for a reason
- * that has nothing to do with either test. Keep this range well clear of both.
- */
-const BASE_PORT = 34510;
-let portCursor = 0;
+async function findAvailablePort() {
+  const probe = createNetServer();
+  await new Promise((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", resolve);
+  });
+  const address = probe.address();
+  if (!address || typeof address === "string") {
+    throw new Error("test server did not receive an ephemeral TCP port");
+  }
+  await new Promise((resolve, reject) => {
+    probe.close((error) => (error ? reject(error) : resolve()));
+  });
+  return address.port;
+}
 
 /**
  * Words that would betray a server-side fact in a refusal: a table name, a row
@@ -134,7 +139,7 @@ let baseline;
  * only states what it means to state and cannot accidentally inherit a value.
  */
 async function startServer(env = {}) {
-  const port = BASE_PORT + (portCursor += 1);
+  const port = await findAvailablePort();
   const child = spawn(process.execPath, [SERVER], {
     cwd: workdir,
     stdio: ["ignore", "pipe", "pipe"],
