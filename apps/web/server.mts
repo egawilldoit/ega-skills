@@ -520,7 +520,7 @@ const listener = createConsoleRequestListener();
 // `server/api.ts` must not import a value from this file.
 setReleaseReadinessProbe(installConsoleApi(API_ROUTES, defaultReadinessProbe));
 
-const server = createServer((incoming, outgoing) => {
+const handleRequest = (incoming: IncomingMessage, outgoing: ServerResponse): void => {
   void listener(incoming, outgoing).catch(() => {
     // Last-resort net: a controlled 500, never a thrown stack trace.
     try {
@@ -538,11 +538,18 @@ const server = createServer((incoming, outgoing) => {
       }
     }
   });
-});
+};
 
-server.maxConnections = socketEnv(process.env["EGA_WEB_MAX_CONNECTIONS"], 128, "EGA_WEB_MAX_CONNECTIONS");
+// Vercel's @vercel/node runtime invokes the default handler export. Keep the
+// local HTTP adapter for repository tests and development, where VERCEL is unset.
+export default handleRequest;
 
-const port = socketEnv(process.env["PORT"], 3000, "PORT");
-server.listen(port, () => {
-  process.stderr.write(`ega-web-console listening on ${port}\n`);
-});
+if (process.env["VERCEL"] !== "1") {
+  const server = createServer(handleRequest);
+  server.maxConnections = socketEnv(process.env["EGA_WEB_MAX_CONNECTIONS"], 128, "EGA_WEB_MAX_CONNECTIONS");
+
+  const port = socketEnv(process.env["PORT"], 3000, "PORT");
+  server.listen(port, () => {
+    process.stderr.write(`ega-web-console listening on ${port}\n`);
+  });
+}

@@ -18,8 +18,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "types": ["vite/client"]
+    "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
 }

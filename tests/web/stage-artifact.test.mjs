@@ -170,6 +170,14 @@ describe("the deployment is wired to stage", () => {
     );
   });
 
+  test("the Vercel entrypoint exports a request handler without opening a local listener", () => {
+    const server = readFileSync(join(WEB_ROOT, "server.mts"), "utf8");
+    assert.match(server, /export default handleRequest/,
+      "@vercel/node requires the server entrypoint to export its request handler");
+    assert.match(server, /if \(process\.env\["VERCEL"\] !== "1"\) \{\s*const server = createServer\(handleRequest\)/,
+      "the local test/development adapter must not start inside the Vercel function");
+  });
+
   test("the staged directory is not committed", () => {
     const ignored = readFileSync(join(REPO_ROOT, ".gitignore"), "utf8");
     assert.match(ignored, /apps\/web\/artifact\//);
