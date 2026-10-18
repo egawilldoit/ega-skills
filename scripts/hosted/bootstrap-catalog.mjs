@@ -724,36 +724,49 @@ export function sanitizeDiagnostics(text, secrets = []) {
   return lines.slice(0, 3).join(" ").slice(0, 300);
 }
 
-function runSql(url, sql) {
+/**
+ * The exact child invocation.
+ *
+ * There is deliberately no connection string here: the child learns the target
+ * from its environment (see {@link psqlEnvironment}), so nothing credential-shaped
+ * can appear in `ps` or `/proc/<pid>/cmdline`. Exported so the argv can be
+ * asserted without spawning anything.
+ */
+export function psqlInvocation() {
+  return Object.freeze({
+    command: "psql",
+    args: Object.freeze(["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|"]),
+  });
+}
+
+/**
+ * Run one statement, returning stdout and refusing with a bounded, sanitised,
+ * code-bearing message on failure.
+ *
+ * `spawnImpl` exists so the invocation and the failure formatting can be tested
+ * on every platform without a database driver on `PATH`.
+ */
+export function runStatement(url, sql, spawnImpl = spawnSync) {
   const { env, secrets } = psqlEnvironment(url);
-  const result = spawnSync(
-    "psql",
-    // No connection string here: the child learns the target from its environment.
-    ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|"],
-    { input: sql, encoding: "utf8", env, stdio: ["pipe", "pipe", "pipe"] },
-  );
+  const { command, args } = psqlInvocation();
+  const result = spawnImpl(command, args, {
+    input: sql,
+    encoding: "utf8",
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   if (result.error) {
     refuse(
       "E_BOOTSTRAP_PSQL_UNAVAILABLE",
       `psql could not be run (${result.error.code ?? "spawn failed"}); it is required to apply or roll back`,
     );
   }
-  return {
-    status: result.status,
-    stdout: result.stdout ?? "",
-    stderr: sanitizeDiagnostics(result.stderr, secrets),
-  };
-}
-
-/** Run `sql`, refusing with a bounded, sanitised, code-bearing message. */
-function runOrRefuse(url, sql) {
-  const { status, stdout, stderr } = runSql(url, sql);
-  if (status !== 0) {
+  const stderr = sanitizeDiagnostics(result.stderr, secrets);
+  if (result.status !== 0) {
     const code = /E_BOOTSTRAP_[A-Z_]+/.exec(stderr)?.[0] ?? "E_BOOTSTRAP_APPLY_FAILED";
-    const detail = sanitizeDiagnostics(stderr);
-    refuse(code, detail === "" ? "the database refused the statement" : `the database refused the statement: ${detail}`);
+    refuse(code, stderr === "" ? "the database refused the statement" : `the database refused the statement: ${stderr}`);
   }
-  return stdout;
+  return result.stdout ?? "";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -787,18 +800,20 @@ function parseInserted(stdout) {
  * (an idempotent rerun); if it reports different ownership, the run refuses
  * rather than claiming rows the original receipt does not.
  */
-export function applyBootstrap(plan, url, receiptPath) {
+export function applyBootstrap(plan, url, receiptPath, spawnImpl = undefined) {
   if (typeof receiptPath !== "string" || receiptPath.trim() === "") {
     refuse("E_BOOTSTRAP_RECEIPT_MISSING", "--receipt <path> is required to apply");
   }
   const existing = existsSync(receiptPath) ? validateReceipt(readReceipt(receiptPath), plan) : null;
 
-  const inserted = parseInserted(runOrRefuse(url, renderTransaction(plan)));
+  const run = (sql) => (spawnImpl === undefined ? runStatement(url, sql) : runStatement(url, sql, spawnImpl));
+
+  const inserted = parseInserted(run(renderTransaction(plan)));
 
   // Post-commit observation only. It is reported, not relied on for atomicity —
   // the authoritative check already ran inside the transaction.
-  const hub = runOrRefuse(url, renderReadBack(plan)).trim();
-  const release = runOrRefuse(url, renderReleaseReadBack(plan)).trim();
+  const hub = run(renderReadBack(plan)).trim();
+  const release = run(renderReleaseReadBack(plan)).trim();
   const expected = receiptIdentity(plan);
   if (hub !== expected.hub || release !== expected.release) {
     refuse(
@@ -836,16 +851,16 @@ export function applyBootstrap(plan, url, receiptPath) {
  * The receipt is consumed only on success, so a failed rollback can be retried
  * and a repeated rollback is refused rather than silently doing nothing.
  */
-export function rollbackBootstrap(receiptPath, url) {
+export function rollbackBootstrap(receiptPath, url, spawnImpl = undefined) {
   const receipt = readReceipt(receiptPath);
-  runOrRefuse(url, renderRollback(receipt));
+  const run = (sql) => (spawnImpl === undefined ? runStatement(url, sql) : runStatement(url, sql, spawnImpl));
 
-  const hubPresent = runOrRefuse(
-    url,
+  run(renderRollback(receipt));
+
+  const hubPresent = run(
     `select count(*) from public.hubs where id = '${receipt.hub_id}';`,
   ).trim();
-  const releasePresent = runOrRefuse(
-    url,
+  const releasePresent = run(
     `select count(*) from public.hub_releases where hub_id = '${receipt.hub_id}' and release_digest = '${receipt.release_digest}';`,
   ).trim();
   if (receipt.inserted.hub && hubPresent !== "0") {
@@ -857,6 +872,19 @@ export function rollbackBootstrap(receiptPath, url) {
 
   rmSync(receiptPath, { force: true });
   return { receipt, removedHub: receipt.inserted.hub, removedRelease: receipt.inserted.release };
+}
+
+/** One JSON document describing a completed rollback. */
+export function buildRollbackReport(receipt, outcome, receiptPath) {
+  return Object.freeze({
+    executed: "rollback",
+    rolledBack: true,
+    removedHub: outcome.removedHub,
+    removedRelease: outcome.removedRelease,
+    receiptConsumed: receiptPath,
+    receipt,
+    transaction: renderRollback(receipt),
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -977,21 +1005,7 @@ export async function main(argv, env = process.env) {
     // ran, and what it removed.
     const outcome = rollbackBootstrap(options.receipt, databaseUrl);
     if (options.json) {
-      process.stdout.write(
-        `${JSON.stringify(
-          {
-            executed: "rollback",
-            receipt,
-            transaction: renderRollback(receipt),
-            rolledBack: true,
-            removedHub: outcome.removedHub,
-            removedRelease: outcome.removedRelease,
-            receiptConsumed: options.receipt,
-          },
-          null,
-          2,
-        )}\n`,
-      );
+      process.stdout.write(`${JSON.stringify(buildRollbackReport(receipt, outcome, options.receipt), null, 2)}\n`);
     } else {
       process.stdout.write(
         `\nbootstrap-catalog: rolled back\n  hub removed     ${outcome.removedHub}\n  release removed ${outcome.removedRelease}\n  receipt consumed: ${options.receipt}\n`,

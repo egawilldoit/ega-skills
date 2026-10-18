@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,10 +22,14 @@ import {
   DEFAULT_ARTIFACT_DIR,
   applyBootstrap,
   buildReceipt,
+  buildRollbackReport,
   parseArgs,
   parseDatabaseUrl,
   planBootstrap,
   psqlEnvironment,
+  psqlInvocation,
+  runStatement,
+  rollbackBootstrap,
   readReceipt,
   renderReadBack,
   renderReleaseReadBack,
@@ -346,7 +350,15 @@ describe("rollback is generated from the receipt", () => {
 describe("credentials never reach argv or a reported error", () => {
   const DSN = "postgres://bootuser:canary_password_9f3@db.example.invalid:6543/ega_control?sslmode=require";
 
-  test("a URL is decomposed into libpq environment variables, with no password in argv", () => {
+  test("the child invocation carries flags only", () => {
+    const { command, args } = psqlInvocation();
+    assert.equal(command, "psql");
+    assert.deepEqual([...args], ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|"]);
+    assert.ok(!args.some((value) => String(value).includes("canary_password_9f3")));
+    assert.ok(!args.some((value) => String(value).includes("postgres://")));
+  });
+
+  test("a URL is decomposed into libpq environment variables", () => {
     const { env, secrets } = psqlEnvironment(DSN, { PATH: "/usr/bin", PGHOST: "stale.example", PGPASSWORD: "stale" });
     assert.equal(env.PGHOST, "db.example.invalid");
     assert.equal(env.PGPORT, "6543");
@@ -354,8 +366,7 @@ describe("credentials never reach argv or a reported error", () => {
     assert.equal(env.PGUSER, "bootuser");
     assert.equal(env.PGPASSWORD, "canary_password_9f3");
     assert.equal(env.PGSSLMODE, "require");
-    // Inherited libpq state is cleared so a stray .pgpass/PGPASSWORD cannot redirect.
-    assert.equal(env.PGPASSWORD === "stale", false);
+    assert.equal(env.PGPASSWORD === "stale", false, "inherited libpq state must be cleared");
     assert.ok(secrets.some((value) => value.includes("canary_password_9f3")));
   });
 
@@ -382,112 +393,114 @@ describe("credentials never reach argv or a reported error", () => {
     assert.ok(clean.length <= 300);
   });
 
-  test("a synthetic psql sees the credential only in its environment", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-fake-psql-"));
+  test("the spawn seam receives the credential only in its environment", () => {
+    const calls = [];
+    const fakeSpawn = (command, args, options) => {
+      calls.push({ command, args, env: options.env });
+      return { status: 0, stdout: "row\n", stderr: "" };
+    };
+    const output = runStatement(DSN, "select 1;", fakeSpawn);
+
+    assert.equal(output, "row\n");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, "psql");
+    assert.ok(!calls[0].args.some((value) => String(value).includes("canary_password_9f3")), "no password in argv");
+    assert.ok(!calls[0].args.some((value) => String(value).includes("postgres://")), "no DSN in argv");
+    assert.equal(calls[0].env.PGPASSWORD, "canary_password_9f3");
+    assert.equal(calls[0].env.PGHOST, "db.example.invalid");
+  });
+
+  test("a driver echoing the DSN or password cannot leak it through the failure", () => {
+    const fakeSpawn = () => ({
+      status: 2,
+      stdout: "",
+      stderr: `psql: error: could not connect to ${DSN} password=canary_password_9f3 canary_password_9f3`,
+    });
+    let error;
     try {
-      const fake = join(dir, "psql");
-      writeFileSync(fake, FAKE_PSQL);
-      chmodSync(fake, 0o755);
-      const log = join(dir, "invocation");
-      const p = await plan();
-      const receipt = join(dir, "receipt.json");
+      runStatement(DSN, "select 1;", fakeSpawn);
+    } catch (cause) {
+      error = cause;
+    }
+    assert.ok(error, "the statement must be refused");
+    assert.match(error.code, /^E_BOOTSTRAP_/);
+    assert.ok(!error.message.includes("canary_password_9f3"), "password must not be reported");
+    assert.ok(!error.message.includes("postgres://"), "DSN must not be reported");
+  });
 
-      const result = runCli(
-        ["--workspace", WORKSPACE, "--hub", HUB, "--receipt", receipt, "--apply"],
-        {
-          PATH: `${dir}:${process.env.PATH ?? ""}`,
-          EGA_BOOTSTRAP_DATABASE_URL: DSN,
-          FAKE_PSQL_LOG: log,
-          FAKE_INSERTED: "t|t",
-          FAKE_HUB: p.hubId,
-          FAKE_WS: p.workspaceId,
-          FAKE_DIGEST: p.releaseDigest,
-          FAKE_SQLITE: p.sqliteDigest,
-        },
-      );
-      assert.equal(result.status, 0, result.stderr);
+  test("a known bootstrap code survives sanitisation", () => {
+    const fakeSpawn = () => ({
+      status: 3,
+      stdout: "",
+      stderr: "psql: error: E_BOOTSTRAP_HUB_CONFLICT: hub x is attached to another workspace\n",
+    });
+    assert.throws(() => runStatement(DSN, "select 1;", fakeSpawn), (e) => e.code === "E_BOOTSTRAP_HUB_CONFLICT");
+  });
 
-      const argv = JSON.parse(readFileSync(`${log}.argv`, "utf8"));
-      assert.ok(!argv.some((arg) => String(arg).includes("canary_password_9f3")), "no password in argv");
-      assert.ok(!argv.some((arg) => String(arg).includes("postgres://")), "no DSN in argv");
+  test("a spawn failure is still actionable", () => {
+    const fakeSpawn = () => ({ error: { code: "ENOENT" }, status: null, stdout: "", stderr: "" });
+    assert.throws(
+      () => runStatement(DSN, "select 1;", fakeSpawn),
+      (e) => e.code === "E_BOOTSTRAP_PSQL_UNAVAILABLE" && /psql could not be run/.test(e.message),
+    );
+  });
 
-      const env = JSON.parse(readFileSync(`${log}.env`, "utf8"));
-      assert.equal(env.PGPASSWORD, "canary_password_9f3");
+  test("apply writes a receipt and never puts the DSN in argv", async () => {
+    const p = await plan();
+    const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-apply-"));
+    try {
+      const calls = [];
+      const fakeSpawn = (command, args, options) => {
+        calls.push({ command, args, env: options.env });
+        const sql = options.input;
+        let stdout = "";
+        if (sql.includes("create temp table bootstrap_inserted")) stdout = "t|t\n";
+        else if (sql.includes("from public.hub_releases")) stdout = `${p.hubId}|${p.releaseDigest}|${p.sqliteDigest}\n`;
+        else if (sql.includes("from public.hubs")) stdout = `${p.hubId}|${p.workspaceId}|private\n`;
+        return { status: 0, stdout, stderr: "" };
+      };
+      const receiptPath = join(dir, "receipt.json");
+      const outcome = applyBootstrap(p, DSN, receiptPath, fakeSpawn);
 
-      const written = readReceipt(receipt);
-      assert.deepEqual(written.inserted, { hub: true, release: true });
+      assert.deepEqual(outcome.inserted, { hub: true, release: true });
+      assert.equal(readReceipt(receiptPath).hub_id, p.hubId);
+      for (const call of calls) {
+        assert.ok(!call.args.some((value) => String(value).includes("canary_password_9f3")));
+        assert.ok(!call.args.some((value) => String(value).includes("postgres://")));
+        assert.equal(call.env.PGPASSWORD, "canary_password_9f3");
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("a driver echoing the DSN or password cannot leak it through the failure", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-canary-"));
+  test("rollback consumes the receipt and reports one document", async () => {
+    const p = await plan();
+    const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-rb-"));
     try {
-      const fake = join(dir, "psql");
-      writeFileSync(fake, FAKE_PSQL);
-      chmodSync(fake, 0o755);
-      const result = runCli(
-        ["--workspace", WORKSPACE, "--hub", HUB, "--receipt", join(dir, "receipt.json"), "--apply"],
-        {
-          PATH: `${dir}:${process.env.PATH ?? ""}`,
-          EGA_BOOTSTRAP_DATABASE_URL: DSN,
-          FAKE_PSQL_LOG: join(dir, "invocation"),
-          FAKE_MODE: "fail",
-          FAKE_STDERR: `psql: error: could not connect to ${DSN} password=canary_password_9f3 canary_password_9f3`,
-        },
-      );
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /E_BOOTSTRAP_[A-Z_]+/);
-      assert.ok(!result.stderr.includes("canary_password_9f3"), "password must not be reported");
-      assert.ok(!result.stderr.includes("postgres://"), "DSN must not be reported");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+      const receiptPath = join(dir, "receipt.json");
+      const receipt = receiptFor(p, { hub: true, release: true });
+      writeReceipt(receiptPath, receipt);
 
-  test("a spawn failure is still actionable", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-nopsql-"));
-    try {
-      const result = runCli(
-        ["--workspace", WORKSPACE, "--hub", HUB, "--receipt", join(dir, "receipt.json"), "--apply"],
-        { PATH: dir, EGA_BOOTSTRAP_DATABASE_URL: DSN },
-      );
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /E_BOOTSTRAP_PSQL_UNAVAILABLE/);
-      assert.match(result.stderr, /psql could not be run/);
+      const fakeSpawn = () => ({ status: 0, stdout: "0\n", stderr: "" });
+      const outcome = rollbackBootstrap(receiptPath, DSN, fakeSpawn);
+
+      assert.equal(outcome.removedHub, true);
+      assert.equal(outcome.removedRelease, true);
+      assert.equal(existsSync(receiptPath), false, "a completed rollback consumes the receipt");
+
+      const report = buildRollbackReport(receipt, outcome, receiptPath);
+      assert.equal(JSON.parse(JSON.stringify(report)).executed, "rollback");
+      assert.match(report.transaction, /delete from public\.hubs/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
 
-/** A synthetic `psql`: records argv + PG* env, then answers by SQL content. */
-const FAKE_PSQL = `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
-const chunks = [];
-for await (const chunk of process.stdin) chunks.push(chunk);
-const sql = Buffer.concat(chunks).toString("utf8");
-const log = process.env.FAKE_PSQL_LOG;
-if (log) {
-  writeFileSync(log + ".argv", JSON.stringify(process.argv.slice(2)));
-  const pg = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("PG")).sort());
-  writeFileSync(log + ".env", JSON.stringify(pg));
-}
-if (process.env.FAKE_MODE === "fail") {
-  process.stderr.write(process.env.FAKE_STDERR ?? "psql: error: failure");
-  process.exit(2);
-}
-if (sql.includes("create temp table bootstrap_inserted")) {
-  process.stdout.write((process.env.FAKE_INSERTED ?? "t|t") + "\\n");
-} else if (sql.includes("count(*)")) {
-  process.stdout.write("0\\n");
-} else if (sql.includes("from public.hub_releases")) {
-  process.stdout.write([process.env.FAKE_HUB, process.env.FAKE_DIGEST, process.env.FAKE_SQLITE].join("|") + "\\n");
-} else if (sql.includes("from public.hubs")) {
-  process.stdout.write([process.env.FAKE_HUB, process.env.FAKE_WS, "private"].join("|") + "\\n");
-}
-`;
+/* -------------------------------------------------------------------------- */
+/* Command line                                                                */
+/* -------------------------------------------------------------------------- */
 
 function runCli(argv, env = {}) {
   return spawnSync(process.execPath, [SCRIPT, ...argv], {
@@ -495,10 +508,6 @@ function runCli(argv, env = {}) {
     env: { ...process.env, EGA_BOOTSTRAP_DATABASE_URL: "", ...env },
   });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Command line                                                                */
-/* -------------------------------------------------------------------------- */
 
 describe("the command line prepares without a database", () => {
   test("it prints the transaction and executes nothing", () => {
@@ -586,34 +595,4 @@ test("applyBootstrap refuses without a receipt path", async () => {
     () => applyBootstrap(p, "postgres://u:canary@h.example/db", ""),
     (e) => e.code === "E_BOOTSTRAP_RECEIPT_MISSING",
   );
-});
-
-test("--rollback --json emits one parseable document and consumes the receipt", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-json-rb-"));
-  try {
-    const fake = join(dir, "psql");
-    writeFileSync(fake, FAKE_PSQL);
-    chmodSync(fake, 0o755);
-    const p = await plan();
-    const receipt = join(dir, "receipt.json");
-    writeReceipt(receipt, receiptFor(p, { hub: true, release: true }));
-
-    const result = runCli(
-      ["--workspace", WORKSPACE, "--hub", HUB, "--receipt", receipt, "--rollback", "--json"],
-      {
-        PATH: `${dir}:${process.env.PATH ?? ""}`,
-        EGA_BOOTSTRAP_DATABASE_URL: "postgres://bootuser:canary_password_9f3@db.example.invalid:5432/ega",
-      },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.executed, "rollback");
-    assert.equal(parsed.rolledBack, true);
-    assert.equal(parsed.removedHub, true);
-    assert.equal(parsed.removedRelease, true);
-    assert.match(parsed.transaction, /delete from public\.hubs/);
-    assert.equal(existsSync(receipt), false, "a completed rollback consumes the receipt");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
