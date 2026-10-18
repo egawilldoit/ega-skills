@@ -2,10 +2,12 @@
   "name": "ega-skills",
   "version": "2.0.1",
   "private": true,
-  "description": "EGA Skills Hub V1 — local-first deterministic agent-skill registry and resolver",
+  "description": "EGA Skills Hub V1 \u2014 local-first deterministic agent-skill registry and resolver",
   "packageManager": "pnpm@10.0.0",
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   },
   "engines": {
     "node": "24",
@@ -28,9 +30,11 @@
     "generate:catalog": "node scripts/catalog/generate.mjs",
     "catalog:check": "node scripts/catalog/generate.mjs --check",
     "eval:discovery": "node scripts/eval/discovery.mjs tests/discovery/personal-intents.json",
-    "release:verify": "node scripts/release/verify-release.mjs"
+    "release:verify": "node scripts/release/verify-release.mjs",
+    "test:web:components": "vitest run --config vitest.components.config.mts"
   },
   "devDependencies": {
+    "jsdom": "30.1.2",
     "typescript": "7.0.2",
     "vitest": "5.0.0"
   }

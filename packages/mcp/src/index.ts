@@ -28,7 +28,7 @@ export {
   DEFAULT_HOSTED_MAX_RESPONSE_BYTES,
   DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
 } from "./hosted-runtime.js";
-export type { HostedAuthzPolicy, HostedRuntimeHandle } from "./hosted-runtime.js";
+export type { HostedAuthzPolicy, HostedRuntimeHandle, HostedTelemetryStatus } from "./hosted-runtime.js";
 export { createVercelRequestListener } from "./vercel-adapter.js";
 export type { VercelAdapterState, VercelNodeRequest, VercelNodeResponse } from "./vercel-adapter.js";
 export { createJwksBearerVerifier } from "./hosted-auth.js";
@@ -46,8 +46,8 @@ export type {
   HostedOAuthConfigInput,
   HostedProtectedResourceMetadata,
 } from "./hosted-oauth.js";
-export { createSupabaseContextResolver, createSupabaseMembershipAuthorizer } from "./hosted-supabase.js";
-export type { SupabaseContextResolverOptions, SupabaseMembershipAuthorizerOptions } from "./hosted-supabase.js";
+export { createSupabaseContextResolver, createSupabaseMembershipAuthorizer, createSupabaseWorkspaceResolver } from "./hosted-supabase.js";
+export type { SupabaseContextResolverOptions, SupabaseMembershipAuthorizerOptions, SupabaseWorkspaceResolver } from "./hosted-supabase.js";
 export type {
   HostedPrincipal,
   HostedReleaseSnapshot,
@@ -137,3 +137,32 @@ export type {
   SearchToolArgs,
   SearchToolOptions,
 } from "./search.js";
+
+export {
+  aggregateMcpTelemetry,
+  BoundedTelemetrySink,
+  computeIdempotencyKey,
+  fireAndForgetTelemetry,
+  measureRecordBytes,
+  recordExceedsFieldLimits,
+  TELEMETRY_DEADLINE_MS,
+  TELEMETRY_FAILURE_CLASSES,
+} from "./telemetry.js";
+export type {
+  McpContentLevel,
+  McpResultClass,
+  McpTelemetryFunnel,
+  McpTelemetrySink,
+  McpTelemetrySummary,
+  McpToolExecutionRecord,
+  McpToolName,
+  TelemetryBufferOptions,
+  TelemetryFailureClass,
+  TelemetryReporter,
+} from "./telemetry.js";
+export { createSupabaseTelemetryWriter, validateTelemetryRecord } from "./telemetry-writer.js";
+export type {
+  SupabaseRestFetch,
+  SupabaseTelemetryWriter,
+  SupabaseTelemetryWriterOptions,
+} from "./telemetry-writer.js";
