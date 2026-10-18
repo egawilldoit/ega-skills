@@ -263,6 +263,14 @@ jobs:
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
+      # The catalog bootstrap's SQL is generated, so it is exercised against the
+      # real schema: idempotency, conflict refusal and the dependency-aware
+      # rollback are database behaviour and cannot be proved by reading a string.
+      - name: Catalog bootstrap (real PostgreSQL 16)
+        run: node --test tests/rls/catalog-bootstrap.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
       - name: EGA-718 live membership regression (unscoped hosted search)
         run: node --test tests/rls/hosted-live-membership.rls.mjs
         env:

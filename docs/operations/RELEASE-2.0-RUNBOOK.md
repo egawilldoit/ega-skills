@@ -203,6 +203,77 @@ find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | s
 wall-clock observation timestamp in the registry makes rebuilds differ. Pin and
 hash the exact artifact being promoted; do not present it as reproducible.
 
+## Hosted catalog bootstrap (registering the release)
+
+Deploying the console does **not** make its catalog readable. Every artifact
+route is gated by `authorizeArtifactRequest`, which reads `public.hub_releases`
+under the **caller's own** RLS and refuses with `403
+E_WEB_CONTROL_PLANE_FORBIDDEN` when the deployed digest is not readable. That
+gate is intended (EGA-719); it is satisfied by a registration, not by the
+deployment.
+
+Nothing in `packages/` or `apps/` writes `hubs` or `hub_releases`, and the
+migrations grant `authenticated` **SELECT only**, so the first registration is by
+definition a trusted-publisher (service-role / database-owner) operation. Use:
+
+```
+node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid>
+```
+
+Without `--apply` this contacts no database: it verifies the committed artifact
+through `loadHostedReleaseSnapshot` (the same loader the deployment stages with)
+and prints the **exact transaction and the exact rollback** for review. Then:
+
+```
+EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> --apply
+
+EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> --rollback
+```
+
+The connection string is read from the environment only and is never printed.
+Do not paste it into a ticket, a commit, or a shared terminal.
+
+What it writes, and nothing else:
+
+| Table | Row |
+| --- | --- |
+| `public.hubs` | `id` = `--hub`, `workspace_id` = `--workspace`, `visibility = 'private'` |
+| `public.hub_releases` | `hub_id` = `--hub`, `release_digest` = the verified `hub_release_digest`, `sqlite_artifact_digest` = the verified `sqlite_artifact_digest` |
+
+`visibility` is fixed to `private`: it is readable by the owning subject under
+the original control-plane policy **and** under Contract F, and it grants nothing
+to anyone else. Widening it is a separate authorization decision.
+
+**The hub UUID is an operator input, not a derivation.** The artifact declares
+`payload.hub_id = "personal"`, which is not a UUID, and `public.hubs` has no
+name or slug column, so there is no deterministic mapping to invent. Record the
+chosen UUID out of band (it is the handle the rollback needs).
+
+Guarantees:
+
+- **Idempotent.** A second `--apply` writes nothing and does not fail.
+- **Never overwrites.** Any disagreement with an existing row — a hub with a
+  different workspace or visibility, a release registered with a different
+  SQLite digest, or an explicit `security_denies` record covering the hub or
+  release — raises and aborts the whole transaction. The forward transaction
+  contains no `update` and no `delete`.
+- **Dependency-aware rollback.** It deletes the release before the hub, and
+  refuses (removing nothing) when a stable pointer, artifact inventory, public
+  publication, project context, another release on the same hub, or a different
+  owning workspace now depends on what it would remove.
+
+Run `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact` and
+`node scripts/web/stage-artifact.mjs --check-only` first if you want the same
+verification the deployment performs reported separately.
+
+This step does not touch `hub_stable_pointers`, `immutable_objects`,
+`hub_release_artifacts`, `public_hub_publications` or `audit_events`, and it
+changes no schema, policy, grant or role. Those tables have no writer anywhere in
+this repository; the rollback treats any row in them as a dependency and refuses
+rather than cascading.
+
 ## Verifying provenance and content invariants
 
 - Scan **decoded** values, never the JSON-serialized form. Serialization escapes
