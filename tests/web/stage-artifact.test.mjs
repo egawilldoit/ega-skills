@@ -151,17 +151,27 @@ describe("staging copies rather than regenerates", () => {
 });
 
 describe("the deployment is wired to stage", () => {
-  test("vercel.json runs the staging step before the build", () => {
+  test("Vercel runs the project build and bundles the SPA plus staged release", () => {
     const vercel = JSON.parse(readFileSync(join(WEB_ROOT, "vercel.json"), "utf8"));
     assert.match(
       vercel.buildCommand,
       /stage-artifact\.mjs/,
       "the build command must stage the artifact or the include path resolves to nothing",
     );
+    assert.match(
+      vercel.buildCommand,
+      /pnpm --filter @ega-skills\/web build/,
+      "the deployment must run the package build that emits the frontend dist",
+    );
     assert.equal(
-      vercel.builds[0].config.includeFiles.includes("artifact/**/*"),
-      true,
-      "the staged directory must be the one that is bundled",
+      Object.hasOwn(vercel, "builds"),
+      false,
+      "legacy builds bypass the configured project build command",
+    );
+    assert.equal(
+      vercel.functions?.["server.mts"]?.includeFiles,
+      "{artifact,dist}/**/*",
+      "the Node function must include both the staged release and built SPA",
     );
   });
 

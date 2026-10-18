@@ -3,15 +3,11 @@
   "buildCommand": "if [ -f scripts/web/stage-artifact.mjs ]; then node scripts/web/stage-artifact.mjs; else node ../../scripts/web/stage-artifact.mjs; fi && pnpm --filter @ega-skills/web build",
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "dist",
-  "builds": [
-    {
-      "src": "server.mts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["artifact/**/*", "dist/**/*", "dist/*"]
-      }
+  "functions": {
+    "server.mts": {
+      "includeFiles": "{artifact,dist}/**/*"
     }
-  ],
+  },
   "routes": [
     {
       "src": "/(.*)",
