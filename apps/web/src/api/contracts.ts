@@ -664,6 +664,46 @@ export function describeApiError(error: ApiError): string {
 }
 
 /**
+ * Pinned synthetic-intent inspection report (EGA-728).
+ *
+ * One evaluated case from the offline discovery corpus, served read-only and
+ * digest-bound to the console's verified release. It never carries production
+ * user prompts or live telemetry.
+ */
+export interface PinnedIntentInspectionCase {
+  readonly intent_id?: string;
+  readonly id?: string;
+  readonly task?: string;
+  readonly expected_skill_id?: string;
+  readonly expected_skill?: string;
+  readonly expected_primary?: string;
+  readonly selected_skill_id?: string;
+  readonly selected_skill?: string;
+  readonly selected?: readonly string[];
+  readonly confidence?: string;
+  readonly reason?: string;
+  readonly failure_reason?: string;
+  readonly wrong_automatic_selections?: readonly string[];
+  readonly ranking?: readonly string[];
+  readonly candidates?: readonly string[];
+  readonly rank_of_expected?: number;
+}
+
+export interface PinnedIntentInspectionReport {
+  readonly schema_version?: number;
+  readonly report_kind?: string;
+  readonly sanitized?: boolean;
+  readonly production_prompts_included?: boolean;
+  readonly release_digest?: string;
+  readonly evaluated_release_digest?: string;
+  readonly evaluated_catalog_digest?: string;
+  readonly artifact_digest?: string;
+  readonly served_release_digest?: string;
+  readonly source_artifact?: string;
+  readonly case?: PinnedIntentInspectionCase;
+}
+
+/**
  * True when the failure is "this deployment does not serve this view" rather
  * than "something went wrong". Pages use it to render an explicit unavailable
  * state instead of a retry loop.
