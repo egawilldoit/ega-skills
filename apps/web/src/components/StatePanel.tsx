@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { useId } from "react";
 
 import { describeApiError, isUnavailableError, type ApiError } from "../api/contracts";
 import type { ResourceState } from "../api/useApiResource";
+import { Icon, type IconName } from "./Icon";
 
 /**
  * Honest state surfaces.
@@ -9,7 +11,47 @@ import type { ResourceState } from "../api/useApiResource";
  * Every asynchronous region of the console renders exactly one of these before
  * any data. There is no component in this app that substitutes a placeholder
  * metric, a zero, or a sample row for a value the BFF has not returned.
+ *
+ * Each message state is a single card: an icon that distinguishes the reason at
+ * a glance, a heading that names it, one sentence of real explanation, and at
+ * most one recovery action. The icon never carries meaning on its own — it is
+ * `aria-hidden` and every state's heading says the same thing in words.
  */
+
+function StateCard({
+  kind,
+  icon,
+  title,
+  detail,
+  action,
+  alert = false,
+}: {
+  readonly kind: "empty" | "forbidden" | "unavailable" | "error" | "muted";
+  readonly icon: IconName;
+  readonly title: string;
+  readonly detail: string;
+  readonly action?: ReactNode;
+  readonly alert?: boolean;
+}): ReactNode {
+  // `useId` rather than a fixed string: a page can legitimately render two
+  // states of the same kind, and duplicate heading ids would break the
+  // accessible name of both.
+  const headingId = useId();
+  return (
+    <section
+      className={`card state state-card state--${kind}`}
+      role={alert ? "alert" : undefined}
+      aria-labelledby={headingId}
+    >
+      <span className="tile">
+        <Icon name={icon} />
+      </span>
+      <h3 id={headingId}>{title}</h3>
+      <p>{detail}</p>
+      {action === undefined ? null : <div className="actions">{action}</div>}
+    </section>
+  );
+}
 
 export function LoadingState({ label }: { readonly label: string }): ReactNode {
   return (
@@ -23,24 +65,32 @@ export function LoadingState({ label }: { readonly label: string }): ReactNode {
 export function UnavailableState({
   title,
   reason,
+  action,
 }: {
   readonly title: string;
   readonly reason: string;
+  readonly action?: ReactNode;
 }): ReactNode {
   return (
-    <section className="state state--unavailable" aria-labelledby="unavailable-heading">
-      <h3 id="unavailable-heading">{title}</h3>
-      <p>{reason}</p>
-    </section>
+    <StateCard
+      kind="unavailable"
+      icon="warn"
+      title={title}
+      detail={reason}
+      {...(action === undefined ? {} : { action })}
+    />
   );
 }
 
 export function ForbiddenState({ reason }: { readonly reason: string }): ReactNode {
   return (
-    <section className="state state--forbidden" aria-labelledby="forbidden-heading">
-      <h3 id="forbidden-heading">Not permitted for your workspace role</h3>
-      <p>{reason}</p>
-    </section>
+    <StateCard
+      kind="forbidden"
+      icon="lock"
+      title="Not permitted for your workspace role"
+      detail={reason}
+      alert
+    />
   );
 }
 
@@ -54,30 +104,42 @@ export function ErrorState({
   readonly onRetry?: () => void;
 }): ReactNode {
   return (
-    <section className="state state--error" role="alert" aria-labelledby="error-heading">
-      <h3 id="error-heading">{title}</h3>
-      <p>{detail}</p>
-      {onRetry === undefined ? null : (
-        <button type="button" className="button button--secondary" onClick={onRetry}>
-          Retry
-        </button>
-      )}
-    </section>
+    <StateCard
+      kind="error"
+      icon="warn"
+      title={title}
+      detail={detail}
+      alert
+      {...(onRetry === undefined
+        ? {}
+        : {
+            action: (
+              <button type="button" className="button" onClick={onRetry}>
+                Retry
+              </button>
+            ),
+          })}
+    />
   );
 }
 
 export function EmptyState({
   title,
   reason,
+  action,
 }: {
   readonly title: string;
   readonly reason: string;
+  readonly action?: ReactNode;
 }): ReactNode {
   return (
-    <section className="state state--empty" aria-labelledby="empty-heading">
-      <h3 id="empty-heading">{title}</h3>
-      <p>{reason}</p>
-    </section>
+    <StateCard
+      kind="empty"
+      icon="empty"
+      title={title}
+      detail={reason}
+      {...(action === undefined ? {} : { action })}
+    />
   );
 }
 
