@@ -373,6 +373,7 @@ export function SkillDetailPage(): ReactNode {
             columns={fileColumns}
             rows={data.files}
             rowKey={(row) => row.path}
+            minWidth="820px"
           />
         </>
       )}

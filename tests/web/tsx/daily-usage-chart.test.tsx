@@ -91,7 +91,10 @@ function mount(element: ReactElement) {
   return {
     container,
     text: () => container.textContent ?? "",
-    svg: () => container.querySelector("svg"),
+    // The chart specifically, not "any <svg>": the empty and error states carry
+    // a state icon, and a bare `querySelector("svg")` would count that icon as
+    // a drawn chart.
+    svg: () => container.querySelector("svg.daily-chart__svg"),
     table: () => container.querySelector("table"),
   };
 }

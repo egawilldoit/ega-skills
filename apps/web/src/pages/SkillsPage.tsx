@@ -202,6 +202,7 @@ export function SkillsPage(): ReactNode {
                     columns={COLUMNS}
                     rows={data.skills as readonly SkillSummary[]}
                     rowKey={(row) => row.skill_id}
+                    minWidth="900px"
                   />
                   <CatalogPagination
                     total={data.total}

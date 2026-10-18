@@ -458,6 +458,10 @@ textarea {
   max-width: 1160px;
   margin: 0 auto;
   padding: 36px 32px 112px;
+  /* A digest or subject pasted into prose must wrap rather than widen the page.
+     Identifiers that can be broken at their own separators still are; this is
+     only the last resort for a single unbreakable token. */
+  overflow-wrap: break-word;
 }
 
 .shell__title {
@@ -678,8 +682,13 @@ label.field__label {
   color: var(--mute);
 }
 
-/* Form fields (search, filters, sign-in) are NOT key/value rows. */
-form .field {
+/* Form fields (search, filters, sign-in, audit filters) are NOT key/value rows.
+   The container is named explicitly rather than relying on an ancestor `form`
+   element: the audit filter panel is a plain `div`. */
+form .field,
+.compare-form .field,
+.catalog-controls .field,
+.auth__form .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1108,19 +1117,24 @@ form .field {
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+  /* Identifiers break at their own separators (hyphens, dots) and only break
+     mid-token when a token cannot fit on a line by itself. `anywhere` made a
+     UUID wrap one character at a time in a narrow column. */
+  overflow-wrap: break-word;
+}
+
+.data-table td.mono {
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .data-table thead th {
-  position: sticky;
-  /* Sticks below the console's sticky top bar rather than behind it. */
-  top: 57px;
   background: var(--panel);
   border-bottom: 1px solid var(--line2);
   font-size: 12px;
   font-weight: 600;
   color: var(--mute);
   white-space: nowrap;
-  z-index: 1;
 }
 
 .data-table tbody tr:last-child td {

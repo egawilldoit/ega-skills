@@ -18,6 +18,22 @@ import { Icon, type IconName } from "./Icon";
  * `aria-hidden` and every state's heading says the same thing in words.
  */
 
+/**
+ * One class per state, written as literals.
+ *
+ * The distinct-surface invariant is checked by scanning this module for each
+ * name, so the mapping stays greppable rather than being composed at runtime.
+ */
+const STATE_CLASS = {
+  empty: "state--empty",
+  forbidden: "state--forbidden",
+  unavailable: "state--unavailable",
+  error: "state--error",
+  muted: "state--muted",
+} as const;
+
+type StateKind = keyof typeof STATE_CLASS;
+
 function StateCard({
   kind,
   icon,
@@ -26,7 +42,7 @@ function StateCard({
   action,
   alert = false,
 }: {
-  readonly kind: "empty" | "forbidden" | "unavailable" | "error" | "muted";
+  readonly kind: StateKind;
   readonly icon: IconName;
   readonly title: string;
   readonly detail: string;
@@ -39,7 +55,7 @@ function StateCard({
   const headingId = useId();
   return (
     <section
-      className={`card state state-card state--${kind}`}
+      className={`card state state-card ${STATE_CLASS[kind]}`}
       role={alert ? "alert" : undefined}
       aria-labelledby={headingId}
     >

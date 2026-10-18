@@ -24,6 +24,13 @@ export interface DataTableProps<T> {
   readonly columns: readonly Column<T>[];
   readonly rows: readonly T[];
   readonly rowKey: (row: T) => string;
+  /**
+   * Minimum table width. A table with many identifier columns needs a floor, or
+   * the browser squeezes every column and wraps a UUID one character per line.
+   * The floor is applied inside the table's own scroll container, so the page
+   * itself never scrolls sideways.
+   */
+  readonly minWidth?: string;
 }
 
 /**
@@ -34,11 +41,11 @@ export interface DataTableProps<T> {
  * substitutes data: an empty `rows` array renders an explicit "no rows" row
  * rather than a bare `<tbody>`.
  */
-export function DataTable<T>({ caption, columns, rows, rowKey }: DataTableProps<T>): ReactNode {
+export function DataTable<T>({ caption, columns, rows, rowKey, minWidth }: DataTableProps<T>): ReactNode {
   const monoSet = new Set(columns.filter((column) => column.mono === true).map((column) => column.key));
   return (
     <div className="table-wrap">
-      <table className="data-table">
+      <table className="data-table" style={minWidth === undefined ? undefined : { minWidth }}>
         <caption className="visually-hidden">{caption}</caption>
         {columns.some((column) => column.width !== undefined) ? (
           <colgroup>
