@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ApiError } from "./contracts";
-import { normalizeThrownError } from "./client";
+import { toApiError } from "./client";
 
 /**
  * Result of one BFF read.
@@ -66,7 +66,10 @@ export function useApiResource<T>(
         setState({ status: "ready", data });
       } catch (cause) {
         if (controller.signal.aborted) return;
-        setState({ status: "error", error: normalizeThrownError(cause) });
+        // `toApiError` preserves the structured `ApiError` the client already
+        // produced. Normalising it again would turn every typed refusal into a
+        // transport failure and hide the real status and code from the user.
+        setState({ status: "error", error: toApiError(cause) });
       }
     })();
     return () => {

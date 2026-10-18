@@ -650,20 +650,46 @@ export type ApiError =
 /** Discriminant of `ApiError`. Exported for exhaustive switches. */
 export type ApiErrorKind = ApiError["kind"];
 
+/** The closed set of `ApiError` discriminants, in one place. */
+const API_ERROR_KINDS: ReadonlySet<unknown> = new Set([
+  "network",
+  "aborted",
+  "not_configured",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "unavailable",
+  "server",
+  "malformed_response",
+]);
+
+/**
+ * Whether an unknown value is a complete `ApiError`.
+ *
+ * Deliberately validates the WHOLE shape, not just the discriminant. This guard
+ * is the boundary a *thrown* value crosses, so a value that merely resembles an
+ * error must not be promoted into a typed refusal the UI renders as though the
+ * server had produced it: an object carrying only a `message`, or a `kind` with
+ * no message, is not an `ApiError`. Every field the union declares is required,
+ * which also means {@link describeApiError} can never be handed an `undefined`
+ * message.
+ */
 export function isApiError(value: unknown): value is ApiError {
   if (typeof value !== "object" || value === null) return false;
-  const kind = (value as { kind?: unknown }).kind;
+  const candidate = value as {
+    kind?: unknown;
+    message?: unknown;
+    code?: unknown;
+    status?: unknown;
+    retryable?: unknown;
+  };
   return (
-    kind === "network" ||
-    kind === "aborted" ||
-    kind === "not_configured" ||
-    kind === "unauthorized" ||
-    kind === "forbidden" ||
-    kind === "not_found" ||
-    kind === "conflict" ||
-    kind === "unavailable" ||
-    kind === "server" ||
-    kind === "malformed_response"
+    API_ERROR_KINDS.has(candidate.kind) &&
+    typeof candidate.message === "string" &&
+    (candidate.code === null || typeof candidate.code === "string") &&
+    (candidate.status === null || typeof candidate.status === "number") &&
+    typeof candidate.retryable === "boolean"
   );
 }
 
