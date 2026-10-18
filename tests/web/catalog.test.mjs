@@ -856,11 +856,12 @@ describe("MCP search is not the source", () => {
     // would silently skip exactly the import most worth checking.
     const specifiers = [...source.matchAll(/\bfrom\s*["']([^"']+)["']/g)].map((match) => match[1]);
     assert.ok(specifiers.length > 0, "the module must import something");
-    // Only Builder 2a's modules and the shared DTO types. No @ega-skills/*
-    // package at all, so no hosted handler, no search tool, no MCP runtime.
+    // Only Builder 2a's modules, the presentation-group projection and the
+    // shared DTO types. No @ega-skills/* package at all, so no hosted handler,
+    // no search tool, no MCP runtime.
     assert.deepEqual(
       [...new Set(specifiers)].sort(),
-      ["../src/api/contracts.ts", "./env.ts", "./registry.ts", "./release-identity.ts"],
+      ["../src/api/contracts.ts", "./env.ts", "./presentation.ts", "./registry.ts", "./release-identity.ts"],
     );
     for (const banned of [
       // Call syntax, so a prose mention of a name in the module's rationale
