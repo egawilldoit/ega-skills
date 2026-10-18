@@ -293,7 +293,15 @@ const HEADER = [
  *
  * An advisory lock is not used: it would only bind writers that also take it.
  */
-export function renderTransaction(plan) {
+export function renderTransaction(plan, existingReceipt = null) {
+  if (existingReceipt !== null) validateReceipt(existingReceipt, plan);
+  const receiptGuard = existingReceipt === null ? "" : `
+  -- An existing receipt may retain ownership, but cannot acquire new ownership.
+  if (${existingReceipt.inserted.hub ? "false" : "true"} and exists (select 1 from bootstrap_inserted where kind = 'hub' and inserted))
+     or (${existingReceipt.inserted.release ? "false" : "true"} and exists (select 1 from bootstrap_inserted where kind = 'release' and inserted)) then
+    raise exception 'E_BOOTSTRAP_RECEIPT_STALE: this execution would insert rows the existing receipt records as reused';
+  end if;
+`;
   const w = plan.workspaceId;
   const h = plan.hubId;
   const r = plan.releaseDigest;
@@ -380,7 +388,7 @@ begin
     raise exception 'E_BOOTSTRAP_RELEASE_CONFLICT: release % is registered with sqlite digest %, not the reviewed digest',
       '${r}', v_release.sqlite_artifact_digest;
   end if;
-end
+${receiptGuard}end
 $verify$;
 
 select
@@ -405,8 +413,8 @@ export function renderRollback(receipt) {
 
   const sections = [];
 
-  if (willDeleteHub) {
-    sections.push(`  -- Hub identity, held still while it is checked.
+  if (willDeleteHub || willDeleteRelease) {
+    sections.push(`  -- Parent identity is checked even when the hub itself was reused.
   select id, workspace_id, visibility into v_row from public.hubs where id = c_hub for update;
   if not found then
     raise exception 'E_BOOTSTRAP_ROLLBACK_MISSING: hub % recorded by the receipt is already absent', c_hub;
@@ -808,7 +816,7 @@ export function applyBootstrap(plan, url, receiptPath, spawnImpl = undefined) {
 
   const run = (sql) => (spawnImpl === undefined ? runStatement(url, sql) : runStatement(url, sql, spawnImpl));
 
-  const inserted = parseInserted(run(renderTransaction(plan)));
+  const inserted = parseInserted(run(renderTransaction(plan, existing)));
 
   // Post-commit observation only. It is reported, not relied on for atomicity —
   // the authoritative check already ran inside the transaction.
@@ -825,19 +833,8 @@ export function applyBootstrap(plan, url, receiptPath, spawnImpl = undefined) {
   const receipt = buildReceipt(plan, inserted, { hub, release });
 
   if (existing !== null) {
-    // An idempotent rerun reports fewer inserts (usually none) than the original
-    // execution, which is exactly right: the rows already exist and this run did
-    // not create them. The receipt is kept untouched. What must be refused is the
-    // opposite — a run that inserts a row the receipt says it did not insert,
-    // because then the recorded ownership no longer describes the database.
-    const claimsNewOwnership =
-      (inserted.hub && !existing.inserted.hub) || (inserted.release && !existing.inserted.release);
-    if (claimsNewOwnership) {
-      refuse(
-        "E_BOOTSTRAP_RECEIPT_STALE",
-        "this run inserted a row the existing receipt records as reused; keep that receipt and record the new registration separately",
-      );
-    }
+    // Ownership restrictions were enforced before COMMIT. An idempotent rerun
+    // reports fewer inserts and preserves the original receipt byte-for-byte.
     return { receipt: existing, inserted, receiptPath, reusedReceipt: true };
   }
 
@@ -1016,7 +1013,9 @@ export async function main(argv, env = process.env) {
 
   const release = await verifyReviewedRelease(options.artifact ?? DEFAULT_ARTIFACT_DIR);
   const plan = planBootstrap({ workspaceId: options.workspace, hubId: options.hub, release });
-  const transaction = renderTransaction(plan);
+  const existingReceipt = options.receipt && existsSync(options.receipt)
+    ? validateReceipt(readReceipt(options.receipt), plan) : null;
+  const transaction = renderTransaction(plan, existingReceipt);
 
   if (options.json) {
     process.stdout.write(

@@ -268,6 +268,12 @@ Guarantees:
   operation. A hub in another workspace, a release registered with a different
   SQLite digest, or an explicit `security_denies` record covering either raises.
   The forward transaction contains no `UPDATE` and no `DELETE` statement.
+- **Stale receipt checks happen before commit.** If an apply would create a row
+  the existing receipt records as reused, the complete transaction aborts and
+  leaves the original receipt unchanged.
+- **A release-only rollback validates its parent.** A reused hub is locked and
+  checked against the recorded workspace and visibility before its release can
+  be deleted; a changed parent aborts the rollback.
 - **The execution receipt decides the rollback.** `--apply` records the exact
   workspace, hub, release and SQLite identities plus **which of the two rows this
   execution actually inserted** (a `hub_releases` row is reported as inserted

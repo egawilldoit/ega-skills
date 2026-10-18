@@ -223,6 +223,26 @@ describe("the forward transaction is append-only and validates before commit", (
 /* Receipt                                                                     */
 /* -------------------------------------------------------------------------- */
 
+test("existing receipt ownership is enforced by SQL before commit", async () => {
+  const p = await plan();
+  const reused = receiptFor(p, { hub: false, release: false });
+  const sql = renderTransaction(p, reused);
+  const guard = sql.indexOf("raise exception 'E_BOOTSTRAP_RECEIPT_STALE");
+  assert.ok(guard > sql.indexOf("insert into public.hub_releases"));
+  assert.ok(guard < sql.indexOf("commit;"));
+  assert.match(sql, /kind = 'hub' and inserted/);
+  assert.match(sql, /kind = 'release' and inserted/);
+});
+
+test("release-only rollback locks and validates its reused parent", async () => {
+  const p = await plan();
+  const sql = renderRollback(receiptFor(p, { hub: false, release: true }));
+  assert.match(sql, /from public\.hubs where id = c_hub for update/);
+  assert.match(sql, /v_row\.workspace_id <> c_workspace or v_row\.visibility <> c_visibility/);
+  assert.ok(sql.indexOf("v_row.workspace_id") < sql.indexOf("delete from public.hub_releases"));
+  assert.doesNotMatch(sql, /delete from public\.hubs/);
+});
+
 describe("the execution receipt records exactly what happened", () => {
   test("a full receipt round-trips and validates against the plan", async () => {
     const p = await plan();

@@ -202,6 +202,60 @@ describe("the receipt records what this execution inserted", () => {
   });
 });
 
+describe("receipt safety across database changes", () => {
+  test("a stale reused receipt refuses before a recreated release can commit", async () => {
+    const hub = nextHub();
+    psql(DB_URL, `
+      insert into public.hubs (id, workspace_id, visibility) values ('${hub}','${WORKSPACE}','private');
+      insert into public.hub_releases (hub_id, release_digest, sqlite_artifact_digest)
+        values ('${hub}','${release.hubReleaseDigest}','${release.sqliteArtifactDigest}');`);
+    const plan = await planFor(WORKSPACE, hub);
+    const path = nextReceipt();
+    apply(plan, path);
+    const before = readFileSync(path, "utf8");
+    psql(DB_URL, `delete from public.hub_releases where hub_id = '${hub}';`);
+
+    assert.throws(() => apply(plan, path), (e) => e.code === "E_BOOTSTRAP_RECEIPT_STALE");
+    assert.equal(scalar(`select count(*) from public.hub_releases where hub_id = '${hub}';`), "0",
+      "the refused rerun must roll back its recreated release");
+    assert.equal(readFileSync(path, "utf8"), before);
+  });
+
+  test("stale hub ownership refuses and rolls back both recreated rows", async () => {
+    const hub = nextHub();
+    psql(DB_URL, `insert into public.hubs (id, workspace_id, visibility) values ('${hub}','${WORKSPACE}','private');`);
+    const plan = await planFor(WORKSPACE, hub);
+    const path = nextReceipt();
+    apply(plan, path);
+    const before = readFileSync(path, "utf8");
+    psql(DB_URL, `delete from public.hub_releases where hub_id = '${hub}'; delete from public.hubs where id = '${hub}';`);
+
+    assert.throws(() => apply(plan, path), (e) => e.code === "E_BOOTSTRAP_RECEIPT_STALE");
+    assert.equal(scalar(`select count(*) from public.hubs where id = '${hub}';`), "0");
+    assert.equal(scalar(`select count(*) from public.hub_releases where hub_id = '${hub}';`), "0");
+    assert.equal(readFileSync(path, "utf8"), before);
+  });
+
+  for (const change of [
+    { name: "workspace", assignment: `workspace_id = '${OTHER_WORKSPACE}'` },
+    { name: "visibility", assignment: "visibility = 'public'" },
+  ]) {
+    test(`release-only rollback refuses a changed reused hub ${change.name}`, async () => {
+      const hub = nextHub();
+      psql(DB_URL, `insert into public.hubs (id, workspace_id, visibility) values ('${hub}','${WORKSPACE}','private');`);
+      const plan = await planFor(WORKSPACE, hub);
+      const path = nextReceipt();
+      apply(plan, path);
+      const before = readFileSync(path, "utf8");
+      psql(DB_URL, `update public.hubs set ${change.assignment} where id = '${hub}';`);
+
+      assert.throws(() => rollbackBootstrap(path, DB_URL), (e) => e.code === "E_BOOTSTRAP_ROLLBACK_IDENTITY_CHANGED");
+      assert.equal(scalar(`select count(*) from public.hub_releases where hub_id = '${hub}';`), "1");
+      assert.equal(readFileSync(path, "utf8"), before);
+    });
+  }
+});
+
 describe("rollback removes only what the receipt owns", () => {
   test("both rows pre-exist → apply and rollback preserve both", async () => {
     const hub = nextHub();
