@@ -112,12 +112,13 @@ import {
 import type { ApiRoute, ApiRouteContext } from "../server.mts";
 import type {
   AuditRow,
+  McpDailyExecutionCount,
+  McpTelemetrySummary,
   QuotaPolicyRow,
   QuotaUsageRow,
   SecurityDenyRow,
   WorkspaceQuotaView,
   UsageSummary,
-  McpTelemetrySummary,
 } from "../src/api/contracts.ts";
 
 /* -------------------------------------------------------------------------- */
@@ -763,6 +764,31 @@ const TELEMETRY_PAGE_SIZE = 200;
 const TELEMETRY_SCAN_CEILING = 50_000;
 
 /**
+ * Hard ceiling on distinct UTC-day buckets one response may carry (EGA-727).
+ *
+ * The 90-day window spans at most 91 distinct UTC calendar days, and only
+ * in-window rows are ever bucketed, so the daily series is bounded by
+ * construction. This constant is that bound made explicit and asserted in the
+ * tests — it is not a truncation point, because a value above it would mean a
+ * row escaped the window, which the aggregation refuses to represent.
+ */
+export const MAX_DAILY_BUCKETS = 91;
+
+/**
+ * The UTC calendar day (`YYYY-MM-DD`) an ISO-8601 instant falls on.
+ *
+ * `null` for an instant that does not parse, so a malformed `observed_at`
+ * contributes to no bucket rather than to an invented today-or-epoch day.
+ * `toISOString` is UTC by definition, so the bucket boundary does not depend on
+ * the server's local timezone.
+ */
+export function utcDateBucket(instant: string): string | null {
+  const at = Date.parse(instant);
+  if (!Number.isFinite(at)) return null;
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+/**
  * Why a telemetry read produced no summary.
  *
  * These are deliberately different sentences for three genuinely different
@@ -959,6 +985,9 @@ export async function handleAnalyticsUsage(
   let totalLatency = 0;
   let latencySamples = 0;
   let countedRows = 0;
+  // EGA-727: one bucket per UTC day that carried at least one observed
+  // execution. Mutable while accumulating, frozen at the response boundary.
+  const dailyBuckets = new Map<string, number>();
   // Mutable while accumulating, frozen at the response boundary. Typed by its
   // keys rather than as `Record<string, number>` so a missing tool is a compile
   // error rather than an `undefined` in a JSON payload.
@@ -984,6 +1013,12 @@ export async function handleAnalyticsUsage(
     }
     countedRows += 1;
 
+    // Bucket this execution into its UTC calendar day. Only in-window rows
+    // reach here, so the series is bounded by the window, and a day with no row
+    // simply never appears in the series — an absence, never a zero.
+    const day = utcDateBucket(String(raw.observed_at ?? ""));
+    if (day !== null) dailyBuckets.set(day, (dailyBuckets.get(day) ?? 0) + 1);
+
     // Only a success advances the funnel: a denied or rate-limited execution
     // ran the tool but produced no result.
     if (resultClass === "success") {
@@ -995,6 +1030,22 @@ export async function handleAnalyticsUsage(
     } else {
       errorCount += 1;
     }
+  }
+
+  const daily: readonly McpDailyExecutionCount[] = Object.freeze(
+    [...dailyBuckets.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([date, executions]): McpDailyExecutionCount => Object.freeze({ date, executions })),
+  );
+  // The 90-day window can span at most 91 distinct UTC days and only in-window
+  // rows are bucketed, so this is unreachable. It is a refusal rather than a
+  // silent slice: a truncated series would draw as a complete chart.
+  if (daily.length > MAX_DAILY_BUCKETS) {
+    throw new ConsoleApiError(
+      502,
+      "E_WEB_GOVERNANCE_ROW_INVALID",
+      "The telemetry window yielded more UTC-day buckets than the 90-day window can span; the read is refused rather than served a truncated series.",
+    );
   }
 
   const telemetry: McpTelemetrySummary = Object.freeze({
@@ -1015,6 +1066,9 @@ export async function handleAnalyticsUsage(
     // UI must state rather than presenting a truncated sum as complete.
     partial: telemetryScan.partial,
     rows_scanned: telemetryScan.rows.length,
+    // EGA-727: the daily series that backs the Usage page chart. Bounded by the
+    // window; empty when the window held no executions.
+    daily,
   });
 
   return Object.freeze({
