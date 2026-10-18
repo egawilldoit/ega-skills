@@ -12,6 +12,7 @@
     "stage": "node stage.mjs",
     "prebuild": "pnpm stage",
     "build": "tsc -b && vite build",
+    "vercel-build": "pnpm -w build && pnpm build",
     "typecheck": "tsc -b --pretty false --force",
     "typecheck:server": "tsc -p tsconfig.server.json --pretty false",
     "preview": "vite preview"

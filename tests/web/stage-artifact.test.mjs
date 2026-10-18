@@ -151,26 +151,21 @@ describe("staging copies rather than regenerates", () => {
 });
 
 describe("the deployment is wired to stage", () => {
-  test("Vercel runs the project build and bundles the SPA plus staged release", () => {
+  test("the Vercel Node build hook builds workspace dependencies before packaging SPA and release", () => {
     const vercel = JSON.parse(readFileSync(join(WEB_ROOT, "vercel.json"), "utf8"));
-    assert.match(
-      vercel.buildCommand,
-      /stage-artifact\.mjs/,
-      "the build command must stage the artifact or the include path resolves to nothing",
-    );
-    assert.match(
-      vercel.buildCommand,
-      /pnpm --filter @ega-skills\/web build/,
-      "the deployment must run the package build that emits the frontend dist",
-    );
+    const webPackage = JSON.parse(readFileSync(join(WEB_ROOT, "package.json"), "utf8"));
+    assert.match(webPackage.scripts["vercel-build"], /pnpm -w build/,
+      "Vercel must build workspace package exports before tracing the Node function");
+    assert.match(webPackage.scripts["vercel-build"], /pnpm build/,
+      "Vercel must run the web package build, including staging and Vite output");
     assert.equal(
-      Object.hasOwn(vercel, "builds"),
-      false,
-      "legacy builds bypass the configured project build command",
+      vercel.builds?.[0]?.src,
+      "server.mts",
+      "the custom Node server must remain the deployed function entrypoint",
     );
-    assert.equal(
-      vercel.functions?.["server.mts"]?.includeFiles,
-      "{artifact,dist}/**/*",
+    assert.deepEqual(
+      vercel.builds?.[0]?.config?.includeFiles,
+      ["artifact/**/*", "dist/**/*", "dist/*"],
       "the Node function must include both the staged release and built SPA",
     );
   });
