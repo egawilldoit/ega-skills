@@ -222,18 +222,23 @@ node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid>
 
 Without `--apply` this contacts no database: it verifies the committed artifact
 through `loadHostedReleaseSnapshot` (the same loader the deployment stages with)
-and prints the **exact transaction and the exact rollback** for review. Then:
+and prints the **exact transaction** for review. Applying it needs a receipt
+path — the receipt is what makes a later rollback safe:
 
 ```
 EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
-  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> --apply
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> \
+    --receipt ./bootstrap-receipt.json --apply
 
 EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
-  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> --rollback
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> \
+    --receipt ./bootstrap-receipt.json --rollback
 ```
 
-The connection string is read from the environment only and is never printed.
-Do not paste it into a ticket, a commit, or a shared terminal.
+The connection string is read from the environment only, is decomposed into
+libpq's own `PG*` environment variables on the child process, and never appears
+in an argument, a log line or a reported error. Do not paste it into a ticket, a
+commit, or a shared terminal.
 
 What it writes, and nothing else:
 
@@ -253,16 +258,29 @@ chosen UUID out of band (it is the handle the rollback needs).
 
 Guarantees:
 
-- **Idempotent.** A second `--apply` writes nothing and does not fail.
-- **Never overwrites.** Any disagreement with an existing row — a hub with a
-  different workspace or visibility, a release registered with a different
-  SQLite digest, or an explicit `security_denies` record covering the hub or
-  release — raises and aborts the whole transaction. The forward transaction
-  contains no `update` and no `delete`.
-- **Dependency-aware rollback.** It deletes the release before the hub, and
-  refuses (removing nothing) when a stable pointer, artifact inventory, public
-  publication, project context, another release on the same hub, or a different
-  owning workspace now depends on what it would remove.
+- **Idempotent.** A second `--apply` writes nothing and does not fail. It also
+  leaves the original receipt byte-for-byte intact: a rerun never claims
+  ownership of rows the first run created.
+- **Never overwrites.** Both writes are `on conflict … do nothing`, and the
+  authoritative identity check runs **inside the same transaction, after the
+  inserts, under `row locks`** — so a conflicting *concurrent* writer makes our
+  insert a no-op and then fails the check, aborting every write from this
+  operation. A hub in another workspace, a release registered with a different
+  SQLite digest, or an explicit `security_denies` record covering either raises.
+  The forward transaction contains no `UPDATE` and no `DELETE` statement.
+- **The execution receipt decides the rollback.** `--apply` records the exact
+  workspace, hub, release and SQLite identities plus **which of the two rows this
+  execution actually inserted** (a `hub_releases` row is reported as inserted
+  only when the insert affected a row). `--rollback` renders its deletes from
+  that receipt, so a row the bootstrap merely reused is never a deletion
+  candidate, and every delete is bound to the recorded identity — a row that has
+  since changed aborts the rollback and is left alone. A missing, malformed,
+  mismatched or tampered receipt refuses. A completed rollback consumes the
+  receipt; a second rollback then refuses rather than silently doing nothing.
+- **Dependency-aware.** It deletes the release before the hub and refuses
+  (removing nothing) when a stable pointer, artifact inventory, public
+  publication, project context, another release on the same hub, or a changed
+  owning workspace now depends on what it would remove. It never cascades.
 
 Run `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact` and
 `node scripts/web/stage-artifact.mjs --check-only` first if you want the same
