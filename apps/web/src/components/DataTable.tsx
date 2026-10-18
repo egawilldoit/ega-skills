@@ -9,6 +9,13 @@ export interface Column<T> {
   readonly numeric?: boolean;
   /** Monospace cell: digests, paths, subjects, operation names. */
   readonly mono?: boolean;
+  /**
+   * Preferred column width (`col` hint), for tables whose widest column would
+   * otherwise starve a neighbouring identifier column. It is a hint: the table
+   * still sizes to its content and scrolls inside its own container rather than
+   * forcing the page sideways.
+   */
+  readonly width?: string;
 }
 
 export interface DataTableProps<T> {
@@ -33,6 +40,13 @@ export function DataTable<T>({ caption, columns, rows, rowKey }: DataTableProps<
     <div className="table-wrap">
       <table className="data-table">
         <caption className="visually-hidden">{caption}</caption>
+        {columns.some((column) => column.width !== undefined) ? (
+          <colgroup>
+            {columns.map((column) => (
+              <col key={column.key} style={column.width === undefined ? undefined : { width: column.width }} />
+            ))}
+          </colgroup>
+        ) : null}
         <thead>
           <tr>
             {columns.map((column) => (

@@ -189,9 +189,9 @@ export function SkillDetailPage(): ReactNode {
     >
       {(data) => (
         <>
-          <p className="page__lede">
-            <Link to="/skills">All skills</Link>
-          </p>
+          <div className="backlink">
+            <Link to="/skills">← All skills</Link>
+          </div>
           {data.release === null ? (
             <EmptyState
               title="Release not identified"

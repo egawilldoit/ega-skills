@@ -45,21 +45,26 @@ const COLUMNS: readonly Column<SkillSummary>[] = [
     key: "skill_id",
     label: "Skill",
     mono: true,
+    // Wide enough that a long `namespace/name` id wraps at its separator rather
+    // than at an arbitrary character in the description beside it.
+    width: "230px",
     render: (row) => (
       <Link to={`/skills/${encodeURIComponent(row.skill_id)}`}>{row.skill_id}</Link>
     ),
   },
-  { key: "name", label: "Name", render: (row) => row.name },
+  { key: "name", label: "Name", width: "160px", render: (row) => row.name },
   { key: "description", label: "Description", render: (row) => row.description },
   {
     key: "domains",
     label: "Domains",
+    width: "120px",
     render: (row) => (row.domains.length === 0 ? "—" : row.domains.join(", ")),
   },
   {
     key: "content_digest",
     label: "Content digest",
     mono: true,
+    width: "150px",
     render: (row) => <span title={row.content_digest}>{shortDigest(row.content_digest)}</span>,
   },
 ];
