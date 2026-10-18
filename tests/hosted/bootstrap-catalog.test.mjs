@@ -480,6 +480,8 @@ if (process.env.FAKE_MODE === "fail") {
 }
 if (sql.includes("create temp table bootstrap_inserted")) {
   process.stdout.write((process.env.FAKE_INSERTED ?? "t|t") + "\\n");
+} else if (sql.includes("count(*)")) {
+  process.stdout.write("0\\n");
 } else if (sql.includes("from public.hub_releases")) {
   process.stdout.write([process.env.FAKE_HUB, process.env.FAKE_DIGEST, process.env.FAKE_SQLITE].join("|") + "\\n");
 } else if (sql.includes("from public.hubs")) {
@@ -573,6 +575,44 @@ test("a receipt is written owner-only and contains no credential", async () => {
     assert.ok(!text.includes("password"));
     assert.ok(existsSync(path));
     assert.equal(readReceipt(path).hub_id, HUB);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("applyBootstrap refuses without a receipt path", async () => {
+  const p = await plan();
+  assert.throws(
+    () => applyBootstrap(p, "postgres://u:canary@h.example/db", ""),
+    (e) => e.code === "E_BOOTSTRAP_RECEIPT_MISSING",
+  );
+});
+
+test("--rollback --json emits one parseable document and consumes the receipt", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ega-bootstrap-json-rb-"));
+  try {
+    const fake = join(dir, "psql");
+    writeFileSync(fake, FAKE_PSQL);
+    chmodSync(fake, 0o755);
+    const p = await plan();
+    const receipt = join(dir, "receipt.json");
+    writeReceipt(receipt, receiptFor(p, { hub: true, release: true }));
+
+    const result = runCli(
+      ["--workspace", WORKSPACE, "--hub", HUB, "--receipt", receipt, "--rollback", "--json"],
+      {
+        PATH: `${dir}:${process.env.PATH ?? ""}`,
+        EGA_BOOTSTRAP_DATABASE_URL: "postgres://bootuser:canary_password_9f3@db.example.invalid:5432/ega",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.executed, "rollback");
+    assert.equal(parsed.rolledBack, true);
+    assert.equal(parsed.removedHub, true);
+    assert.equal(parsed.removedRelease, true);
+    assert.match(parsed.transaction, /delete from public\.hubs/);
+    assert.equal(existsSync(receipt), false, "a completed rollback consumes the receipt");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

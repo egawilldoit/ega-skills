@@ -788,6 +788,9 @@ function parseInserted(stdout) {
  * rather than claiming rows the original receipt does not.
  */
 export function applyBootstrap(plan, url, receiptPath) {
+  if (typeof receiptPath !== "string" || receiptPath.trim() === "") {
+    refuse("E_BOOTSTRAP_RECEIPT_MISSING", "--receipt <path> is required to apply");
+  }
   const existing = existsSync(receiptPath) ? validateReceipt(readReceipt(receiptPath), plan) : null;
 
   const inserted = parseInserted(runOrRefuse(url, renderTransaction(plan)));
@@ -963,18 +966,31 @@ export async function main(argv, env = process.env) {
     });
     validateReceipt(receipt, plan);
 
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ executed: "rollback", receipt, transaction: renderRollback(receipt) }, null, 2)}\n`);
-    } else {
+    // Present the statement before it runs, exactly as the apply path does.
+    if (!options.json) {
       process.stdout.write(
         `${formatPlan(plan, options.receipt)}\n\n--- rollback (receipt: ${options.receipt}) ---\n${renderRollback(receipt)}\n`,
       );
     }
 
+    // One JSON document for the whole command: the receipt, the statement that
+    // ran, and what it removed.
     const outcome = rollbackBootstrap(options.receipt, databaseUrl);
     if (options.json) {
       process.stdout.write(
-        `${JSON.stringify({ rolledBack: true, removedHub: outcome.removedHub, removedRelease: outcome.removedRelease, receipt: options.receipt }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            executed: "rollback",
+            receipt,
+            transaction: renderRollback(receipt),
+            rolledBack: true,
+            removedHub: outcome.removedHub,
+            removedRelease: outcome.removedRelease,
+            receiptConsumed: options.receipt,
+          },
+          null,
+          2,
+        )}\n`,
       );
     } else {
       process.stdout.write(
