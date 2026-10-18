@@ -287,6 +287,15 @@ owner has authorized production promotion.
   runs no `supabase db push`, no migration, and no secret mutation.
 - Acceptance reads (skill detail, signed-out refusal, rollback re-read) are
   SELECTs. Recorded rollback validation must show no new mutations.
+- **Registration is separate from deployment, and this plan does not perform
+  it.** The console's artifact routes require the deployed release digest to be
+  readable in `public.hub_releases`; the deployment itself writes nothing, so the
+  first registration is an explicit, separately authorized
+  trusted-publisher operation. See RELEASE-2.0-RUNBOOK.md § "Hosted catalog
+  bootstrap (registering the release)" for the exact transaction, its
+  idempotency and conflict behaviour, and its dependency-aware rollback. Until it
+  runs, `/readyz` reports ready while the artifact routes answer `403
+  E_WEB_CONTROL_PLANE_FORBIDDEN`.
 
 ## 7. Blockers, owner and next action
 

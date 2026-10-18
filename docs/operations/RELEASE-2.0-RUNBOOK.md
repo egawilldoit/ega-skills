@@ -203,6 +203,101 @@ find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | s
 wall-clock observation timestamp in the registry makes rebuilds differ. Pin and
 hash the exact artifact being promoted; do not present it as reproducible.
 
+## Hosted catalog bootstrap (registering the release)
+
+Deploying the console does **not** make its catalog readable. Every artifact
+route is gated by `authorizeArtifactRequest`, which reads `public.hub_releases`
+under the **caller's own** RLS and refuses with `403
+E_WEB_CONTROL_PLANE_FORBIDDEN` when the deployed digest is not readable. That
+gate is intended (EGA-719); it is satisfied by a registration, not by the
+deployment.
+
+Nothing in `packages/` or `apps/` writes `hubs` or `hub_releases`, and the
+migrations grant `authenticated` **SELECT only**, so the first registration is by
+definition a trusted-publisher (service-role / database-owner) operation. Use:
+
+```
+node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid>
+```
+
+Without `--apply` this contacts no database: it verifies the committed artifact
+through `loadHostedReleaseSnapshot` (the same loader the deployment stages with)
+and prints the **exact transaction** for review. Applying it needs a receipt
+path — the receipt is what makes a later rollback safe:
+
+```
+EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> \
+    --receipt ./bootstrap-receipt.json --apply
+
+EGA_BOOTSTRAP_DATABASE_URL=<service-role-or-owner-dsn> \
+  node scripts/hosted/bootstrap-catalog.mjs --workspace <uuid> --hub <uuid> \
+    --receipt ./bootstrap-receipt.json --rollback
+```
+
+The connection string is read from the environment only, is decomposed into
+libpq's own `PG*` environment variables on the child process, and never appears
+in an argument, a log line or a reported error. Do not paste it into a ticket, a
+commit, or a shared terminal.
+
+What it writes, and nothing else:
+
+| Table | Row |
+| --- | --- |
+| `public.hubs` | `id` = `--hub`, `workspace_id` = `--workspace`, `visibility = 'private'` |
+| `public.hub_releases` | `hub_id` = `--hub`, `release_digest` = the verified `hub_release_digest`, `sqlite_artifact_digest` = the verified `sqlite_artifact_digest` |
+
+`visibility` is fixed to `private`: it is readable by the owning subject under
+the original control-plane policy **and** under Contract F, and it grants nothing
+to anyone else. Widening it is a separate authorization decision.
+
+**The hub UUID is an operator input, not a derivation.** The artifact declares
+`payload.hub_id = "personal"`, which is not a UUID, and `public.hubs` has no
+name or slug column, so there is no deterministic mapping to invent. Record the
+chosen UUID out of band (it is the handle the rollback needs).
+
+Guarantees:
+
+- **Idempotent.** A second `--apply` writes nothing and does not fail. It also
+  leaves the original receipt byte-for-byte intact: a rerun never claims
+  ownership of rows the first run created.
+- **Never overwrites.** Both writes are `on conflict … do nothing`, and the
+  authoritative identity check runs **inside the same transaction, after the
+  inserts, under `row locks`** — so a conflicting *concurrent* writer makes our
+  insert a no-op and then fails the check, aborting every write from this
+  operation. A hub in another workspace, a release registered with a different
+  SQLite digest, or an explicit `security_denies` record covering either raises.
+  The forward transaction contains no `UPDATE` and no `DELETE` statement.
+- **Stale receipt checks happen before commit.** If an apply would create a row
+  the existing receipt records as reused, the complete transaction aborts and
+  leaves the original receipt unchanged.
+- **A release-only rollback validates its parent.** A reused hub is locked and
+  checked against the recorded workspace and visibility before its release can
+  be deleted; a changed parent aborts the rollback.
+- **The execution receipt decides the rollback.** `--apply` records the exact
+  workspace, hub, release and SQLite identities plus **which of the two rows this
+  execution actually inserted** (a `hub_releases` row is reported as inserted
+  only when the insert affected a row). `--rollback` renders its deletes from
+  that receipt, so a row the bootstrap merely reused is never a deletion
+  candidate, and every delete is bound to the recorded identity — a row that has
+  since changed aborts the rollback and is left alone. A missing, malformed,
+  mismatched or tampered receipt refuses. A completed rollback consumes the
+  receipt; a second rollback then refuses rather than silently doing nothing.
+- **Dependency-aware.** It deletes the release before the hub and refuses
+  (removing nothing) when a stable pointer, artifact inventory, public
+  publication, project context, another release on the same hub, or a changed
+  owning workspace now depends on what it would remove. It never cascades.
+
+Run `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact` and
+`node scripts/web/stage-artifact.mjs --check-only` first if you want the same
+verification the deployment performs reported separately.
+
+This step does not touch `hub_stable_pointers`, `immutable_objects`,
+`hub_release_artifacts`, `public_hub_publications` or `audit_events`, and it
+changes no schema, policy, grant or role. Those tables have no writer anywhere in
+this repository; the rollback treats any row in them as a dependency and refuses
+rather than cascading.
+
 ## Verifying provenance and content invariants
 
 - Scan **decoded** values, never the JSON-serialized form. Serialization escapes
