@@ -80,23 +80,11 @@ export function UsagePage(): ReactNode {
             <h2 id="telemetry-section">MCP Read-Path Usage Telemetry (CONTRACT-T1)</h2>
             {data.telemetry && data.telemetry.total_executions > 0 ? (
               <>
-                <div className="telemetry-funnel" style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>1. Searched (Discovery)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.searched}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>2. Resolved (Resolution)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.resolved}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>3. Inspected (Metadata)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.inspected}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>4. Content Retrieved</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.content_retrieved}</div>
-                  </div>
+                <div className="telemetry-funnel">
+                  <FunnelMetric label="1. Searched (Discovery)" value={data.telemetry.funnel.searched} />
+                  <FunnelMetric label="2. Resolved (Resolution)" value={data.telemetry.funnel.resolved} />
+                  <FunnelMetric label="3. Inspected (Metadata)" value={data.telemetry.funnel.inspected} />
+                  <FunnelMetric label="4. Content Retrieved" value={data.telemetry.funnel.content_retrieved} />
                 </div>
 
                 <dl className="fields">
@@ -203,8 +191,23 @@ export function UsagePage(): ReactNode {
   );
 }
 
-const WINDOW_COLUMNS: readonly Column<UsageSummary["windows"][number]>[] = [
-  {
+/** One step of the read path, with its measured count. */
+function FunnelMetric({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: number;
+}): ReactNode {
+  return (
+    <div className="metric-card">
+      <div className="metric-card__label">{label}</div>
+      <div className="metric-card__value">{value.toLocaleString("en-US")}</div>
+    </div>
+  );
+}
+
+const WINDOW_COLUMNS: readonly Column<UsageSummary["windows"][number]>[] = [  {
     key: "window_started",
     label: "Window started",
     render: (row) => <time dateTime={row.window_started}>{row.window_started}</time>,

@@ -450,6 +450,7 @@ export function AuditPage(): ReactNode {
                 columns={COLUMNS}
                 rows={matching}
                 rowKey={(row) => row.id}
+                minWidth="1180px"
               />
             )}
           </>

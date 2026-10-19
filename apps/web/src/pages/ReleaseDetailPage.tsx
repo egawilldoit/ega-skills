@@ -67,9 +67,9 @@ export function ReleaseDetailPage(): ReactNode {
     >
       {(data) => (
         <>
-          <p className="page__lede">
-            <Link to="/releases">All releases</Link>
-          </p>
+          <div className="backlink">
+            <Link to="/releases">← All releases</Link>
+          </div>
 
           <section className="panel" aria-labelledby="release-identity">
             <h2 id="release-identity">

@@ -84,9 +84,11 @@ export function ReleasesPage(): ReactNode {
 
   return (
     <>
-      <p className="page__lede">
-        <Link to="/releases/compare">Compare two releases</Link>
-      </p>
+      <div className="actions">
+        <Link className="button" to="/releases/compare">
+          Compare two releases
+        </Link>
+      </div>
       <ResourceSection
         state={resource.state}
         reload={resource.reload}
