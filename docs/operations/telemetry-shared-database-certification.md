@@ -282,3 +282,96 @@ possible after items 1–4.
 The single next action for EGA-742 is the owner's acceptance of this mapping and
 operation scope, plus a decision on §8 option 1 or 2. Everything else in the
 telemetry chain is blocked on that decision, not on further investigation.
+
+## 13. Procedures applied, and the certification verdicts they require
+
+Three EGA Skills Hub procedures were retrieved and applied. The hosted EGA Skills
+MCP at `https://ega-skills-mcp.vercel.app/mcp` was attempted first and refused
+this session's stored credential once, exactly:
+
+```
+POST /mcp initialize → 401 {"error":{"code":"E_TOKEN_INVALID"}}
+```
+
+The stored access token expired 2026-10-18T09:27:40Z. The supported alternative
+is the same release's committed artifact, so instructions were retrieved from
+`packages/mcp/artifact` (registry plus hash-verified content cache) at the
+release the Console and MCP both serve. The MCP's own `resolve` tool, which would
+return an `effective_release_digest`, is unreachable, so the digest below is the
+release package digest for the same release rather than a `resolve` response.
+
+| Procedure | `version_hash` | Retrieved from | Release digest |
+| --- | --- | --- | --- |
+| `egawilldoit/certify-database-rollout` | `sha256:2064223c9545d2fc31cce08e1090ef5a983a8b63f30d511206aad74f73ae3d4d` | committed Hub artifact | `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3` |
+| `egawilldoit/certify-mcp-production` | `sha256:476e900e5080134a4328a9c0ff85350bdf584c1b0f92ff4dc1f6b52528d114a3` | committed Hub artifact | same release |
+
+Both procedures name a `certify-production-target` step. No skill with that exact
+id exists in this release; its target stage is covered here by §1 (target
+identification from public deployment metadata) and by the read-only inventory in
+§2. Recorded as a substitution, not as an executed `certify-production-target`.
+
+### 13.1 Database rollout certification (telemetry chain)
+
+Per `certify-database-rollout`'s output contract. Evidence levels follow that
+procedure's convention: `E2`/`E3` local executed, `E5` endpoint/real environment
+observed, `E6` through the intended client.
+
+```
+VERDICT: ROLLOUT_PARTIAL
+Migration: 202609200001 → 202609200005 (Contract T1 telemetry, retention, writer provisioning)
+Target:    divriwexbijtojjulqtu / shared production control plane   (target verdict: identified, read-only)
+Lineage:   202609090001 … 20260919090000 → 202609200001 … 202609200005
+
+Stages:
+- target:            PASS        evidence=E5  (PR #164 §1; MCP and Console both resolve to this project)
+- lineage:           PASS        evidence=E3  (chain descends from the applied baseline; no fork in-tree)
+- ordering:          PASS        evidence=E3  (applied in filename order by both RLS suites)
+- fresh database:    PASS        evidence=E3  (bootstrap + all migrations on a pristine PostgreSQL 16:
+                                                 contract-f 15/15, telemetry-authz 52/52)
+- upgrade path:      PASS        evidence=E3  (202609200004 repairs a previously registered invalid
+                                                 command on an already-applied instance; scheduler suite)
+- schema:            PASS        evidence=E3  (table, columns, indexes asserted by telemetry-authz)
+- constraints:       PASS        evidence=E3  (identity PK, checks and FKs exercised)
+- RLS/security:      PASS        evidence=E3  (admin/self read policies, writer INSERT-only policy,
+                                                 purge EXECUTE revoked from non-service roles)
+- cross-user denial: PASS        evidence=E3  (non-privileged roles refused; delegated principal refused)
+- service-role:      PASS        evidence=E3  (purge reachable by the scheduling role only)
+- production application: AUTHORITY_REQUIRED (L6 mutation on the shared project; not attempted)
+- post-migration runtime: NOT CHECKED  (no writer is deployed; see §3)
+```
+
+Interpretation: every stage that can be exercised without mutating the shared
+database passes somewhere it was actually executed. "Fresh" and "upgrade" were
+both exercised, and the denial checks ran as non-privileged identities. The two
+stages that cannot pass yet are the mutation itself and the runtime that depends
+on it, and both are authority-gated (§11).
+
+### 13.2 MCP production certification status (write path)
+
+Per `certify-mcp-production`. Recorded because EGA-725 depends on it, and because
+that procedure's hard rule applies directly: a denied or unavailable write must
+be reported as such, never as success.
+
+```
+VERDICT: BLOCKED (write path) / PARTIAL (read path)
+
+- production endpoint:      PASS        E5  ega-skills-mcp.vercel.app, /healthz 200, /readyz 200
+- protocol negotiation:     NOT CHECKED E5- (a full initialize handshake requires a valid
+                                              credential; the endpoint refused this session's expired token)
+- OAuth:                    PARTIAL     E5  RFC 9728 metadata advertises the authorization server
+                                              (the shared project's /auth/v1); no credential was acquired
+- tool discovery:           NOT CHECKED      (same reason)
+- tool schemas:             NOT CHECKED
+- permission/profile map:   PASS        E3  local: writer role is INSERT-only, purge revoked
+- read operations:          NOT CHECKED E5  (requires an authenticated session)
+- write operations:         AUTHORITY_REQUIRED (L6) — and impossible today: the deployed
+                                              revision 7bf0d5a contains no writer code
+- idempotency:              PASS        E3  local: duplicate idempotency key absorbed as 23505
+- denial behavior:          PASS        E3  local: wrong role/token and delegated principal refused
+- auditability:             NOT CHECKED E5  (no event exists to audit)
+- supported clients:        NOT CHECKED      (no client was exercised for this issue)
+```
+
+The write and audit steps carry `AUTHORITY_REQUIRED`; no client-compatibility
+claim is made. `curl` against `/healthz` proves the endpoint answers, which is
+why it is recorded as `E5` for the endpoint and nothing more.
