@@ -1,7 +1,7 @@
 # Contract R1: immutable release candidates
 
-**Proposed versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) would define an opt-in
-invocation-policy successor profile if accepted and frozen. This contract remains authoritative for
+**Versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) defines an opt-in
+invocation-policy successor profile. This contract remains authoritative for
 existing V1 behavior and retained releases.
 
 R1 defines the handoff between a verified local Hub build and a deployment
