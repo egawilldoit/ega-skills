@@ -1,0 +1,53 @@
+{
+  "digest": "sha256:b93d600cdcb5eee59943adaadc4de0a898fdbf88c5ea1d11173926fd006239f0",
+  "object_type": "ega.intake-review-batch",
+  "payload": {
+    "actor": "authorizing release owner (T3 user); recorded by Codex",
+    "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+    "decisions": [
+      {
+        "decision": "APPROVED",
+        "previous_review_digest": "sha256:e4ca5ef3df3e32d161e718e949c6b626fad0d3a14130b3c83e8d0bb83c81c766",
+        "expected_revision": 1,
+        "revision": 2,
+        "skill_id": "egawilldoit/certify-production-target",
+        "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258"
+      },
+      {
+        "decision": "APPROVED",
+        "previous_review_digest": "sha256:c7d657ddab1b307f3b7a62276ee669fa3d4ba463e7bec5721179e9ccadeef820",
+        "expected_revision": 1,
+        "revision": 2,
+        "skill_id": "egawilldoit/certify-release",
+        "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675"
+      },
+      {
+        "decision": "APPROVED",
+        "previous_review_digest": "sha256:41c66346369e59d30f546b1d5c6c01b5e021771ddc986adb7d5d57fc4ad3f09e",
+        "expected_revision": 1,
+        "revision": 2,
+        "skill_id": "egawilldoit/design-architecture",
+        "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925"
+      },
+      {
+        "decision": "APPROVED",
+        "previous_review_digest": "sha256:d1ecc747a7d8a35d579a13dd8c5233dd8e5a90b0bef6523dbc0e7bbbdb5bc28b",
+        "expected_revision": 1,
+        "revision": 2,
+        "skill_id": "egawilldoit/get-pr-comments",
+        "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9"
+      },
+      {
+        "decision": "APPROVED",
+        "previous_review_digest": null,
+        "expected_revision": 0,
+        "revision": 1,
+        "skill_id": "egawilldoit/ship-one-outcome",
+        "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+      }
+    ],
+    "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+    "request_id": "sha256:fedc31779573f0ae9b2562ea9dc492638e874784f9fa36dfa593d054b10960b2"
+  },
+  "schema_version": 1
+}

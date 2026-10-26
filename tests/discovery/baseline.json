@@ -1,30 +1,30 @@
 {
   "schema_version": 1,
   "corpus_id": "personal-intents-v1",
-  "release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
-  "catalog_skill_count": 116,
+  "release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "catalog_skill_count": 117,
   "summary": {
     "intent_count": 81,
-    "auto_select_attempts": 35,
-    "top1_count": 37,
-    "top1_rate": 0.4567901234567901,
-    "top3_count": 67,
-    "top3_rate": 0.8271604938271605,
-    "search_reachable_count": 70,
-    "search_reachable_rate": 0.8641975308641975,
-    "wrong_automatic_selection_count": 26,
-    "wrong_automatic_selection_intents": 26,
-    "wrong_automatic_selection_rate": 0.7428571428571429,
-    "catastrophic_top3_count": 18,
-    "catastrophic_auto_selected_count": 2,
+    "auto_select_attempts": 33,
+    "top1_count": 41,
+    "top1_rate": 0.5061728395061729,
+    "top3_count": 70,
+    "top3_rate": 0.8641975308641975,
+    "search_reachable_count": 71,
+    "search_reachable_rate": 0.8765432098765432,
+    "wrong_automatic_selection_count": 22,
+    "wrong_automatic_selection_intents": 22,
+    "wrong_automatic_selection_rate": 0.6666666666666666,
+    "catastrophic_top3_count": 16,
+    "catastrophic_auto_selected_count": 0,
     "catastrophic_suggested_only_count": 16,
-    "low_confidence_count": 46,
+    "low_confidence_count": 48,
     "targets": {
       "measured_attempts": true,
       "wrong_automatic_selections": false,
       "top1": false,
       "top3": false,
-      "no_catastrophic_auto_selection": false
+      "no_catastrophic_auto_selection": true
     },
     "exec_ok": false,
     "discovery_ok": false
@@ -49,11 +49,7 @@
     "pr-stack",
     "production-target",
     "prove-actually-true",
-    "prove-really-deployed",
-    "react-performance",
-    "reconcile-conflicting-truth",
     "record-evidence",
-    "release-certification-console",
     "research-primary-sources",
     "review-this-pr",
     "smoke-tests",
@@ -68,5 +64,5 @@
     "wrong_automatic_selection_rate": "denominator is auto_select_attempts (intents that actually selected something), not intent_count, because most intents are LOW and select nothing.",
     "catastrophic_split": "catastrophic_auto_selected_count is a safety failure (an excluded skill would have run); catastrophic_suggested_only_count is a presentation issue only."
   },
-  "note": "Recorded discovery baseline for release sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3 (116-skill catalog) and the personal-intents-v1 corpus, now including EGA-722's focused rows (release-certification-console records the accepted mattpocock/pr platform defect, catalog-2026-10-06.1 routing.md \u00a74 (defect) and \u00a78 (release adjudication) on the exact release-certification prompt; write-pr-body is the contrasting valid PR-writing case). Regenerate with: node scripts/eval/discovery.mjs tests/discovery/personal-intents.json"
+  "note": "Recorded baseline measured on the approved 117-skill Ship One Outcome immutable candidate. Existing routing defects remain reported, not waived. Regenerate with node scripts/eval/discovery.mjs tests/discovery/personal-intents.json; compare prior release in Git history."
 }

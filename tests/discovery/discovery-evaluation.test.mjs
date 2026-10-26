@@ -32,52 +32,11 @@ function report() {
 }
 
 /**
- * Known automatic misroutes that CANNOT be fixed in this repository.
- *
- * Both root causes are routing metadata in the external, digest-pinned corpus
- * repo (github.com/egawilldoit/skills), not in the resolver. This repo holds
- * the corpus only as a verified immutable artifact, so the fix is a corpus-repo
- * change plus a re-vendor. See docs/DISCOVERY-FINDINGS.md.
- *
- *   - reconcile-conflicting-truth: get-pr-comments declares `domains: [github]`,
- *     so the word "GitHub" in the task produces strong DOMAIN evidence and
- *     outranks reconcile-project-truth (no domains).
- *   - react-performance: design-architecture declares `domains: [architecture]`,
- *     so "architecture guidance" produces strong DOMAIN evidence and outranks
- *     vercel/react-best-practices (no domains, platforms, or frameworks).
- *
- * Both are the SAME class of defect: an over-broad `domains` entry.
- */
-/**
- * Known automatic misroutes that CANNOT be fixed in this repository.
- *
- * Root causes are in external routing metadata or external catalog skills:
- *
- * 1. Routing metadata in the external, digest-pinned corpus repo
- *    (github.com/egawilldoit/skills):
- *    - reconcile-conflicting-truth: get-pr-comments declares `domains: [github]`,
- *      so the word "GitHub" in the task produces strong DOMAIN evidence and
- *      outranks reconcile-project-truth (no domains).
- *    - react-performance: design-architecture declares `domains: [architecture]`,
- *      so "architecture guidance" produces strong DOMAIN evidence and outranks
- *      vercel/react-best-practices (no domains, platforms, or frameworks).
- *
- * 2. Accepted platform defect introduced by `mattpocock/pr` in catalog-2026-10-06.1
- *    (see PROVENANCE.md and docs/evidence/catalog/catalog-2026-10-06.1/routing.md):
- *    SPEC-004 §5.1.11.2 substring NAME_DESCRIPTION matching makes the 2-character
- *    portable name "pr" match inside ordinary English words (e.g. "product",
- *    "production", "approach", "practice", etc.), auto-selecting `mattpocock/pr`.
- *    - release-certification-console (EGA-722): the exact release-certification
- *      prompt names no owned vocabulary ("software release readiness ship web
- *      console production rollout ci test security"), so nothing outranks the
- *      `pr` substring hit inside "production"; certify-release sits in tier C.
- *      Recorded, not yet fixed: the owned-surface repair (truthful narrow
- *      triggers "release readiness" and "certify this release" for
- *      certify-release) is delivered as an egawilldoit/skills metadata change,
- *      which can only re-route after a later recognized catalog release, and it
- *      is phrase-gated — other members of the accepted pr-substring family stay
- *      recorded. See docs/evidence/catalog/catalog-2026-10-06.1/routing.md
- *      items 4 and 8 for the recorded adjudication.
+ * Remaining wrong automatic selections are pinned external metadata/catalog
+ * defects, including the accepted mattpocock/pr substring family. This release
+ * resolves the reconcile-conflicting-truth, react-performance,
+ * release-certification-console and prove-really-deployed cases; no new cases may
+ * be accepted silently. See the full baseline and docs/DISCOVERY-FINDINGS.md.
  */
 const KNOWN_EXTERNAL_AUTO_ROUTES = [
   "certify-release",
@@ -92,11 +51,7 @@ const KNOWN_EXTERNAL_AUTO_ROUTES = [
   "novel-ui-no-precedent",
   "pr-stack",
   "production-target",
-  "release-certification-console",
   "prove-actually-true",
-  "prove-really-deployed",
-  "react-performance",
-  "reconcile-conflicting-truth",
   "record-evidence",
   "research-primary-sources",
   "review-this-pr",
@@ -105,7 +60,7 @@ const KNOWN_EXTERNAL_AUTO_ROUTES = [
   "triage-inbox",
   "type-design",
   "verify-cli",
-  "verify-one-claim",
+  "verify-one-claim"
 ];
 
 /** Read routing metadata (incl. anti-triggers) for every skill in the artifact. */

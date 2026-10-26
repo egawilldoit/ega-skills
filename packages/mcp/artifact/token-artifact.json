@@ -123,13 +123,13 @@
     },
     {
       "skill_id": "egawilldoit/certify-production-target",
-      "version_hash": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
+      "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
       "level": "L2",
       "tokens": 761
     },
     {
       "skill_id": "egawilldoit/certify-release",
-      "version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
       "level": "L2",
       "tokens": 790
     },
@@ -159,7 +159,7 @@
     },
     {
       "skill_id": "egawilldoit/design-architecture",
-      "version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
       "level": "L2",
       "tokens": 1029
     },
@@ -189,7 +189,7 @@
     },
     {
       "skill_id": "egawilldoit/get-pr-comments",
-      "version_hash": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+      "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
       "level": "L2",
       "tokens": 144
     },
@@ -408,6 +408,12 @@
       "version_hash": "sha256:6765e4861c9ee3816a0d0731d42c3719711efc7a708dce8c43d4eaaaaadad10a",
       "level": "L2",
       "tokens": 423
+    },
+    {
+      "skill_id": "egawilldoit/ship-one-outcome",
+      "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930",
+      "level": "L2",
+      "tokens": 1613
     },
     {
       "skill_id": "egawilldoit/tdd",

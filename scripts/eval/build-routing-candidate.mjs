@@ -10,15 +10,15 @@ import { cacheBlobPathForHash, openRegistry, prepareSkillRoot } from "../../pack
 import { buildHubRelease } from "../../packages/project/dist/index.js";
 import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
 
-export const BASE_DIGEST = "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3";
+export const BASE_DIGEST = "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-// The first three deltas match owned source PR skills#8 at da7fe7e6.
-// The fourth is an explicitly declared local overlay on mattpocock/pr;
-// it is not an upstream change, catalog adoption, or publication.
+// The approved release already contains the source-side metadata refinements
+// for get-pr-comments and certify-production-target. This experiment keeps only
+// the two deltas that still differ from that baseline: the design-architecture
+// domain narrowing and an explicitly declared local overlay on mattpocock/pr.
+// Neither is upstream adoption or publication.
 export const PATCHES = {
-  "egawilldoit/get-pr-comments": { domains: [] },
   "egawilldoit/design-architecture": { domains: [] },
-  "egawilldoit/certify-production-target": { appendTrigger: "prove this is really live" },
   "mattpocock/pr": { anti_triggers: ["release readiness"] },
 };
 

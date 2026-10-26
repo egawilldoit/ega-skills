@@ -1,0 +1,97 @@
+{
+  "authority": "explicit release-owner T3 user message",
+  "recorded_by": "Codex",
+  "not_independent_review": true,
+  "update_plan_digest": "sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3",
+  "source_commit": "8f264fc5fcb5691694c3653287f4d9370c5b025c",
+  "approved_versions": {
+    "egawilldoit/certify-production-target": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
+    "egawilldoit/certify-release": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
+    "egawilldoit/design-architecture": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
+    "egawilldoit/get-pr-comments": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
+    "egawilldoit/ship-one-outcome": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+  },
+  "governance_review_result": {
+    "records": [
+      {
+        "digest": "sha256:43e4e5613e60806e9732b61d6df6b8a891ae0897488f765c40469eb7d38a5336",
+        "object_type": "ega.intake-review",
+        "payload": {
+          "actor": "authorizing release owner (T3 user); recorded by Codex",
+          "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+          "decision": "APPROVED",
+          "previous_review_digest": null,
+          "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+          "revision": 1,
+          "skill_id": "egawilldoit/certify-production-target",
+          "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258"
+        },
+        "schema_version": 1
+      },
+      {
+        "digest": "sha256:29786b19999c45b3bbe18c9abba5b84175e40b6ccda66189339fff986f84df04",
+        "object_type": "ega.intake-review",
+        "payload": {
+          "actor": "authorizing release owner (T3 user); recorded by Codex",
+          "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+          "decision": "APPROVED",
+          "previous_review_digest": null,
+          "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+          "revision": 1,
+          "skill_id": "egawilldoit/certify-release",
+          "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675"
+        },
+        "schema_version": 1
+      },
+      {
+        "digest": "sha256:c5979b10e7ad08892bce8d1ee89b525d4161809cd0d9362499752ec27eeb3e84",
+        "object_type": "ega.intake-review",
+        "payload": {
+          "actor": "authorizing release owner (T3 user); recorded by Codex",
+          "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+          "decision": "APPROVED",
+          "previous_review_digest": null,
+          "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+          "revision": 1,
+          "skill_id": "egawilldoit/design-architecture",
+          "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925"
+        },
+        "schema_version": 1
+      },
+      {
+        "digest": "sha256:46c91432410970de4291e489e34f6186227d766777cf0ac161f95d78d3e81806",
+        "object_type": "ega.intake-review",
+        "payload": {
+          "actor": "authorizing release owner (T3 user); recorded by Codex",
+          "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+          "decision": "APPROVED",
+          "previous_review_digest": null,
+          "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+          "revision": 1,
+          "skill_id": "egawilldoit/get-pr-comments",
+          "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9"
+        },
+        "schema_version": 1
+      },
+      {
+        "digest": "sha256:99df28ae85bcf43b90379d90e8b6f1dc74ddab4088cd5d051ac1c045a442d55a",
+        "object_type": "ega.intake-review",
+        "payload": {
+          "actor": "authorizing release owner (T3 user); recorded by Codex",
+          "candidate_digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+          "decision": "APPROVED",
+          "previous_review_digest": null,
+          "reason": "Explicit release-owner approval in the current T3 user message on 2026-10-26, recorded by Codex as operator; not independent technical review. Approves UpdatePlan sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3, source 8f264fc5fcb5691694c3653287f4d9370c5b025c, exact five version hashes and 112 unchanged / 4 metadata updates / 1 addition / 0 removals. Scope: canonical adoption and local immutable-release preparation only; no production or PR merge authority.",
+          "revision": 1,
+          "skill_id": "egawilldoit/ship-one-outcome",
+          "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+        },
+        "schema_version": 1
+      }
+    ],
+    "request_id": "sha256:41733b852c45d2b3e59da6f979c441a4a1784ac7bcb3120f656ce8c728f4c8d6",
+    "revision": 1
+  },
+  "production_authority": false,
+  "release_pr_merge_authority": false
+}

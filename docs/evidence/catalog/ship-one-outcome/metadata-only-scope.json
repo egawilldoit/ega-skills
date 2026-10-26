@@ -1,0 +1,21 @@
+{
+  "egawilldoit/certify-production-target": [
+    "skills/certify-production-target/ega.yaml"
+  ],
+  "egawilldoit/certify-release": [
+    "skills/certify-release/ega.yaml"
+  ],
+  "egawilldoit/design-architecture": [
+    "skills/design-architecture/ega.yaml"
+  ],
+  "egawilldoit/get-pr-comments": [
+    "skills/get-pr-comments/ega.yaml"
+  ],
+  "provenance": {
+    "LICENSE": "byte-identical",
+    "THIRD_PARTY_NOTICES.md": "byte-identical",
+    "upstream-sources.json": "Ship original provenance added; two field-order-only changes verified in Git diff",
+    "old_top_level_type": "dict",
+    "new_top_level_type": "dict"
+  }
+}

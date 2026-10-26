@@ -1,0 +1,22 @@
+{
+  "focused_tests": {
+    "files": [
+      "tests/catalog/catalog-generator.test.mjs",
+      "tests/discovery/discovery-evaluation.test.mjs",
+      "tests/discovery/findings-accuracy.test.mjs",
+      "tests/hosted/bootstrap-catalog.test.mjs",
+      "tests/web/discovery-inspection.test.mjs"
+    ],
+    "tests": 121,
+    "pass": 121,
+    "fail": 0,
+    "skipped": 0
+  },
+  "artifact_validation": "PASS",
+  "web_artifact_stage_check_only": "PASS",
+  "catalog_check": "PASS",
+  "diff_check": "PASS",
+  "independent_review": "pending at commit time",
+  "release_pr_ci": "pending at commit time",
+  "production_acceptance": "not authorized or performed"
+}

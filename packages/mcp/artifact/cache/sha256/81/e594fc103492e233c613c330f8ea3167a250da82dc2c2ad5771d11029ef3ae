@@ -1,0 +1,20 @@
+schema_version: 1
+triggers:
+  - "ship one outcome"
+  - "bounded delivery outcome"
+  - "bounded delivery end to end"
+  - "outcome to its boundary"
+  - "deliver this outcome"
+  - "end to end delivery mission"
+  - "deliver this outcome to its boundary"
+  - "finish this authorized delivery"
+  - "resume a stalled delivery handoff"
+  - "prove the worker changes were integrated"
+anti_triggers:
+  - "review and ship this pr"
+  - "fix ci"
+  - "fix the failing check"
+  - "simple code edit"
+  - "investigate why this fails"
+  - "land a pull request stack"
+  - "certify this release"

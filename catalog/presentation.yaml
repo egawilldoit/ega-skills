@@ -80,6 +80,7 @@ groups:
     title: Build / Delegate
     blurb: Get the work actually done, by one agent or many.
     skills:
+      - egawilldoit/ship-one-outcome
       - egawilldoit/parallelize-work
       - egawilldoit/principle-build-the-lever
       - egawilldoit/principle-sequence-verifiable-units

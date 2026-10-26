@@ -740,6 +740,7 @@ describe("protected content is not exposed", () => {
     const forbidden = new Set(["skill-body", "core", "ega-metadata", "script", "asset"]);
     let forbiddenRoleRefusals = 0;
     let notManifestRefusals = 0;
+    let registryOnlyEgaRows = 0;
     try {
       const rows = handle.db
         .prepare(
@@ -750,6 +751,7 @@ describe("protected content is not exposed", () => {
         )
         .all();
       assert.ok(rows.length > 800, `expected the whole release, got ${rows.length} file rows`);
+      registryOnlyEgaRows = rows.filter((row) => row.role === "ega-metadata").length;
       for (const row of rows) {
         if (!forbidden.has(row.role)) continue;
         // Prove which rule refused it, rather than accepting either. A
@@ -789,7 +791,14 @@ assert.equal(
   39 + COMMITTED_SKILL_COUNT + 1,
   "39 script + one SKILL.md per skill + 1 asset manifest entry",
 );
-    assert.equal(notManifestRefusals, 73, "the 73 registry-only ega.yaml rows");
+    // Every registry-only ega.yaml row is refused as not a manifest entry. If a
+    // forbidden-role row other than ega-metadata were absent from the manifest,
+    // the total would exceed that row count and this equality would fail.
+    assert.equal(
+      notManifestRefusals,
+      registryOnlyEgaRows,
+      "every registry-only ega.yaml row is refused, with no other non-manifest forbidden-role file",
+    );
   });
 
   test("a corrupt blob is refused before any content is served", () => {

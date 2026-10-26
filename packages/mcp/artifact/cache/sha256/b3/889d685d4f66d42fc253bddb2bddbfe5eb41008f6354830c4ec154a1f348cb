@@ -5,6 +5,7 @@ triggers:
   - "verify the production target"
   - "confirm the production environment"
   - "certify the target"
+  - "prove this is really live"
 anti_triggers:
   - "certify release"
   - "deploy"

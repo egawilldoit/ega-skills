@@ -1,0 +1,115 @@
+{
+  "release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "corpus_size": 82,
+  "measurable": 81,
+  "no_new_incorrect_automatic_selections": true,
+  "changed_selections": [
+    {
+      "id": "reconcile-conflicting-truth",
+      "task": "The agent report, GitHub, CI, and deployment disagree about what shipped. Tell me what is actually true.",
+      "before": [
+        "egawilldoit/get-pr-comments"
+      ],
+      "after": [],
+      "forbidden_selected": [],
+      "expected": "egawilldoit/reconcile-project-truth",
+      "alternatives": []
+    },
+    {
+      "id": "prove-really-deployed",
+      "task": "prove this is really live in the running environment and not just committed somewhere",
+      "before": [
+        "mattpocock/pr"
+      ],
+      "after": [
+        "egawilldoit/certify-production-target"
+      ],
+      "forbidden_selected": [],
+      "expected": "egawilldoit/certify-production-target",
+      "alternatives": [
+        "egawilldoit/trace-artifact-provenance",
+        "egawilldoit/verify-this"
+      ]
+    },
+    {
+      "id": "react-performance",
+      "task": "Our React app feels sluggish. Apply the performance and architecture guidance from the Vercel team.",
+      "before": [
+        "egawilldoit/design-architecture"
+      ],
+      "after": [],
+      "forbidden_selected": [],
+      "expected": "vercel/react-best-practices",
+      "alternatives": [
+        "vercel/composition-patterns"
+      ]
+    },
+    {
+      "id": "release-certification-console",
+      "task": "software release readiness ship web console production rollout ci test security",
+      "before": [
+        "mattpocock/pr"
+      ],
+      "after": [
+        "egawilldoit/certify-release"
+      ],
+      "forbidden_selected": [],
+      "expected": "egawilldoit/certify-release",
+      "alternatives": []
+    }
+  ],
+  "previous_summary": {
+    "intent_count": 81,
+    "auto_select_attempts": 35,
+    "top1_count": 37,
+    "top1_rate": 0.4567901234567901,
+    "top3_count": 67,
+    "top3_rate": 0.8271604938271605,
+    "search_reachable_count": 70,
+    "search_reachable_rate": 0.8641975308641975,
+    "wrong_automatic_selection_count": 26,
+    "wrong_automatic_selection_intents": 26,
+    "wrong_automatic_selection_rate": 0.7428571428571429,
+    "catastrophic_top3_count": 18,
+    "catastrophic_auto_selected_count": 2,
+    "catastrophic_suggested_only_count": 16,
+    "low_confidence_count": 46,
+    "targets": {
+      "measured_attempts": true,
+      "wrong_automatic_selections": false,
+      "top1": false,
+      "top3": false,
+      "no_catastrophic_auto_selection": false
+    },
+    "exec_ok": false,
+    "discovery_ok": false
+  },
+  "candidate_summary": {
+    "intent_count": 81,
+    "auto_select_attempts": 33,
+    "top1_count": 41,
+    "top1_rate": 0.5061728395061729,
+    "top3_count": 70,
+    "top3_rate": 0.8641975308641975,
+    "search_reachable_count": 71,
+    "search_reachable_rate": 0.8765432098765432,
+    "wrong_automatic_selection_count": 22,
+    "wrong_automatic_selection_intents": 22,
+    "wrong_automatic_selection_rate": 0.6666666666666666,
+    "catastrophic_top3_count": 16,
+    "catastrophic_auto_selected_count": 0,
+    "catastrophic_suggested_only_count": 16,
+    "low_confidence_count": 48,
+    "targets": {
+      "measured_attempts": true,
+      "wrong_automatic_selections": false,
+      "top1": false,
+      "top3": false,
+      "no_catastrophic_auto_selection": true
+    },
+    "exec_ok": false,
+    "discovery_ok": false
+  },
+  "name_only_count": 20,
+  "egawilldoit_count": 67
+}
