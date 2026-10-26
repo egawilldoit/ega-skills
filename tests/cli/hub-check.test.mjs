@@ -10,6 +10,11 @@ import { extractSelectedRootsFromGit, parseSourcesYaml, sourceConfigDigest } fro
 
 const cli = fileURLToPath(new URL("../../packages/cli/bin/ega-skills.mjs", import.meta.url));
 
+function assertRejected(result, message) {
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr.trim(), `${message}\nRun "ega-skills --help" for usage.`);
+}
+
 function snapshot(dir) {
   const files = {};
   const walk = (base, prefix = "") => {
@@ -96,8 +101,9 @@ for (const root of ["skills/missing", "../escape"]) {
   test(`hub check rejects invalid proposed root ${root}`, (t) => {
     const f = fixture(t); f.propose([root]);
     const result = f.check();
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /missing|root|path/i);
+    assertRejected(result, root === "skills/missing"
+      ? "declared path missing upstream: skills/missing"
+      : "sources.yaml source upstream root must be a repository-relative posix path: ../escape");
   });
 }
 
@@ -110,8 +116,9 @@ for (const corrupt of ["skill", "provenance", "digest", "lock-identity"]) {
     if (corrupt === "lock-identity") f.lock.sources.upstream.selection.roots = ["skills/beta"];
     f.writeLock();
     const result = f.check();
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /lock|digest|missing/i);
+    assertRejected(result, corrupt === "lock-identity"
+      ? "sources.lock.yaml source upstream source_config_digest mismatch"
+      : "adopted tree for upstream no longer matches its lock digests");
   });
 }
 
@@ -119,7 +126,6 @@ for (const overrides of [{ namespace: "other" }, { repository: "https://example.
   test(`hub check rejects source identity substitution ${Object.keys(overrides)[0]}`, (t) => {
     const f = fixture(t); f.propose(["skills/alpha", "skills/beta"], overrides);
     const result = f.check();
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /cannot substitute/);
+    assertRejected(result, "hub check cannot substitute an adopted source repository or namespace");
   });
 }
