@@ -1,5 +1,9 @@
 # SPEC-004 — Router and Resolution Contract
 
+**Proposed versioned extension:** [Contract I1](../contracts/CONTRACT-I1-Release-Bound-Invocation.md) would define an opt-in
+invocation-policy successor profile if accepted and frozen. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 **Status:** FROZEN (V1 normative behavioral contract).
 **Incorporates:** AMEND-01 (EGA-606: golden schema/contract references),
 AMEND-02 (EGA-607: exact L1/L2 content + token accounting basis),

@@ -1,5 +1,9 @@
 # Contract R2: retained release serving and promotion
 
+**Proposed versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) would define an opt-in
+invocation-policy successor profile if accepted and frozen. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 R2 defines the bounded retained-release adapter between immutable R1
 candidates and the read-only hosted MCP handler. It keeps the existing four
 MCP tools and their read-only behavior; it only changes how a verified release
