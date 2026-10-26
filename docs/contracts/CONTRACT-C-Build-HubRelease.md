@@ -1,5 +1,9 @@
 # Contract C — Complete Build & HubRelease (FROZEN v1)
 
+**Proposed versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) would define an opt-in
+invocation-policy successor profile if accepted and frozen. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 **Status:** FROZEN
 **Contract version:** 1
 **Milestone gate:** must freeze (with Contracts A and B) before any 1.1 implementation (§7 of the Final Post-V1 Release Specification).
