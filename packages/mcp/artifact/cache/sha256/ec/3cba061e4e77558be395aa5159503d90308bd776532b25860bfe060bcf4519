@@ -7,5 +7,6 @@ triggers:
   - "system design"
   - "design the architecture"
 anti_triggers:
+  - "guidance from the Vercel team"
   - "improve codebase architecture"
   - "deepening opportunities"

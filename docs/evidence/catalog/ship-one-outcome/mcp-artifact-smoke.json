@@ -1,0 +1,67 @@
+{
+  "kind": "EXPORTED_IMMUTABLE_ARTIFACT_MCP_NOT_PRODUCTION",
+  "version": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930",
+  "checks": [
+    {
+      "name": "four-tool-protocol",
+      "passed": true
+    },
+    {
+      "name": "search",
+      "passed": true
+    },
+    {
+      "name": "inspect-version",
+      "passed": true,
+      "version": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+    },
+    {
+      "name": "obsolete-routing-trigger-absent",
+      "passed": true
+    },
+    {
+      "name": "content:SKILL.md",
+      "passed": true,
+      "sha256": "baac5d69da14a0102515cba436139dccd2424ae8a4d58dd179bc017ade06b9ed"
+    },
+    {
+      "name": "content:references/delivery-gates.md",
+      "passed": true,
+      "sha256": "cd9e115581a96f8fc24c95646d0da79b340d67f945e60ed66403e708eba68a81"
+    },
+    {
+      "name": "content:references/records.md",
+      "passed": true,
+      "sha256": "c3a06208df7aa837f82e359160945acb27300b5cf01e81ad879b60c37e7b21bc"
+    },
+    {
+      "name": "content:agents/openai.yaml",
+      "passed": true,
+      "sha256": "bbe98536f0c7263116f437e36506811209bcea05191473a5ec07a8590d8b2c5d"
+    },
+    {
+      "name": "resolve-positive",
+      "passed": true,
+      "selected": [
+        "egawilldoit/ship-one-outcome"
+      ]
+    },
+    {
+      "name": "resolve-negative",
+      "passed": true,
+      "selected": []
+    },
+    {
+      "name": "resolve-architecture",
+      "passed": true,
+      "selected": [
+        "egawilldoit/design-architecture"
+      ]
+    },
+    {
+      "name": "resolve-react-guidance",
+      "passed": true,
+      "selected": []
+    }
+  ]
+}

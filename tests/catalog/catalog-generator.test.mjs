@@ -31,7 +31,7 @@ const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
  * re-vendor tripwire. When the catalog is rebuilt, these must be updated
  * deliberately rather than drifting.
  */
-const EXPECTED_CATALOG_SKILLS = 116;
+const EXPECTED_CATALOG_SKILLS = 117;
 
 function knownIds() {
   return new Set(readL0Metadata(ENV).keys());

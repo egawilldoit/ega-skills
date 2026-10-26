@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-10-26T17:01:36.158Z",
+  "plan_digest": "sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3",
+  "source_commit": "8f264fc5fcb5691694c3653287f4d9370c5b025c",
+  "expected_old_verified": true,
+  "physical_old_verified": true,
+  "source_config_verified": true,
+  "five_version_delta_verified": true,
+  "selected_roots_verified": true,
+  "staged_physical_verified": true,
+  "postmerge_ci": [
+    {
+      "id": 40359481296,
+      "sha": "0152bb7c3d0ff789f48c3ae4461a423ff9beec59",
+      "conclusion": "success",
+      "url": "https://github.com/egawilldoit/ega-skills/actions/runs/40359481296"
+    },
+    {
+      "id": 40359481122,
+      "sha": "0152bb7c3d0ff789f48c3ae4461a423ff9beec59",
+      "conclusion": "success",
+      "url": "https://github.com/egawilldoit/ega-skills/actions/runs/40359481122"
+    }
+  ],
+  "approval_required": true
+}

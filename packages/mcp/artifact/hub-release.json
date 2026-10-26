@@ -1,14 +1,14 @@
 {
-  "digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
+  "digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
   "object_type": "ega.hub-release",
   "payload": {
     "adopted_sources": [
       {
-        "resolved_commit": "f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df",
-        "selected_skill_tree_digest": "sha256:781191b7746188fd6c7392efbe168906c62ad43ff8a6f7bf683c8e3b6e59ab30",
-        "source_config_digest": "sha256:8c965dc360035d814405d90f2f824349a56769d23e173d33037601bbd06523da",
+        "resolved_commit": "8f264fc5fcb5691694c3653287f4d9370c5b025c",
+        "selected_skill_tree_digest": "sha256:b2651308fc633cdbaa540ab0aec211e58eb96d120a580ad84d846c4587234fab",
+        "source_config_digest": "sha256:4bf73560f72b8c9b58f676f0102447b7a6bda4ba38b28ef9f1cda029531daea1",
         "source_id": "egawilldoit-skills",
-        "vendored_snapshot_digest": "sha256:4ca997798d8d0b09fdaf3036029cac59a0d017b25b356b7c5471183fe36c0943"
+        "vendored_snapshot_digest": "sha256:5ab265f037cada366a071c3456127c9a7b78228e4811d8cacb45447d7eb63342"
       }
     ],
     "alias_map_digest": "sha256:2c538f9092878cdc395d5548de2ea5ea043166951ac228f4dfcd721d85f7f49e",
@@ -29,7 +29,7 @@
       "update_contract": "B1"
     },
     "hub_id": "personal",
-    "search_index_input_digest": "sha256:53da45664866c6b181b3d9dd45a99701a5194dd719cf189db3637272423eee96",
+    "search_index_input_digest": "sha256:8a354e805009b0597388855898215768fe75298051d499b941ee05f084642540",
     "skill_versions": {
       "anthropic/academy-guide": "sha256:650d71eb50374c950157d727a317d5cd71d58dcc683ff72a441159cc5256a5d2",
       "anthropic/algorithmic-art": "sha256:a495a2da00d06628db17f9962ee7114035fcc6969132a0422a10ead0ca739c1a",
@@ -51,18 +51,18 @@
       "egawilldoit/certify-database-rollout": "sha256:2064223c9545d2fc31cce08e1090ef5a983a8b63f30d511206aad74f73ae3d4d",
       "egawilldoit/certify-mcp-production": "sha256:476e900e5080134a4328a9c0ff85350bdf584c1b0f92ff4dc1f6b52528d114a3",
       "egawilldoit/certify-pr-head": "sha256:09732212913804055b494dd8408b490199cd94f19df38628cd33b43bfebd3334",
-      "egawilldoit/certify-production-target": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
-      "egawilldoit/certify-release": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "egawilldoit/certify-production-target": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
+      "egawilldoit/certify-release": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
       "egawilldoit/check-compiler-errors": "sha256:e82a100da644bfa36fd64cc3060081fd56d162cdf095b9727ba10f097ddfebac",
       "egawilldoit/compare-designs": "sha256:373ae7ad0891a1d20f1e5564dfd823d5fef87ff9c2697d220e54bb8e19f97267",
       "egawilldoit/create-verification-workflow": "sha256:7fe911b26a352d9bf4123e84ffc97a07098f54186a5dde05c2d8136120b8e388",
       "egawilldoit/deliver-software": "sha256:e9849b1bdfddc0095eda4463f5c09eaba95b606a49679624abae83dd75c3872f",
-      "egawilldoit/design-architecture": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "egawilldoit/design-architecture": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
       "egawilldoit/design-investigation": "sha256:2a3da9fec92367e6a17ded250d1399ede7d5d76ec5143b0ae69251eba8fe3414",
       "egawilldoit/deslop": "sha256:d69f6706c0195f52734c4b999dd30213feb6497df92f18b568f3dd99dc526ef5",
       "egawilldoit/fix-ci": "sha256:3f1c46c757786ab3b083bd6a6b73ae217f45c41a0a90f7842346981a4fcddcfd",
       "egawilldoit/fix-merge-conflicts": "sha256:757aeffd4943d14e03409ae77434a84b695a4a673122ce369c20603bde31a233",
-      "egawilldoit/get-pr-comments": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+      "egawilldoit/get-pr-comments": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
       "egawilldoit/integrate-pr-stack": "sha256:b4da73d7dd5282e201a403256bd13c735d8681262345712963783d13e41e38de",
       "egawilldoit/loop-on-ci": "sha256:58333b4ca32527b74681cb72fed45061e8e826554ec4b597c1edf6a62bc5a8cb",
       "egawilldoit/maintain-verification-workflow": "sha256:a8d313aa678cfdf0d94ce9c25b40f822892e5081a3a2646a4617139afcde44f2",
@@ -99,6 +99,7 @@
       "egawilldoit/recover-work-context": "sha256:5ccbbaf2a9b7b06b0a779e954fc23b6a777ffdcb21fb4df6d0f6fd71906d2e03",
       "egawilldoit/review-and-ship": "sha256:41b8878c752b4dfbc79ff2b1de0d35f9c29876488aba4c26839910acb9c1fdad",
       "egawilldoit/run-smoke-tests": "sha256:6765e4861c9ee3816a0d0731d42c3719711efc7a708dce8c43d4eaaaaadad10a",
+      "egawilldoit/ship-one-outcome": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930",
       "egawilldoit/tdd": "sha256:6433651b951231949bb78b59f0300003d32274f114bfc99e5e82cc14b4ca053b",
       "egawilldoit/technical-writing": "sha256:ad6ebde9c0ef0f03f87371c0e41bbcaf7c02c5bb7023153164521e7ca86b35ae",
       "egawilldoit/trace-artifact-provenance": "sha256:d4ce1b8ecd935a78d26674390b5bf9734c9e854beb8bc92795fda51085072087",
@@ -148,7 +149,7 @@
       "vercel/web-design-guidelines": "sha256:fb18cfe95a3067e333ee4877850e063d2e30095395df7021bdad22d684ed10cd",
       "vercel/writing-guidelines": "sha256:a8eb83093df92886215b483f576f51c068dad41e30cdcb655f9dba437012ce47"
     },
-    "token_artifact_digest": "sha256:b9b195fd2a3027987a70405d1e15231cc5b2002891cea0d19ace1b6c4e9aacf4"
+    "token_artifact_digest": "sha256:20cdf17e22b028da83b8fb7254202a308690e97d1937b8a91cff8b7196744acb"
   },
   "schema_version": 1
 }

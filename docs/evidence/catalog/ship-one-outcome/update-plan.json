@@ -1,0 +1,60 @@
+{
+  "digest": "sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3",
+  "object_type": "ega.update-plan",
+  "payload": {
+    "added_skills": [
+      {
+        "skill_ref": "egawilldoit/ship-one-outcome",
+        "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+      }
+    ],
+    "changed_skills": [
+      {
+        "canonical_changed": true,
+        "new_version": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
+        "old_version": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
+        "raw_changed": true,
+        "skill_ref": "egawilldoit/certify-production-target"
+      },
+      {
+        "canonical_changed": true,
+        "new_version": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
+        "old_version": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+        "raw_changed": true,
+        "skill_ref": "egawilldoit/certify-release"
+      },
+      {
+        "canonical_changed": true,
+        "new_version": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
+        "old_version": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+        "raw_changed": true,
+        "skill_ref": "egawilldoit/design-architecture"
+      },
+      {
+        "canonical_changed": true,
+        "new_version": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
+        "old_version": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+        "raw_changed": true,
+        "skill_ref": "egawilldoit/get-pr-comments"
+      }
+    ],
+    "expected_old": {
+      "resolved_commit": "f48e0ed8197bdfddae3a4c6ae5a12ca6f6f085df",
+      "selected_skill_tree_digest": "sha256:781191b7746188fd6c7392efbe168906c62ad43ff8a6f7bf683c8e3b6e59ab30"
+    },
+    "extraction_contract": 1,
+    "new_selected_tree_digest": "sha256:b2651308fc633cdbaa540ab0aec211e58eb96d120a580ad84d846c4587234fab",
+    "new_vendored_snapshot_digest": "sha256:5ab265f037cada366a071c3456127c9a7b78228e4811d8cacb45447d7eb63342",
+    "provenance_changes": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "upstream-sources.json"
+    ],
+    "removed_skills": [],
+    "source_config_digest": "sha256:4bf73560f72b8c9b58f676f0102447b7a6bda4ba38b28ef9f1cda029531daea1",
+    "source_id": "egawilldoit-skills",
+    "target_commit": "8f264fc5fcb5691694c3653287f4d9370c5b025c",
+    "unselected_new_skills": []
+  },
+  "schema_version": 1
+}

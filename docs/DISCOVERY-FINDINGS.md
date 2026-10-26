@@ -3,8 +3,8 @@
 Evidence for the discovery work in this branch, and the exact changes that
 belong in the **separate** skill corpus repository rather than here.
 
-Measured against release `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`
-(116 skills: `anthropic` 14, `egawilldoit` 66, `mattpocock` 27, `vercel` 9).
+Measured against release `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+(117 skills: `anthropic` 14, `egawilldoit` 67, `mattpocock` 27, `vercel` 9).
 
 Reproduce with:
 
@@ -15,8 +15,8 @@ pnpm eval:discovery
 ## 1. Why routing metadata could not be fixed in this repository
 
 The skill corpus is **not vendored in this repo**. There are zero `ega.yaml`
-files in-tree. The 66 `egawilldoit` skills live in
-`github.com/egawilldoit/skills`, pinned at commit `f48e0ed` and adopted as an
+files in-tree. The 67 `egawilldoit` skills live in
+`github.com/egawilldoit/skills`, pinned at commit `8f264fc` and adopted as an
 immutable, digest-verified external source
 (`packages/mcp/artifact/hub-release.json` →
 `payload.adopted_sources[0]`).
@@ -68,22 +68,22 @@ skills per task, so concatenating it pads the window with rows that carry no
 ranking signal. Search reachability is therefore reported on its own.
 
 <!-- discovery-summary:start -->
-Release: `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`; catalog: 116 skills; corpus: `personal-intents-v1`.
+Release: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`; catalog: 117 skills; corpus: `personal-intents-v1`.
 
 | Metric | Value | Target | Status |
 | --- | --- | --- | --- |
 | Intents evaluated | 81 | >= 50 | met |
-| Automatic selection attempts | 35/81 | — | informational |
-| Wrong automatic selections | 26 across 35 attempts (74.3% of attempts) | 0 | **not met** |
-| Excluded skill **auto-selected** | 2 | 0 | **not met** |
+| Automatic selection attempts | 33/81 | — | informational |
+| Wrong automatic selections | 22 across 33 attempts (66.7% of attempts) | 0 | **not met** |
+| Excluded skill **auto-selected** | 0 | 0 | met |
 | Excluded skill in a suggestion slot only | 16 | — | presentation issue, not safety |
-| Expected skill ranked #1 | 37/81 = 45.7% | >= 90% | **not met** |
-| Expected skill in top 3 (resolver window) | 67/81 = 82.7% | >= 98% | **not met** |
-| Expected skill in top 3 of raw `search` | 70/81 = 86.4% | — | fallback path only |
-| LOW-confidence results | 46/81 | — | informational |
+| Expected skill ranked #1 | 41/81 = 50.6% | >= 90% | **not met** |
+| Expected skill in top 3 (resolver window) | 70/81 = 86.4% | >= 98% | **not met** |
+| Expected skill in top 3 of raw `search` | 71/81 = 87.7% | — | fallback path only |
+| LOW-confidence results | 48/81 | — | informational |
 
-Wrong-selection rate uses the 35 attempted automatic selections as its denominator, not all 81 intents.
-Excluded skills appear in 18 windows: 2 auto-selected and 16 suggestion-only.
+Wrong-selection rate uses the 33 attempted automatic selections as its denominator, not all 81 intents.
+Excluded skills appear in 16 windows: 0 auto-selected and 16 suggestion-only.
 Pending skills: 1 intent(s), excluded from the measured rates above.
 <!-- discovery-summary:end -->
 
@@ -100,31 +100,24 @@ cover project-configured namespace allow/deny or lock-scoped routing.
 
 ## 3. Wrong automatic selections (execution safety) — selected examples
 
-The two examples below are retained from the original investigation. They are
-not the full current failure set: the baseline's `known_external_auto_routes`
-records every current automatic misroute, including the accepted `mattpocock/pr`
-substring family and EGA-722's `release-certification-console` case.
-
-These two examples share an over-broad `domains` entry producing strong
-`DOMAIN_MATCH` evidence under SPEC-004 §5.1.17.
+The two examples below are historical: the approved upstream metadata updates
+resolve these two wrong automatic selections in this candidate. The new full
+baseline still records 22 other wrong automatic selections, including the
+accepted `mattpocock/pr` substring family. These examples do not explain all
+remaining defects.
 
 ### 3.1 `reconcile-conflicting-truth`
 
 > "The agent report, GitHub, CI, and deployment disagree about what shipped."
 
-Result: `MEDIUM`, automatically selected `egawilldoit/get-pr-comments`.
+Historical result: `MEDIUM`, automatically selected `egawilldoit/get-pr-comments`.
 
 Cause: `get-pr-comments/ega.yaml` declares `domains: [github]`. The literal word
 "GitHub" in the task is therefore strong evidence, while
 `reconcile-project-truth` has `domains: []` and only five narrow intent triggers.
 
-Suggested fix in `egawilldoit/skills`:
-
-```yaml
-# skills/get-pr-comments/ega.yaml — remove the over-broad domain
-- domains: [github]
-+ domains: []
-```
+The current source removes the over-broad `github` domain. The exact prompt
+now selects no skill automatically, avoiding the incorrect PR-comment action.
 
 Its existing triggers already carry the intent (`pr comments`,
 `pull request comments`, `review comments`, `reviewer feedback`,
@@ -135,7 +128,7 @@ Its existing triggers already carry the intent (`pr comments`,
 > "Our React app feels sluggish. Apply the performance and architecture guidance
 > from the Vercel team."
 
-Result: `MEDIUM`, automatically selected `egawilldoit/design-architecture`.
+Historical result: `MEDIUM`, automatically selected `egawilldoit/design-architecture`.
 
 Cause: `design-architecture/ega.yaml` declares `domains: [architecture]`, so
 "architecture guidance" is strong evidence. Meanwhile
@@ -143,13 +136,9 @@ Cause: `design-architecture/ega.yaml` declares `domains: [architecture]`, so
 and carries only symptom-shaped triggers (`slow page`, `render waterfall`,
 `unnecessary rerenders`), so it cannot match "React app feels sluggish".
 
-Suggested fix in `egawilldoit/skills`:
-
-```yaml
-# skills/design-architecture/ega.yaml — narrow or drop the generic domain
-- domains: [architecture]
-+ domains: []
-```
+The current source retains `domains: [architecture]` for genuine architecture
+requests and adds a narrow Vercel anti-trigger. This avoids this wrong selection
+without breaking the architecture-proposal prompt; both have release regression checks.
 
 These examples explain one metadata defect class. They do not establish a
 complete root-cause analysis for the current baseline.
@@ -157,10 +146,10 @@ complete root-cause analysis for the current baseline.
 ## 4. Excluded skills surfacing in the window
 
 The generated summary above separates automatic exclusions (execution safety)
-from suggestion-only exclusions (presentation). Both current automatic
-exclusions remain visible: `reconcile-conflicting-truth` selects
-`get-pr-comments`, and `release-certification-console` selects `mattpocock/pr`. The latter belongs
-to the accepted substring-matching defect linked in §2.
+from suggestion-only exclusions (presentation). This candidate has zero automatic
+exclusions. Both previous cases are resolved: `reconcile-conflicting-truth` no
+longer selects `get-pr-comments`, and `release-certification-console` selects
+`certify-release` through the approved narrow metadata triggers.
 
 The original investigation also identified these candidate-window neighbours:
 
@@ -182,7 +171,7 @@ patterns (`fix-ci`/`loop-on-ci`, `verify-*`, `unslop`/`deslop`). The examples
 below are retained as metadata investigation leads; the generated summary in
 §2 is authoritative for current full-corpus rates.
 
-The reason is systematic: **20 of the 66 `egawilldoit` skills have a trigger set
+The reason is systematic: **20 of the 67 `egawilldoit` skills have a trigger set
 that is entirely a rephrasing of their own name** — every declared trigger is a
 contiguous slice of the skill's own name. Such a skill is effectively
 undiscoverable by natural language, because no user says "test behavior not
