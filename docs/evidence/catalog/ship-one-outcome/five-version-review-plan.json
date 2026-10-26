@@ -1,0 +1,245 @@
+{
+  "digest": "sha256:52a36c2e2a46c8dc0f553755c1ea6be519451d68ebaaed2d8600183fd835ea99",
+  "object_type": "ega.adoption-plan",
+  "payload": {
+    "adoption_contract": "A1",
+    "candidates": [
+      {
+        "aliases": [],
+        "relative_root": "skills/certify-production-target",
+        "skill_id": "egawilldoit/certify-production-target",
+        "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258"
+      },
+      {
+        "aliases": [],
+        "relative_root": "skills/certify-release",
+        "skill_id": "egawilldoit/certify-release",
+        "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675"
+      },
+      {
+        "aliases": [],
+        "relative_root": "skills/design-architecture",
+        "skill_id": "egawilldoit/design-architecture",
+        "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925"
+      },
+      {
+        "aliases": [],
+        "relative_root": "skills/get-pr-comments",
+        "skill_id": "egawilldoit/get-pr-comments",
+        "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9"
+      },
+      {
+        "aliases": [],
+        "relative_root": "skills/ship-one-outcome",
+        "skill_id": "egawilldoit/ship-one-outcome",
+        "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930"
+      }
+    ],
+    "diagnostics": [],
+    "hub": {
+      "baseline_digest": "sha256:812c507e11e64bac329166bb1ed63299a80b755bf313d864dee49e6c08ec5af7",
+      "namespaces": [],
+      "source_ids": []
+    },
+    "import_plan": {
+      "digest": "sha256:04ca73c6115c7e077be68c5d512cf0f345b8230efad32b82bc970658fa2b0c41",
+      "object_type": "ega.import-plan",
+      "payload": {
+        "intake_contract": "G1",
+        "namespace": "egawilldoit",
+        "source": {
+          "type": "local",
+          "snapshot_digest": "sha256:b37af73ea0238bbc30061b0bc71b3f59995c615780372b5a7960b006047d3dad",
+          "extraction_policy": 1
+        },
+        "selected_roots": [
+          "skills/certify-production-target",
+          "skills/certify-release",
+          "skills/design-architecture",
+          "skills/get-pr-comments",
+          "skills/ship-one-outcome"
+        ],
+        "policy_revision": "intake-policy-v1",
+        "target": {
+          "mode": "EMPTY",
+          "state_digest": "sha256:f148075bc9be2f8a9601230a94eb11e78fe55b8bf006c935ca761fdf814b8f12"
+        },
+        "discovery_diagnostics": [],
+        "candidates": [
+          {
+            "relative_root": "skills/certify-production-target",
+            "proposed_id": "egawilldoit/certify-production-target",
+            "validation": "VALID",
+            "change": "NEW",
+            "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
+            "current_version_hash": null,
+            "aliases": [],
+            "file_count": 4,
+            "canonical_bytes": 7377,
+            "l1_status": "MISSING",
+            "l1_tokens": null,
+            "l2_tokens": 761,
+            "diagnostics": []
+          },
+          {
+            "relative_root": "skills/certify-release",
+            "proposed_id": "egawilldoit/certify-release",
+            "validation": "VALID",
+            "change": "NEW",
+            "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
+            "current_version_hash": null,
+            "aliases": [],
+            "file_count": 5,
+            "canonical_bytes": 11728,
+            "l1_status": "MISSING",
+            "l1_tokens": null,
+            "l2_tokens": 790,
+            "diagnostics": []
+          },
+          {
+            "relative_root": "skills/design-architecture",
+            "proposed_id": "egawilldoit/design-architecture",
+            "validation": "VALID",
+            "change": "NEW",
+            "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
+            "current_version_hash": null,
+            "aliases": [],
+            "file_count": 6,
+            "canonical_bytes": 14342,
+            "l1_status": "MISSING",
+            "l1_tokens": null,
+            "l2_tokens": 1029,
+            "diagnostics": []
+          },
+          {
+            "relative_root": "skills/get-pr-comments",
+            "proposed_id": "egawilldoit/get-pr-comments",
+            "validation": "VALID",
+            "change": "NEW",
+            "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
+            "current_version_hash": null,
+            "aliases": [],
+            "file_count": 3,
+            "canonical_bytes": 1052,
+            "l1_status": "MISSING",
+            "l1_tokens": null,
+            "l2_tokens": 144,
+            "diagnostics": []
+          },
+          {
+            "relative_root": "skills/ship-one-outcome",
+            "proposed_id": "egawilldoit/ship-one-outcome",
+            "validation": "VALID",
+            "change": "NEW",
+            "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930",
+            "current_version_hash": null,
+            "aliases": [],
+            "file_count": 5,
+            "canonical_bytes": 19181,
+            "l1_status": "MISSING",
+            "l1_tokens": null,
+            "l2_tokens": 1613,
+            "diagnostics": []
+          }
+        ],
+        "summary": {
+          "candidate_count": 5,
+          "valid_count": 5,
+          "invalid_count": 0,
+          "blocked_count": 0,
+          "warning_count": 0
+        }
+      },
+      "schema_version": 1
+    },
+    "namespace": "egawilldoit",
+    "source": {
+      "extraction_contract": 1,
+      "provenance_files": [
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "upstream-sources.json"
+      ],
+      "repository": "https://github.com/egawilldoit/skills",
+      "requested_ref": "main",
+      "resolved_commit": "8f264fc5fcb5691694c3653287f4d9370c5b025c",
+      "selected_roots": [
+        "skills/certify-production-target",
+        "skills/certify-release",
+        "skills/design-architecture",
+        "skills/get-pr-comments",
+        "skills/ship-one-outcome"
+      ],
+      "selected_skill_tree_digest": "sha256:efc80cbaa998ea52710e80a8c372b8999399c9107113c42b005402d46737f372",
+      "type": "git",
+      "vendored_snapshot_digest": "sha256:c801be4a12cc469b08925ad9eac7076f31c971848488dc2a85918e0545f9b175"
+    },
+    "source_id": "egawilldoit-skills",
+    "status": "READY",
+    "unselected_skills": [
+      "skills/adversarial-review",
+      "skills/blast-radius",
+      "skills/build-execution-contract",
+      "skills/certify-database-rollout",
+      "skills/certify-mcp-production",
+      "skills/certify-pr-head",
+      "skills/check-compiler-errors",
+      "skills/compare-designs",
+      "skills/create-verification-workflow",
+      "skills/deliver-software",
+      "skills/design-investigation",
+      "skills/deslop",
+      "skills/fix-ci",
+      "skills/fix-merge-conflicts",
+      "skills/integrate-pr-stack",
+      "skills/loop-on-ci",
+      "skills/maintain-verification-workflow",
+      "skills/make-pr-easy-to-review",
+      "skills/mine-work-patterns",
+      "skills/new-branch-and-pr",
+      "skills/parallelize-work",
+      "skills/preflight-repository",
+      "skills/principle-attack-the-premise",
+      "skills/principle-boundary-discipline",
+      "skills/principle-build-the-lever",
+      "skills/principle-encode-lessons-in-structure",
+      "skills/principle-exhaust-the-design-space",
+      "skills/principle-experience-first",
+      "skills/principle-fix-root-causes",
+      "skills/principle-foundational-thinking",
+      "skills/principle-guard-the-context-window",
+      "skills/principle-laziness-protocol",
+      "skills/principle-make-operations-idempotent",
+      "skills/principle-migrate-callers-then-delete-legacy-apis",
+      "skills/principle-minimize-reader-load",
+      "skills/principle-model-the-domain",
+      "skills/principle-outcome-oriented-execution",
+      "skills/principle-prove-it-works",
+      "skills/principle-redesign-from-first-principles",
+      "skills/principle-separate-before-serializing-shared-state",
+      "skills/principle-sequence-verifiable-units",
+      "skills/principle-subtract-before-you-add",
+      "skills/principle-test-behavior-not-implementation",
+      "skills/principle-type-system-discipline",
+      "skills/reconcile-project-truth",
+      "skills/record-evidence",
+      "skills/recover-design-rationale",
+      "skills/recover-work-context",
+      "skills/review-and-ship",
+      "skills/run-smoke-tests",
+      "skills/tdd",
+      "skills/technical-writing",
+      "skills/trace-artifact-provenance",
+      "skills/typescript-best-practices",
+      "skills/understand-codebase",
+      "skills/unslop",
+      "skills/verify-cli",
+      "skills/verify-this",
+      "skills/verify-ui",
+      "skills/weekly-review",
+      "skills/what-did-i-get-done",
+      "skills/work-retrospective"
+    ]
+  },
+  "schema_version": 1
+}

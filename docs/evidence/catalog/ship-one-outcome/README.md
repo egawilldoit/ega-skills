@@ -8,7 +8,10 @@ Owner authorization covers canonical adoption and local immutable preparation.
 The owner approved the exact five versions in this T3 conversation on 2026-10-26.
 The CLI actor explicitly identifies Codex as recorder, not owner or independent
 reviewer. `owner-authorization.json` records this scope; the supported canonical
-review result is `canonical-owner-approval.json`. No production authority or
+review result is `canonical-owner-approval.json`. The actual batch envelope
+and its five-version review-plan envelope are included as
+`canonical-review-batch.json` and `five-version-review-plan.json`; CLI record
+projections are not standalone envelopes. No production authority or
 release/catalog PR merge authority is implied.
 
 | Skill | Approved and exported version |
@@ -28,6 +31,8 @@ updates, one added skill and zero removals. All four updates affect only
 - Remaining post-merge Linux/Windows CI and hashing passed at Hub
   `0152bb7c3d0ff789f48c3ae4461a423ff9beec59` before adoption. See
   `binding-check-before-apply.json` for run URLs and immediate binding checks.
+- All 262 adopted source files match Git blobs at the exact approved upstream
+  SHA; see `adopted-source-git-parity.json`.
 - Canonical CLI update succeeded with strict old-state, source, tree and snapshot
   checks. `canonical-adoption.json` and `sources.lock.yaml` record the result.
 - Publication preflight is READY with no blockers. Inherited approvals for the

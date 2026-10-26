@@ -35,7 +35,7 @@ function report() {
  * Remaining wrong automatic selections are pinned external metadata/catalog
  * defects, including the accepted mattpocock/pr substring family. This release
  * resolves the reconcile-conflicting-truth, react-performance,
- * release-certification-console and production-target cases; no new cases may
+ * release-certification-console and prove-really-deployed cases; no new cases may
  * be accepted silently. See the full baseline and docs/DISCOVERY-FINDINGS.md.
  */
 const KNOWN_EXTERNAL_AUTO_ROUTES = [
