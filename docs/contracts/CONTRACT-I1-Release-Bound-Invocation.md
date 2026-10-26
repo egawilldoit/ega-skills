@@ -1,9 +1,10 @@
 # Contract I1: release-bound invocation policy
 
-**Status:** PROPOSED; not frozen. Intended to be normative for the
-`ega-invocation-policy-v1` profile only after independent review and explicit
-owner acceptance of the identified gate distinction. This contract does not authorize skill
-adoption, release publication, deployment, or actions by an executing host.
+**Status:** FROZEN; normative for the `ega-invocation-policy-v1` profile.
+The owner accepted the semantic release identity distinction after independent
+review of PR #170 at commit `9f467ff998000167377fc438d35c60aa63758f18`.
+This contract does not authorize skill adoption, release publication,
+deployment, or actions by an executing host.
 
 ## Authority and version boundary
 
@@ -62,7 +63,7 @@ remain unchanged. Malformed, unknown-field, downgraded, substituted, and
 cross-release mismatch cases fail verification. Rollback serves the retained
 release without generating a new candidate or requiring a diff.
 
-## Proposed preapproval identity distinction
+## Preapproval identity distinction
 
 R1 cannot produce a governed release candidate while any required skill review
 is unapproved: it requires READY preflight and approval-set sidecars before
@@ -71,16 +72,16 @@ and an instance-specific SQLite artifact digest. Consequently, the governed
 candidate envelope identity cannot honestly be presented before the owner's
 exact-version approval and canonical adoption under the existing sequence.
 
-The proposed resolution for owner decision is: before approval, independently
+Before approval, independently
 verify a non-publishable, isolated projected HubRelease built from the pinned
 staged inputs, including the exact nine version hashes, source configuration,
 provenance, policy digest and full semantic release digest. The projection is
 review evidence, not a governed R1 candidate, approval record, canonical
 adoption, or exportable production artifact. Its construction must not write
 to the canonical Hub or use fabricated approvals. The owner approval packet
-would name the projected HubRelease digest and every input identity. Following
+must name the projected HubRelease digest and every input identity. Following
 authorization, canonical adoption and the ordinary R1 approval/preflight flow
-would create the governed candidate; independently verify its semantic
+creates the governed candidate; independently verify its semantic
 HubRelease digest and inputs equal the approved projection and certify its
 newly determinable candidate envelope and physical artifact identity before
 publication. Any semantic mismatch requires a fresh owner decision. Physical
@@ -105,8 +106,8 @@ conflicting source or version, unintended removal, determinism and exact
 post-adoption semantic parity. No projection is evidence until this path is
 implemented and independently verified.
 
-This distinction does not waive the owner's stated requirement to approve an
-exact candidate release identity before adoption. The owner must explicitly
-accept the proposed semantic-identity interpretation or choose a different
-permissible gate before this part can be frozen or implemented. No simulated or
+The owner explicitly accepted the projected semantic HubRelease digest as the
+pre-adoption identity in place of the not-yet-creatable governed candidate
+envelope. This contract approval does not approve any nine SkillVersions,
+projected digest, canonical adoption or production candidate. No simulated or
 inferred approval is acceptable.

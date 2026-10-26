@@ -1,7 +1,7 @@
 # SPEC-004 — Router and Resolution Contract
 
-**Proposed versioned extension:** [Contract I1](../contracts/CONTRACT-I1-Release-Bound-Invocation.md) would define an opt-in
-invocation-policy successor profile if accepted and frozen. This contract remains authoritative for
+**Versioned extension:** [Contract I1](../contracts/CONTRACT-I1-Release-Bound-Invocation.md) defines an opt-in
+invocation-policy successor profile. This contract remains authoritative for
 existing V1 behavior and retained releases.
 
 **Status:** FROZEN (V1 normative behavioral contract).
