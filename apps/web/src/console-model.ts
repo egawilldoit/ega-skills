@@ -144,7 +144,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       {
         path: "/",
-        label: "Overview",
+        label: "Catalog overview",
         permission: "catalog_read",
         description: "Release identity and catalog totals for the selected workspace",
       },
@@ -186,7 +186,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       {
         path: "/workspace",
-        label: "Overview",
+        label: "Workspace overview",
         permission: "workspace_read",
         description: "Workspace identity and the viewer's own membership role",
       },

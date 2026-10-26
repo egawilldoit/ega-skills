@@ -252,9 +252,9 @@ export function renderProjectDetail(
     <ResourceSection state={state} reload={reload} loadingLabel="Loading project…">
       {(data) => (
         <>
-          <p className="page__lede">
-            <Link to="/projects">All projects</Link>
-          </p>
+          <div className="backlink">
+            <Link to="/projects">← All projects</Link>
+          </div>
 
           <section className="panel" aria-labelledby="project-identity">
             <h2 id="project-identity">Project</h2>

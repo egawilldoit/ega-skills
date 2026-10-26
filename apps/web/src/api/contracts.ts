@@ -109,6 +109,8 @@ export interface CatalogFacets {
   readonly platforms: readonly CatalogFacetValue[];
   readonly triggers: readonly CatalogFacetValue[];
   readonly aliases: readonly CatalogFacetValue[];
+  /** Human-intent presentation group ids with real counts. Empty when no presentation file is present. */
+  readonly groups: readonly CatalogFacetValue[];
   readonly sources: readonly CatalogFacetValue[];
   readonly l1_statuses: readonly CatalogFacetValue[];
   /** Trust levels present in the filtered set. */
@@ -121,6 +123,7 @@ export interface CatalogAppliedFilters {
   readonly namespace: string | null;
   readonly domain: string | null;
   readonly framework: string | null;
+  readonly group: string | null;
   readonly source: string | null;
   readonly l1: string | null;
 }
@@ -485,6 +488,25 @@ export interface McpTelemetryFunnel {
   readonly content_retrieved: number;
 }
 
+/**
+ * One UTC calendar day of read-path MCP execution activity (EGA-727).
+ *
+ * The bucket key is a UTC date (`YYYY-MM-DD`) derived server-side from
+ * `mcp_tool_executions.observed_at`, so the day boundary does not depend on the
+ * viewer's locale or the browser's timezone.
+ *
+ * Only days that carry at least one observed execution appear in the series. A
+ * day with no entry means "no execution was recorded for that day" — which is
+ * an absence of records, never a measured zero — so the UI must omit it rather
+ * than plot it as `0`.
+ */
+export interface McpDailyExecutionCount {
+  /** UTC calendar date (`YYYY-MM-DD`). */
+  readonly date: string;
+  /** Executions whose `observed_at` fell on that UTC day. */
+  readonly executions: number;
+}
+
 export interface McpTelemetrySummary {
   readonly total_executions: number;
   readonly success_count: number;
@@ -522,6 +544,17 @@ export interface McpTelemetrySummary {
   readonly partial: boolean;
   /** Rows actually scanned, for cross-checking against `total_executions`. */
   readonly rows_scanned: number;
+  /**
+   * Daily execution counts over the window, one bucket per UTC day that carried
+   * at least one observed execution, ascending by date (EGA-727).
+   *
+   * Bounded by the window itself: `observed_at` is constrained to the 90-day
+   * range before bucketing, so this series can never exceed 91 entries (the
+   * number of distinct UTC calendar days a 90-day window can touch) regardless
+   * of how many rows were scanned. Empty when the window held no executions —
+   * the UI renders the empty state rather than a zero-valued chart.
+   */
+  readonly daily: readonly McpDailyExecutionCount[];
 }
 
 /**
@@ -617,20 +650,46 @@ export type ApiError =
 /** Discriminant of `ApiError`. Exported for exhaustive switches. */
 export type ApiErrorKind = ApiError["kind"];
 
+/** The closed set of `ApiError` discriminants, in one place. */
+const API_ERROR_KINDS: ReadonlySet<unknown> = new Set([
+  "network",
+  "aborted",
+  "not_configured",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "unavailable",
+  "server",
+  "malformed_response",
+]);
+
+/**
+ * Whether an unknown value is a complete `ApiError`.
+ *
+ * Deliberately validates the WHOLE shape, not just the discriminant. This guard
+ * is the boundary a *thrown* value crosses, so a value that merely resembles an
+ * error must not be promoted into a typed refusal the UI renders as though the
+ * server had produced it: an object carrying only a `message`, or a `kind` with
+ * no message, is not an `ApiError`. Every field the union declares is required,
+ * which also means {@link describeApiError} can never be handed an `undefined`
+ * message.
+ */
 export function isApiError(value: unknown): value is ApiError {
   if (typeof value !== "object" || value === null) return false;
-  const kind = (value as { kind?: unknown }).kind;
+  const candidate = value as {
+    kind?: unknown;
+    message?: unknown;
+    code?: unknown;
+    status?: unknown;
+    retryable?: unknown;
+  };
   return (
-    kind === "network" ||
-    kind === "aborted" ||
-    kind === "not_configured" ||
-    kind === "unauthorized" ||
-    kind === "forbidden" ||
-    kind === "not_found" ||
-    kind === "conflict" ||
-    kind === "unavailable" ||
-    kind === "server" ||
-    kind === "malformed_response"
+    API_ERROR_KINDS.has(candidate.kind) &&
+    typeof candidate.message === "string" &&
+    (candidate.code === null || typeof candidate.code === "string") &&
+    (candidate.status === null || typeof candidate.status === "number") &&
+    typeof candidate.retryable === "boolean"
   );
 }
 
@@ -661,6 +720,46 @@ export function describeApiError(error: ApiError): string {
     case "malformed_response":
       return `The API returned a response this console cannot read. ${error.message}`;
   }
+}
+
+/**
+ * Pinned synthetic-intent inspection report (EGA-728).
+ *
+ * One evaluated case from the offline discovery corpus, served read-only and
+ * digest-bound to the console's verified release. It never carries production
+ * user prompts or live telemetry.
+ */
+export interface PinnedIntentInspectionCase {
+  readonly intent_id?: string;
+  readonly id?: string;
+  readonly task?: string;
+  readonly expected_skill_id?: string;
+  readonly expected_skill?: string;
+  readonly expected_primary?: string;
+  readonly selected_skill_id?: string;
+  readonly selected_skill?: string;
+  readonly selected?: readonly string[];
+  readonly confidence?: string;
+  readonly reason?: string;
+  readonly failure_reason?: string;
+  readonly wrong_automatic_selections?: readonly string[];
+  readonly ranking?: readonly string[];
+  readonly candidates?: readonly string[];
+  readonly rank_of_expected?: number;
+}
+
+export interface PinnedIntentInspectionReport {
+  readonly schema_version?: number;
+  readonly report_kind?: string;
+  readonly sanitized?: boolean;
+  readonly production_prompts_included?: boolean;
+  readonly release_digest?: string;
+  readonly evaluated_release_digest?: string;
+  readonly evaluated_catalog_digest?: string;
+  readonly artifact_digest?: string;
+  readonly served_release_digest?: string;
+  readonly source_artifact?: string;
+  readonly case?: PinnedIntentInspectionCase;
 }
 
 /**

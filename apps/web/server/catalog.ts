@@ -26,8 +26,8 @@
  * values. `anti_triggers` has no column at all in either FTS table and is
  * deliberately not indexed.
  *
- * In the shipped 114-skill artifact that projection is also nearly empty:
- * 7/114 skills carry a domain, 1/114 a platform, 1/114 a framework. Filters
+ * In the shipped 116-skill artifact that projection is also nearly empty:
+ * 7/116 skills carry a domain, 1/116 a platform, 1/116 a framework. Filters
  * built from it look broken. Every facet here is therefore derived from
  * `skill_versions.manifest_json -> routing`, the same source
  * `runInspectTool` (`packages/mcp/src/inspect.ts:458-465`) reads.
@@ -41,7 +41,7 @@
  *
  * ## Fail closed, never a partial catalog
  *
- * A catalog that silently omits one skill out of 114 is indistinguishable from a
+ * A catalog that silently omits one skill out of 116 is indistinguishable from a
  * complete catalog to an operator, which is the exact failure this console
  * exists to prevent. Three refusals, none of them downgradable:
  *
@@ -63,10 +63,10 @@
  *
  * ## Honest about what the release does not contain
  *
- * The shipped artifact genuinely has `l1_status: MISSING` for all 114 skills
+ * The shipped artifact genuinely has `l1_status: MISSING` for all 116 skills
  * (there are no `core`-role files, so L1 content does not exist), `trust_level:
- * UNKNOWN` for all 114, and `skill_sources.source_type: local` for all 114 with
- * no repository or commit sha. So `l1_tokens` is `null` for all 114 rather than
+ * UNKNOWN` for all 116, and `skill_sources.source_type: local` for all 116 with
+ * no repository or commit sha. So `l1_tokens` is `null` for all 116 rather than
  * `0`, `provenance_status` is `local-only`, and the facets show how few skills
  * carry each value. These are reported, not smoothed over.
  *
@@ -111,6 +111,7 @@ import type { CatalogSummary, ReleaseIdentity, SkillSummary } from "../src/api/c
 
 import type { ServerConfig } from "./env.ts";
 import { assertCatalogServable } from "./release-identity.ts";
+import { loadPresentationMembership } from "./presentation.ts";
 import {
   MAX_CHILD_ROWS,
   MAX_RESULT_ROWS,
@@ -127,7 +128,7 @@ import {
 /**
  * Largest page this endpoint will assemble.
  *
- * The catalog is 114 rows today, but the ceiling is what stops a future release
+ * The catalog is 116 rows today, but the ceiling is what stops a future release
  * from turning one request into an unbounded response. It is deliberately far
  * below `MAX_RESULT_ROWS`, which bounds the *read*; this bounds what is
  * serialized.
@@ -251,6 +252,8 @@ export interface CatalogFacets {
   readonly platforms: readonly CatalogFacetValue[];
   readonly triggers: readonly CatalogFacetValue[];
   readonly aliases: readonly CatalogFacetValue[];
+  /** Human-intent presentation groups (`catalog/presentation.yaml` ids). Empty when no presentation file is present. */
+  readonly groups: readonly CatalogFacetValue[];
   /** `skill_sources.source_type` values, e.g. `local`. */
   readonly sources: readonly CatalogFacetValue[];
   readonly l1_statuses: readonly CatalogFacetValue[];
@@ -261,7 +264,7 @@ export interface CatalogFacets {
  * Whether a skill's content traces to a pinned repository revision.
  *
  * `repository-pinned` requires a source row carrying both a repository and a
- * commit sha. The shipped release has neither, so all 114 skills are
+ * commit sha. The shipped release has neither, so all 116 skills are
  * `local-only`, and that is reported rather than presented as provenance.
  */
 export type CatalogProvenanceStatus = "repository-pinned" | "local-only" | "unknown";
@@ -308,6 +311,7 @@ export interface CatalogAppliedFilters {
   readonly namespace: string | null;
   readonly domain: string | null;
   readonly framework: string | null;
+  readonly group: string | null;
   readonly source: string | null;
   readonly l1: string | null;
 }
@@ -353,6 +357,8 @@ export interface CatalogOptions {
   readonly domain?: string;
   /** Exact match on a `manifest_json.routing.frameworks` value. */
   readonly framework?: string;
+  /** Exact match on a human-intent presentation group id (`catalog/presentation.yaml`). Unknown ids match zero rows. */
+  readonly group?: string;
   /** Exact match on `skill_sources.source_type`. */
   readonly source?: string;
   /** Exact match on `skill_versions.l1_status`. */
@@ -477,6 +483,7 @@ interface ValidatedOptions {
   readonly namespace: string | null;
   readonly domain: string | null;
   readonly framework: string | null;
+  readonly group: string | null;
   readonly source: string | null;
   readonly l1: string | null;
   readonly sortKey: CatalogSortKey;
@@ -510,6 +517,7 @@ function validateOptions(options: CatalogOptions): ValidatedOptions {
     namespace: optionalText(options.namespace, "namespace", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
     domain: optionalText(options.domain, "domain", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
     framework: optionalText(options.framework, "framework", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
+    group: optionalText(options.group, "group", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
     source: optionalText(options.source, "source", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
     l1: optionalText(options.l1, "l1", CATALOG_MAX_FILTER_LENGTH, "E_WEB_CATALOG_INVALID_FILTER"),
     sortKey: key,
@@ -952,10 +960,18 @@ function hasValue(values: readonly string[], wanted: string | null): boolean {
   return values.some((value) => value === wanted);
 }
 
-function matches(row: CatalogSkillRow, options: ValidatedOptions, folded: string): boolean {
+function matches(
+  row: CatalogSkillRow,
+  options: ValidatedOptions,
+  folded: string,
+  groupMembers: ReadonlySet<string> | null,
+): boolean {
   if (options.namespace !== null && row.namespace !== options.namespace) return false;
   if (options.domain !== null && !hasValue(row.domains, options.domain)) return false;
   if (options.framework !== null && !hasValue(row.frameworks, options.framework)) return false;
+  // An unknown group id matches nothing: it is a recoverable empty result,
+  // never an error and never a fabricated row.
+  if (options.group !== null && (groupMembers === null || !groupMembers.has(row.skill_id))) return false;
   if (options.source !== null && (row.source_type ?? "") !== options.source) return false;
   if (options.l1 !== null && row.l1_status !== options.l1) return false;
   if (options.qFolded !== null && !folded.includes(options.qFolded)) return false;
@@ -992,7 +1008,10 @@ function scalarFacet(rows: readonly CatalogSkillRow[], values: (row: CatalogSkil
   );
 }
 
-function buildFacets(rows: readonly CatalogSkillRow[]): CatalogFacets {
+function buildFacets(
+  rows: readonly CatalogSkillRow[],
+  groupOf: (row: CatalogSkillRow) => readonly string[],
+): CatalogFacets {
   return Object.freeze({
     namespaces: scalarFacet(rows, (row) => row.namespace),
     domains: facetOf(rows, (row) => row.domains),
@@ -1000,6 +1019,7 @@ function buildFacets(rows: readonly CatalogSkillRow[]): CatalogFacets {
     platforms: facetOf(rows, (row) => row.platforms),
     triggers: facetOf(rows, (row) => row.triggers),
     aliases: facetOf(rows, (row) => row.aliases),
+    groups: facetOf(rows, groupOf),
     sources: scalarFacet(rows, (row) => row.source_type),
     l1_statuses: scalarFacet(rows, (row) => row.l1_status),
     trust_levels: scalarFacet(rows, (row) => row.trust_level),
@@ -1026,8 +1046,9 @@ export function buildCatalogPage(
   reader: RegistryReader,
   identity: ReleaseIdentity,
   options: CatalogOptions = {},
+  config?: Readonly<ServerConfig>,
 ): CatalogPage {
-  return buildValidatedCatalogPage(reader, identity, validateOptions(options));
+  return buildValidatedCatalogPage(reader, identity, validateOptions(options), config);
 }
 
 /** Assemble a page from options already known to be valid. */
@@ -1035,13 +1056,23 @@ function buildValidatedCatalogPage(
   reader: RegistryReader,
   identity: ReleaseIdentity,
   validated: ValidatedOptions,
+  config?: Readonly<ServerConfig>,
 ): CatalogPage {
   const released = readAllReleasedSkills(reader);
 
   const rows: CatalogSkillRow[] = [];
   for (const row of released) rows.push(buildRow(reader, row));
 
-  const matched = rows.filter((row) => matches(row, validated, searchableText(row)));
+  // Human-intent groups are a projection over the release's own member set:
+  // every member must exist in the release or the page refuses. Loaded here so
+  // the group filter and the groups facet read the same membership.
+  const membership = loadPresentationMembership(new Set(released.map((row) => row.skill_id)), config);
+  const groupOf = (row: CatalogSkillRow): readonly string[] =>
+    membership.bySkill.get(row.skill_id) ?? [];
+  const groupMembers =
+    validated.group === null ? null : (membership.byGroup.get(validated.group) ?? null);
+
+  const matched = rows.filter((row) => matches(row, validated, searchableText(row), groupMembers));
 
   matched.sort((a, b) => compareRows(a, b, validated.sortKey, validated.sortDirection));
 
@@ -1050,8 +1081,8 @@ function buildValidatedCatalogPage(
 
   // Facet counts describe the whole filtered set, not the page, so the UI can
   // show what another value would yield without a second request.
-  const facets = buildFacets(matched);
-  const domainTotal = buildFacets(rows).domains.length;
+  const facets = buildFacets(matched, groupOf);
+  const domainTotal = buildFacets(rows, groupOf).domains.length;
 
   return Object.freeze({
     workspace_id: validated.workspaceId,
@@ -1072,6 +1103,7 @@ function buildValidatedCatalogPage(
       namespace: validated.namespace,
       domain: validated.domain,
       framework: validated.framework,
+      group: validated.group,
       source: validated.source,
       l1: validated.l1,
     }),
@@ -1105,5 +1137,5 @@ export function getCatalog(
   const validated = validateOptions(options);
   const identity = assertCatalogServable(config);
   const reader = getRegistry(config);
-  return buildValidatedCatalogPage(reader, identity, validated);
+  return buildValidatedCatalogPage(reader, identity, validated, config);
 }

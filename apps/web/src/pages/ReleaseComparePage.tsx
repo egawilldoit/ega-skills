@@ -67,9 +67,9 @@ export function ReleaseComparePage(): ReactNode {
 
   return (
     <>
-      <p className="page__lede">
-        <Link to="/releases">All releases</Link>
-      </p>
+      <div className="backlink">
+        <Link to="/releases">← All releases</Link>
+      </div>
 
       <form className="compare-form" onSubmit={onSubmit}>
         <div className="field">

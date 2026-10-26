@@ -1,3 +1,35 @@
+# Ship One Outcome catalog candidate — local preparation only
+
+Release digest: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+Release candidate: `sha256:5c441c3f0d7f5acf0cbdf005e6b4db8d05105783c38f37b4939b3b0ae54a45bc`
+SQLite artifact: `sha256:7cc2d59db09b3d0276cd623967a99ea0873a1c350f9fd607362b942b3f076704`
+Hub: `personal`; 117 skills (anthropic 14, egawilldoit 67, mattpocock 27, vercel 9).
+
+Canonical `egawilldoit-skills`, namespace `egawilldoit`, advances to
+`8f264fc5fcb5691694c3653287f4d9370c5b025c` through approved UpdatePlan
+`sha256:2347ce33da9febb3bb8587ccf6e89cd7d34563a34aecbcef455e8ca0c2a7baf3`.
+112 existing versions are unchanged; four metadata-only versions update;
+`egawilldoit/ship-one-outcome` is added; no skills are removed.
+
+The release owner explicitly authorized these five versions for canonical
+adoption and local immutable preparation. Codex recorded that authorization
+through the supported governance CLI as operator, without claiming independent
+review. Existing approvals for the 112 unchanged versions remain in force.
+See `docs/evidence/catalog/ship-one-outcome/` for the exact plan, approval,
+preflight, full delta, validation and MCP evidence.
+
+Built using supported `hub update`, `hub release preflight`, `hub release preview`
+and `hub release export`; immutable files were copied byte-for-byte from export.
+The web discovery sidecar is separate from the immutable release and is
+regenerated against this exact candidate. No runtime or routing algorithm changes.
+
+This candidate is **not published**. PR merge, production registration, deployment
+and alias promotion remain reserved. The previous known-good catalog remains
+`sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`.
+Do not infer deployment from these committed candidate files.
+
+## Previous release provenance (historical)
+
 # Deployment artifact provenance — catalog-2026-10-06.1
 
 Built with the existing Contract C build (`buildHubRelease` / `hub release export`);

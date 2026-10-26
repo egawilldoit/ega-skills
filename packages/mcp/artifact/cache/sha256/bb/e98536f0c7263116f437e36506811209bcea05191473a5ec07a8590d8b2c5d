@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship One Outcome"
+  short_description: "Deliver one bounded outcome to its proven boundary"
+  default_prompt: "Use $ship-one-outcome to take this authorized outcome to its boundary."

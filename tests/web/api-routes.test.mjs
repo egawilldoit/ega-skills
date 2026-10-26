@@ -355,6 +355,7 @@ describe("every console route answers against the real artifact", () => {
       namespace: "anthropic",
       domain: null,
       framework: null,
+      group: null,
       source: null,
       l1: "MISSING",
     });
@@ -1064,6 +1065,7 @@ describe("response size, deadline and concurrency are bounded", () => {
       "analytics-usage",
       "audit-events",
       "catalog",
+      "discovery-inspection",
       "project-detail",
       "projects",
       "release-detail",

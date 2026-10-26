@@ -58,6 +58,8 @@ jobs:
       # staged copy in CI. `--check-only` writes no files.
       - name: Verify the web deployment artifact stages and verifies
         run: node scripts/web/stage-artifact.mjs --check-only
+      - name: Check generated catalog is not stale
+        run: pnpm catalog:check
 
       - name: Typecheck
         run: pnpm typecheck
@@ -258,6 +260,14 @@ jobs:
 
       - name: Contract F RLS suite
         run: node --test tests/rls/contract-f.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      # The catalog bootstrap's SQL is generated, so it is exercised against the
+      # real schema: idempotency, conflict refusal and the dependency-aware
+      # rollback are database behaviour and cannot be proved by reading a string.
+      - name: Catalog bootstrap (real PostgreSQL 16)
+        run: node --test tests/rls/catalog-bootstrap.rls.mjs
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 

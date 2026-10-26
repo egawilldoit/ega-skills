@@ -15,7 +15,7 @@
  *    unmount so a slow BFF query cannot resolve into a dead component.
  */
 
-import type { ApiError, ApiErrorEnvelope, ApiErrorKind } from "./contracts";
+import { isApiError, type ApiError, type ApiErrorEnvelope, type ApiErrorKind } from "./contracts.ts";
 // The explicit `.ts` extension is required, not stylistic: `tests/web`
 // imports this module directly through Node's type stripping, which resolves
 // specifiers with Node's ESM rules rather than Vite's. An extensionless
@@ -121,6 +121,7 @@ export const API_ENDPOINTS = {
   securityDenies: "/workspace/security/denies",
   analyticsUsage: () => "/analytics/usage",
   auditEvents: "/audit",
+  discovery: "/discovery",
 } as const;
 
 /* -------------------------------------------------------------------------- */
@@ -212,6 +213,27 @@ export function normalizeThrownError(cause: unknown): ApiError {
   return error("network", `Transport failure: ${detail}`, null, null);
 }
 
+/**
+ * Classify a thrown value, PRESERVING an error this module already produced.
+ *
+ * `get()` and `apiErrorFromResponse()` build complete, frozen `ApiError` objects
+ * and throw them. Those are plain objects, not `Error` instances, so a consumer
+ * that re-normalises them with {@link normalizeThrownError} destroys the kind,
+ * status, code and message and reports every refusal — a 401, a 403, a 503, a
+ * contract mismatch — as `kind: "network"` / "Transport failure: Unknown
+ * transport failure." That is exactly how a real, typed refusal disappeared and
+ * was rendered as "The console could not reach its own API."
+ *
+ * The already-typed value wins, and it is admitted only behind
+ * {@link isApiError}, which validates the entire shape rather than a lone
+ * `kind`. Everything else — a `TypeError` from `fetch`, an `AbortError`, or an
+ * arbitrary object — still goes through {@link normalizeThrownError}, so genuine
+ * transport and cancellation behaviour is unchanged.
+ */
+export function toApiError(cause: unknown): ApiError {
+  return isApiError(cause) ? cause : normalizeThrownError(cause);
+}
+
 /** Read the server's `ApiErrorEnvelope`, tolerating a non-envelope body. */
 export async function readErrorEnvelope(response: Response): Promise<ApiErrorEnvelope | null> {
   try {
@@ -292,7 +314,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         ...(signal ? { signal } : {}),
       });
     } catch (cause) {
-      throw normalizeThrownError(cause);
+      throw toApiError(cause);
     } finally {
       dispose();
     }

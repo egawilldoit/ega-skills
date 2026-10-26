@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 
-import { handleAnalyticsUsage } from "../../apps/web/server/governance.ts";
+import { handleAnalyticsUsage, utcDateBucket, MAX_DAILY_BUCKETS } from "../../apps/web/server/governance.ts";
 import { ConsoleApiError } from "../../apps/web/server/api.ts";
 
 const WORKSPACE = "11111111-1111-1111-1111-111111111111";
@@ -332,3 +332,153 @@ describe("pagination is complete and honestly reported", () => {
     assert.ok(Math.abs(days - 90) < 0.01, `expected a 90-day window, got ${days}`);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Daily execution counts (EGA-727)                                            */
+/* -------------------------------------------------------------------------- */
+
+describe("daily MCP execution counts (EGA-727)", () => {
+  const DAY = 86_400_000;
+  const atDaysAgo = (days) => new Date(NOW - days * DAY).toISOString();
+
+  test("the response always carries a daily array, and it sums to total_executions", async () => {
+    const telemetry = [
+      telemetryRow({ execution_id: "a", observed_at: atDaysAgo(2) }),
+      telemetryRow({ execution_id: "b", observed_at: atDaysAgo(2) }),
+      telemetryRow({ execution_id: "c", observed_at: atDaysAgo(1) }),
+      telemetryRow({ execution_id: "d", observed_at: atDaysAgo(0) }),
+      telemetryRow({ execution_id: "e", observed_at: atDaysAgo(0) }),
+      telemetryRow({ execution_id: "f", observed_at: atDaysAgo(0) }),
+    ];
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+    const daily = summary.telemetry.daily;
+
+    assert.ok(Array.isArray(daily), "the daily series must always be an array");
+    // Ascending by date, one bucket per UTC day, correct per-day sums.
+    assert.deepEqual(
+      daily.map((bucket) => bucket.date),
+      [utcDateBucket(atDaysAgo(2)), utcDateBucket(atDaysAgo(1)), utcDateBucket(atDaysAgo(0))],
+    );
+    assert.deepEqual(
+      daily.map((bucket) => bucket.executions),
+      [2, 1, 3],
+    );
+    // The chart's points are the authorized daily sums: they must reconcile with
+    // the headline total rather than being a second, drifting computation.
+    assert.equal(
+      daily.reduce((sum, bucket) => sum + bucket.executions, 0),
+      summary.telemetry.total_executions,
+    );
+  });
+
+  test("two instants on the same UTC date collapse into one bucket", async () => {
+    // Anchored to a fixed UTC midnight two days back so the times are always in
+    // the past and inside the window, and always on the same calendar day.
+    const anchor = new Date(NOW - 2 * DAY);
+    anchor.setUTCHours(0, 0, 0, 0);
+    const telemetry = [
+      telemetryRow({
+        execution_id: "am",
+        observed_at: new Date(anchor.getTime() + 3_600_000).toISOString(),
+      }),
+      telemetryRow({
+        execution_id: "pm",
+        observed_at: new Date(anchor.getTime() + 20 * 3_600_000).toISOString(),
+      }),
+    ];
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+
+    assert.equal(summary.telemetry.daily.length, 1, "same UTC date must be one bucket");
+    assert.equal(summary.telemetry.daily[0].date, utcDateBucket(anchor.toISOString()));
+    assert.equal(summary.telemetry.daily[0].executions, 2);
+  });
+
+  test("a row older than the window creates no bucket, so it cannot inflate a day", async () => {
+    const telemetry = [
+      telemetryRow({ execution_id: "recent" }),
+      telemetryRow({ execution_id: "ancient", observed_at: atDaysAgo(200) }),
+    ];
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+
+    assert.equal(summary.telemetry.daily.length, 1);
+    assert.equal(summary.telemetry.daily[0].date, utcDateBucket(atDaysAgo(0)));
+    assert.ok(
+      !summary.telemetry.daily.some((bucket) => bucket.date === utcDateBucket(atDaysAgo(200))),
+      "an out-of-window execution must not appear as a day",
+    );
+  });
+
+  test("an unrelated workspace's event is excluded by the query scope", async () => {
+    // RLS filters rows by the caller's workspace. The fixture models that by
+    // returning only this workspace's rows, and the assertion below pins the
+    // workspace filter so a handler that dropped it would fail here.
+    const seenFilters = [];
+    const reader = {
+      resolveCaller: async () => CALLER,
+      describeAvailability: () => "fixture",
+      async readAsCaller(_caller, table, options = {}) {
+        if (table !== "mcp_tool_executions") return [];
+        seenFilters.push(options.filters);
+        const mine = [telemetryRow({ execution_id: "mine", observed_at: atDaysAgo(1) })];
+        const offset = options.offset ?? 0;
+        return mine.slice(offset, offset + (options.limit ?? 50));
+      },
+    };
+    const summary = await handleAnalyticsUsage(context(), CALLER, reader);
+    const otherDay = utcDateBucket(atDaysAgo(2));
+
+    assert.equal(summary.telemetry.daily.length, 1);
+    assert.equal(summary.telemetry.daily[0].date, utcDateBucket(atDaysAgo(1)));
+    assert.ok(
+      !summary.telemetry.daily.some((bucket) => bucket.date === otherDay),
+      "a foreign workspace's day must not appear in the series",
+    );
+    assert.ok(
+      seenFilters.every((filters) =>
+        filters.some(
+          (filter) => filter.column === "workspace_id" && filter.values.includes(WORKSPACE),
+        ),
+      ),
+      "every daily read must be scoped to the workspace",
+    );
+  });
+
+  test("an empty window is a labeled absence, never a zero bucket", async () => {
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry: [] }));
+
+    assert.deepEqual([...summary.telemetry.daily], []);
+    assert.match(summary.telemetry.telemetry_unavailable_reason ?? "", /genuine zero/i);
+    assert.equal(
+      summary.telemetry.daily.some((bucket) => bucket.executions === 0),
+      false,
+      "a zero-valued bucket would render as a measured zero",
+    );
+  });
+
+  test("the series is bounded by the window's day span", async () => {
+    // Every day of the window, two rows each: the series cannot exceed the
+    // number of distinct UTC days the 90-day window can touch.
+    const telemetry = [];
+    for (let day = 0; day < 90; day += 1) {
+      telemetry.push(telemetryRow({ execution_id: `d${day}-a`, observed_at: atDaysAgo(day) }));
+      telemetry.push(telemetryRow({ execution_id: `d${day}-b`, observed_at: atDaysAgo(day) }));
+    }
+    const summary = await handleAnalyticsUsage(context(), CALLER, readerWith({ telemetry }));
+
+    assert.ok(
+      summary.telemetry.daily.length <= MAX_DAILY_BUCKETS,
+      `expected at most ${MAX_DAILY_BUCKETS} buckets, got ${summary.telemetry.daily.length}`,
+    );
+    assert.ok(summary.telemetry.daily.length <= 91, "a 90-day window spans at most 91 UTC days");
+    assert.equal(
+      summary.telemetry.daily.reduce((sum, bucket) => sum + bucket.executions, 0),
+      summary.telemetry.total_executions,
+    );
+  });
+
+  test("an unparseable instant contributes to no bucket", () => {
+    assert.equal(utcDateBucket("not-an-instant"), null);
+    assert.equal(utcDateBucket(""), null);
+  });
+});
+

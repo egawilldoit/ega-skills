@@ -9,18 +9,18 @@ Set on Vercel:
 EGA_HOSTED_ARTIFACT_DIR=./artifact
 ```
 
-## Provisioned release
+## Prepared release candidate
 
-- Catalog: `catalog-2026-10-06.1`
-- Release digest: `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`
-- Hub id: `personal`
-- Skills: 116 (mattpocock 27, anthropic 14, vercel 9, egawilldoit 66)
-- Parent catalog: `catalog-2026-09-29.2` → `9c8b0eb98cc608bdc727287fdeb285040fb2771a`
-  (114 skills, digest `sha256:1efdbc3d6a1153fce8ca30bad0ad10448bd8e7a0e36709b018355d311de31b77`)
-- Software: EGA Skills **2.0.1, unchanged** — this is a catalog-content release
-- Built by the governed hub intake → review → preview → export pipeline from the
-  pinned reviewed commits; see `PROVENANCE.md` for sources, the one documented
-  repair, routing overlays, and the reproduce/validate commands.
+- Release digest: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+- Hub: `personal`; 117 skills (mattpocock 27, anthropic 14, vercel 9, egawilldoit 67).
+- Source: `egawilldoit/skills@8f264fc5fcb5691694c3653287f4d9370c5b025c`.
+- Delta: 112 unchanged, four metadata-only updates, Ship One Outcome added, zero removed.
+- Parent catalog: `catalog-2026-10-06.1`, digest
+  `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`.
+- Software remains EGA Skills **2.0.1**. See `PROVENANCE.md` and the
+  `docs/evidence/catalog/ship-one-outcome/` receipts.
+- Local preparation is approved. PR merge and all production publication actions
+  require separate authorization. These files do not establish hosted availability.
 
 A valid artifact contains everything required by the current loader
 (`loadHostedReleaseSnapshot`), including:

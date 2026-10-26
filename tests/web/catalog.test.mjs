@@ -3,8 +3,8 @@
  *
  * ## The fixture is the real release
  *
- * These tests read the REAL committed artifact (`packages/mcp/artifact`, a
- * verified 114-skill release). Nothing is mocked: `loadHostedReleaseSnapshot`
+ * These tests read the REAL committed artifact (`packages/mcp/artifact`, the
+ * verified current release). Nothing is mocked: `loadHostedReleaseSnapshot`
  * runs its full verification, the SQLite file is opened read-only with
  * `query_only` enforced, and every row is read through Builder 2a's reader.
  *
@@ -26,9 +26,9 @@
  * ## What is asserted about sparse data
  *
  * The shipped release is genuinely sparse and the assertions say so:
- * `l1_status` is `MISSING` for all 114 skills because no `core`-role file
- * exists, `trust_level` is `UNKNOWN` for all 114, `source_type` is `local` for
- * all 114 with no repository or commit sha, and only 7 of 114 skills carry a
+ * `l1_status` is `MISSING` for all 117 skills because no `core`-role file
+ * exists, `trust_level` is `UNKNOWN` for all 117, `source_type` is `local` for
+ * all 117 with no repository or commit sha, and only 6 of 117 skills carry a
  * domain. Tests assert those real numbers. If a future release changes them,
  * the failure is a fact about the release and must be investigated, not
  * papered over by loosening the expectation.
@@ -297,9 +297,9 @@ describe("routing comes from the manifest, not the FTS projection", () => {
       handle.close();
     }
 
-    // 44 of the 114 skills carry anti_triggers in their manifest.
+    // 45 of the 117 skills carry anti_triggers in their manifest.
     const withAnti = fullCatalog().skills.filter((row) => row.anti_triggers.length > 0);
-    assert.equal(withAnti.length, 44);
+    assert.equal(withAnti.length, 45);
     const claudeApi = withAnti.find((row) => row.skill_id === "anthropic/claude-api");
     assert.ok(claudeApi, "anthropic/claude-api carries 9 anti_triggers in the shipped release");
     assert.equal(claudeApi.anti_triggers.length, 9);
@@ -353,9 +353,9 @@ describe("routing comes from the manifest, not the FTS projection", () => {
 
   test("in the shipped artifact the two sources happen to agree value for value", () => {
     // Reported honestly rather than as if a divergence had been found. In this
-    // release the projection is faithful for all 114 skills across all five
+    // release the projection is faithful for all 117 skills across all five
     // projected facets, so the sparse counts are the same from either source
-    // (7 domains, 1 platform, 1 framework, 71 triggers, 22 aliases). The
+    // (6 domains, 1 platform, 1 framework, 72 trigger-bearing skills, 22 aliases). The
     // reasons to prefer the manifest are therefore structural, not empirical:
     // the projection is a newline-joined search blob that has to be re-split,
     // it silently loses any value containing a newline, and it cannot carry
@@ -387,7 +387,7 @@ describe("routing comes from the manifest, not the FTS projection", () => {
   test("domain facets are derived from routing values, not from a namespace or name guess", () => {
     const page = fullCatalog();
     const withDomain = page.skills.filter((row) => row.domains.length > 0);
-    assert.equal(withDomain.length, 7);
+    assert.equal(withDomain.length, 6);
     // Every domain facet value is carried by at least one skill whose row
     // declares it, and no skill declares a domain outside the facet list.
     const declared = new Set(page.skills.flatMap((row) => [...row.domains]));
@@ -436,42 +436,42 @@ async function readerOver(snapshot, directory) {
 describe("facet counts report sparse reality", () => {
   test("domains, frameworks and platforms are far below the skill count", () => {
     const page = fullCatalog();
-    /** How many of the 114 skills carry at least one value of this facet. */
+    /** How many of the 117 skills carry at least one value of this facet. */
     const skillsWith = (field) => page.skills.filter((row) => row[field].length > 0).length;
 
     // The real shipped numbers, asserted as facts about the release.
-    assert.equal(page.facets.domains.length, 7);
-    assert.equal(skillsWith("domains"), 7);
+    assert.equal(page.facets.domains.length, 6);
+    assert.equal(skillsWith("domains"), 6);
     assert.equal(page.facets.frameworks.length, 1);
     assert.deepEqual([...page.facets.frameworks], [{ value: "typescript", skill_count: 1 }]);
     assert.equal(page.facets.platforms.length, 1);
     assert.deepEqual([...page.facets.platforms], [{ value: "web", skill_count: 1 }]);
-    assert.equal(page.facets.triggers.length, 266);
+    assert.equal(page.facets.triggers.length, 279);
     assert.equal(page.facets.aliases.length, 23);
-    assert.equal(page.domain_total, 7);
+    assert.equal(page.domain_total, 6);
 
     // The point of the architecture note: none of these may be mistaken for
-    // full coverage. A facet whose skills summed to 114 would be a lie.
+    // full coverage. A facet whose skills summed to 117 would be a lie.
     for (const field of ["domains", "frameworks", "platforms", "triggers", "aliases"]) {
       const covered = skillsWith(field);
       assert.ok(covered > 0, `${field} covers no skill; that would mean the facet was not read`);
       assert.ok(covered < COMMITTED_SKILL_COUNT, `${field} must not report full coverage in this release`);
     }
     // The exact sparse coverage of the shipped release.
-    assert.equal(skillsWith("triggers"), 71);
+    assert.equal(skillsWith("triggers"), 72);
     assert.equal(skillsWith("aliases"), 22);
-    assert.equal(skillsWith("anti_triggers"), 44);
+    assert.equal(skillsWith("anti_triggers"), 45);
 
     // Facet counts are per (value, skill), so a skill with two triggers
     // contributes to two entries, and two skills sharing a trigger value
     // contribute to one entry counted twice. Both happen in this release:
-    // 268 (skill, trigger) pairs over 266 distinct values, because "root cause"
+    // 281 (skill, trigger) pairs over 279 distinct values, because "root cause"
     // and "red green refactor" are each declared by two skills. That is why
     // coverage has to be counted from rows rather than by summing facet counts,
     // which would double-count multi-valued skills and read as full coverage.
     const triggerSum = page.facets.triggers.reduce((sum, facet) => sum + facet.skill_count, 0);
-    assert.equal(page.facets.triggers.length, 266, "distinct trigger values in this release");
-    assert.equal(triggerSum, 268, "(skill, trigger) pairs in this release");
+    assert.equal(page.facets.triggers.length, 279, "distinct trigger values in this release");
+    assert.equal(triggerSum, 281, "(skill, trigger) pairs in this release");
     assert.ok(triggerSum > COMMITTED_SKILL_COUNT, "a multi-valued facet's count sum legitimately exceeds the skill count");
     assert.deepEqual(
       page.facets.triggers.filter((facet) => facet.skill_count === 2).map((facet) => facet.value).sort(),
@@ -485,13 +485,13 @@ describe("facet counts report sparse reality", () => {
     assert.deepEqual(
       page.facets.namespaces.map((facet) => [facet.value, facet.skill_count]),
       [
-        ["egawilldoit", 66],
+        ["egawilldoit", 67],
         ["mattpocock", 27],
         ["anthropic", 14],
         ["vercel", 9],
       ],
     );
-    // All 114 skills report MISSING / UNKNOWN / local. Not one fabricated zero.
+    // All 117 skills report MISSING / UNKNOWN / local. Not one fabricated zero.
     assert.deepEqual(page.facets.l1_statuses, [{ value: "MISSING", skill_count: COMMITTED_SKILL_COUNT }]);
     assert.deepEqual(page.facets.trust_levels, [{ value: "UNKNOWN", skill_count: COMMITTED_SKILL_COUNT }]);
     assert.deepEqual(page.facets.sources, [{ value: "local", skill_count: COMMITTED_SKILL_COUNT }]);
@@ -508,13 +508,13 @@ describe("facet counts report sparse reality", () => {
     assert.deepEqual(page.facets.namespaces.map((facet) => facet.value), ["anthropic"]);
     assert.equal(page.applied_filters.namespace, "anthropic");
     assert.equal(page.applied_filters.q, null);
-    // All 7 domain-bearing skills live in the `egawilldoit` namespace, so the
+    // All 6 domain-bearing skills live in the `egawilldoit` namespace, so the
     // anthropic facet set is genuinely empty. Reported as empty rather than
     // back-filled with the unfiltered release's domains.
     assert.equal(page.skills.filter((row) => row.domains.length > 0).length, 0);
     assert.deepEqual([...page.facets.domains], []);
     // But `domain_total` is release-wide by definition, so it does not move.
-    assert.equal(page.domain_total, 7);
+    assert.equal(page.domain_total, 6);
   });
 });
 
@@ -533,9 +533,15 @@ describe("filters work and are bounded", () => {
   });
 
   test("domain and framework filters match manifest routing exactly", () => {
-    const byDomain = getCatalog(committedConfig(), { domain: "github", limit: CATALOG_MAX_LIMIT });
+    // The approved source metadata removed the over-broad `github` domain from
+    // get-pr-comments, so that filter is now genuinely empty.
+    const noGithub = getCatalog(committedConfig(), { domain: "github", limit: CATALOG_MAX_LIMIT });
+    assert.equal(noGithub.total, 0);
+    assert.deepEqual(noGithub.skills, []);
+
+    const byDomain = getCatalog(committedConfig(), { domain: "architecture", limit: CATALOG_MAX_LIMIT });
     assert.equal(byDomain.total, 1);
-    assert.equal(byDomain.skills[0].skill_id, "egawilldoit/get-pr-comments");
+    assert.equal(byDomain.skills[0].skill_id, "egawilldoit/design-architecture");
 
     const byFramework = getCatalog(committedConfig(), { framework: "typescript", limit: CATALOG_MAX_LIMIT });
     assert.equal(byFramework.total, 1);
@@ -856,11 +862,12 @@ describe("MCP search is not the source", () => {
     // would silently skip exactly the import most worth checking.
     const specifiers = [...source.matchAll(/\bfrom\s*["']([^"']+)["']/g)].map((match) => match[1]);
     assert.ok(specifiers.length > 0, "the module must import something");
-    // Only Builder 2a's modules and the shared DTO types. No @ega-skills/*
-    // package at all, so no hosted handler, no search tool, no MCP runtime.
+    // Only Builder 2a's modules, the presentation-group projection and the
+    // shared DTO types. No @ega-skills/* package at all, so no hosted handler,
+    // no search tool, no MCP runtime.
     assert.deepEqual(
       [...new Set(specifiers)].sort(),
-      ["../src/api/contracts.ts", "./env.ts", "./registry.ts", "./release-identity.ts"],
+      ["../src/api/contracts.ts", "./env.ts", "./presentation.ts", "./registry.ts", "./release-identity.ts"],
     );
     for (const banned of [
       // Call syntax, so a prose mention of a name in the module's rationale

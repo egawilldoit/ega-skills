@@ -2,7 +2,9 @@ schema_version: 1
 triggers:
   - "certify release"
   - "certify the release"
+  - "certify this release"
   - "release certification"
+  - "release readiness"
   - "is this release ready"
 anti_triggers:
   - "certify pr head"

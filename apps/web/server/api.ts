@@ -111,6 +111,7 @@ import type {
 import { buildWorkspaceRoutes } from "./workspace.ts";
 import { createProjectRoutes } from "./projects.ts";
 import { createGovernanceRoutes, handleAnalyticsUsage } from "./governance.ts";
+import { getDiscoveryInspection } from "./discovery.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Bounds                                                                      */
@@ -731,6 +732,7 @@ function catalogOptions(query: URLSearchParams): CatalogOptions {
     ["namespace", "namespace"],
     ["domain", "domain"],
     ["framework", "framework"],
+    ["group", "group"],
     ["source", "source"],
     ["l1", "l1"],
     ["sort", "sort"],
@@ -830,6 +832,11 @@ function handleReleaseDetail(context: ApiRouteContext): unknown {
     );
   }
   return getReleaseDetail(loadServerConfig(), digest);
+}
+
+function handleDiscovery(context: ApiRouteContext): unknown {
+  assertBoundedQuery(context.query);
+  return getDiscoveryInspection(loadServerConfig());
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1030,6 +1037,15 @@ export function installConsoleApi(
         const digest = segment(context, "releaseDigest");
         await authorizeArtifactRequest(context, lazyReader, { requestedDigests: [digest] });
         return handleReleaseDetail(context);
+      }),
+    },
+    {
+      id: "discovery-inspection",
+      path: "/discovery",
+      methods: ["GET"],
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleDiscovery(context);
       }),
     },
   );

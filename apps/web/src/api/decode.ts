@@ -418,6 +418,48 @@ export function decodeUsageSummary(value: unknown): Record<string, unknown> {
   requireFiniteNumber(value.request_count, what, "request_count");
   requireFiniteNumber(value.bandwidth_bytes, what, "bandwidth_bytes");
   requireArray(value.windows, what, "windows");
+  // CONTRACT-T1 telemetry is optional, but when present its daily series is the
+  // one the chart plots. Validated here so a malformed bucket is a controlled
+  // error panel rather than a chart drawn from an unvalidated value.
+  if (value.telemetry !== null && value.telemetry !== undefined) {
+    if (!isRecord(value.telemetry)) {
+      fail(what, `telemetry: expected an object or null, received ${describe(value.telemetry)}`);
+    }
+    requireFiniteNumber(value.telemetry.total_executions, what, "telemetry.total_executions");
+    const daily = requireArray(value.telemetry.daily, what, "telemetry.daily");
+    for (const [index, bucket] of daily.entries()) {
+      if (!isRecord(bucket)) {
+        fail(what, `telemetry.daily[${index}]: expected an object, received ${describe(bucket)}`);
+      }
+      requireString(bucket.date, what, `telemetry.daily[${index}].date`);
+      requireFiniteNumber(bucket.executions, what, `telemetry.daily[${index}].executions`);
+    }
+  }
+  return value;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Discovery inspection (/discovery)                                           */
+/* -------------------------------------------------------------------------- */
+
+export function decodeDiscoveryInspection(value: unknown): Record<string, unknown> {
+  const what = "discovery inspection";
+  if (!isRecord(value)) fail(what, `expected an object, received ${describe(value)}`);
+  // Only the digest keys the real producer emits, plus the BFF-added
+  // `served_release_digest` for round-tripped BFF output. Unknown variants
+  // (e.g. `catalog_release_digest`) are intentionally not accepted.
+  const digest =
+    value.release_digest ??
+    value.evaluated_release_digest ??
+    value.evaluated_catalog_digest ??
+    value.artifact_digest ??
+    value.served_release_digest;
+  if (typeof digest !== "string") {
+    fail(what, "release_digest: expected a string");
+  }
+  if (!isRecord(value.case) && value.case !== undefined) {
+    fail(what, `case: expected an object, received ${describe(value.case)}`);
+  }
   return value;
 }
 
@@ -440,6 +482,7 @@ export const RESPONSE_DECODERS: Readonly<Record<string, (value: unknown) => unkn
   "/workspace/security/denies": decodeSecurityDenies,
   "/audit": decodeAuditList,
   "/analytics/usage": decodeUsageSummary,
+  "/discovery": decodeDiscoveryInspection,
 });
 
 /**

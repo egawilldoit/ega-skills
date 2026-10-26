@@ -262,7 +262,7 @@
     },
     {
       "skill_id": "egawilldoit/certify-production-target",
-      "version_hash": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
+      "version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
       "name": "certify-production-target",
       "description": "Verify the exact production target before a high-impact mutation: project, database, server, environment, deployment, branch, SHA, and account or organization. Return TARGET_CERTIFIED, AMBIGUOUS_TARGET, WRONG_TARGET, or INSUFFICIENT_EVIDENCE. Use before deploys, destructive commands, production data changes, or any operation where hitting the wrong target is costly. AMBIGUOUS_TARGET is a hard stop for destructive or production mutation.",
       "domains": [],
@@ -273,13 +273,14 @@
         "certify the production target",
         "certify the target",
         "confirm the production environment",
+        "prove this is really live",
         "verify the production target"
       ],
       "aliases": []
     },
     {
       "skill_id": "egawilldoit/certify-release",
-      "version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
+      "version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
       "name": "certify-release",
       "description": "Certify a release against three separate gates, CODE, RUNTIME, and PRODUCT, and report the highest gate actually reached as CODE_READY, RUNTIME_READY, PRODUCT_READY, or BLOCKED. Use before calling a build production-ready, after a deploy, or when a release claim spans implementation, the running environment, and the real end-user path. This is the whole-release gate; use certify-pr-head for freshness of PR evidence, trace-artifact-provenance for source-to-artifact lineage, and certify-production-target for target identity before mutation.",
       "domains": [],
@@ -288,8 +289,10 @@
       "triggers": [
         "certify release",
         "certify the release",
+        "certify this release",
         "is this release ready",
-        "release certification"
+        "release certification",
+        "release readiness"
       ],
       "aliases": []
     },
@@ -362,7 +365,7 @@
     },
     {
       "skill_id": "egawilldoit/design-architecture",
-      "version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
+      "version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
       "name": "design-architecture",
       "description": "Design an architecture before implementation: current verified state, desired state, invariants, source of truth, state ownership, failure behavior, concurrency, migration path, backward compatibility, and validation strategy. Use for 'design this', 'architect this', a cross-cutting change, or non-trivial work where jumping straight to code would lock in the wrong shape.",
       "domains": [
@@ -452,12 +455,10 @@
     },
     {
       "skill_id": "egawilldoit/get-pr-comments",
-      "version_hash": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
+      "version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
       "name": "get-pr-comments",
       "description": "Fetch and summarize review comments on the active pull request, grouped by severity and actionability, with an ordered action list and open questions. Use when review feedback needs triage, or when you need to know exactly what reviewers asked for.",
-      "domains": [
-        "github"
-      ],
+      "domains": [],
       "platforms": [],
       "frameworks": [],
       "triggers": [
@@ -1047,6 +1048,28 @@
         "smoke suite",
         "smoke test",
         "smoke tests"
+      ],
+      "aliases": []
+    },
+    {
+      "skill_id": "egawilldoit/ship-one-outcome",
+      "version_hash": "sha256:b14717b483f475a5a91f295d1c3b67605a1f753cf6e13a23d97635757728b930",
+      "name": "ship-one-outcome",
+      "description": "Coordinate one bounded software delivery from an authorized outcome to its stated finish boundary: recovery, thin-path proof, integration, verification, and authorized merge, deployment, or acceptance. Use when a mission spans implementation through delivery evidence, or when a worker's completion claim must be proven integrated. Not for a single small edit, standalone PR review, CI repair, or investigation; use the narrower specialist skill.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [
+        "bounded delivery end to end",
+        "bounded delivery outcome",
+        "deliver this outcome",
+        "deliver this outcome to its boundary",
+        "end to end delivery mission",
+        "finish this authorized delivery",
+        "outcome to its boundary",
+        "prove the worker changes were integrated",
+        "resume a stalled delivery handoff",
+        "ship one outcome"
       ],
       "aliases": []
     },

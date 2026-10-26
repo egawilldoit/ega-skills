@@ -8,6 +8,7 @@ import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { DataTable, Field, type Column } from "../components/DataTable";
+import { DailyMcpExecutionsChart } from "../components/DailyMcpExecutionsChart";
 import { EmptyState, ResourceSection, UnavailableState } from "../components/StatePanel";
 
 /**
@@ -31,10 +32,11 @@ import { EmptyState, ResourceSection, UnavailableState } from "../components/Sta
  * the server's own reason rather than showing zeros, so an absent series is
  * never presented as genuine zero usage.
  *
- * The console draws no chart. A chart needs a series it can trust, and this
- * deployment has no verified series yet; the numbers below are the raw rows the
- * API returned, and the totals are the API's own rollup, not a client
- * computation.
+ * The console draws one chart — a daily execution-count series for the
+ * CONTRACT-T1 telemetry section, and only when the server actually returned
+ * points. It is never a placeholder: a window with no recorded executions
+ * renders the empty state, not an axis. The chart is paired with an accessible
+ * table carrying the same points, so the series is never chart-only.
  */
 export function UsagePage(): ReactNode {
   const client = useApiClient();
@@ -78,23 +80,11 @@ export function UsagePage(): ReactNode {
             <h2 id="telemetry-section">MCP Read-Path Usage Telemetry (CONTRACT-T1)</h2>
             {data.telemetry && data.telemetry.total_executions > 0 ? (
               <>
-                <div className="telemetry-funnel" style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>1. Searched (Discovery)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.searched}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>2. Resolved (Resolution)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.resolved}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>3. Inspected (Metadata)</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.inspected}</div>
-                  </div>
-                  <div className="metric-card" style={{ flex: 1, padding: "1rem", border: "1px solid var(--border)", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "0.875rem", color: "var(--muted)" }}>4. Content Retrieved</div>
-                    <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{data.telemetry.funnel.content_retrieved}</div>
-                  </div>
+                <div className="telemetry-funnel">
+                  <FunnelMetric label="1. Searched (Discovery)" value={data.telemetry.funnel.searched} />
+                  <FunnelMetric label="2. Resolved (Resolution)" value={data.telemetry.funnel.resolved} />
+                  <FunnelMetric label="3. Inspected (Metadata)" value={data.telemetry.funnel.inspected} />
+                  <FunnelMetric label="4. Content Retrieved" value={data.telemetry.funnel.content_retrieved} />
                 </div>
 
                 <dl className="fields">
@@ -114,6 +104,15 @@ export function UsagePage(): ReactNode {
                     {`search: ${data.telemetry.tools.search}, resolve: ${data.telemetry.tools.resolve}, inspect: ${data.telemetry.tools.inspect}, get_content: ${data.telemetry.tools.get_content}`}
                   </Field>
                 </dl>
+
+                {data.telemetry.daily.length > 0 ? (
+                  <DailyMcpExecutionsChart
+                    daily={data.telemetry.daily}
+                    partial={data.telemetry.partial}
+                    windowStarted={data.telemetry.window_started}
+                    windowEndsAt={data.telemetry.window_ends_at}
+                  />
+                ) : null}
               </>
             ) : (
               <EmptyState
@@ -192,8 +191,23 @@ export function UsagePage(): ReactNode {
   );
 }
 
-const WINDOW_COLUMNS: readonly Column<UsageSummary["windows"][number]>[] = [
-  {
+/** One step of the read path, with its measured count. */
+function FunnelMetric({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: number;
+}): ReactNode {
+  return (
+    <div className="metric-card">
+      <div className="metric-card__label">{label}</div>
+      <div className="metric-card__value">{value.toLocaleString("en-US")}</div>
+    </div>
+  );
+}
+
+const WINDOW_COLUMNS: readonly Column<UsageSummary["windows"][number]>[] = [  {
     key: "window_started",
     label: "Window started",
     render: (row) => <time dateTime={row.window_started}>{row.window_started}</time>,

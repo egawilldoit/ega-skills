@@ -52,6 +52,10 @@ import {
   parseSourcesYaml,
   adoptedSourcePath,
   verifySourcesLock,
+  requireReadableJournal,
+  parseHubYaml,
+  verifyHubCoverage,
+  HubError,
   createProjectContext,
   digestProjectLock,
   hashNormalizedConfig,
@@ -121,14 +125,17 @@ async function readAdoptedVersions(hubDir: string, sourceId: string, namespace: 
   const registryHome = mkdtempSync(join(tmpdir(), "ega-cli-adopted-check-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: registryHome }, userHome: tmpdir() });
   try {
-    const summary = await importSkills(registry, { namespace, path: adoptedSourcePath(hubDir, sourceId) });
-    if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
     const versions: Record<string, string> = {};
     const skillTreeDigests: Record<string, string> = {};
+    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
+    const selected = discoverSkillDirs(adoptedPath, roots);
+    for (const rel of selected) {
+      const summary = await importSkills(registry, { namespace, path: join(adoptedPath, rel) });
+      if (summary.failed > 0) throw new Error(`adopted source validation failed: ${summary.failures[0]?.error ?? "unknown"}`);
+    }
     const rows = registry.db.prepare("SELECT skill_id, current_version_hash FROM skills WHERE namespace = ? ORDER BY skill_id").all(namespace) as { skill_id: string; current_version_hash: string }[];
     for (const row of rows) versions[row.skill_id] = row.current_version_hash;
-    const adoptedPath = adoptedSourcePath(hubDir, sourceId);
-    for (const rel of discoverSkillDirs(adoptedPath, roots)) {
+    for (const rel of selected) {
       const skillId = `${namespace}/${rel.split("/").pop() as string}`;
       skillTreeDigests[skillId] = digestStagedTree(adoptedPath, [rel]).treeDigest;
     }
@@ -173,9 +180,38 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
   const source = config.sources[options.sourceId];
   const adopted = lock.sources[options.sourceId];
   if (!source || !adopted) throw new Error(`Unknown adopted Hub source: ${options.sourceId}`);
-  const prefix = `${source.namespace}/`;
+  // Proposed selection/ref changes do not redefine the adopted snapshot.
+  // Reconstruct only this source's old intent and verify its lock identity;
+  // unrelated config mismatches and source/namespace substitutions fail closed.
+  if (source.repository !== adopted.repository || source.namespace !== adopted.namespace) {
+    throw new HubError("E_LOCK_MISMATCH", "hub check cannot substitute an adopted source repository or namespace");
+  }
+  const adoptedConfig = {
+    ...config,
+    sources: {
+      ...config.sources,
+      [options.sourceId]: {
+        type: "git",
+        repository: adopted.repository,
+        ref: adopted.requested_ref,
+        namespace: adopted.namespace,
+        selection: adopted.selection,
+        provenanceFiles: adopted.provenance_files,
+      },
+    },
+  };
+  verifySourcesLock(adoptedConfig, lock);
+  requireReadableJournal(hubDir);
+  verifyHubCoverage(parseHubYaml(readFileSync(hubFile(hubDir, "hub.yaml"), "utf8")), adoptedConfig);
+  for (const [sourceId, record] of Object.entries(lock.sources)) {
+    const fresh = digestStagedTree(adoptedSourcePath(hubDir, sourceId), record.selection.roots);
+    if (fresh.treeDigest !== record.selected_skill_tree_digest || fresh.snapshotDigest !== record.vendored_snapshot_digest) {
+      throw new HubError("E_TREE_DIGEST", `adopted tree for ${sourceId} no longer matches its lock digests`);
+    }
+  }
+  const prefix = `${adopted.namespace}/`;
   const versions: Record<string, string> = {};
-  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, source.namespace, source.selection.roots);
+  const skillTreeDigests = readAdoptedSkillTreeDigests(hubDir, options.sourceId, adopted.namespace, adopted.selection.roots);
   try {
     verifySourcesLock(config, lock);
     const build = await buildHub(hubDir);
@@ -186,7 +222,7 @@ export async function runHubCheck(options: HubCheckCommandOptions) {
     // A deliberate sources.yaml selection change is a proposal input. The
     // adopted lock remains the old authority until its plan is applied.
     if (!(error instanceof Error) || !error.message.includes("source_config_digest mismatch")) throw error;
-    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, source.namespace, source.selection.roots);
+    const adoptedView = await readAdoptedVersions(hubDir, options.sourceId, adopted.namespace, adopted.selection.roots);
     Object.assign(versions, adoptedView.versions);
     Object.assign(skillTreeDigests, adoptedView.skillTreeDigests);
   }

@@ -31,6 +31,7 @@ function stages() {
     { name: "build", command: [PNPM, "build"] },
     { name: "typecheck", command: [PNPM, "typecheck"] },
     { name: "specs:check", command: [PNPM, "specs:check"] },
+    { name: "catalog:check", command: [PNPM, "catalog:check"] },
     { name: "contracts:check-a", command: [PNPM, "contracts:check-a"] },
     { name: "contracts:check-b", command: [PNPM, "contracts:check-b"] },
     { name: "contracts:check-c", command: [PNPM, "contracts:check-c"] },

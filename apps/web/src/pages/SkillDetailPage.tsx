@@ -189,9 +189,9 @@ export function SkillDetailPage(): ReactNode {
     >
       {(data) => (
         <>
-          <p className="page__lede">
-            <Link to="/skills">All skills</Link>
-          </p>
+          <div className="backlink">
+            <Link to="/skills">← All skills</Link>
+          </div>
           {data.release === null ? (
             <EmptyState
               title="Release not identified"
@@ -218,6 +218,9 @@ export function SkillDetailPage(): ReactNode {
             <Field label="Description">{data.summary.description}</Field>
             <Field label="Schema version" mono>
               {data.summary.schema_version}
+            </Field>
+            <Field label="Release-pinned version hash" mono>
+              <span title={data.summary.version_hash}>{shortDigest(data.summary.version_hash)}</span>
             </Field>
             <Field label="Content digest" mono>
               {data.summary.content_digest}
@@ -370,6 +373,7 @@ export function SkillDetailPage(): ReactNode {
             columns={fileColumns}
             rows={data.files}
             rowKey={(row) => row.path}
+            minWidth="820px"
           />
         </>
       )}
