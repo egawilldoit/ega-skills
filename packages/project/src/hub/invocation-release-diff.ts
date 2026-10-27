@@ -1,8 +1,9 @@
-// I1 release-diff v2. Both envelopes and their policies must be verified;
-// the diff is never evidence for either side on its own.
+// I1 release-diff v2. Both semantic envelopes must verify; an I1 candidate
+// additionally requires its policy. A prior retained I1 envelope need not
+// carry its policy in the new candidate, which only binds its prior identity.
 import { createEnvelope, verifyEnvelope } from "@ega-skills/hashing";
 import { HubError } from "./errors.js";
-import { verifyInvocationRelease, type InvocationHubRelease } from "./invocation-release.js";
+import { verifyInvocationRelease, verifyInvocationReleaseEnvelope, type InvocationHubRelease } from "./invocation-release.js";
 import { DEFAULT_RELEASE_CONTRACTS, verifyHubRelease, type HubRelease } from "./release.js";
 import { createReleaseDiff, type ReleaseDiffPayload } from "./release-diff.js";
 
@@ -19,9 +20,10 @@ export type InvocationReleaseDiff = {
   };
 };
 
-function checked(side: InvocationReleaseSide): HubRelease | InvocationHubRelease {
+function checked(side: InvocationReleaseSide, prior: boolean): HubRelease | InvocationHubRelease {
   if (side.release !== null && typeof side.release === "object" && (side.release as { schema_version?: unknown }).schema_version === 2) {
-    verifyInvocationRelease(side.release, side.policy);
+    if (prior && side.policy === undefined) verifyInvocationReleaseEnvelope(side.release);
+    else verifyInvocationRelease(side.release, side.policy);
     return side.release;
   }
   verifyHubRelease(side.release);
@@ -42,8 +44,8 @@ function identity(release: HubRelease | InvocationHubRelease): { digest: string;
 
 /** Compute from independently verified release envelopes, never from a supplied diff. */
 export function createInvocationReleaseDiff(previous: InvocationReleaseSide, candidate: InvocationReleaseSide): InvocationReleaseDiff {
-  const a = checked(previous);
-  const b = checked(candidate);
+  const a = checked(previous, true);
+  const b = checked(candidate, false);
   if (a.schema_version === 1 && b.schema_version === 1) throw new HubError("E_RELEASE_SCHEMA", "I1 diff requires at least one I1 release");
   const common = createReleaseDiff(asV1(a), asV1(b)).payload;
   const payload = {

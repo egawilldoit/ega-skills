@@ -106,8 +106,10 @@ async function twoSkillWorld(t) {
 
 test("I1 resolver separates incidental names, accepts reviewed intent and preserves policy precedence", async (t) => {
   const world = await isolatedWorld(t);
-  await writeSkill(world.src, "council");
-  assert.equal((await importAll(world.env, world.src, "demo")).imported, 1);
+  await writeSkill(world.src, "council", { egaYaml: yaml("frameworks: [react]\n"), body: `# council\n${"unrelated padding ".repeat(300)}` });
+  await writeSkill(world.src, "helper", { egaYaml: yaml("frameworks: [react]\n") });
+  await writeFile(join(world.proj, "package.json"), JSON.stringify({ dependencies: { react: "^19.0.0" } }));
+  assert.equal((await importAll(world.env, world.src, "demo")).imported, 2);
   const id = "demo/council";
   const version = currentHash(world.env, id);
   const digest = `sha256:${"a".repeat(64)}`;
@@ -118,12 +120,16 @@ test("I1 resolver separates incidental names, accepts reviewed intent and preser
     bindings: [{ source_id: "demo", skill_id: id, version_hash: version, rules: [{ id: "review", alternatives: [[{ literal: "review" }, { literal: "with" }, { literal: "council" }]] }] }],
   } });
   const base = createEnvelope({ object_type: "ega.hub-release", schema_version: 1, payload: {
-    hub_id: "test", skill_versions: { [id]: version }, alias_map_digest: digest, search_index_input_digest: digest, token_artifact_digest: digest,
+    hub_id: "test", skill_versions: { [id]: version, "demo/helper": currentHash(world.env, "demo/helper") }, alias_map_digest: digest, search_index_input_digest: digest, token_artifact_digest: digest,
     adopted_sources: [{ source_id: "demo", source_config_digest: digest, resolved_commit: commit, selected_skill_tree_digest: digest, vendored_snapshot_digest: digest }],
     contracts: DEFAULT_RELEASE_CONTRACTS, build: { fresh_registry: true, import_failures: 0, expected_catalog_match: true },
   } });
   const invocation = { release: createInvocationRelease(base, policy), policy };
   const input = { projectPath: world.proj, env: world.env, invocation };
+  const isolated = await resolveSkills({ ...input, task: "unfindable" });
+  const withoutCouncil = await resolveSkills({ ...input, task: "unfindable", policy: { deniedSkills: [id] } });
+  assert.ok(isolated.candidates.some((row) => row.id === "demo/helper"));
+  assert.deepEqual(isolated.candidates.find((row) => row.id === "demo/helper")?.reasons, withoutCouncil.candidates.find((row) => row.id === "demo/helper")?.reasons);
   const unrelated = await resolveSkills({ ...input, task: "design a city council database" });
   assert.equal(unrelated.routerContractVersion, 2);
   assert.deepEqual(unrelated.selected, []);

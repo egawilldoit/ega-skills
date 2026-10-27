@@ -78,4 +78,6 @@ test("I1 release binds policy, source commit and exact skill versions while V1 r
   assert.throws(() => verifyInvocationReleaseDiff(diff, candidate, previous));
   assert.equal(createInvocationReleaseDiff(candidate, candidate).payload.status, "UNCHANGED");
   assert.equal(createInvocationReleaseDiff(candidate, previous).payload.invocation_policy.candidate, null);
+  assert.equal(createInvocationReleaseDiff({ release: v2 }, previous).digest, createInvocationReleaseDiff(candidate, previous).digest);
+  assert.throws(() => createInvocationReleaseDiff(previous, { release: v2 }), { code: "E_INVOCATION_POLICY_INVALID" });
 });

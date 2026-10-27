@@ -426,7 +426,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     if (input.invocation !== undefined && locked === null) {
       for (const row of rows) {
         const binding = bindings.get(row.canonicalId);
-        if (binding !== undefined && row.versionHash !== binding.version_hash) throw new InvocationPolicyError(`registry version mismatch: ${row.canonicalId}`);
+        if (binding !== undefined && row.versionHash !== binding.version_hash) throw new InvocationPolicyError("registry version mismatch");
       }
     }
     const knownSkills = loaded.knownSkills;
@@ -461,28 +461,29 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     const byId = new Map(rows.map((row) => [row.canonicalId, row]));
     const ftsHits = searchSkills(registry.db, input.task, locked !== undefined && locked !== null ? { locked } : {});
     const ftsOrder = ftsHits.map((hit) => hit.skillId).filter((id) => byId.has(id));
-    const tiered = assignTiers({
-      candidates: filtered.passed.map((row) => {
+    const tierCandidates = filtered.passed.map((row) => {
         const full = byId.get(row.canonicalId);
         if (full === undefined) throw new Error(`Internal resolver error: missing L0 for ${row.canonicalId}.`);
         const binding = bindings.get(full.canonicalId);
         const match = binding === undefined ? null : matchInvocationIntent(input.task, binding.rules);
         return { ...toTierCandidate(full), ...(match === null ? {} : { workflowIntent: `${full.canonicalId}:${match}` }) };
-      }),
+      });
+    const rankInput = {
       task: input.task,
       projectFrameworks: fingerprint.frameworks,
       projectPlatforms: fingerprint.platforms,
       prefer: policy.prefer ?? [],
       ftsOrder,
-    });
-
-    const separated = tiered.ranked.filter((row) => {
-      const full = byId.get(row.id);
-      return bindings.has(row.id) && (full?.modelInvocation === "user_only" || !row.evidence.some((evidence) => evidence.category === "WORKFLOW_INTENT"));
-    });
-    const separatedIds = new Set(separated.map((row) => row.id));
+    };
+    const separatedIds = new Set(tierCandidates.filter((row) => bindings.has(row.canonicalId) &&
+      (byId.get(row.canonicalId)?.modelInvocation === "user_only" || row.workflowIntent === undefined)).map((row) => row.canonicalId));
+    // Separated rows must not affect eligible peer scoring, and their own
+    // appended order is the original V1 order without workflow evidence.
+    const separated = separatedIds.size === 0 ? [] : assignTiers({ ...rankInput, candidates: tierCandidates.map(({ workflowIntent: _intent, ...row }) => row) }).ranked.filter((row) => separatedIds.has(row.id));
+    const separatedIntent = new Map(tierCandidates.filter((row) => separatedIds.has(row.canonicalId) && row.workflowIntent !== undefined).map((row) => [row.canonicalId, row.workflowIntent!]));
+    const tiered = assignTiers({ ...rankInput, candidates: tierCandidates.filter((row) => !separatedIds.has(row.canonicalId)) });
     const redundancy = suppressRedundant({
-      rows: tiered.ranked.filter((row) => !separatedIds.has(row.id)).map((row) => {
+      rows: tiered.ranked.map((row) => {
         const full = byId.get(row.id);
         if (full === undefined) throw new Error(`Internal resolver error: missing L0 for ${row.id}.`);
         return { id: row.id, name: full.portableName, versionHash: full.versionHash, tier: row.tier === "E" ? "C" : row.tier, evidence: row.evidence, governed: bindings.has(row.id) };
@@ -571,12 +572,15 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
       const full = byId.get(row.id);
       if (full === undefined || (row.evidence.length === 0 && full.modelInvocation !== "user_only")) continue;
       const reasons = [...row.reasons];
+      const intent = separatedIntent.get(row.id);
+      if (intent !== undefined) reasons.push("WORKFLOW_INTENT_MATCH");
       const intentIndex = reasons.indexOf("WORKFLOW_INTENT_MATCH");
       if (locked !== null) reasons.splice(intentIndex < 0 ? reasons.length : intentIndex, 0, "LOCKED_VERSION");
       if (fingerprint.workspaceAmbiguous) reasons.push("WORKSPACE_AMBIGUOUS");
       if (full.modelInvocation === "user_only") reasons.push("USER_INVOCATION_ONLY");
-      if (!row.evidence.some((evidence) => evidence.category === "WORKFLOW_INTENT")) reasons.push("INVOCATION_UNCONFIRMED");
-      candidates.push(toResolved({ ...row, name: full.portableName, versionHash: full.versionHash, recommendedContentLevel: full.l1Status === "AUTHORED" && full.l1Tokens !== null ? "L1" : "L2", reasons }));
+      if (intent === undefined) reasons.push("INVOCATION_UNCONFIRMED");
+      const evidence = intent === undefined ? row.evidence : [...row.evidence, { category: "WORKFLOW_INTENT" as const, value: intent }];
+      candidates.push(toResolved({ ...row, evidence, name: full.portableName, versionHash: full.versionHash, recommendedContentLevel: full.l1Status === "AUTHORED" && full.l1Tokens !== null ? "L1" : "L2", reasons }));
     }
     const autoRejects = [...filtered.rejected, ...redundancy.suppressed]
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))

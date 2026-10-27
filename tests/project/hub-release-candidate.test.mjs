@@ -10,15 +10,20 @@ import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js"
 import {
   approvalSetDigest,
   buildHubRelease,
+  buildInvocationHubRelease,
   createArtifactCandidate,
   createReleaseCandidate,
   createReleaseDiff,
   createReleasePackage,
+  createInvocationCandidate,
+  createInvocationReleaseDiff,
   exportReleaseCandidate,
   exportLegacyReleaseCandidate,
   verifyReleaseCandidate,
+  verifyInvocationCandidate,
   writeArtifactCandidate,
   writeReleaseCandidate,
+  writeInvocationCandidate,
 } from "../../packages/project/dist/index.js";
 
 const requireFromProject = createRequire(new URL("../../packages/project/package.json", import.meta.url));
@@ -37,6 +42,33 @@ function makeHub() {
   writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
   return hub;
 }
+
+test("I1 candidate verifies policy, previous envelope, release artifacts and approvals", async (t) => {
+  const hub = makeHub();
+  const workspace = mkdtempSync(join(tmpdir(), "ega-i1-candidate-test-"));
+  t.after(() => { rmSync(hub, { recursive: true, force: true }); rmSync(workspace, { recursive: true, force: true }); });
+  const baseline = await buildHubRelease(hub);
+  const policy = createEnvelope({ object_type: "ega.invocation-policy", schema_version: 1, payload: { profile: "ega-invocation-policy-v1", sources: [], bindings: [] } });
+  const build = await buildInvocationHubRelease(hub, policy);
+  const preflight = governedPublication(baseline).preflight;
+  const diff = createInvocationReleaseDiff({ release: baseline.release }, { release: build.release, policy });
+  const candidate = createInvocationCandidate(build, policy, baseline.release, preflight, diff);
+  const source = join(workspace, "candidate");
+  assert.equal(writeInvocationCandidate(build, source, candidate, baseline.release, preflight, diff).release.digest, build.release.digest);
+  assert.throws(() => verifyReleaseCandidate(source));
+  for (const file of ["invocation-policy.json", "previous-hub-release.json", "publication-preflight.json", "release-diff.json", "registry.sqlite"]) {
+    const dir = join(workspace, `missing-${file}`);
+    cpSync(source, dir, { recursive: true });
+    rmSync(join(dir, file));
+    assert.throws(() => verifyInvocationCandidate(dir), `missing ${file} must fail`);
+  }
+  const changed = join(workspace, "changed");
+  cpSync(source, changed, { recursive: true });
+  const prior = JSON.parse(readFileSync(join(changed, "previous-hub-release.json"), "utf8"));
+  prior.payload.hub_id = "substituted";
+  writeFileSync(join(changed, "previous-hub-release.json"), JSON.stringify(prior));
+  assert.throws(() => verifyInvocationCandidate(changed));
+});
 
 function rewriteSQLiteDigest(build) {
   const database = new Database(join(build.registryHome, "registry.sqlite"));

@@ -14,9 +14,8 @@ export type InvocationHubRelease = {
   };
 };
 
-/** Verify the policy against the semantic release, not just its own digest. */
-export function verifyInvocationRelease(release: unknown, policy: unknown, artifacts?: ReleaseArtifacts): asserts release is InvocationHubRelease {
-  const checkedPolicy = validateInvocationPolicy(policy);
+/** Verify the complete semantic envelope; this alone cannot activate a release. */
+export function verifyInvocationReleaseEnvelope(release: unknown, artifacts?: ReleaseArtifacts): asserts release is InvocationHubRelease {
   if (release === null || typeof release !== "object" || Array.isArray(release)) throw new InvocationPolicyError("release must be an object");
   const envelope = release as Record<string, unknown>;
   if (JSON.stringify(Object.keys(envelope).sort()) !== JSON.stringify(["digest", "object_type", "payload", "schema_version"]) ||
@@ -26,8 +25,8 @@ export function verifyInvocationRelease(release: unknown, policy: unknown, artif
   const payload = envelope["payload"];
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new InvocationPolicyError("invalid I1 release payload");
   const record = payload as Record<string, unknown>;
-  if (record["invocation_profile"] !== INVOCATION_PROFILE || record["invocation_policy_digest"] !== checkedPolicy.digest) {
-    throw new InvocationPolicyError("release policy identity mismatch");
+  if (record["invocation_profile"] !== INVOCATION_PROFILE || typeof record["invocation_policy_digest"] !== "string" || !/^sha256:[0-9a-f]{64}$/.test(record["invocation_policy_digest"])) {
+    throw new InvocationPolicyError("invalid release policy identity");
   }
   const contracts = record["contracts"];
   if (contracts === null || typeof contracts !== "object" || Array.isArray(contracts) ||
@@ -44,12 +43,19 @@ export function verifyInvocationRelease(release: unknown, policy: unknown, artif
   } catch (error) {
     throw new InvocationPolicyError(`invalid I1 release payload or artifacts: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const sources = new Map(v1.payload.adopted_sources.map((source) => [source.source_id, source]));
+}
+
+/** Verify the policy against the semantic release, not just its own digest. */
+export function verifyInvocationRelease(release: unknown, policy: unknown, artifacts?: ReleaseArtifacts): asserts release is InvocationHubRelease {
+  const checkedPolicy = validateInvocationPolicy(policy);
+  verifyInvocationReleaseEnvelope(release, artifacts);
+  if (release.payload.invocation_policy_digest !== checkedPolicy.digest) throw new InvocationPolicyError("release policy identity mismatch");
+  const sources = new Map(release.payload.adopted_sources.map((source) => [source.source_id, source]));
   for (const source of checkedPolicy.payload.sources) {
     if (sources.get(source.source_id)?.resolved_commit !== source.resolved_commit) throw new InvocationPolicyError(`source binding mismatch: ${source.source_id}`);
   }
   for (const binding of checkedPolicy.payload.bindings) {
-    if (v1.payload.skill_versions[binding.skill_id] !== binding.version_hash) throw new InvocationPolicyError(`skill binding mismatch: ${binding.skill_id}`);
+    if (release.payload.skill_versions[binding.skill_id] !== binding.version_hash) throw new InvocationPolicyError(`skill binding mismatch: ${binding.skill_id}`);
   }
 }
 
