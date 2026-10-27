@@ -124,3 +124,27 @@ test("hosted explicit skill requests cannot bypass a deny", async () => {
   assert.equal(content.result.isError, true);
   assert.doesNotMatch(JSON.stringify(content.result), /Use alpha when needed/);
 });
+
+test("hosted resolve advertises and accepts explicit skill references", async () => {
+  const build = await buildHubRelease(makeHub());
+  const snapshot = loadHostedReleaseSnapshot(build.registryHome);
+  const handler = createHostedMcpHandler(snapshot, {
+    allowedOrigins: ["http://localhost"],
+    verifyBearer: async () => ({ subject: "user-1", scopes: ["ega:read"] }),
+    authorize: async () => true,
+  });
+  const listed = await rpc(handler, 1, "tools/list");
+  const resolve = listed.result.tools.find((tool) => tool.name === "resolve");
+  assert.deepEqual(resolve.inputSchema.properties.explicit_skills, {
+    type: "array", items: { type: "string" },
+  });
+  const resolved = await rpc(handler, 2, "tools/call", {
+    name: "resolve", arguments: { task: "unrelated task", explicit_skills: ["ega/beta"] },
+  });
+  assert.notEqual(resolved.result.isError, true, JSON.stringify(resolved.result));
+  assert.ok(resolved.result.structuredContent.result.explicit.some((entry) => entry.id === "ega/beta"));
+  const invalid = await rpc(handler, 3, "tools/call", {
+    name: "resolve", arguments: { task: "task", explicit_skills: Array(11).fill("ega/beta") },
+  });
+  assert.equal(invalid.result.isError, true);
+});
