@@ -39,7 +39,11 @@ export function verifyInvocationRelease(release: unknown, policy: unknown, artif
   const { invocation_profile: _profile, invocation_policy_digest: _digest, ...base } = record;
   const v1Payload = { ...base, contracts: DEFAULT_RELEASE_CONTRACTS };
   const v1 = createEnvelope({ object_type: "ega.hub-release", schema_version: 1, payload: v1Payload });
-  verifyHubRelease(v1, artifacts);
+  try {
+    verifyHubRelease(v1, artifacts);
+  } catch (error) {
+    throw new InvocationPolicyError(`invalid I1 release payload or artifacts: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const sources = new Map(v1.payload.adopted_sources.map((source) => [source.source_id, source]));
   for (const source of checkedPolicy.payload.sources) {
     if (sources.get(source.source_id)?.resolved_commit !== source.resolved_commit) throw new InvocationPolicyError(`source binding mismatch: ${source.source_id}`);

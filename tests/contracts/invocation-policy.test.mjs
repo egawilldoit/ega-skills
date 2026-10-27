@@ -62,7 +62,7 @@ test("I1 release binds policy, source commit and exact skill versions while V1 r
     const changed = structuredClone(v2.payload);
     change(changed);
     const resigned = createEnvelope({ object_type: "ega.hub-release", schema_version: 2, payload: changed });
-    assert.throws(() => verifyInvocationRelease(resigned, reviewed));
+    assert.throws(() => verifyInvocationRelease(resigned, reviewed), { code: "E_INVOCATION_POLICY_INVALID" });
   }
   assert.throws(() => verifyInvocationRelease(v2, undefined), { code: "E_INVOCATION_POLICY_INVALID" });
   const previous = { release: base };
