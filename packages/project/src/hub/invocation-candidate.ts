@@ -9,11 +9,11 @@ import { verifyPublicationPreflight, type PublicationPreflightDocument } from ".
 import { HubError } from "./errors.js";
 import { type InvocationHubReleaseBuildResult } from "./invocation-build.js";
 import { parseInvocationPolicy, type InvocationPolicy } from "./invocation-policy.js";
-import { verifyInvocationRelease, type InvocationHubRelease } from "./invocation-release.js";
+import { verifyInvocationRelease, verifyInvocationTransition, type InvocationHubRelease } from "./invocation-release.js";
 import { verifyInvocationReleaseDiff, type InvocationReleaseDiff } from "./invocation-release-diff.js";
 import { CANDIDATE_FILES, PUBLICATION_POLICY_REVISION, type PublicationBindings } from "./release-candidate.js";
 import { verifyReleaseProjection } from "./release-state.js";
-import { type ReleaseArtifacts, type ReleasePackage } from "./release.js";
+import { type HubRelease, type ReleaseArtifacts, type ReleasePackage } from "./release.js";
 
 const FILES = Object.freeze({ ...CANDIDATE_FILES, invocation_policy: "invocation-policy.json", previous_hub_release: "previous-hub-release.json" });
 export interface InvocationCandidatePayload {
@@ -50,8 +50,9 @@ function validateInputs(release: InvocationHubRelease, policy: InvocationPolicy,
   return { preflight: checkedPreflight, diff: checkedDiff };
 }
 
-export function createInvocationCandidate(build: InvocationHubReleaseBuildResult, policy: InvocationPolicy, previous: unknown, preflight: PublicationPreflightDocument, diff: InvocationReleaseDiff): InvocationCandidate {
+export function createInvocationCandidate(build: InvocationHubReleaseBuildResult, policy: InvocationPolicy, previous: unknown, preflight: PublicationPreflightDocument, diff: InvocationReleaseDiff, previousPolicy?: InvocationPolicy): InvocationCandidate {
   const checked = validateInputs(build.release, policy, previous, preflight, diff);
+  verifyInvocationTransition({ release: previous as HubRelease | InvocationHubRelease, ...(previousPolicy === undefined ? {} : { policy: previousPolicy }) }, { release: build.release, policy });
   const p = build.releasePackage;
   if (p.hub_release_digest !== build.release.digest || p.snapshot_rows !== Object.keys(build.release.payload.skill_versions).length || !/^sha256:[0-9a-f]{64}$/.test(p.sqlite_artifact_digest) || build.ftsTable !== `release_fts_${build.release.digest.slice(7)}`) fail("build package does not match release");
   return createEnvelope({ object_type: "ega.release-candidate", schema_version: 3, payload: {

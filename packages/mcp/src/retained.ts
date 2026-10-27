@@ -9,6 +9,7 @@ import {
   type StablePointer,
   verifyReleaseCandidate,
   verifyInvocationCandidate,
+  verifyInvocationTransition,
   writeFileAtomic,
 } from "@ega-skills/project";
 import { HostedRuntimeError, loadHostedReleaseSnapshot, type HostedReleaseSnapshot } from "./hosted.js";
@@ -255,7 +256,7 @@ export function rollbackRetainedRelease(options: RetainedPromotionOptions & { re
       ...options,
       candidateDigest: retainedEntry.candidate_digest,
       candidatePath: resolve(dirname(options.manifestPath), retainedEntry.artifact_path, "candidate.json"),
-    });
+    }, true);
   } finally {
     lock.release();
   }
@@ -275,7 +276,7 @@ function retainedBarrier(name: string): void {
   }
 }
 
-function promoteRetainedReleaseLocked(options: RetainedPromotionOptions): RetainedManifest {
+function promoteRetainedReleaseLocked(options: RetainedPromotionOptions, rollback = false): RetainedManifest {
   const releaseSet = loadRetainedReleaseSet(options.manifestPath);
   retainedBarrier("AFTER_LOCK");
   const candidatePath = resolve(options.candidatePath);
@@ -304,6 +305,18 @@ function promoteRetainedReleaseLocked(options: RetainedPromotionOptions): Retain
     return releaseSet.manifest;
   }
   if (current.cas_version !== options.expectedRevision) stale("retained manifest revision is stale");
+  if (!rollback && candidate.invocation === undefined && candidate.release.payload.adopted_sources.some((source) => source.source_id === "t3dotgg-tstack")) fail("TStack introduction requires its reviewed invocation policy");
+  if (!rollback && (candidate.invocation !== undefined || releaseSet.defaultSnapshot.invocation !== undefined)) {
+    if (verifiedCandidate.candidate.schema_version !== 3 || verifiedCandidate.candidate.payload.publication.previous_release_digest !== releaseSet.defaultSnapshot.releaseDigest) {
+      fail("forward publication does not bind the current release");
+    }
+    try {
+      verifyInvocationTransition(
+        { release: releaseSet.defaultSnapshot.release, ...(releaseSet.defaultSnapshot.invocation === undefined ? {} : { policy: releaseSet.defaultSnapshot.invocation.policy }) },
+        { release: candidate.release, ...(candidate.invocation === undefined ? {} : { policy: candidate.invocation.policy }) },
+      );
+    } catch { fail("forward publication requires a reviewed policy migration"); }
+  }
   const candidatePointer = candidate.release.schema_version === 1
     ? createStablePointer(current.hub_id, candidate.release, current.cas_version + 1)
     : { hub_id: current.hub_id, stable_release_digest: candidate.release.digest, cas_version: current.cas_version + 1 };

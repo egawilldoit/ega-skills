@@ -3,9 +3,26 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
+
+async function localResolve(t, home, project) {
+  const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  const pending = new Map();
+  createInterface({ input: child.stdout }).on("line", line => { const msg = JSON.parse(line); pending.get(msg.id)?.(msg); pending.delete(msg.id); });
+  const request = (id, method, params) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("local MCP timeout")), 15000);
+    pending.set(id, msg => { clearTimeout(timer); resolve(msg); });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  });
+  await request(1, "initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "i1-test", version: "1" } });
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+  return (await request(2, "tools/call", { name: "resolve", arguments: { task: "alpha", explicit_skills: ["ega/alpha"] } })).result;
+}
 
 test("hosted I1 activation verifies sidecars and resolves with the release policy", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "ega-hosted-i1-"));
@@ -36,6 +53,13 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   assert.notEqual(rpc.result.isError, true, JSON.stringify(rpc));
   assert.equal(rpc.result.structuredContent.result.router_contract_version, 2);
   assert.equal(rpc.result.structuredContent.result.explicit[0].id, "ega/alpha");
+  const local = await localResolve(t, dir, root);
+  assert.equal(local.isError, false);
+  assert.equal(local.structuredContent.result.router_contract_version, 2);
+  assert.equal(local.structuredContent.result.explicit[0].id, "ega/alpha");
+  const cli = spawnSync(process.execPath, [join(process.cwd(), "packages/cli/bin/ega-skills.mjs"), "resolve", "--project", root, "--task", "alpha", "--explicit", "ega/alpha"], { encoding: "utf8", env: { ...process.env, EGA_SKILLS_HOME: dir } });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).routerContractVersion, 2);
   const legacy = join(root, "legacy");
   const legacyCandidate = createArtifactCandidate(base);
   writeArtifactCandidate(base, legacy, legacyCandidate);
@@ -43,10 +67,15 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   writeFileSync(manifestPath, JSON.stringify(createRetainedManifest({ hub_id: "hosted-i1", publication_revision: 1, deployment_id: "old", default_release_digest: base.release.digest, releases: [{ artifact_path: "legacy", candidate_digest: legacyCandidate.digest, release_digest: base.release.digest, release_package_digest: `sha256:${sha256Hex(readFileSync(join(legacy, "release-package.json")))}` }] })));
   promoteRetainedRelease({ manifestPath, candidatePath: join(dir, "candidate.json"), candidateDigest: candidate.digest, expectedRevision: 1, deploymentId: "new" });
   assert.equal(loadRetainedReleaseSet(manifestPath).defaultSnapshot.releaseDigest, build.release.digest);
+  assert.throws(() => promoteRetainedRelease({ manifestPath, candidatePath: join(dir, "candidate.json"), candidateDigest: candidate.digest, expectedRevision: 2, deploymentId: "stale-predecessor" }), /current release/);
+  assert.throws(() => promoteRetainedRelease({ manifestPath, candidatePath: join(legacy, "candidate.json"), candidateDigest: legacyCandidate.digest, expectedRevision: 2, deploymentId: "forward-downgrade", legacy: true }), /current release/);
   rollbackRetainedRelease({ manifestPath, candidatePath: join(legacy, "candidate.json"), candidateDigest: legacyCandidate.digest, releaseDigest: base.release.digest, expectedRevision: 2, deploymentId: "rollback", legacy: true });
   assert.equal(loadRetainedReleaseSet(manifestPath).defaultSnapshot.releaseDigest, base.release.digest);
   const broken = join(root, "broken");
   cpSync(dir, broken, { recursive: true });
   rmSync(join(broken, "invocation-policy.json"));
   assert.throws(() => loadHostedReleaseSnapshot(broken));
+  const localBroken = await localResolve(t, broken, root);
+  assert.equal(localBroken.isError, true);
+  assert.equal((localBroken.structuredContent.error ?? localBroken.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localBroken));
 });

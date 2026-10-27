@@ -28,6 +28,9 @@ import {
   type StdioServerHandle,
 } from "@modelcontextprotocol/server/stdio";
 import process from "node:process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { verifyInvocationCandidate } from "@ega-skills/project";
 
 import {
   McpContextError,
@@ -487,6 +490,7 @@ function withResolveBoundary(): (
           max_tokens: args["max_tokens"],
         },
         context,
+        { loadInvocation: () => loadLocalInvocation(context.registryHome) },
       );
     } catch (error) {
       const contextError =
@@ -499,6 +503,23 @@ function withResolveBoundary(): (
       return toMcpErrorResult("resolve", contextError);
     }
   };
+}
+
+/** A local I1 artifact is verified as a candidate before every activation. */
+function loadLocalInvocation(registryHome: string): { release: import("@ega-skills/project").InvocationHubRelease; policy: import("@ega-skills/project").InvocationPolicy } | undefined {
+  const releasePath = join(registryHome, "hub-release.json");
+  const candidatePath = join(registryHome, "candidate.json");
+  const policyPath = join(registryHome, "invocation-policy.json");
+  if (![releasePath, candidatePath, policyPath].some(existsSync)) return undefined;
+  try {
+    const release = existsSync(releasePath) ? JSON.parse(readFileSync(releasePath, "utf8")) as { schema_version?: unknown } : undefined;
+    const candidate = existsSync(candidatePath) ? JSON.parse(readFileSync(candidatePath, "utf8")) as { schema_version?: unknown } : undefined;
+    if (release?.schema_version !== 2 && candidate?.schema_version !== 3 && !existsSync(policyPath)) return undefined;
+    const verified = verifyInvocationCandidate(registryHome);
+    return { release: verified.release, policy: verified.policy };
+  } catch {
+    throw new McpContextError("E_INVOCATION_POLICY_INVALID", "Local invocation release verification failed");
+  }
 }
 
 /**

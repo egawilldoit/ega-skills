@@ -57,6 +57,30 @@ export function verifyInvocationRelease(release: unknown, policy: unknown, artif
   for (const binding of checkedPolicy.payload.bindings) {
     if (release.payload.skill_versions[binding.skill_id] !== binding.version_hash) throw new InvocationPolicyError(`skill binding mismatch: ${binding.skill_id}`);
   }
+  // I1's initial TStack introduction requires the complete reviewed roster.
+  if (release.payload.adopted_sources.some((source) => source.source_id === "t3dotgg-tstack")) {
+    const expected = ["babysit-pr", "council", "file-pr", "full-send", "full-stop", "leaving-pr-comments", "modernize", "sol-loop", "takeover"].map((name) => `t3dotgg/${name}`);
+    const source = checkedPolicy.payload.sources.find((item) => item.source_id === "t3dotgg-tstack");
+    if (!source || JSON.stringify(source.governed_skill_ids) !== JSON.stringify(expected)) throw new InvocationPolicyError("TStack governance roster is incomplete");
+  }
+}
+
+/** Reject forward governance changes until a separately reviewed migration is supported. */
+export function verifyInvocationTransition(previous: { release: HubRelease | InvocationHubRelease; policy?: InvocationPolicy }, next: { release: HubRelease | InvocationHubRelease; policy?: InvocationPolicy }): void {
+  if (previous.release.schema_version === 1) verifyHubRelease(previous.release);
+  else verifyInvocationRelease(previous.release, previous.policy);
+  if (next.release.schema_version === 1) verifyHubRelease(next.release);
+  else verifyInvocationRelease(next.release, next.policy);
+  if (previous.release.schema_version === 1) return;
+  if (next.release.schema_version === 1 || !previous.policy || !next.policy) throw new InvocationPolicyError("forward removal of invocation policy requires a reviewed migration");
+  const nextBindings = new Map(next.policy.payload.bindings.map((binding) => [binding.skill_id, binding]));
+  const previousSources = new Map(previous.release.payload.adopted_sources.map((source) => [source.source_id, source]));
+  const nextSources = new Map(next.release.payload.adopted_sources.map((source) => [source.source_id, source]));
+  for (const old of previous.policy.payload.bindings) {
+    if (next.release.payload.skill_versions[old.skill_id] === undefined) continue;
+    const current = nextBindings.get(old.skill_id);
+    if (!current || current.source_id !== old.source_id || current.version_hash !== old.version_hash || JSON.stringify(previousSources.get(old.source_id)) !== JSON.stringify(nextSources.get(old.source_id))) throw new InvocationPolicyError("governance change requires a reviewed migration");
+  }
 }
 
 /** Construct a V2 semantic envelope from an already verified V1 projection. */

@@ -56,6 +56,8 @@ export interface ResolveToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Internal trusted snapshot only; never sourced from MCP request arguments. */
   readonly invocation?: ResolveInput["invocation"];
+  /** Local activation is deferred until request validation has completed. */
+  readonly loadInvocation?: () => ResolveInput["invocation"] | undefined;
   /**
    * Skills the caller's authorization boundary removed from visibility
    * (hosted emergency deny / per-resource authorization). Excluded IDs and
@@ -289,13 +291,14 @@ export async function runResolveTool(
     ...(opts.env ?? process.env),
     EGA_SKILLS_HOME: ctx.registryHome,
   };
+  const invocation = opts.invocation ?? opts.loadInvocation?.();
   let result: ResolutionResult;
   try {
     result = await resolveSkills({
       task,
       projectPath: ctx.projectPath,
       policy: effectivePolicy(ctx),
-      ...(opts.invocation !== undefined ? { invocation: opts.invocation } : {}),
+      ...(invocation !== undefined ? { invocation } : {}),
       ...(opts.excludedSkillIds !== undefined
         ? { excludedSkillIds: opts.excludedSkillIds }
         : {}),
@@ -318,7 +321,7 @@ export async function runResolveTool(
   const text =
     `Resolve selected ${result.selected.length} skill(s) ` +
     `[${selected}] at ${result.confidence} confidence (${result.lockStatus}, ${result.budgetStatus}).` +
-    (opts.invocation === undefined ? "" : ` Versions: ${[...result.explicit, ...result.selected].map((skill) => `${skill.id}@${skill.versionHash}`).join(", ") || "(none)"}; release: ${(opts.invocation.release as InvocationHubRelease).digest}.`);
+    (invocation === undefined ? "" : ` Versions: ${[...result.explicit, ...result.selected].map((skill) => `${skill.id}@${skill.versionHash}`).join(", ") || "(none)"}; release: ${(invocation.release as InvocationHubRelease).digest}.`);
   return Object.freeze({
     content: Object.freeze([Object.freeze({ type: "text", text })]),
     structuredContent,
