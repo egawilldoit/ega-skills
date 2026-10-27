@@ -103,8 +103,11 @@ The committed test suite covers, and the pre-adoption run exercised:
 - project deny, lock and AMEND-09 `USER_INVOCATION_ONLY` behavior;
 - exact release-digest verification and the new `/readyz` identity;
 - the production publication boundary: stale predecessors, concurrent changes,
-  interrupted promotion, alias drift, reordered deployments, mismatched
-  candidate identities, platform guard failures and rollback receipts.
+  alias drift, reordered deployments, mismatched candidate identities,
+  platform guard failures, failed-promotion restore receipts, interrupted
+  promotion reconciliation and rollback receipts. Live Vercel platform
+  enforcement could not be executed because no release credential was
+  available; that limitation is stated below.
 
 ## Host authorization (scope statement)
 
@@ -112,6 +115,11 @@ The hosted MCP exposes exactly four read-only tools. It returns skill content as
 data; no tool performs merges, deployments, subagent creation or shell
 execution. `full-send`, `full-stop`, `council` and `sol-loop` therefore cannot
 grant authority through the Hub itself.
+
+Vercel API response-shape mapping is unit-tested against documented objects but
+was not exercised against a live project in this cycle. The publisher refuses
+unrecognised or unobservable platform state rather than assuming it. A release
+credential is required before promotion.
 
 This is **not** a test of any specific host's enforcement. Whether Codex,
 OpenCode or another client lets a skill body trigger delegation, merge or deploy

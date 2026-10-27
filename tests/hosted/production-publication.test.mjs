@@ -11,12 +11,12 @@ import {
   verifyPublicationReceipt,
 } from "../../packages/project/dist/index.js";
 import {
-  PublicationError,
   acquirePublicationLease,
   executePromotion,
+  executeReconcile,
   executeRollback,
   observationFromVercel,
-  releasePublicationLease,
+  readCandidate,
 } from "../../scripts/hosted/publish-production.mjs";
 
 const DIGEST = (letter) => `sha256:${letter.repeat(64)}`;
@@ -62,6 +62,7 @@ const candidate = {
   previous_release_digest: PREV,
   release_digest: NEXT,
   skill_versions: versions,
+  source_snapshot_digest: SOURCE,
 };
 
 const expected = {
@@ -157,7 +158,7 @@ test("platform states that allow a bypass are refused", () => {
 });
 
 test("the Vercel observation pins the publisher, project and alias", () => {
-  const project = { accountId: TEAM, git: { deploymentEnabled: { "release/2.0": false }, productionBranch: "release/2.0" }, id: PROJECT };
+  const project = { accountId: TEAM, git: { deploymentEnabled: { "release/2.0": false }, productionBranch: "release/2.0" }, id: PROJECT, link: { org: "egawilldoit", productionBranch: "release/2.0", repo: "ega-skills" } };
   const deployments = { deployments: [{ alias: [ALIAS], checksState: "succeeded", id: PRED_DEPLOYMENT, readyState: "READY", target: "production" }] };
   const result = observationFromVercel({ deployments: deployments.deployments, expected, project, served: { publication_revision: 0, release_digest: PREV }, user: { id: PUBLISHER } });
   assert.equal(result.git_production_auto_deploy, false);
@@ -183,6 +184,7 @@ test("the Vercel observation pins the publisher, project and alias", () => {
       ...project,
       alias: [{ deployment: { checksConclusion: "succeeded", checksState: "completed", id: PRED_DEPLOYMENT, readyState: "READY" }, domain: ALIAS, target: "PRODUCTION" }],
       git: {},
+      link: { org: "egawilldoit", productionBranch: "release/2.0", repo: "ega-skills" },
     },
     served: { release_digest: PREV },
     user: { id: PUBLISHER },
@@ -254,7 +256,7 @@ test("a concurrent change between verification and promotion blocks the write", 
 test("an unverified promotion restores only its own predecessor", async (t) => {
   const { deps, state } = promotionDeps({ mutate: (current) => { current.alias = STAGED_DEPLOYMENT; current.served = DIGEST("f"); } });
   t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
-  await assert.rejects(() => executePromotion({ apply: true, approval: approval(), candidate, deps, expected }), (error) => error.code === "E_PROMOTION_UNVERIFIED");
+  await assert.rejects(() => executePromotion({ apply: true, approval: approval(), candidate, deps, expected }), (error) => error.code === "E_PROMOTION_UNVERIFIED" && error.receipt?.payload?.status === "FAILED");
   assert.equal(state.rolledBack, 1);
   assert.equal(state.served, PREV);
 
@@ -305,12 +307,16 @@ test("rollback requires a contiguous receipt chain and verifies the retained rel
   verifyPublicationReceipt(second, first);
 
   const state = { served: NEXT };
+  const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-rollback-"));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  let clock = Date.parse("2026-10-27T13:00:00Z");
   const deps = {
     maxAttempts: 3,
-    now: () => Date.parse("2026-10-27T13:00:00Z"),
+    now: () => { clock += 6_000; return clock; },
     probe: async () => ({ publication_revision: 0, release_digest: state.served }),
     promote: (deployment) => { state.served = deployment === "dpl_first12345678" ? PREV : NEXT; },
     sleep: async () => {},
+    stateDir,
   };
   const result = await executeRollback({ apply: true, chain: [second, first], current: second, deps, target: first });
   assert.equal(result.status, "ROLLED_BACK");
@@ -348,4 +354,67 @@ test("the CLI never imports a token from argv", () => {
   assert.doesNotMatch(source, /--token/);
   assert.doesNotMatch(source, /["\']--force["\']/);
   assert.ok(source.includes("x-vercel-protection-bypass"));
+});
+
+test("the real candidate reader feeds the gate with a defined candidate digest", async () => {
+  const directory = new URL("../../packages/mcp/artifact/", import.meta.url).pathname;
+  const read = await readCandidate(directory);
+  const raw = JSON.parse(readFileSync(join(directory, "candidate.json"), "utf8"));
+  assert.equal(read.candidate_digest, raw.digest);
+  assert.equal(read.source_snapshot_digest, "");
+  const payload = createPublicationApprovalPayload(read, "");
+  const approvalValue = createPublicationApproval(payload);
+  const result = assessProductionPublication({
+    approval: approvalValue,
+    candidate: read,
+    expected: {
+      ...expected,
+      predecessor_deployment_id: PRED_DEPLOYMENT,
+      predecessor_release_digest: read.previous_release_digest,
+    },
+    observation: observation({
+      alias_target_deployment_id: PRED_DEPLOYMENT,
+      served_deployment_id: PRED_DEPLOYMENT,
+      served_release_digest: read.previous_release_digest,
+    }),
+  });
+  assert.equal(result.status, "READY", JSON.stringify(result.blockers));
+});
+
+function createPublicationApprovalPayload(read, snapshot) {
+  return {
+    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#approval",
+    approved_at: "2026-10-27T12:00:00.000Z",
+    approved_by: "owner",
+    candidate_digest: read.candidate_digest,
+    hub_id: read.hub_id,
+    policy_digest: read.policy_digest,
+    previous_release_digest: read.previous_release_digest,
+    publisher: { owner_subject: "owner", project_id: PROJECT, team_id: TEAM, vercel_user_id: PUBLISHER },
+    release_digest: read.release_digest,
+    skill_versions: read.skill_versions,
+    source_snapshot_digest: snapshot,
+  };
+}
+
+test("an interrupted promotion can be reconciled only from the exact live candidate", async (t) => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-reconcile-"));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const live = { alias: STAGED_DEPLOYMENT, served: NEXT };
+  const deps = {
+    maxAttempts: 3,
+    now: () => Date.parse("2026-10-27T13:00:00Z"),
+    probe: async () => ({ publication_revision: 0, release_digest: live.served }),
+    readObservation: async () => observation({ alias_target_deployment_id: live.alias, served_deployment_id: live.alias, served_release_digest: live.served }),
+    sleep: async () => {},
+    stateDir,
+  };
+  const result = await executeReconcile({ apply: true, approval: approval(), candidate, deps, expected });
+  assert.equal(result.status, "RECONCILED");
+  const receipt = verifyPublicationReceipt(result.receipt);
+  assert.equal(receipt.payload.publication_revision, 1);
+  assert.equal(receipt.payload.release_digest, NEXT);
+
+  live.alias = PRED_DEPLOYMENT;
+  await assert.rejects(() => executeReconcile({ apply: true, approval: approval(), candidate, deps, expected }), (error) => error.code === "E_RECONCILE_STATE");
 });

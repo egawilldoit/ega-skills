@@ -41,9 +41,14 @@ immediately before the write, promotes without `--force`, then polls both the
 alias target and `/readyz` until the exact candidate digest is served. A
 mismatch restores the recorded predecessor only if this promotion is still the
 current alias; if another publication won, the script refuses to clobber it.
-Every outcome is recorded in an append-only receipt bounded to the approval,
-candidate, predecessor, deployment and monotonic publication revision. Receipt
-files must live outside the repository and outside any synced source tree.
+Every completed promotion or rollback writes an append-only receipt bounded to
+the approval, candidate, predecessor, deployment and monotonic publication
+revision; a handled failure that restored the predecessor writes a `FAILED`
+receipt. A blocked or dry-run attempt performs no mutation and writes no
+receipt. If the publishing process is killed after the alias moves, run
+`reconcile` to record the already-live exact candidate without moving the alias.
+Receipt files must live outside the repository and outside any synced source
+tree.
 
 `/readyz` reports the exact `release_digest`. This is a public semantic identity,
 not a secret; it makes the live promotion verifiable without an OAuth token.
@@ -156,6 +161,24 @@ node scripts/hosted/publish-production.mjs promote \
   --genesis \
   --receipt /secure/outside-repo/receipt-<n>.json --apply
 ```
+
+Promotion requires the staging record (`--staging`); `--staged-deployment` alone
+is not accepted. If the process is killed after the alias moved, do not re-run
+`promote`. Reconcile the observed result:
+
+```
+node scripts/hosted/publish-production.mjs reconcile \
+  --candidate /path/to/candidate --approval /path/to/approval.json \
+  --staging /path/to/staging.json \
+  --team … --project … --publisher … --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> --staged-deployment dpl_… --genesis \
+  --receipt /secure/outside-repo/receipt-<n>.json --apply
+```
+
+`reconcile` refuses unless the live alias and served release are exactly the
+staged deployment and candidate. It never moves the alias.
 
 Use `--genesis` only for the first governed release (revision 0). Every later
 promotion must pass `--previous-receipt <the last receipt>` instead, and the

@@ -93,8 +93,14 @@ The machine-readable approval envelope is generated only after that record
 exists. Its `approved_by` and `publisher.owner_subject` must name the same
 release owner; its `publisher.vercel_user_id`, `team_id` and `project_id` must
 match the executor verified by
-`scripts/hosted/publish-production.mjs`. No approval can be inferred from
+`scripts/hosted/publish-production.mjs`. Its `skill_versions` must be the full
+126-entry map, not only the nine additions. No approval can be inferred from
 Contract I1, from issue #168, or from any earlier cycle.
+
+Approval of this packet is approval of the semantic release. The R1 candidate
+envelope and physical artifact identities are built after canonical adoption and
+must be independently certified before merge; a change there requires a new
+candidate but not a new owner decision unless a bound identity above changes.
 
 ## Invalidating changes
 

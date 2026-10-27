@@ -172,9 +172,12 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
     if (incoming.method === "GET" && pathname === "/readyz") {
       const handler = state.getHandler();
       const identity = handler ? state.getReleaseIdentity?.() : undefined;
-      if (handler && identity) jsonBody(outgoing, 200, { release_digest: identity.release_digest, status: "ready" });
-      else if (handler) jsonBody(outgoing, 200, { status: "ready" });
-      else jsonBody(outgoing, 503, { status: "unavailable" });
+      if (handler && identity) {
+        outgoing.writeHead(200, { "cache-control": "no-store", "content-type": "application/json" });
+        outgoing.end(JSON.stringify({ release_digest: identity.release_digest, status: "ready" }));
+      } else {
+        jsonBody(outgoing, 503, { status: "unavailable" });
+      }
       return;
     }
     if (isProtectedResourceMetadataPath(pathname)) {

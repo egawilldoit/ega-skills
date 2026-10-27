@@ -109,6 +109,8 @@ export interface PublicationCandidateIdentity {
   readonly candidate_digest: string;
   readonly previous_release_digest: string;
   readonly policy_digest: string;
+  /** Vendored snapshot of the single governed source; empty for legacy releases. */
+  readonly source_snapshot_digest: string;
   readonly skill_versions: Readonly<Record<string, string>>;
 }
 
@@ -223,6 +225,8 @@ export function verifyPublicationApproval(value: unknown): PublicationApproval {
   ], "approval payload");
   const policy = p["policy_digest"];
   if (typeof policy !== "string" || (policy !== "" && !DIGEST_RE.test(policy))) fail("policy_digest must be empty or a digest");
+  const snapshot = p["source_snapshot_digest"];
+  if (typeof snapshot !== "string" || (snapshot !== "" && !DIGEST_RE.test(snapshot))) fail("source_snapshot_digest must be empty or a digest");
   return {
     digest: digest(value["digest"], "approval digest"),
     object_type: PUBLICATION_APPROVAL_OBJECT_TYPE,
@@ -237,7 +241,7 @@ export function verifyPublicationApproval(value: unknown): PublicationApproval {
       publisher: publisher(p["publisher"]),
       release_digest: digest(p["release_digest"], "release_digest"),
       skill_versions: skillVersions(p["skill_versions"]),
-      source_snapshot_digest: digest(p["source_snapshot_digest"], "source_snapshot_digest"),
+      source_snapshot_digest: snapshot,
     },
     schema_version: PUBLICATION_APPROVAL_SCHEMA_VERSION,
   };
@@ -286,6 +290,7 @@ export function assessProductionPublication(input: {
       block("E_CANDIDATE_MISMATCH", "approval does not bind the exact candidate, release and predecessor");
     }
     if (p.policy_digest !== candidate.policy_digest) block("E_CANDIDATE_MISMATCH", "approval policy digest does not match the candidate");
+    if (p.source_snapshot_digest !== candidate.source_snapshot_digest) block("E_CANDIDATE_MISMATCH", "approval source snapshot does not match the candidate provenance");
     if (!sameVersions(p.skill_versions, candidate.skill_versions)) block("E_CANDIDATE_MISMATCH", "approval skill versions do not match the candidate release");
     if (p.publisher.team_id !== expected.team_id || p.publisher.project_id !== expected.project_id) block("E_APPROVAL_IDENTITY_MISMATCH", "approval publisher team/project does not match the target");
     if (p.publisher.vercel_user_id !== expected.publisher_vercel_user_id) block("E_APPROVAL_IDENTITY_MISMATCH", "executing Vercel identity is not the approved publisher");

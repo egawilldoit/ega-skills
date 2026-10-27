@@ -51,4 +51,4 @@ candidate slots. It must not be described as unchanged suggestion behavior.
 The network full-send-buffer and city-council data-model prompts selected
 neither TStack skill; reviewed Council and Full Send workflow phrases selected
 the intended skill. All 27 reviewed phrase alternatives, all nine explicit
-references and nine sampled negative cases passed in this scratch setup.
+references and 11 negative/ambiguous cases passed in the canonical run.
