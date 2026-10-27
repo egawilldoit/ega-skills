@@ -26,11 +26,14 @@
  *            digest. A mismatch triggers an automatic restore of the recorded
  *            predecessor when, and only when, this promotion is still the
  *            current one.
+ *   reconcile record an already-live staged promotion after the process died.
  *   rollback promote a previously recorded deployment and verify its digest.
  *
- * Every outcome writes an append-only receipt bound to the approval, candidate,
- * predecessor, deployment and publication revision. The receipt chain is the
- * rollback authority.
+ * Every completed promotion or rollback writes an append-only receipt bound to
+ * the approval, candidate, predecessor, deployment and publication revision.
+ * A handled failure that restored the predecessor writes a FAILED receipt;
+ * blocked and dry-run attempts write nothing. The receipt chain is the rollback
+ * authority, and `reconcile` completes a receipt after an interrupted process.
  *
  * ## Residual risk (explicit, not hidden)
  *
@@ -45,18 +48,27 @@
  * Usage:
  *   node scripts/hosted/publish-production.mjs stage \
  *     --candidate <dir> --approval <approval.json> \
- *     --team <team_id> --project <project_id> \
+ *     --team <team_id> --project <project_id> --publisher <user_id> \
  *     --production-branch release/2.0 \
  *     --alias ega-skills-mcp.vercel.app \
  *     --expect-release <sha256:...> --expect-deployment <dpl_...> \
- *     --expect-revision <n> [--apply]
+ *     --expect-revision <n> --staging-out <staging.json> [--apply]
  *
  *   node scripts/hosted/publish-production.mjs promote \
  *     --staging <staging.json> --candidate <dir> --approval <approval.json> \
- *     ...same target flags... --receipt <receipt.json> [--apply]
+ *     ...same target flags... --staged-deployment <dpl_...> \
+ *     (--previous-receipt <last.json> | --genesis) \
+ *     --receipt <receipt.json> [--apply]
+ *
+ *   node scripts/hosted/publish-production.mjs reconcile \
+ *     --candidate <dir> --approval <approval.json> --staging <staging.json> \
+ *     ...same target flags... --staged-deployment <dpl_...> \
+ *     (--previous-receipt <last.json> | --genesis) \
+ *     --receipt <receipt.json> [--apply]
  *
  *   node scripts/hosted/publish-production.mjs rollback \
- *     --receipt <current.json> --to <earlier.json> --receipt <new.json> [--apply]
+ *     --chain <newest.json,...> --current <newest.json> --target <older.json> \
+ *     --team <team_id> --receipt <new.json> [--apply]
  *
  * `--apply` performs the Vercel mutation. Without it the script verifies and
  * prints the plan, contacting only read-only endpoints.
@@ -303,9 +315,14 @@ export function observationFromVercel({ user, project, deployments, served, expe
     if (!Array.isArray(sources) || sources.length === 0) return true;
     return typeof linkedRepository === "string" && sources.every((entry) => typeof entry === "string") && sources.includes(linkedRepository);
   });
-  const providerDisabled = project?.gitProviderOptions?.createDeployments === "disabled";
+  const providerSetting = project?.gitProviderOptions?.createDeployments;
+  const providerDisabled = providerSetting === "disabled";
+  const providerEnabled = providerSetting === "enabled";
+  const legacyEnabled = enabled === true || (enabled !== null && typeof enabled === "object" && enabled[productionBranch] === true);
   const legacyDisabled = enabled === false || (enabled !== null && typeof enabled === "object" && enabled[productionBranch] === false);
-  const autoDeploy = !(legacyDisabled || policyDisabledProduction || providerDisabled);
+  // Contradictory observables are not proof of control. Any explicit "enabled"
+  // wins over a different signal that says "disabled".
+  const autoDeploy = legacyEnabled || providerEnabled || !(legacyDisabled || policyDisabledProduction || providerDisabled);
   const conclusion = String(canonical.checksConclusion ?? "");
   const state = String(canonical.checksState ?? "");
   const checks = conclusion === "succeeded" ? "succeeded"
@@ -628,53 +645,62 @@ export async function executeRollback({ chain, current, target, deps, apply }) {
  */
 export async function executeReconcile({ approval, candidate, expected, deps, apply }) {
   const domain = await projectModule();
-  const served = await deps.probe(expected.canonical_alias);
-  if (served.release_digest !== candidate.release_digest) {
-    refuse("E_RECONCILE_STATE", "live production is not serving the candidate release; nothing to reconcile");
-  }
-  const observation = await deps.readObservation(expected, served);
-  if (observation.alias_target_deployment_id !== expected.staged_deployment_id) {
-    refuse("E_RECONCILE_STATE", "live production alias does not point at the staged deployment");
-  }
-  // Re-run the gate with the already-advanced predecessor fields restored, so
-  // approval, publisher, policy, version and platform-guard bindings are still
-  // checked. This does not fabricate the live candidate identity above.
-  const assessment = domain.assessProductionPublication({
-    approval,
-    candidate,
-    expected: { ...expected, now: new Date(deps.now?.() ?? Date.now()).toISOString(), max_approval_age_ms: MAX_APPROVAL_AGE_MS },
-    observation: {
-      ...observation,
-      alias_target_deployment_id: expected.predecessor_deployment_id,
-      served_deployment_id: expected.predecessor_deployment_id,
-      served_release_digest: expected.predecessor_release_digest,
-    },
+  const lease = await acquirePublicationLease({
+    now: deps.now?.() ?? Date.now(),
+    publisher: `reconcile:${approval.payload.publisher.vercel_user_id}:${expected.canonical_alias}`,
+    stateDir: deps.stateDir,
   });
-  if (assessment.status !== "READY") {
-    refuse("E_RECONCILE_STATE", assessment.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`).join("; "));
+  try {
+    const served = await deps.probe(expected.canonical_alias);
+    if (served.release_digest !== candidate.release_digest) {
+      refuse("E_RECONCILE_STATE", "live production is not serving the candidate release; nothing to reconcile");
+    }
+    const observation = await deps.readObservation(expected, served);
+    if (observation.alias_target_deployment_id !== expected.staged_deployment_id) {
+      refuse("E_RECONCILE_STATE", "live production alias does not point at the staged deployment");
+    }
+    // Re-run the gate with the already-advanced predecessor fields restored, so
+    // approval, publisher, policy, version and platform-guard bindings are still
+    // checked. This does not fabricate the live candidate identity above.
+    const assessment = domain.assessProductionPublication({
+      approval,
+      candidate,
+      expected: { ...expected, now: new Date(deps.now?.() ?? Date.now()).toISOString(), max_approval_age_ms: MAX_APPROVAL_AGE_MS },
+      observation: {
+        ...observation,
+        alias_target_deployment_id: expected.predecessor_deployment_id,
+        served_deployment_id: expected.predecessor_deployment_id,
+        served_release_digest: expected.predecessor_release_digest,
+      },
+    });
+    if (assessment.status !== "READY") {
+      refuse("E_RECONCILE_STATE", assessment.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`).join("; "));
+    }
+    if (!apply) return { observation, status: "DRY_RUN" };
+    return {
+      receipt: domain.createPublicationReceipt({
+        action: "PROMOTE",
+        actor: approval.payload.publisher,
+        approval_digest: approval.digest,
+        candidate_digest: candidate.candidate_digest,
+        canonical_alias: expected.canonical_alias,
+        completed_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+        deployment_id: expected.staged_deployment_id,
+        detail: "reconciled a completed promotion after the publishing process was interrupted",
+        hub_id: candidate.hub_id,
+        policy_digest: candidate.policy_digest,
+        previous_deployment_id: expected.predecessor_deployment_id,
+        previous_release_digest: expected.predecessor_release_digest,
+        previous_revision: expected.expected_revision,
+        publication_revision: expected.expected_revision + 1,
+        release_digest: candidate.release_digest,
+        status: "SUCCEEDED",
+      }),
+      status: "RECONCILED",
+    };
+  } finally {
+    lease.release();
   }
-  if (!apply) return { observation, status: "DRY_RUN" };
-  return {
-    receipt: domain.createPublicationReceipt({
-      action: "PROMOTE",
-      actor: approval.payload.publisher,
-      approval_digest: approval.digest,
-      candidate_digest: candidate.candidate_digest,
-      canonical_alias: expected.canonical_alias,
-      completed_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
-      deployment_id: expected.staged_deployment_id,
-      detail: "reconciled a completed promotion after the publishing process was interrupted",
-      hub_id: candidate.hub_id,
-      policy_digest: candidate.policy_digest,
-      previous_deployment_id: expected.predecessor_deployment_id,
-      previous_release_digest: expected.predecessor_release_digest,
-      previous_revision: expected.expected_revision,
-      publication_revision: expected.expected_revision + 1,
-      release_digest: candidate.release_digest,
-      status: "SUCCEEDED",
-    }),
-    status: "RECONCILED",
-  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -721,6 +747,55 @@ async function main() {
     print(await probeReady(alias.startsWith("http") ? alias : `https://${alias}`));
     return;
   }
+  if (mode === "promote" || mode === "reconcile") { required(values, "staged-deployment"); required(values, "staging"); }
+
+  const teamId = required(values, "team");
+  const token = vercelToken();
+  const api = new VercelApi({ teamId, token });
+  const probe = (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, options);
+  const deps = {
+    bypass: process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined,
+    deployPreview: () => {
+      const output = runVercel(["deploy", "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
+      const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
+      if (!url) refuse("E_STAGE", "could not read the preview deployment URL");
+      const deployment = runVercel(["inspect", url, "--json"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
+      const parsed = JSON.parse(deployment.stdout);
+      return { deployment_id: parsed.id, url };
+    },
+    now: () => Date.now(),
+    probe,
+    promote: (deployment) => {
+      // Never pass --force: deployment checks must be allowed to block.
+      runVercel(["promote", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
+    },
+    readObservation: async (expectation, served) => {
+      const current = await api.readProduction({ ...expectation, canonical_alias: expectation.canonical_alias }, (alias) => probe(alias));
+      return { ...current, served_deployment_id: current.alias_target_deployment_id, served_release_digest: served.release_digest };
+    },
+    rollback: (deployment) => {
+      runVercel(["rollback", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
+    },
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    stateDir: process.env.EGA_PUBLICATION_STATE_DIR,
+  };
+
+  if (mode === "rollback") {
+    const domain = await projectModule();
+    const chain = required(values, "chain").split(",").map((file) => domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(file.trim()), "utf8"))));
+    const current = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "current")), "utf8")));
+    const target = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "target")), "utf8")));
+    if (chain[0]?.digest !== current.digest) refuse("E_ROLLBACK_TARGET", "the receipt chain must start at --current");
+    const result = await executeRollback({ apply: values.apply === true, chain, current, deps, target });
+    if (result.receipt) {
+      const receiptPath = resolve(required(values, "receipt"));
+      mkdirSync(dirname(receiptPath), { recursive: true });
+      writeFileSync(receiptPath, `${JSON.stringify(result.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    }
+    print(result);
+    return;
+  }
+
   const expected = {
     canonical_alias: required(values, "alias"),
     expected_revision: Number(required(values, "expect-revision")),
@@ -730,45 +805,20 @@ async function main() {
     project_id: required(values, "project"),
     publisher_vercel_user_id: required(values, "publisher"),
     staged_deployment_id: values["staged-deployment"],
-    team_id: required(values, "team"),
+    team_id: teamId,
   };
-  if (mode === "promote") { required(values, "staged-deployment"); required(values, "staging"); }
   if (!Number.isSafeInteger(expected.expected_revision) || expected.expected_revision < 0) refuse("E_ARGUMENT", "--expect-revision must be a non-negative integer");
-
-  const token = vercelToken();
-  const api = new VercelApi({ teamId: expected.team_id, token });
-  const probe = (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, options);
-  const deps = {
-    bypass: process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined,
-    deployPreview: () => {
-      const output = runVercel(["deploy", "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: expected.team_id, token });
-      const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
-      if (!url) refuse("E_STAGE", "could not read the preview deployment URL");
-      const deployment = runVercel(["inspect", url, "--json"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: expected.team_id, token });
-      const parsed = JSON.parse(deployment.stdout);
-      return { deployment_id: parsed.id, url };
-    },
-    now: () => Date.now(),
-    probe,
-    promote: (deployment) => {
-      // Never pass --force: deployment checks must be allowed to block.
-      runVercel(["promote", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: expected.team_id, token });
-    },
-    readObservation: async (expectation, served) => {
-      const current = await api.readProduction({ ...expectation, canonical_alias: expectation.canonical_alias }, (alias) => probe(alias));
-      return { ...current, served_deployment_id: current.alias_target_deployment_id, served_release_digest: served.release_digest };
-    },
-    rollback: (deployment) => {
-      runVercel(["rollback", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: expected.team_id, token });
-    },
-    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
-    stateDir: process.env.EGA_PUBLICATION_STATE_DIR,
-  };
 
   if (mode === "stage") {
     const candidate = await readCandidate(required(values, "candidate"));
     const approval = (await projectModule()).verifyPublicationApproval(JSON.parse(readFileSync(resolve(required(values, "approval")), "utf8")));
-    print(await executeStage({ approval, apply: values.apply === true, candidate, deps, expected }));
+    const staged = await executeStage({ approval, apply: values.apply === true, candidate, deps, expected });
+    if (values["staging-out"] !== undefined && staged.staging) {
+      const stagingPath = resolve(values["staging-out"]);
+      mkdirSync(dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, `${JSON.stringify(staged.staging, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    }
+    print(staged);
     return;
   }
   if (mode === "promote") {
@@ -784,8 +834,9 @@ async function main() {
     } else if (expected.expected_revision !== 0 || values.genesis !== true) {
       refuse("E_REVISION_STALE", "promotion after the first release requires --previous-receipt; use --genesis only for revision 0");
     }
-    const staging = JSON.parse(readFileSync(resolve(values.staging), "utf8"));
-    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest) {
+    const stagingDocument = JSON.parse(readFileSync(resolve(values.staging), "utf8"));
+    const staging = stagingDocument.staging ?? stagingDocument;
+    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id) {
       refuse("E_STAGE", "the staging record does not bind this candidate, approval and predecessor");
     }
     const receiptPath = resolve(required(values, "receipt"));
@@ -808,8 +859,9 @@ async function main() {
     const candidate = await readCandidate(required(values, "candidate"));
     const domain = await projectModule();
     const approval = domain.verifyPublicationApproval(JSON.parse(readFileSync(resolve(required(values, "approval")), "utf8")));
-    const staging = JSON.parse(readFileSync(resolve(required(values, "staging")), "utf8"));
-    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest) {
+    const stagingDocument = JSON.parse(readFileSync(resolve(required(values, "staging")), "utf8"));
+    const staging = stagingDocument.staging ?? stagingDocument;
+    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id) {
       refuse("E_STAGE", "the staging record does not bind this candidate, approval and predecessor");
     }
     if (values["previous-receipt"] !== undefined) {
@@ -829,25 +881,10 @@ async function main() {
     print(result);
     return;
   }
-  if (mode === "rollback") {
-    const domain = await projectModule();
-    const chain = required(values, "chain").split(",").map((file) => domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(file.trim()), "utf8"))));
-    const current = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "current")), "utf8")));
-    const target = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "target")), "utf8")));
-    if (chain[0]?.digest !== current.digest) refuse("E_ROLLBACK_TARGET", "the receipt chain must start at --current");
-    const result = await executeRollback({ apply: values.apply === true, chain, current, deps, target });
-    if (result.receipt) {
-      const receiptPath = resolve(required(values, "receipt"));
-      mkdirSync(dirname(receiptPath), { recursive: true });
-      writeFileSync(receiptPath, `${JSON.stringify(result.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    }
-    print(result);
-    return;
-  }
   refuse("E_ARGUMENT", "mode must be stage, promote, reconcile, rollback or verify");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     process.stderr.write(`${error?.code ?? "E_PUBLICATION"}: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);

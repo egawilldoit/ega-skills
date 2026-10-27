@@ -143,14 +143,15 @@ node scripts/hosted/publish-production.mjs stage \
   --production-branch release/2.0 \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
-  --expect-revision <n>
+  --expect-revision <n> \
+  --staging-out /secure/outside-repo/staging-<n>.json
 
 EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
 EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
 node scripts/hosted/publish-production.mjs promote \
   --candidate /path/to/candidate \
   --approval /path/to/approval.json \
-  --staging /path/to/staging.json \
+  --staging /secure/outside-repo/staging-<n>.json \
   --team team_e2x4kf12yL43qmBIs2t2YaD2 \
   --project prj_… --publisher <vercel-user-id> \
   --production-branch release/2.0 \
@@ -169,7 +170,7 @@ is not accepted. If the process is killed after the alias moved, do not re-run
 ```
 node scripts/hosted/publish-production.mjs reconcile \
   --candidate /path/to/candidate --approval /path/to/approval.json \
-  --staging /path/to/staging.json \
+  --staging /secure/outside-repo/staging-<n>.json \
   --team … --project … --publisher … --production-branch release/2.0 \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
@@ -184,8 +185,11 @@ Use `--genesis` only for the first governed release (revision 0). Every later
 promotion must pass `--previous-receipt <the last receipt>` instead, and the
 script refuses a receipt/revision/predecessor mismatch.
 
-`EGA_PUBLICATION_STATE_DIR` must be on storage shared by every publisher; a
-per-machine directory narrows but does not remove the race. The receipt path is
+`--staging-out` writes the exact staging record that `--staging` consumes. The
+stage command's stdout also contains it under `.staging`, but that wrapper is not
+the record `promote` expects. `EGA_PUBLICATION_STATE_DIR` must be on storage
+shared by every publisher; a per-machine directory narrows but does not remove
+the race. The receipt path is
 created with `O_EXCL`; a retry must use a new receipt name so the previous
 evidence is never overwritten.
 

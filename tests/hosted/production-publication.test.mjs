@@ -178,6 +178,15 @@ test("the Vercel observation pins the publisher, project and alias", () => {
   });
   assert.equal(policyDisabled.git_production_auto_deploy, false);
 
+  const contradictory = observationFromVercel({
+    deployments: deployments.deployments,
+    expected,
+    project: { ...project, deploymentPolicy: { gitSources: [{ enabled: false, environments: ["production"], sources: [] }] }, git: { deploymentEnabled: { "release/2.0": true }, productionBranch: "release/2.0" } },
+    served: { release_digest: PREV },
+    user: { id: PUBLISHER },
+  });
+  assert.equal(contradictory.git_production_auto_deploy, true);
+
   const viaProjectAlias = observationFromVercel({
     deployments: [],
     expected,
