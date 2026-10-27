@@ -239,6 +239,8 @@ export type {
 export { INVOCATION_PROFILE, InvocationPolicyError, parseInvocationPolicy, validateInvocationPolicy } from "./hub/invocation-policy.js";
 export type { InvocationPolicy, InvocationPolicyAtom, InvocationPolicyBinding, InvocationPolicyRule, InvocationPolicySource } from "./hub/invocation-policy.js";
 export { createInvocationRelease, verifyInvocationRelease } from "./hub/invocation-release.js";
+export { buildInvocationHubRelease } from "./hub/invocation-build.js";
+export type { InvocationHubReleaseBuildResult } from "./hub/invocation-build.js";
 export type { InvocationHubRelease } from "./hub/invocation-release.js";
 export { createInvocationReleaseDiff, verifyInvocationReleaseDiff } from "./hub/invocation-release-diff.js";
 export type { InvocationReleaseDiff, InvocationReleaseSide } from "./hub/invocation-release-diff.js";
