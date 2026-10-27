@@ -8,6 +8,7 @@ import {
   createStablePointer,
   type StablePointer,
   verifyReleaseCandidate,
+  verifyInvocationCandidate,
   writeFileAtomic,
 } from "@ega-skills/project";
 import { HostedRuntimeError, loadHostedReleaseSnapshot, type HostedReleaseSnapshot } from "./hosted.js";
@@ -164,6 +165,15 @@ function packageDigest(artifactDir: string): string {
   return `sha256:${sha256Hex(readFileSync(path))}`;
 }
 
+function verifyRetainedCandidate(artifactDir: string, candidatePath = resolve(artifactDir, "candidate.json")) {
+  const raw: unknown = JSON.parse(readFileSync(candidatePath, "utf8"));
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && (raw as Record<string, unknown>).schema_version === 3) {
+    if (resolve(candidatePath) !== resolve(artifactDir, "candidate.json")) fail("I1 candidate must use its bound candidate.json");
+    return verifyInvocationCandidate(artifactDir);
+  }
+  return verifyReleaseCandidate(artifactDir, candidatePath);
+}
+
 export function loadRetainedReleaseSet(manifestPathInput: string): RetainedReleaseSet {
   const manifestPath = resolve(manifestPathInput);
   const manifest = readManifest(manifestPath);
@@ -172,7 +182,7 @@ export function loadRetainedReleaseSet(manifestPathInput: string): RetainedRelea
     const artifactDir = confinedArtifactPath(manifestPath, retained.artifact_path);
     let verifiedCandidate;
     try {
-      verifiedCandidate = verifyReleaseCandidate(artifactDir);
+      verifiedCandidate = verifyRetainedCandidate(artifactDir);
     } catch (error) {
       fail(`retained candidate is invalid for ${retained.release_digest}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -272,11 +282,11 @@ function promoteRetainedReleaseLocked(options: RetainedPromotionOptions): Retain
   const candidateDirectory = dirname(candidatePath);
   let verifiedCandidate;
   try {
-    verifiedCandidate = verifyReleaseCandidate(candidateDirectory, candidatePath);
+    verifiedCandidate = verifyRetainedCandidate(candidateDirectory, candidatePath);
   } catch (error) {
     fail(`promotion candidate is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!options.legacy && verifiedCandidate.candidate.schema_version !== 2) fail("new retained promotions require a governed release candidate; pass legacy: true for explicit legacy serving");
+  if (!options.legacy && verifiedCandidate.candidate.schema_version !== 2 && verifiedCandidate.candidate.schema_version !== 3) fail("new retained promotions require a governed release candidate; pass legacy: true for explicit legacy serving");
   if (verifiedCandidate.candidate.digest !== options.candidateDigest) fail("promotion candidate digest does not match candidate.json");
   const candidate = loadHostedReleaseSnapshot(candidateDirectory);
   if (candidate.release.payload.hub_id !== releaseSet.manifest.payload.hub_id) fail("candidate belongs to a different Hub");
@@ -294,7 +304,9 @@ function promoteRetainedReleaseLocked(options: RetainedPromotionOptions): Retain
     return releaseSet.manifest;
   }
   if (current.cas_version !== options.expectedRevision) stale("retained manifest revision is stale");
-  const candidatePointer = createStablePointer(current.hub_id, candidate.release, current.cas_version + 1);
+  const candidatePointer = candidate.release.schema_version === 1
+    ? createStablePointer(current.hub_id, candidate.release, current.cas_version + 1)
+    : { hub_id: current.hub_id, stable_release_digest: candidate.release.digest, cas_version: current.cas_version + 1 };
   const nextPointer = casUpdateStable(current, candidatePointer, options.expectedRevision);
   const next = createRetainedManifest({
     ...releaseSet.manifest.payload,

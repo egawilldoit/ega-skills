@@ -152,3 +152,23 @@ export function writeInvocationCandidate(build: InvocationHubReleaseBuildResult,
   } catch (error) { rmSync(temp, { recursive: true, force: true }); throw error; }
   return verifyInvocationCandidate(root);
 }
+
+/** Export the already verified candidate without consulting moving sources. */
+export function exportInvocationCandidate(sourceDirectory: string, destination: string): ReturnType<typeof verifyInvocationCandidate> {
+  const source = resolve(sourceDirectory);
+  const root = resolve(destination);
+  verifyInvocationCandidate(source);
+  const sourceToRoot = relative(source, root);
+  const rootToSource = relative(root, source);
+  const inside = (path: string) => path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !path.startsWith(sep));
+  if (inside(sourceToRoot) || inside(rootToSource)) fail("export destination overlaps candidate source");
+  if (existsSync(root)) fail("destination already exists");
+  mkdirSync(dirname(root), { recursive: true });
+  const temp = mkdtempSync(join(dirname(root), ".ega-i1-export-"));
+  try {
+    copyRegular(source, temp);
+    verifyInvocationCandidate(temp);
+    renameSync(temp, root);
+  } catch (error) { rmSync(temp, { recursive: true, force: true }); throw error; }
+  return verifyInvocationCandidate(root);
+}

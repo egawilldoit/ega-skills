@@ -17,6 +17,7 @@ import {
   createReleasePackage,
   createInvocationCandidate,
   createInvocationReleaseDiff,
+  exportInvocationCandidate,
   exportReleaseCandidate,
   exportLegacyReleaseCandidate,
   verifyReleaseCandidate,
@@ -55,6 +56,9 @@ test("I1 candidate verifies policy, previous envelope, release artifacts and app
   const candidate = createInvocationCandidate(build, policy, baseline.release, preflight, diff);
   const source = join(workspace, "candidate");
   assert.equal(writeInvocationCandidate(build, source, candidate, baseline.release, preflight, diff).release.digest, build.release.digest);
+  const exported = exportInvocationCandidate(source, join(workspace, "exported"));
+  assert.equal(exported.candidate.digest, candidate.digest);
+  assert.throws(() => exportInvocationCandidate(source, join(source, "nested")));
   assert.throws(() => verifyReleaseCandidate(source));
   for (const file of ["invocation-policy.json", "previous-hub-release.json", "publication-preflight.json", "release-diff.json", "registry.sqlite"]) {
     const dir = join(workspace, `missing-${file}`);
