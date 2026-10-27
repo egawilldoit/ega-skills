@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { dirname, join, relative, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
 import { createEnvelope, sha256Hex, verifyEnvelope } from "@ega-skills/hashing";
-import { getCacheBlob, getSkillVersion } from "@ega-skills/registry";
+import { getCacheBlob, getSkillVersion, INVOCATION_REGISTRY_SCHEMA_VERSION } from "@ega-skills/registry";
 import { verifyPublicationPreflight, type PublicationPreflightDocument } from "../intake/publication.js";
 import { HubError } from "./errors.js";
 import { type InvocationHubReleaseBuildResult } from "./invocation-build.js";
@@ -98,6 +98,9 @@ export function verifyInvocationCandidate(directory: string): { candidate: Invoc
   if (!lstatSync(sqlite).isFile() || `sha256:${sha256Hex(readFileSync(sqlite))}` !== p.sqlite_artifact_digest) fail("SQLite digest mismatch");
   const db = new Database(sqlite, { readonly: true, fileMustExist: true });
   try {
+    if (db.pragma("user_version", { simple: true }) !== INVOCATION_REGISTRY_SCHEMA_VERSION) fail("registry profile version mismatch");
+    const marker = db.prepare("SELECT release_digest, policy_digest FROM ega_invocation_profile").all() as { release_digest: string; policy_digest: string }[];
+    if (marker.length !== 1 || marker[0]?.release_digest !== release.digest || marker[0]?.policy_digest !== policy.digest) fail("registry profile marker mismatch");
     if (db.pragma("integrity_check", { simple: true }) !== "ok") fail("SQLite integrity check failed");
     const fts = p.fts_table as string;
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(fts)) fail("release FTS missing");
@@ -114,6 +117,25 @@ export function verifyInvocationCandidate(directory: string): { candidate: Invoc
     }
   } finally { db.close(); }
   return { candidate: raw as InvocationCandidate, release, policy, directory: root };
+}
+
+/** Detect an I1 registry and require its complete, verified activation bundle. */
+export function loadLocalInvocationCandidate(directory: string, expectedReleaseDigest?: string): ReturnType<typeof verifyInvocationCandidate> | undefined {
+  const root = resolve(directory);
+  const sqlite = join(root, "registry.sqlite");
+  let i1Registry = false;
+  if (existsSync(sqlite)) {
+    const db = new Database(sqlite, { readonly: true, fileMustExist: true });
+    try { i1Registry = db.pragma("user_version", { simple: true }) === INVOCATION_REGISTRY_SCHEMA_VERSION; }
+    finally { db.close(); }
+  }
+  const releasePath = join(root, "hub-release.json"), candidatePath = join(root, "candidate.json"), policyPath = join(root, "invocation-policy.json");
+  const release = existsSync(releasePath) ? JSON.parse(readFileSync(releasePath, "utf8")) as { schema_version?: unknown } : undefined;
+  const candidate = existsSync(candidatePath) ? JSON.parse(readFileSync(candidatePath, "utf8")) as { schema_version?: unknown } : undefined;
+  if (!i1Registry && release?.schema_version !== 2 && candidate?.schema_version !== 3 && !existsSync(policyPath) && expectedReleaseDigest === undefined) return undefined;
+  const verified = verifyInvocationCandidate(root);
+  if (expectedReleaseDigest !== undefined && verified.release.digest !== expectedReleaseDigest) fail("trusted local release identity mismatch");
+  return verified;
 }
 
 function rejectLinks(path: string): void {

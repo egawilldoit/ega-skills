@@ -5,12 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
 
-async function localResolve(t, home, project) {
-  const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+async function localResolve(t, home, project, trustedRelease) {
+  const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home, ...(trustedRelease ? { EGA_SKILLS_TRUSTED_RELEASE: trustedRelease } : {}) }, stdio: ["pipe", "pipe", "pipe"] });
   t.after(() => { if (child.exitCode === null) child.kill(); });
   const pending = new Map();
   createInterface({ input: child.stdout }).on("line", line => { const msg = JSON.parse(line); pending.get(msg.id)?.(msg); pending.delete(msg.id); });
@@ -78,4 +79,17 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   const localBroken = await localResolve(t, broken, root);
   assert.equal(localBroken.isError, true);
   assert.equal((localBroken.structuredContent.error ?? localBroken.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localBroken));
+  const stripped = join(root, "stripped");
+  cpSync(dir, stripped, { recursive: true });
+  for (const file of ["hub-release.json", "candidate.json", "invocation-policy.json"]) rmSync(join(stripped, file));
+  const localStripped = await localResolve(t, stripped, root);
+  assert.equal(localStripped.isError, true);
+  assert.equal((localStripped.structuredContent.error ?? localStripped.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localStripped));
+  const Database = createRequire(new URL("../../packages/registry/package.json", import.meta.url))("better-sqlite3");
+  const altered = new Database(join(stripped, "registry.sqlite"));
+  altered.exec("DROP TABLE ega_invocation_profile; PRAGMA user_version = 2");
+  altered.close();
+  const localAltered = await localResolve(t, stripped, root, build.release.digest);
+  assert.equal(localAltered.isError, true);
+  assert.equal((localAltered.structuredContent.error ?? localAltered.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localAltered));
 });

@@ -291,7 +291,7 @@ export async function runResolveTool(
     ...(opts.env ?? process.env),
     EGA_SKILLS_HOME: ctx.registryHome,
   };
-  const invocation = opts.invocation ?? opts.loadInvocation?.();
+  let invocation = opts.invocation;
   let result: ResolutionResult;
   try {
     result = await resolveSkills({
@@ -299,6 +299,7 @@ export async function runResolveTool(
       projectPath: ctx.projectPath,
       policy: effectivePolicy(ctx),
       ...(invocation !== undefined ? { invocation } : {}),
+      ...(opts.loadInvocation === undefined ? {} : { loadInvocation: () => { invocation = opts.loadInvocation?.(); return invocation; } }),
       ...(opts.excludedSkillIds !== undefined
         ? { excludedSkillIds: opts.excludedSkillIds }
         : {}),

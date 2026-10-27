@@ -598,7 +598,7 @@ async function main() {
         if (outputDirectory === undefined) fail("Missing required --output-dir <candidate-dir>.");
         if (positional.length > 0) fail(`Unknown command or option: ${positional[0]}`);
         try {
-          const result = await runHubReleasePreview({ against, hub: hubFlag, outputDirectory, ...(policy === undefined ? {} : { policy }) });
+          const result = await runHubReleasePreview({ against, hub: hubFlag, outputDirectory, ...(policy === undefined ? {} : { policy, trustedPublishedRelease: process.env.EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE }) });
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
           if (result.status === "BLOCKED") process.exitCode = 1;
         } catch (error) {

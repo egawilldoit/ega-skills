@@ -79,6 +79,7 @@ import {
   writeInvocationCandidate,
   exportInvocationCandidate,
   verifyInvocationCandidate,
+  loadLocalInvocationCandidate,
   validateCollections,
   createQualityReport,
   writeCandidateReview,
@@ -411,19 +412,6 @@ export interface ResolveCommandOptions {
 
 /** Thin resolve command over the router pipeline (EGA-579). */
 export async function runResolve(options: ResolveCommandOptions): Promise<ResolutionResult> {
-  const home = resolveRegistryHome(options.env);
-  const releasePath = join(home, "hub-release.json");
-  const candidatePath = join(home, "candidate.json");
-  const policyPath = join(home, "invocation-policy.json");
-  let invocation: { release: ReturnType<typeof verifyInvocationCandidate>["release"]; policy: ReturnType<typeof verifyInvocationCandidate>["policy"] } | undefined;
-  if ([releasePath, candidatePath, policyPath].some(existsSync)) {
-    const release = existsSync(releasePath) ? JSON.parse(readFileSync(releasePath, "utf8")) as { schema_version?: unknown } : undefined;
-    const candidate = existsSync(candidatePath) ? JSON.parse(readFileSync(candidatePath, "utf8")) as { schema_version?: unknown } : undefined;
-    if (release?.schema_version === 2 || candidate?.schema_version === 3 || existsSync(policyPath)) {
-      const verified = verifyInvocationCandidate(home);
-      invocation = { release: verified.release, policy: verified.policy };
-    }
-  }
   return resolveSkills({
     task: options.task,
     projectPath: options.project,
@@ -437,7 +425,10 @@ export async function runResolve(options: ResolveCommandOptions): Promise<Resolu
         }
       : {})),
     env: options.env,
-    ...(invocation === undefined ? {} : { invocation }),
+    loadInvocation: () => {
+      const verified = loadLocalInvocationCandidate(resolveRegistryHome(options.env), options.env["EGA_SKILLS_TRUSTED_RELEASE"]);
+      return verified === undefined ? undefined : { release: verified.release, policy: verified.policy };
+    },
   });
 }
 
@@ -674,6 +665,7 @@ export interface HubReleasePreviewCommandOptions extends HubCommandOptions {
   readonly against: string;
   readonly outputDirectory: string;
   readonly policy?: string;
+  readonly trustedPublishedRelease?: string;
 }
 
 export interface HubReleaseExportCommandOptions {
@@ -782,6 +774,10 @@ export async function runHubReleasePreview(options: HubReleasePreviewCommandOpti
     const previous = JSON.parse(readFileSync(releasePath, "utf8")) as { schema_version?: unknown };
     const prior = previous.schema_version === 2 ? verifyInvocationCandidate(dirname(releasePath)) : undefined;
     const base = prior?.release ?? readReleaseReference(options.against);
+    // The publisher must supply this identity from its independently verified
+    // active deployment, not from the caller-selected --against artifact.
+    const trustedPublished = options.trustedPublishedRelease;
+    if (trustedPublished === undefined || trustedPublished !== base.digest) throw new Error("policy release preview requires the independently verified current published release identity");
     const build = await buildInvocationHubRelease(hub, policy);
     releasePreviewBarrier("AFTER_BUILD_BEFORE_FINAL_PREFLIGHT");
     const finalizedPreflight = await preflightPublication(hub, build);

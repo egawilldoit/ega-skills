@@ -8,6 +8,16 @@ Never print or commit secrets. All values below come from the Vercel project
 environment (`ega-skills-mcp`, scope `team_e2x4kf12yL43qmBIs2t2YaD2`) or from
 short-lived token files with mode 0600.
 
+For an I1 policy release, independently verify the currently published release
+identity from the authenticated production service and retained deployment
+before previewing a forward release. Supply that verified digest as
+`EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE`; preview rejects a different `--against`
+release. This value is an operator-supplied trust anchor, not proof that a
+digest is current. At promotion, verify the live retained pointer and use its
+revision for the atomic transition check. Local I1 launchers should set
+`EGA_SKILLS_TRUSTED_RELEASE` to their separately trusted expected release
+digest; a SQLite marker alone cannot resist replacement of the entire artifact.
+
 ## Pre-deployment
 
 1. Verify the exact release SHA is green in CI:

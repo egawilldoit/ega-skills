@@ -105,7 +105,9 @@ test('governed CLI preview and export require approval and preserve the projecte
   writeCandidateReview({ candidate: plan, decision: 'APPROVED', expectedRevision: 0, hubDir: hub });
   await applyAdoptionPlan({ hubDir: hub, plan });
   const cli = join(process.cwd(), 'packages/cli/bin/ega-skills.mjs'), candidate = join(base, 'candidate'), output = join(base, 'export');
-  const preview = JSON.parse(execFileSync(process.execPath, [cli, 'hub', 'release', 'preview', '--hub', hub, '--against', baselinePath, '--policy', policyPath, '--output-dir', candidate], { encoding: 'utf8' }));
+  const previewArgs = [cli, 'hub', 'release', 'preview', '--hub', hub, '--against', baselinePath, '--policy', policyPath, '--output-dir', candidate];
+  assert.throws(() => execFileSync(process.execPath, previewArgs, { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE: `sha256:${'0'.repeat(64)}` } }), /current published release identity/);
+  const preview = JSON.parse(execFileSync(process.execPath, previewArgs, { encoding: 'utf8', env: { ...process.env, EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE: baseline.release.digest } }));
   assert.equal(preview.status, 'READY'); assert.equal(preview.candidate.payload.release_digest, projected.digest);
   const handler = createHostedMcpHandler(loadHostedReleaseSnapshot(candidate), { allowedOrigins: ['http://localhost'], verifyBearer: async () => ({ subject: 'test', scopes: ['ega:read'] }), authorize: async () => true });
   const resolveHosted = async task => {

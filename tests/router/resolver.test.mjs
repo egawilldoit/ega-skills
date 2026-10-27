@@ -163,6 +163,11 @@ test("SPEC-004 §5.1.2: malformed requests fail with E_RESOLVE_REQUEST_INVALID",
     isRequestInvalid,
   );
   await assert.rejects(resolveSkills({ ...baseInput, explicitSkills: ["  "] }), isRequestInvalid);
+  let loaded = false;
+  const loadInvocation = () => { loaded = true; throw new Error("broken activation"); };
+  await assert.rejects(resolveSkills({ ...baseInput, explicitSkills: ["  "], loadInvocation }), isRequestInvalid);
+  assert.equal(loaded, false);
+  await assert.rejects(resolveSkills({ ...baseInput, loadInvocation }), { code: "E_INVOCATION_POLICY_INVALID" });
 });
 
 // SPEC-004 §5.1.1 pipeline + §5.2 result.

@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sha256Hex } from "@ega-skills/hashing";
-import { openRegistry } from "@ega-skills/registry";
+import { INVOCATION_REGISTRY_SCHEMA_VERSION, openRegistry } from "@ega-skills/registry";
 import { discoverSkillDirs } from "./builder.js";
 import { InvocationPolicyError, validateInvocationPolicy, type InvocationPolicy } from "./invocation-policy.js";
 import { createInvocationRelease, type InvocationHubRelease } from "./invocation-release.js";
@@ -51,6 +51,9 @@ export async function buildInvocationHubRelease(hubDir: string, value: Invocatio
   try {
     createReleaseFtsTable(registry.db, ftsTable, build.artifacts.searchIndexInput.rows);
     verifyReleaseCorpus(registry.db, ftsTable, build.skills.length);
+    registry.db.exec("CREATE TABLE ega_invocation_profile (release_digest TEXT NOT NULL, policy_digest TEXT NOT NULL)");
+    registry.db.prepare("INSERT INTO ega_invocation_profile (release_digest, policy_digest) VALUES (?, ?)").run(release.digest, policy.digest);
+    registry.db.pragma(`user_version = ${INVOCATION_REGISTRY_SCHEMA_VERSION}`);
   } finally {
     registry.close();
   }

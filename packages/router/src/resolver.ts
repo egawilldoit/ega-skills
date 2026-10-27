@@ -80,6 +80,8 @@ export interface ResolveInput {
   readonly policy?: ResolvePolicyInput;
   /** Release and policy supplied by a trusted I1 release activation boundary. */
   readonly invocation?: { readonly release: unknown; readonly policy: unknown };
+  /** Deferred activation keeps request and project validation ahead of I/O. */
+  readonly loadInvocation?: () => { readonly release: unknown; readonly policy: unknown } | undefined;
   /**
    * Skills invisible to this resolution (hosted authorization). Excluded IDs
    * and their aliases are removed from the reference index before any
@@ -406,10 +408,13 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   const locked = policy.lockedVersions ?? null;
   const lockStatus: LockStatus = locked !== null ? "LOCKED" : "UNLOCKED";
 
+  let invocation: ResolveInput["invocation"];
+  try { invocation = input.invocation ?? input.loadInvocation?.(); }
+  catch { throw new InvocationPolicyError("release activation failed"); }
   let invocationBindings: ReturnType<typeof validateInvocationPolicy>["payload"]["bindings"] = [];
-  if (input.invocation !== undefined) {
-    verifyInvocationRelease(input.invocation.release, input.invocation.policy);
-    invocationBindings = validateInvocationPolicy(input.invocation.policy).payload.bindings;
+  if (invocation !== undefined) {
+    verifyInvocationRelease(invocation.release, invocation.policy);
+    invocationBindings = validateInvocationPolicy(invocation.policy).payload.bindings;
   }
   const bindings = new Map(invocationBindings.map((binding) => [binding.skill_id, binding]));
 
@@ -423,7 +428,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     const excluded = new Set(input.excludedSkillIds ?? []);
     const loaded = loadL0Rows(registry, locked, excluded);
     const rows = loaded.rows;
-    if (input.invocation !== undefined && locked === null) {
+    if (invocation !== undefined && locked === null) {
       for (const row of rows) {
         const binding = bindings.get(row.canonicalId);
         if (binding !== undefined && row.versionHash !== binding.version_hash) throw new InvocationPolicyError("registry version mismatch");
@@ -446,7 +451,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
       projectPlatforms: fingerprint.platforms,
       taskTerms,
       maxTokens,
-      ...(input.invocation !== undefined ? { invocationVersions: new Map(invocationBindings.map((binding) => [binding.skill_id, binding.version_hash])) } : {}),
+      ...(invocation !== undefined ? { invocationVersions: new Map(invocationBindings.map((binding) => [binding.skill_id, binding.version_hash])) } : {}),
     });
     const explicitIds = new Set(explicit.explicit.map((skill) => skill.id));
 
@@ -588,7 +593,7 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
 
     return {
       resolutionId: randomUUID(),
-      routerContractVersion: input.invocation === undefined ? 1 : 2,
+      routerContractVersion: invocation === undefined ? 1 : 2,
       routerImplementationVersion: routerImplementationVersion(),
       mode: "suggest",
       confidence: confidence.confidence,
