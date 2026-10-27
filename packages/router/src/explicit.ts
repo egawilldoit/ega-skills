@@ -69,6 +69,8 @@ export interface ExplicitResolutionInput {
   readonly taskTerms?: readonly string[];
   /** Effective automatic maxTokens (explicit never shrinks it). */
   readonly maxTokens: number;
+  /** I1 binding versions; project denials and lock validity still take precedence. */
+  readonly invocationVersions?: ReadonlyMap<string, string>;
 }
 
 export interface ExplicitResolution {
@@ -185,6 +187,11 @@ export function resolveExplicitSkills(input: ExplicitResolutionInput): ExplicitR
 
     if (locked !== null) {
       const lockedVersion = locked.get(canonicalId);
+      const boundVersion = input.invocationVersions?.get(canonicalId);
+      if (lockedVersion !== undefined && boundVersion !== undefined && lockedVersion !== boundVersion) {
+        rejected.push({ id: canonicalId, name: portableName, versionHash: lockedVersion, evidence: [], reasons: ["INVOCATION_POLICY_BINDING"] });
+        continue;
+      }
       if (lockedVersion === undefined || row === undefined || row.versionHash !== lockedVersion) {
         rejected.push({
           id: canonicalId,
@@ -197,6 +204,12 @@ export function resolveExplicitSkills(input: ExplicitResolutionInput): ExplicitR
       }
     } else if (row === undefined) {
       rejected.push({ id: canonicalId, name: portableName, evidence: [], reasons: ["VERSION_MISSING"] });
+      continue;
+    }
+
+    const boundVersion = input.invocationVersions?.get(canonicalId);
+    if (boundVersion !== undefined && row.versionHash !== boundVersion) {
+      rejected.push({ id: canonicalId, name: portableName, versionHash: row.versionHash, evidence: [], reasons: ["INVOCATION_POLICY_BINDING"] });
       continue;
     }
 

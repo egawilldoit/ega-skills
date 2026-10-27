@@ -13,6 +13,8 @@ import {
 } from "../../packages/registry/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
 import { RouterError } from "../../packages/router/dist/errors.js";
+import { createEnvelope } from "../../packages/hashing/dist/index.js";
+import { createInvocationRelease, DEFAULT_RELEASE_CONTRACTS } from "../../packages/project/dist/index.js";
 
 const FROZEN_TOP_FIELDS = [
   "resolutionId",
@@ -101,6 +103,44 @@ async function twoSkillWorld(t) {
   assert.equal(summary.imported, 2);
   return world;
 }
+
+test("I1 resolver separates incidental names, accepts reviewed intent and preserves policy precedence", async (t) => {
+  const world = await isolatedWorld(t);
+  await writeSkill(world.src, "council");
+  assert.equal((await importAll(world.env, world.src, "demo")).imported, 1);
+  const id = "demo/council";
+  const version = currentHash(world.env, id);
+  const digest = `sha256:${"a".repeat(64)}`;
+  const commit = "a".repeat(40);
+  const policy = createEnvelope({ object_type: "ega.invocation-policy", schema_version: 1, payload: {
+    profile: "ega-invocation-policy-v1",
+    sources: [{ source_id: "demo", repository: "https://github.com/demo/repo", resolved_commit: commit, governed_skill_ids: [id] }],
+    bindings: [{ source_id: "demo", skill_id: id, version_hash: version, rules: [{ id: "review", alternatives: [[{ literal: "review" }, { literal: "with" }, { literal: "council" }]] }] }],
+  } });
+  const base = createEnvelope({ object_type: "ega.hub-release", schema_version: 1, payload: {
+    hub_id: "test", skill_versions: { [id]: version }, alias_map_digest: digest, search_index_input_digest: digest, token_artifact_digest: digest,
+    adopted_sources: [{ source_id: "demo", source_config_digest: digest, resolved_commit: commit, selected_skill_tree_digest: digest, vendored_snapshot_digest: digest }],
+    contracts: DEFAULT_RELEASE_CONTRACTS, build: { fresh_registry: true, import_failures: 0, expected_catalog_match: true },
+  } });
+  const invocation = { release: createInvocationRelease(base, policy), policy };
+  const input = { projectPath: world.proj, env: world.env, invocation };
+  const unrelated = await resolveSkills({ ...input, task: "design a city council database" });
+  assert.equal(unrelated.routerContractVersion, 2);
+  assert.deepEqual(unrelated.selected, []);
+  assert.ok(unrelated.candidates.some((row) => row.id === id && row.reasons.includes("INVOCATION_UNCONFIRMED")));
+  const positive = await resolveSkills({ ...input, task: "review with council" });
+  assert.ok(positive.selected.some((row) => row.id === id && row.reasons.includes("WORKFLOW_INTENT_MATCH")));
+  const explicit = await resolveSkills({ ...input, task: "design a city council database", explicitSkills: [id] });
+  assert.deepEqual(explicit.explicit.map((row) => row.id), [id]);
+  const denied = await resolveSkills({ ...input, task: "review with council", explicitSkills: [id], policy: { deniedSkills: [id] } });
+  assert.deepEqual(denied.explicit, []);
+  assert.deepEqual(denied.rejected[0].reasons, ["SKILL_DENIED"]);
+  const stale = await resolveSkills({ ...input, task: "review with council", explicitSkills: [id], policy: { lockedVersions: new Map([[id, digest]]) } });
+  assert.deepEqual(stale.explicit, []);
+  assert.deepEqual(stale.rejected[0].reasons, ["INVOCATION_POLICY_BINDING"]);
+  assert.deepEqual(stale.selected, []);
+  await assert.rejects(resolveSkills({ ...input, task: "review with council", invocation: { release: invocation.release } }), { code: "E_INVOCATION_POLICY_INVALID" });
+});
 
 // SPEC-004 §5.1.2 request validation.
 
