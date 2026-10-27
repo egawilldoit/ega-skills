@@ -34,6 +34,8 @@ export interface TierCandidate {
   readonly triggers: readonly string[];
   readonly domains: readonly string[];
   readonly description: string;
+  /** Supplied only for a match from a verified I1 release policy. */
+  readonly workflowIntent?: string;
 }
 
 export interface TierAssignmentInput {
@@ -61,6 +63,7 @@ const STRONG_TASK_CATEGORIES: ReadonlySet<EvidenceCategory> = new Set([
   "TASK_TRIGGER",
   "DOMAIN",
   "NAME_DESCRIPTION",
+  "WORKFLOW_INTENT",
 ]);
 
 const TERM_RE = /[\p{L}\p{N}]+/gu;
@@ -115,11 +118,12 @@ function collectEvidence(
   if (ftsOrder.includes(candidate.canonicalId)) {
     evidenceValue(evidence, "LEXICAL", taskTerms.join(" "));
   }
+  if (candidate.workflowIntent !== undefined) evidenceValue(evidence, "WORKFLOW_INTENT", candidate.workflowIntent);
   const hasRelevant = evidence.length > 0;
   if (hasRelevant && prefer.includes(candidate.canonicalId)) {
     evidenceValue(evidence, "PROJECT_PREFERENCE", candidate.canonicalId);
   }
-  const order = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION", "PROJECT_PREFERENCE", "LEXICAL"];
+  const order = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION", "PROJECT_PREFERENCE", "LEXICAL", "WORKFLOW_INTENT"];
   return evidence.sort((a, b) => {
     const orderDiff = order.indexOf(a.category) - order.indexOf(b.category);
     if (orderDiff !== 0) return orderDiff;
@@ -136,7 +140,8 @@ function hasTaskStrength(evidence: readonly RoutingEvidence[]): boolean {
     (record) =>
       record.category === "TASK_TRIGGER" ||
       record.category === "DOMAIN" ||
-      record.category === "NAME_DESCRIPTION",
+      record.category === "NAME_DESCRIPTION" ||
+      record.category === "WORKFLOW_INTENT",
   );
 }
 
@@ -159,13 +164,14 @@ const REASON_BY_CATEGORY: Record<EvidenceCategory, string> = {
   NAME_DESCRIPTION: "DESCRIPTION_MATCH",
   PROJECT_PREFERENCE: "PROJECT_PREFERENCE",
   LEXICAL: "LEXICAL_MATCH",
+  WORKFLOW_INTENT: "WORKFLOW_INTENT_MATCH",
 };
 
 function reasonsFor(evidence: readonly RoutingEvidence[], tokenEfficient: boolean): string[] {
   const reasons = new Set<string>();
   for (const record of evidence) reasons.add(REASON_BY_CATEGORY[record.category]);
   if (tokenEfficient) reasons.add("TOKEN_EFFICIENT");
-  return POSITIVE_REASONS.filter((reason) => reasons.has(reason));
+  return [...POSITIVE_REASONS, "WORKFLOW_INTENT_MATCH"].filter((reason) => reasons.has(reason));
 }
 
 /**
