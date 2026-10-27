@@ -95,6 +95,7 @@ import {
 import {
   HubError,
   createReleaseDiff,
+  createInvocationReleaseDiff,
   type ReleaseSkillUpdate,
 } from "@ega-skills/project";
 
@@ -1153,7 +1154,12 @@ export function getReleaseComparison(
 
   let diff;
   try {
-    diff = createReleaseDiff(baseResult.release, headResult.release);
+    diff = baseResult.release.schema_version === 1 && headResult.release.schema_version === 1
+      ? createReleaseDiff(baseResult.release, headResult.release)
+      : createInvocationReleaseDiff(
+        { release: baseResult.release, ...(baseResult.invocation === undefined ? {} : { policy: baseResult.invocation.policy }) },
+        { release: headResult.release, ...(headResult.invocation === undefined ? {} : { policy: headResult.invocation.policy }) },
+      );
   } catch (error) {
     if (error instanceof HubError) {
       // The contract refusal, surfaced as a conflict rather than silently

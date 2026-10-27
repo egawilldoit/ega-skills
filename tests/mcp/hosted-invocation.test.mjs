@@ -10,6 +10,8 @@ import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js"
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
+import { parseServerConfig } from "../../apps/web/server/env.ts";
+import { getReleaseComparison } from "../../apps/web/server/releases.ts";
 
 async function localResolve(t, home, project, trustedRelease) {
   const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home, ...(trustedRelease ? { EGA_SKILLS_TRUSTED_RELEASE: trustedRelease } : {}) }, stdio: ["pipe", "pipe", "pipe"] });
@@ -74,6 +76,10 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   writeFileSync(manifestPath, JSON.stringify(createRetainedManifest({ hub_id: "hosted-i1", publication_revision: 1, deployment_id: "old", default_release_digest: base.release.digest, releases: [{ artifact_path: "legacy", candidate_digest: legacyCandidate.digest, release_digest: base.release.digest, release_package_digest: `sha256:${sha256Hex(readFileSync(join(legacy, "release-package.json")))}` }] })));
   promoteRetainedRelease({ manifestPath, candidatePath: join(dir, "candidate.json"), candidateDigest: candidate.digest, expectedRevision: 1, deploymentId: "new" });
   assert.equal(loadRetainedReleaseSet(manifestPath).defaultSnapshot.releaseDigest, build.release.digest);
+  const comparison = getReleaseComparison(parseServerConfig({ EGA_WEB_RETAINED_MANIFEST: manifestPath }), { base: base.release.digest, candidate: build.release.digest });
+  assert.equal(comparison.status, "CHANGED");
+  assert.equal(comparison.unchanged_count, 1);
+  assert.deepEqual(comparison.added_skill_ids, []);
   assert.throws(() => promoteRetainedRelease({ manifestPath, candidatePath: join(dir, "candidate.json"), candidateDigest: candidate.digest, expectedRevision: 2, deploymentId: "stale-predecessor" }), /current release/);
   assert.throws(() => promoteRetainedRelease({ manifestPath, candidatePath: join(legacy, "candidate.json"), candidateDigest: legacyCandidate.digest, expectedRevision: 2, deploymentId: "forward-downgrade", legacy: true }), /current release/);
   rollbackRetainedRelease({ manifestPath, candidatePath: join(legacy, "candidate.json"), candidateDigest: legacyCandidate.digest, releaseDigest: base.release.digest, expectedRevision: 2, deploymentId: "rollback", legacy: true });
