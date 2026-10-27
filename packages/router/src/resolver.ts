@@ -25,6 +25,7 @@ import {
 } from "@ega-skills/project";
 
 import {
+  INVOCATION_REGISTRY_SCHEMA_VERSION,
   openRegistry,
   searchSkills,
   type RegistryHandle,
@@ -425,6 +426,14 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   // never migrate the registry or materialize the home tree as a side effect.
   const registry = openRegistry({ env: input.env, readonly: true });
   try {
+    if (registry.db.pragma("user_version", { simple: true }) === INVOCATION_REGISTRY_SCHEMA_VERSION) {
+      if (invocation === undefined) throw new InvocationPolicyError("governed registry requires verified activation");
+      let markers: { release_digest: string; policy_digest: string }[];
+      try { markers = registry.db.prepare("SELECT release_digest, policy_digest FROM ega_invocation_profile").all() as typeof markers; }
+      catch { throw new InvocationPolicyError("registry activation marker is invalid"); }
+      const release = invocation.release as { digest: string; payload: { invocation_policy_digest: string } };
+      if (markers.length !== 1 || markers[0]?.release_digest !== release.digest || markers[0]?.policy_digest !== release.payload.invocation_policy_digest) throw new InvocationPolicyError("registry activation identity mismatch");
+    }
     const excluded = new Set(input.excludedSkillIds ?? []);
     const loaded = loadL0Rows(registry, locked, excluded);
     const rows = loaded.rows;

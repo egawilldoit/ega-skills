@@ -13,8 +13,11 @@ identity from the authenticated production service and retained deployment
 before previewing a forward release. Supply that verified digest as
 `EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE`; preview rejects a different `--against`
 release. This value is an operator-supplied trust anchor, not proof that a
-digest is current. At promotion, verify the live retained pointer and use its
-revision for the atomic transition check. Local I1 launchers should set
+digest is current. The retained-manifest transition check does not itself guard
+the Vercel production alias: the direct artifact deployment path does not call
+it. Do not promote an I1 release until a reviewed publication process connects
+the actual current production deployment to a trusted transition check and
+prevents concurrent stale promotions. Local I1 launchers must set
 `EGA_SKILLS_TRUSTED_RELEASE` to their separately trusted expected release
 digest; a SQLite marker alone cannot resist replacement of the entire artifact.
 

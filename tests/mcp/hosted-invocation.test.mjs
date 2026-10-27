@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
+import { resolveSkills } from "../../packages/router/dist/index.js";
 
 async function localResolve(t, home, project, trustedRelease) {
   const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home, ...(trustedRelease ? { EGA_SKILLS_TRUSTED_RELEASE: trustedRelease } : {}) }, stdio: ["pipe", "pipe", "pipe"] });
@@ -46,6 +47,11 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   writeInvocationCandidate(build, dir, candidate, base.release, preflight, diff);
   const snapshot = loadHostedReleaseSnapshot(dir);
   assert.equal(snapshot.invocation.policy.digest, policy.digest);
+  const direct = { task: "alpha", projectPath: root, env: { EGA_SKILLS_HOME: dir } };
+  await assert.rejects(resolveSkills(direct), { code: "E_INVOCATION_POLICY_INVALID" });
+  assert.equal((await resolveSkills({ ...direct, invocation: snapshot.invocation })).routerContractVersion, 2);
+  const wrongRelease = createEnvelope({ object_type: "ega.hub-release", schema_version: 2, payload: { ...build.release.payload, hub_id: "different-hub" } });
+  await assert.rejects(resolveSkills({ ...direct, invocation: { release: wrongRelease, policy } }), { code: "E_INVOCATION_POLICY_INVALID" });
   const handler = createHostedMcpHandler(snapshot, { allowedOrigins: ["http://localhost"], verifyBearer: async () => ({ subject: "test", scopes: ["ega:read"] }), authorize: async () => true });
   const response = await handler.fetch(new Request("http://localhost/mcp", { method: "POST", headers: { authorization: "Bearer test", "content-type": "application/json", accept: "application/json, text/event-stream", origin: "http://localhost" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "resolve", arguments: { task: "alpha", explicit_skills: ["ega/alpha"] } } }) }));
   assert.equal(response.status, 200);
