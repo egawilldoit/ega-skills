@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
@@ -15,7 +16,8 @@ import { getReleaseComparison } from "../../apps/web/server/releases.ts";
 
 async function localResolve(t, home, project, trustedRelease) {
   const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home, ...(trustedRelease ? { EGA_SKILLS_TRUSTED_RELEASE: trustedRelease } : {}) }, stdio: ["pipe", "pipe", "pipe"] });
-  t.after(() => { if (child.exitCode === null) child.kill(); });
+  const closed = once(child, "close");
+  child.stderr.resume();
   const pending = new Map();
   createInterface({ input: child.stdout }).on("line", line => { const msg = JSON.parse(line); pending.get(msg.id)?.(msg); pending.delete(msg.id); });
   const request = (id, method, params) => new Promise((resolve, reject) => {
@@ -23,9 +25,15 @@ async function localResolve(t, home, project, trustedRelease) {
     pending.set(id, msg => { clearTimeout(timer); resolve(msg); });
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
-  await request(1, "initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "i1-test", version: "1" } });
-  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-  return (await request(2, "tools/call", { name: "resolve", arguments: { task: "alpha", explicit_skills: ["ega/alpha"] } })).result;
+  try {
+    await request(1, "initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "i1-test", version: "1" } });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    return (await request(2, "tools/call", { name: "resolve", arguments: { task: "alpha", explicit_skills: ["ega/alpha"] } })).result;
+  } finally {
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+  }
 }
 
 test("hosted I1 activation verifies sidecars and resolves with the release policy", async (t) => {
@@ -66,7 +74,7 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   assert.equal(local.isError, false);
   assert.equal(local.structuredContent.result.router_contract_version, 2);
   assert.equal(local.structuredContent.result.explicit[0].id, "ega/alpha");
-  const cli = spawnSync(process.execPath, [join(process.cwd(), "packages/cli/bin/ega-skills.mjs"), "resolve", "--project", root, "--task", "alpha", "--explicit", "ega/alpha"], { encoding: "utf8", env: { ...process.env, EGA_SKILLS_HOME: dir } });
+  const cli = spawnSync(process.execPath, [join(process.cwd(), "packages/cli/bin/ega-skills.mjs"), "resolve", "--project", root, "--task", "alpha", "--explicit", "ega/alpha"], { encoding: "utf8", timeout: 30000, env: { ...process.env, EGA_SKILLS_HOME: dir } });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(JSON.parse(cli.stdout).routerContractVersion, 2);
   const legacy = join(root, "legacy");
