@@ -49,6 +49,7 @@ export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { acquireOwnerTokenLock } from "./hub/mutation-lock.js";
 export type { MutationLock, MutationLockOptions } from "./hub/mutation-lock.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
+export { projectInvocationRelease } from "./hub/invocation-projection.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";
 export { acquireSource, releaseAcquiredSource } from "./intake/acquire.js";
