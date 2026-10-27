@@ -35,8 +35,8 @@ export interface ConfidenceResult {
   readonly candidates: ConfidenceRow[];
 }
 
-const STRONG_CATEGORIES = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION"] as const;
-const STRONG_TASK_CATEGORIES = ["TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION"] as const;
+const STRONG_CATEGORIES = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION", "WORKFLOW_INTENT"] as const;
+const STRONG_TASK_CATEGORIES = ["TASK_TRIGGER", "DOMAIN", "NAME_DESCRIPTION", "WORKFLOW_INTENT"] as const;
 
 function distinctStrongCategories(evidence: readonly RoutingEvidence[]): number {
   return new Set(

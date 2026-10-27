@@ -8,6 +8,81 @@ Never print or commit secrets. All values below come from the Vercel project
 environment (`ega-skills-mcp`, scope `team_e2x4kf12yL43qmBIs2t2YaD2`) or from
 short-lived token files with mode 0600.
 
+For an I1 policy release, independently verify the currently published release
+identity from the authenticated production service and retained deployment
+before previewing a forward release. Supply that verified digest as
+`EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE`; preview rejects a different `--against`
+release. This value is an operator-supplied trust anchor, not proof that a
+digest is current. Local I1 launchers must set `EGA_SKILLS_TRUSTED_RELEASE` to
+their separately trusted expected release digest; a SQLite marker alone cannot
+resist replacement of the entire artifact.
+
+## Production publication boundary
+
+The supported production writer is
+`scripts/hosted/publish-production.mjs`. Contract R2's revisioned retained
+manifest protects the durable promotion path; this script connects that
+decision to the Vercel alias, which is a separate last-write-wins surface.
+
+Before any alias mutation the gate requires, from live reads:
+
+1. the exact R1/I1 candidate, owner approval, candidate envelope, policy digest,
+   skill-version map and source snapshot are digest-bound to each other;
+2. the live production alias and the release served by that deployment are the
+   exact predecessor recorded in the candidate and approval;
+3. Vercel Git production auto-deploy is disabled, the canonical alias is the
+   only production alias, and every deployment check has succeeded;
+4. the executing Vercel user, team and project equal the approved publisher; and
+5. the owner approval is no older than 24 hours.
+
+Staging creates a PREVIEW deployment (never `--prod`) and proves its `/readyz`
+release digest before promotion. Promotion re-reads the live predecessor
+immediately before the write, promotes without `--force`, then polls both the
+alias target and `/readyz` until the exact candidate digest is served. A
+mismatch restores the recorded predecessor only if this promotion is still the
+current alias; if another publication won, the script refuses to clobber it.
+Every completed promotion or rollback writes an append-only receipt bounded to
+the approval, candidate, predecessor, deployment and monotonic publication
+revision. A handled failure that restored the predecessor writes a separate
+`FAILED` side receipt (`<receipt>.failed.json`) at the same revision; it records
+the attempt but does not enter or advance the successful receipt chain. A
+blocked or dry-run attempt performs no mutation and writes no receipt. If the
+publishing process is killed after the alias moves, run `reconcile` to record
+the already-live exact candidate without moving the alias.
+Receipt files must live outside the repository and outside any synced source
+tree.
+
+`/readyz` reports the exact `release_digest`. This is a public semantic identity,
+not a secret; it makes the live promotion verifiable without an OAuth token.
+Authenticated MCP verification is still required after promotion.
+
+### What is and is not atomic
+
+Vercel exposes no compare-and-swap operation for an alias, no project-scoped
+deploy token ACL, and no way for a repository process to revoke a team
+principal's dashboard promotion right. The boundary therefore does **not**
+claim alias-level atomicity. It makes EGA's publication decision serialized and
+reviewable, and it refuses to run when an observable bypass path exists.
+
+Residual risk is explicit: a Vercel principal that can independently promote or
+assign the production alias can still move it. The release owner must, before
+the first governed promotion:
+
+- disable Vercel Git deployments for the production branch (`release/2.0`) and
+  verify the setting is read back;
+- make the publisher token the only production-capable credential, and remove
+  deployment/promotion rights from every other principal that does not need
+  them;
+- keep the token in a `0600` file and inject it only as `VERCEL_TOKEN` to the
+  child process (`EGA_VERCEL_TOKEN_FILE`);
+- re-check the project after any team membership change; and
+- treat an unexplained alias move as a security incident, not a release
+  retry.
+
+If these platform controls cannot be established, do not promote. The
+independent review of this boundary must reject any claim of an atomic
+guarantee that the platform cannot enforce.
+
 ## Pre-deployment
 
 1. Verify the exact release SHA is green in CI:
@@ -44,9 +119,84 @@ Follow `packages/mcp/VERCEL.md`:
 - Production Branch `release/2.0`, Root Directory `packages/mcp`,
   Install `pnpm install --frozen-lockfile`, Build `pnpm -w build`,
   Node 24, include files outside root.
-- Production deployment is a release-owner action. Preview/staging
-  verification uses the same project with preview-scoped environment values
-  and must never change the production alias.
+- Production deployment is a release-owner action performed only through
+  `publish-production.mjs`. Preview/staging verification uses the same project
+  with preview-scoped environment values and must never change the production
+  alias.
+
+Record the exact current deployment and release before staging:
+
+```
+node scripts/hosted/publish-production.mjs verify \
+  --alias ega-skills-mcp.vercel.app
+```
+
+Stage, then promote, using the approval packet and the independently verified
+predecessor (all values are required; `stage`/`promote` refuse a mismatch):
+
+```
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs stage \
+  --candidate /path/to/candidate \
+  --approval /path/to/approval.json \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_… --publisher <vercel-user-id> \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> \
+  --staging-out /secure/outside-repo/staging-<n>.json --apply
+
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs promote \
+  --candidate /path/to/candidate \
+  --approval /path/to/approval.json \
+  --staging /secure/outside-repo/staging-<n>.json \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_… --publisher <vercel-user-id> \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> \
+  --staged-deployment dpl_… \
+  --genesis \
+  --receipt /secure/outside-repo/receipt-<n>.json --apply
+```
+
+Promotion requires the staging record (`--staging`); `--staged-deployment` alone
+is not accepted. If the process is killed after the alias moved, do not re-run
+`promote`. Reconcile the observed result:
+
+```
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs reconcile \
+  --candidate /path/to/candidate --approval /path/to/approval.json \
+  --staging /secure/outside-repo/staging-<n>.json \
+  --team … --project … --publisher … --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> --staged-deployment dpl_… --genesis \
+  --receipt /secure/outside-repo/receipt-<n>.json --apply
+```
+
+`reconcile` refuses unless the live alias and served release are exactly the
+staged deployment and candidate. It never moves the alias.
+
+Use `--genesis` only for the first governed release (revision 0). Every later
+promotion must pass `--previous-receipt <the last receipt>` instead, and the
+script refuses a receipt/revision/predecessor mismatch.
+
+`--staging-out` writes the exact staging record that `--staging` consumes; it
+requires `--apply`, because a dry-run stage creates no deployment. The
+stage command's stdout also contains it under `.staging`, but that wrapper is not
+the record `promote` expects. `EGA_PUBLICATION_STATE_DIR` must be on storage
+shared by every publisher; a per-machine directory narrows but does not remove
+the race. The receipt path is
+created with `O_EXCL`; a retry must use a new receipt name so the previous
+evidence is never overwritten.
 
 ## Post-deployment smoke
 
@@ -81,14 +231,33 @@ Preview proof and the immutable-deployment transcript:
 `packages/mcp/VERCEL.md` § "Rollback (immutable deployments)".
 
 1. Identify the previous known-good production deployment ID/URL and its
-   release digest (recorded in pre-deployment step 5).
-2. Re-point production to it:
-   `vercel rollback <deployment-url-or-id> --scope <team>` or
-   `vercel promote <deployment-url> --scope <team>`.
+   release digest (recorded in pre-deployment step 5 and in the publication
+   receipt chain).
+2. Re-point production through the boundary, not a bare `vercel` command. The
+   target must be an earlier receipt in the contiguous chain:
+
+   ```
+   EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+   EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+   node scripts/hosted/publish-production.mjs rollback \
+     --chain /secure/receipt-3.json,/secure/receipt-2.json,/secure/receipt-1.json \
+     --current /secure/receipt-3.json \
+     --target /secure/receipt-2.json \
+     --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+     --project prj_… --publisher <vercel-user-id> \
+     --production-branch release/2.0 \
+     --alias ega-skills-mcp.vercel.app \
+     --receipt /secure/receipt-4.json --apply
+   ```
+
+   A bare `vercel rollback`/`vercel promote` is an emergency containment
+   action only. Record it, re-run the boundary verification immediately, and
+   treat the missing receipt as an audit gap.
 3. Re-run the post-deployment smoke against the production origin and confirm
-   `/readyz` 200 and the expected `effective_release_digest`.
-4. To restore the new release, promote/redeploy its immutable deployment URL
-   and repeat the smoke.
+   `/readyz` 200 and the expected `release_digest`.
+4. To restore the new release, promote its recorded deployment through the
+   boundary again and repeat the smoke. Rollback advances the revision; it never
+   decrements it.
 
 ## Fail-closed recovery
 

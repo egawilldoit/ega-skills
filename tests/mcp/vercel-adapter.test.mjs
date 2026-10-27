@@ -60,16 +60,19 @@ async function startServer(t, env) {
   let maxBodyBytes = 1_048_576;
   let maxResponseBytes = 4 * 1_048_576;
   let startupError = null;
+  let releaseDigest;
   try {
     const runtime = createHostedRuntimeFromEnv(env);
     handler = runtime.handler;
     maxBodyBytes = runtime.maxBodyBytes;
     maxResponseBytes = runtime.maxResponseBytes;
+    releaseDigest = runtime.snapshot.releaseDigest;
   } catch (error) {
     startupError = error;
   }
   const listener = createVercelRequestListener({
     getHandler: () => handler,
+    getReleaseIdentity: () => (handler && releaseDigest ? { release_digest: releaseDigest } : undefined),
     maxBodyBytes,
     maxResponseBytes,
   });
@@ -172,7 +175,9 @@ test("vercel startup with a corrupt artifact is unavailable", async (t) => {
 test("vercel startup with a valid artifact is ready", async (t) => {
   const { base } = await startServer(t, validEnv(BUILD.registryHome));
   assert.equal((await fetch(`${base}/readyz`)).status, 200);
-  assert.deepEqual(await (await fetch(`${base}/readyz`)).json(), { status: "ready" });
+  const readyBody = await (await fetch(`${base}/readyz`)).json();
+  assert.equal(readyBody.status, "ready");
+  assert.match(readyBody.release_digest, /^sha256:[0-9a-f]{64}$/);
 });
 
 // 7. /healthz (ready AND failed startup)

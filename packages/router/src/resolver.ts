@@ -19,9 +19,13 @@ import {
   discoverConfig,
   readConfigAndLock,
   resolveLockMode,
+  InvocationPolicyError,
+  validateInvocationPolicy,
+  verifyInvocationRelease,
 } from "@ega-skills/project";
 
 import {
+  INVOCATION_REGISTRY_SCHEMA_VERSION,
   openRegistry,
   searchSkills,
   type RegistryHandle,
@@ -32,6 +36,7 @@ import { assessConfidence, type ConfidenceRow } from "./confidence.js";
 import { composeAutomatic, type ComposeAutomaticRow } from "./composition.js";
 import { resolveExplicitSkills, MAX_EXPLICIT_SKILLS, type EligibleSkill, type ExplicitPolicyInput } from "./explicit.js";
 import { normalizeTaskTerms } from "./match.js";
+import { matchInvocationIntent } from "./invocation-match.js";
 import { suppressRedundant } from "./redundancy.js";
 import { assignTiers, type TierCandidate } from "./tiers.js";
 import { resolveProjectFingerprint } from "./workspace.js";
@@ -74,6 +79,10 @@ export interface ResolveInput {
   readonly explicitSkills?: readonly string[];
   readonly budget?: ResolveBudgetInput;
   readonly policy?: ResolvePolicyInput;
+  /** Release and policy supplied by a trusted I1 release activation boundary. */
+  readonly invocation?: { readonly release: unknown; readonly policy: unknown };
+  /** Deferred activation keeps request and project validation ahead of I/O. */
+  readonly loadInvocation?: () => { readonly release: unknown; readonly policy: unknown } | undefined;
   /**
    * Skills invisible to this resolution (hosted authorization). Excluded IDs
    * and their aliases are removed from the reference index before any
@@ -88,7 +97,7 @@ export interface ResolveInput {
 
 export interface ResolutionResult {
   readonly resolutionId: string;
-  readonly routerContractVersion: 1;
+  readonly routerContractVersion: 1 | 2;
   readonly routerImplementationVersion: string;
   readonly mode: "suggest";
   readonly confidence: Confidence;
@@ -400,6 +409,16 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   const locked = policy.lockedVersions ?? null;
   const lockStatus: LockStatus = locked !== null ? "LOCKED" : "UNLOCKED";
 
+  let invocation: ResolveInput["invocation"];
+  try { invocation = input.invocation ?? input.loadInvocation?.(); }
+  catch { throw new InvocationPolicyError("release activation failed"); }
+  let invocationBindings: ReturnType<typeof validateInvocationPolicy>["payload"]["bindings"] = [];
+  if (invocation !== undefined) {
+    verifyInvocationRelease(invocation.release, invocation.policy);
+    invocationBindings = validateInvocationPolicy(invocation.policy).payload.bindings;
+  }
+  const bindings = new Map(invocationBindings.map((binding) => [binding.skill_id, binding]));
+
   const fingerprint = resolveProjectFingerprint(input.projectPath);
   const taskTerms = normalizeTaskTerms(input.task);
 
@@ -407,9 +426,23 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
   // never migrate the registry or materialize the home tree as a side effect.
   const registry = openRegistry({ env: input.env, readonly: true });
   try {
+    if (registry.db.pragma("user_version", { simple: true }) === INVOCATION_REGISTRY_SCHEMA_VERSION) {
+      if (invocation === undefined) throw new InvocationPolicyError("governed registry requires verified activation");
+      let markers: { release_digest: string; policy_digest: string }[];
+      try { markers = registry.db.prepare("SELECT release_digest, policy_digest FROM ega_invocation_profile").all() as typeof markers; }
+      catch { throw new InvocationPolicyError("registry activation marker is invalid"); }
+      const release = invocation.release as { digest: string; payload: { invocation_policy_digest: string } };
+      if (markers.length !== 1 || markers[0]?.release_digest !== release.digest || markers[0]?.policy_digest !== release.payload.invocation_policy_digest) throw new InvocationPolicyError("registry activation identity mismatch");
+    }
     const excluded = new Set(input.excludedSkillIds ?? []);
     const loaded = loadL0Rows(registry, locked, excluded);
     const rows = loaded.rows;
+    if (invocation !== undefined && locked === null) {
+      for (const row of rows) {
+        const binding = bindings.get(row.canonicalId);
+        if (binding !== undefined && row.versionHash !== binding.version_hash) throw new InvocationPolicyError("registry version mismatch");
+      }
+    }
     const knownSkills = loaded.knownSkills;
     const eligible = new Map(rows.map((row) => [row.canonicalId, toEligibleSkill(row)]));
     const explicitPolicy: ExplicitPolicyInput = {
@@ -427,10 +460,11 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
       projectPlatforms: fingerprint.platforms,
       taskTerms,
       maxTokens,
+      ...(invocation !== undefined ? { invocationVersions: new Map(invocationBindings.map((binding) => [binding.skill_id, binding.version_hash])) } : {}),
     });
     const explicitIds = new Set(explicit.explicit.map((skill) => skill.id));
 
-    const pool = rows.filter((row) => !explicitIds.has(row.canonicalId));
+    const pool = rows.filter((row) => !explicitIds.has(row.canonicalId) && (bindings.get(row.canonicalId)?.version_hash ?? row.versionHash) === row.versionHash);
     const filtered = applyAutomaticFilters({
       candidates: pool.map(toEligibleSkill),
       policy: explicitPolicy,
@@ -441,24 +475,32 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
     const byId = new Map(rows.map((row) => [row.canonicalId, row]));
     const ftsHits = searchSkills(registry.db, input.task, locked !== undefined && locked !== null ? { locked } : {});
     const ftsOrder = ftsHits.map((hit) => hit.skillId).filter((id) => byId.has(id));
-    const tiered = assignTiers({
-      candidates: filtered.passed.map((row) => {
+    const tierCandidates = filtered.passed.map((row) => {
         const full = byId.get(row.canonicalId);
         if (full === undefined) throw new Error(`Internal resolver error: missing L0 for ${row.canonicalId}.`);
-        return toTierCandidate(full);
-      }),
+        const binding = bindings.get(full.canonicalId);
+        const match = binding === undefined ? null : matchInvocationIntent(input.task, binding.rules);
+        return { ...toTierCandidate(full), ...(match === null ? {} : { workflowIntent: `${full.canonicalId}:${match}` }) };
+      });
+    const rankInput = {
       task: input.task,
       projectFrameworks: fingerprint.frameworks,
       projectPlatforms: fingerprint.platforms,
       prefer: policy.prefer ?? [],
       ftsOrder,
-    });
-
+    };
+    const separatedIds = new Set(tierCandidates.filter((row) => bindings.has(row.canonicalId) &&
+      (byId.get(row.canonicalId)?.modelInvocation === "user_only" || row.workflowIntent === undefined)).map((row) => row.canonicalId));
+    // Separated rows must not affect eligible peer scoring, and their own
+    // appended order is the original V1 order without workflow evidence.
+    const separated = separatedIds.size === 0 ? [] : assignTiers({ ...rankInput, candidates: tierCandidates.map(({ workflowIntent: _intent, ...row }) => row) }).ranked.filter((row) => separatedIds.has(row.id));
+    const separatedIntent = new Map(tierCandidates.filter((row) => separatedIds.has(row.canonicalId) && row.workflowIntent !== undefined).map((row) => [row.canonicalId, row.workflowIntent!]));
+    const tiered = assignTiers({ ...rankInput, candidates: tierCandidates.filter((row) => !separatedIds.has(row.canonicalId)) });
     const redundancy = suppressRedundant({
       rows: tiered.ranked.map((row) => {
         const full = byId.get(row.id);
         if (full === undefined) throw new Error(`Internal resolver error: missing L0 for ${row.id}.`);
-        return { id: row.id, name: full.portableName, versionHash: full.versionHash, tier: row.tier === "E" ? "C" : row.tier, evidence: row.evidence };
+        return { id: row.id, name: full.portableName, versionHash: full.versionHash, tier: row.tier === "E" ? "C" : row.tier, evidence: row.evidence, governed: bindings.has(row.id) };
       }),
     });
 
@@ -539,13 +581,28 @@ export async function resolveSkills(input: ResolveInput): Promise<ResolutionResu
       .filter((row) => row !== undefined)
       .slice(0, 3)
       .map((row) => toResolved({ ...row, reasons: confidenceReasonsById.get(row.id) ?? row.reasons }));
+    for (const row of separated) {
+      if (candidates.length >= 3) break;
+      const full = byId.get(row.id);
+      if (full === undefined || (row.evidence.length === 0 && full.modelInvocation !== "user_only")) continue;
+      const reasons = [...row.reasons];
+      const intent = separatedIntent.get(row.id);
+      if (intent !== undefined) reasons.push("WORKFLOW_INTENT_MATCH");
+      const intentIndex = reasons.indexOf("WORKFLOW_INTENT_MATCH");
+      if (locked !== null) reasons.splice(intentIndex < 0 ? reasons.length : intentIndex, 0, "LOCKED_VERSION");
+      if (fingerprint.workspaceAmbiguous) reasons.push("WORKSPACE_AMBIGUOUS");
+      if (full.modelInvocation === "user_only") reasons.push("USER_INVOCATION_ONLY");
+      if (intent === undefined) reasons.push("INVOCATION_UNCONFIRMED");
+      const evidence = intent === undefined ? row.evidence : [...row.evidence, { category: "WORKFLOW_INTENT" as const, value: intent }];
+      candidates.push(toResolved({ ...row, evidence, name: full.portableName, versionHash: full.versionHash, recommendedContentLevel: full.l1Status === "AUTHORED" && full.l1Tokens !== null ? "L1" : "L2", reasons }));
+    }
     const autoRejects = [...filtered.rejected, ...redundancy.suppressed]
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, 3);
 
     return {
       resolutionId: randomUUID(),
-      routerContractVersion: 1,
+      routerContractVersion: invocation === undefined ? 1 : 2,
       routerImplementationVersion: routerImplementationVersion(),
       mode: "suggest",
       confidence: confidence.confidence,

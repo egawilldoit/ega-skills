@@ -17,7 +17,8 @@ export type EvidenceCategory =
   | "DOMAIN"
   | "NAME_DESCRIPTION"
   | "PROJECT_PREFERENCE"
-  | "LEXICAL";
+  | "LEXICAL"
+  | "WORKFLOW_INTENT";
 
 export interface RoutingEvidence {
   readonly category: EvidenceCategory;

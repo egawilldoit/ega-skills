@@ -71,6 +71,15 @@ import {
   releaseAcquiredSource,
   stageAdoptionPlan,
   preflightPublication,
+  projectInvocationRelease,
+  parseInvocationPolicy,
+  buildInvocationHubRelease,
+  createInvocationReleaseDiff,
+  createInvocationCandidate,
+  writeInvocationCandidate,
+  exportInvocationCandidate,
+  verifyInvocationCandidate,
+  loadLocalInvocationCandidate,
   validateCollections,
   createQualityReport,
   writeCandidateReview,
@@ -83,6 +92,8 @@ import {
   type HubRelease,
   type ReleaseCandidateDocument,
   type ReleaseDiffDocument,
+  type InvocationCandidate,
+  type InvocationReleaseDiff,
   type ProjectLockV1,
   type RefreshLockDiff,
   type UpdatePlanDocument,
@@ -414,6 +425,10 @@ export async function runResolve(options: ResolveCommandOptions): Promise<Resolu
         }
       : {})),
     env: options.env,
+    loadInvocation: () => {
+      const verified = loadLocalInvocationCandidate(resolveRegistryHome(options.env), options.env["EGA_SKILLS_TRUSTED_RELEASE"]);
+      return verified === undefined ? undefined : { release: verified.release, policy: verified.policy };
+    },
   });
 }
 
@@ -640,9 +655,17 @@ export interface HubIntakeReviewCommandOptions {
 
 export interface HubReleasePreflightCommandOptions extends HubCommandOptions {}
 
+export interface HubReleaseProjectCommandOptions extends HubCommandOptions {
+  readonly against: string;
+  readonly plan: string;
+  readonly policy: string;
+}
+
 export interface HubReleasePreviewCommandOptions extends HubCommandOptions {
   readonly against: string;
   readonly outputDirectory: string;
+  readonly policy?: string;
+  readonly trustedPublishedRelease?: string;
 }
 
 export interface HubReleaseExportCommandOptions {
@@ -714,6 +737,16 @@ function readReleaseReference(reference: string): HubRelease {
   return release;
 }
 
+/** Compute a non-publishable semantic identity from verified staged inputs. */
+export async function runHubReleaseProject(options: HubReleaseProjectCommandOptions) {
+  return projectInvocationRelease({
+    hubDir: resolve(options.hub ?? "."),
+    baseline: readReleaseReference(options.against),
+    plan: JSON.parse(readFileSync(resolve(options.plan), "utf8")) as AdoptionPlanDocument,
+    policy: parseInvocationPolicy(readFileSync(resolve(options.policy), "utf8")),
+  });
+}
+
 function releasePreviewBarrier(name: string): void {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
   if (env?.EGA_TEST_RELEASE_PREVIEW_BARRIER !== name) return;
@@ -728,13 +761,34 @@ function releasePreviewBarrier(name: string): void {
 export async function runHubReleasePreview(options: HubReleasePreviewCommandOptions): Promise<{
   readonly status: "READY" | "BLOCKED";
   readonly preflight: Awaited<ReturnType<typeof preflightPublication>>;
-  readonly candidate?: ReleaseCandidateDocument;
-  readonly diff?: ReleaseDiffDocument;
+  readonly candidate?: ReleaseCandidateDocument | InvocationCandidate;
+  readonly diff?: ReleaseDiffDocument | InvocationReleaseDiff;
 }> {
   const hub = resolve(options.hub ?? ".");
   const preflight = await preflightPublication(hub);
   if (preflight.payload.status === "BLOCKED") return { preflight, status: "BLOCKED" };
+  if (options.policy !== undefined) {
+    const policy = parseInvocationPolicy(readFileSync(resolve(options.policy), "utf8"));
+    const path = resolve(options.against);
+    const releasePath = existsSync(path) && lstatSync(path).isDirectory() ? join(path, "hub-release.json") : path.endsWith("candidate.json") ? join(dirname(path), "hub-release.json") : path;
+    const previous = JSON.parse(readFileSync(releasePath, "utf8")) as { schema_version?: unknown };
+    const prior = previous.schema_version === 2 ? verifyInvocationCandidate(dirname(releasePath)) : undefined;
+    const base = prior?.release ?? readReleaseReference(options.against);
+    // The publisher must supply this identity from its independently verified
+    // active deployment, not from the caller-selected --against artifact.
+    const trustedPublished = options.trustedPublishedRelease;
+    if (trustedPublished === undefined || trustedPublished !== base.digest) throw new Error("policy release preview requires the independently verified current published release identity");
+    const build = await buildInvocationHubRelease(hub, policy);
+    releasePreviewBarrier("AFTER_BUILD_BEFORE_FINAL_PREFLIGHT");
+    const finalizedPreflight = await preflightPublication(hub, build);
+    if (finalizedPreflight.digest !== preflight.digest || JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(finalizedPreflight.payload.skill_versions)) throw new Error("publication preflight became stale before release preview");
+    const diff = createInvocationReleaseDiff({ release: base, ...(prior ? { policy: prior.policy } : {}) }, { release: build.release, policy });
+    const candidate = createInvocationCandidate(build, policy, base, finalizedPreflight, diff, prior?.policy);
+    writeInvocationCandidate(build, resolve(options.outputDirectory), candidate, base, finalizedPreflight, diff);
+    return { candidate, diff, preflight: finalizedPreflight, status: "READY" };
+  }
   const build = await buildHubRelease(hub);
+  if (build.release.payload.adopted_sources.some((source) => source.source_id === "t3dotgg-tstack")) throw new Error("TStack introduction requires its reviewed invocation policy");
   releasePreviewBarrier("AFTER_BUILD_BEFORE_FINAL_PREFLIGHT");
   const finalizedPreflight = await preflightPublication(hub, build);
   if (finalizedPreflight.digest !== preflight.digest || JSON.stringify(build.release.payload.skill_versions) !== JSON.stringify(finalizedPreflight.payload.skill_versions)) {
@@ -749,6 +803,14 @@ export async function runHubReleasePreview(options: HubReleasePreviewCommandOpti
 
 /** Export an already verified candidate; no Hub or upstream source is read. */
 export function runHubReleaseExport(options: HubReleaseExportCommandOptions) {
+  const input = resolve(options.candidate);
+  const candidatePath = lstatSync(input).isDirectory() ? join(input, "candidate.json") : input;
+  const candidate = JSON.parse(readFileSync(candidatePath, "utf8")) as { schema_version?: unknown };
+  if (candidate.schema_version === 3) {
+    if (options.legacy) throw new Error("I1 candidates cannot be exported in legacy mode");
+    const verified = exportInvocationCandidate(dirname(candidatePath), resolve(options.outputDirectory));
+    return { candidate: verified.candidate, hub_id: verified.release.payload.hub_id, release_digest: verified.release.digest, status: "EXPORTED" as const, output_directory: resolve(options.outputDirectory) };
+  }
   const verified = options.legacy === true
     ? exportLegacyReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory))
     : exportReleaseCandidate(resolve(options.candidate), resolve(options.outputDirectory));

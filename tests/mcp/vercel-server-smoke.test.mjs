@@ -58,6 +58,10 @@ test("vercel server.mts serves the verified release over real HTTP", async (t) =
 
   await waitForReady(port);
 
+  const ready = await (await fetch(`http://127.0.0.1:${port}/readyz`)).json();
+  assert.equal(ready.status, "ready");
+  assert.equal(ready.release_digest, build.release.digest);
+
   const health = await fetch(`http://127.0.0.1:${port}/healthz`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { status: "ok" });

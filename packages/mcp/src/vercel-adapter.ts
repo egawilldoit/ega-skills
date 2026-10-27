@@ -51,6 +51,8 @@ export interface VercelAdapterState {
   readonly maxResponseBytes: number;
   /** OAuth Protected Resource Metadata document; public, never Host-derived. */
   readonly getProtectedResourceMetadata?: () => unknown;
+  /** Exact verified release identity the process is serving, when ready. */
+  readonly getReleaseIdentity?: () => { readonly release_digest: string } | undefined;
 }
 
 function headerValue(value: string | readonly string[] | undefined): string | undefined {
@@ -169,8 +171,13 @@ export function createVercelRequestListener(state: VercelAdapterState): (incomin
     }
     if (incoming.method === "GET" && pathname === "/readyz") {
       const handler = state.getHandler();
-      if (handler) jsonBody(outgoing, 200, { status: "ready" });
-      else jsonBody(outgoing, 503, { status: "unavailable" });
+      const identity = handler ? state.getReleaseIdentity?.() : undefined;
+      if (handler && identity) {
+        outgoing.writeHead(200, { "cache-control": "no-store", "content-type": "application/json" });
+        outgoing.end(JSON.stringify({ release_digest: identity.release_digest, status: "ready" }));
+      } else {
+        jsonBody(outgoing, 503, { status: "unavailable" });
+      }
       return;
     }
     if (isProtectedResourceMetadataPath(pathname)) {

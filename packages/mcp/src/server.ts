@@ -28,6 +28,7 @@ import {
   type StdioServerHandle,
 } from "@modelcontextprotocol/server/stdio";
 import process from "node:process";
+import { loadLocalInvocationCandidate } from "@ega-skills/project";
 
 import {
   McpContextError,
@@ -487,6 +488,7 @@ function withResolveBoundary(): (
           max_tokens: args["max_tokens"],
         },
         context,
+        { loadInvocation: () => loadLocalInvocation(context.registryHome) },
       );
     } catch (error) {
       const contextError =
@@ -499,6 +501,16 @@ function withResolveBoundary(): (
       return toMcpErrorResult("resolve", contextError);
     }
   };
+}
+
+/** A local I1 artifact is verified as a candidate before every activation. */
+function loadLocalInvocation(registryHome: string): { release: import("@ega-skills/project").InvocationHubRelease; policy: import("@ega-skills/project").InvocationPolicy } | undefined {
+  try {
+    const verified = loadLocalInvocationCandidate(registryHome, process.env["EGA_SKILLS_TRUSTED_RELEASE"]);
+    return verified === undefined ? undefined : { release: verified.release, policy: verified.policy };
+  } catch {
+    throw new McpContextError("E_INVOCATION_POLICY_INVALID", "Local invocation release verification failed");
+  }
 }
 
 /**

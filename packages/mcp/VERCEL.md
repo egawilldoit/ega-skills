@@ -30,8 +30,9 @@ while the Vercel adapter implements the deployment contract below.
 HTTP routing/bridging lives in `packages/mcp/src/vercel-adapter.ts`:
 
 - `GET /healthz` → `200 {"status":"ok"}` whenever the process is alive
-- `GET /readyz` → `200 {"status":"ready"}` only after artifact/auth/policy
-  initialization succeeded, else `503`
+- `GET /readyz` → `200 {"status":"ready","release_digest":"sha256:…"}` only
+  after artifact/auth/policy initialization succeeded, else `503`. The digest
+  is the verified semantic release identity, never a credential.
 - `/mcp` → existing authenticated MCP Streamable HTTP behavior (exactly
   `resolve`, `search`, `inspect`, `get_content`)
 - `GET /.well-known/oauth-protected-resource` and
@@ -314,18 +315,22 @@ candidate B → `vercel redeploy <A-url>` → `vercel redeploy <B-url>`; each st
 passed the hosted smoke and the four-tool identity probe, and the original A/B
 URLs kept serving afterwards.
 
-Production rollback (release owner action; intentionally not executed by the
-acceptance agent):
+Production promotion and rollback are release-owner actions and go through
+`scripts/hosted/publish-production.mjs`; see
+`docs/operations/RELEASE-2.0-RUNBOOK.md` ("Production publication boundary").
 
-1. Identify the last known-good production deployment:
-   `vercel ls ega-skills-mcp --scope <team>` or the Vercel dashboard.
-2. Either re-point the production alias with
-   `vercel rollback <deployment-url-or-id> --scope <team>` (or
-   `vercel promote <url>`), or rebuild it with
-   `vercel redeploy <deployment-url> --scope <team>`.
+1. Identify the last known-good production deployment and its receipt:
+   `vercel ls ega-skills-mcp --scope <team>` plus the append-only receipt chain.
+2. Roll back only to an earlier receipt in a contiguous chain. The boundary
+   verifies the exact current release digest before moving the alias and verifies
+   the retained target digest afterwards.
 3. Re-run `scripts/oauth/hosted-smoke.mjs` against
    `https://ega-skills-mcp.vercel.app` and confirm `/readyz` is 200 and the
-   effective release digest is the expected one before restoring traffic.
+   `release_digest` is the expected one before restoring traffic.
+
+A bare `vercel rollback`/`vercel promote` bypasses the predecessor and approval
+checks. Use it only for emergency containment, record the action, and treat the
+missing receipt as an audit gap.
 
 Preview/staging deployments can be exercised the same way without touching the
 production alias; they additionally require the project's automation

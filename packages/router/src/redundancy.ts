@@ -26,6 +26,8 @@ export interface RedundancyRow {
   readonly versionHash: string;
   readonly tier: AutomaticTier;
   readonly evidence: readonly RoutingEvidence[];
+  /** Identifies policy-governed rows, including rows without a match. */
+  readonly governed?: boolean;
 }
 
 export interface RedundancyInput {
@@ -41,7 +43,7 @@ export interface RedundancyOutput {
 }
 
 /** Coverage categories compared per §5.1.16.1 conditions 2–3. */
-const COVERAGE_CATEGORIES = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN"] as const;
+const COVERAGE_CATEGORIES = ["FRAMEWORK", "PLATFORM", "TASK_TRIGGER", "DOMAIN", "WORKFLOW_INTENT"] as const;
 
 function tierRank(tier: AutomaticTier): number {
   return tier === "A" ? 0 : tier === "B" ? 1 : 2;
@@ -60,6 +62,7 @@ function categoryValues(
 
 /** TRUE when `earlier` covers `row` per §5.1.16.1 conditions 1–3. */
 function coveredBy(earlier: RedundancyRow, row: RedundancyRow): boolean {
+  if (earlier.evidence.some((item) => item.category === "WORKFLOW_INTENT") && row.governed !== true) return false;
   if (tierRank(earlier.tier) > tierRank(row.tier)) return false;
   // Non-vacuity: "the same relevant coverage" requires the suppressor to
   // BRING coverage — an earlier row with no FRAMEWORK/PLATFORM/TASK_TRIGGER/

@@ -22,10 +22,12 @@
 import process from "node:process";
 
 import type { CallToolResult, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
+import type { InvocationHubRelease } from "@ega-skills/project";
 
 import {
   resolveSkills,
   type ResolutionResult,
+  type ResolveInput,
   type ResolvePolicyInput,
 } from "@ega-skills/router";
 
@@ -52,6 +54,10 @@ export interface ResolveToolArgs {
 
 export interface ResolveToolOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Internal trusted snapshot only; never sourced from MCP request arguments. */
+  readonly invocation?: ResolveInput["invocation"];
+  /** Local activation is deferred until request validation has completed. */
+  readonly loadInvocation?: () => ResolveInput["invocation"] | undefined;
   /**
    * Skills the caller's authorization boundary removed from visibility
    * (hosted emergency deny / per-resource authorization). Excluded IDs and
@@ -130,6 +136,7 @@ function validateIntInRange(
 const VERBATIM_RESOLVER_CODES = new Set([
   "E_SKILL_NOT_FOUND",
   "E_SKILL_REFERENCE_AMBIGUOUS",
+  "E_INVOCATION_POLICY_INVALID",
 ]);
 
 /** Maps resolver/internal failures to frozen MCP codes (never raw). */
@@ -284,12 +291,15 @@ export async function runResolveTool(
     ...(opts.env ?? process.env),
     EGA_SKILLS_HOME: ctx.registryHome,
   };
+  let invocation = opts.invocation;
   let result: ResolutionResult;
   try {
     result = await resolveSkills({
       task,
       projectPath: ctx.projectPath,
       policy: effectivePolicy(ctx),
+      ...(invocation !== undefined ? { invocation } : {}),
+      ...(opts.loadInvocation === undefined ? {} : { loadInvocation: () => { invocation = opts.loadInvocation?.(); return invocation; } }),
       ...(opts.excludedSkillIds !== undefined
         ? { excludedSkillIds: opts.excludedSkillIds }
         : {}),
@@ -311,7 +321,8 @@ export async function runResolveTool(
   const selected = result.selected.map((skill) => skill.id).join(", ") || "(none)";
   const text =
     `Resolve selected ${result.selected.length} skill(s) ` +
-    `[${selected}] at ${result.confidence} confidence (${result.lockStatus}, ${result.budgetStatus}).`;
+    `[${selected}] at ${result.confidence} confidence (${result.lockStatus}, ${result.budgetStatus}).` +
+    (invocation === undefined ? "" : ` Versions: ${[...result.explicit, ...result.selected].map((skill) => `${skill.id}@${skill.versionHash}`).join(", ") || "(none)"}; release: ${(invocation.release as InvocationHubRelease).digest}.`);
   return Object.freeze({
     content: Object.freeze([Object.freeze({ type: "text", text })]),
     structuredContent,

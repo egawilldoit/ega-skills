@@ -106,16 +106,16 @@ function hasUniqueStrongValue(
 ): boolean {
   return row.evidence.some(
     (record) =>
-      (record.category === "TASK_TRIGGER" || record.category === "DOMAIN") &&
-      !covered.has(record.value),
+      (record.category === "TASK_TRIGGER" || record.category === "DOMAIN" || record.category === "WORKFLOW_INTENT") &&
+      !covered.has(record.category === "WORKFLOW_INTENT" ? `\u0000${record.value}` : record.value),
   );
 }
 
 /** Collect the strong TASK_TRIGGER/DOMAIN values of a row into `covered`. */
 function coverStrongValues(row: ComposeAutomaticRow, covered: Set<string>): void {
   for (const record of row.evidence) {
-    if (record.category === "TASK_TRIGGER" || record.category === "DOMAIN") {
-      covered.add(record.value);
+    if (record.category === "TASK_TRIGGER" || record.category === "DOMAIN" || record.category === "WORKFLOW_INTENT") {
+      covered.add(record.category === "WORKFLOW_INTENT" ? `\u0000${record.value}` : record.value);
     }
   }
 }
@@ -123,7 +123,11 @@ function coverStrongValues(row: ComposeAutomaticRow, covered: Set<string>): void
 /** Mark locked-version rows in positive emission position (before negatives). */
 function withLocked(row: ComposeAutomaticRow): ComposeAutomaticRow {
   if (row.reasons.includes("LOCKED_VERSION")) return row;
-  return { ...row, reasons: [...row.reasons, "LOCKED_VERSION"] };
+  const intent = row.reasons.indexOf("WORKFLOW_INTENT_MATCH");
+  if (intent < 0) return { ...row, reasons: [...row.reasons, "LOCKED_VERSION"] };
+  const reasons = [...row.reasons];
+  reasons.splice(intent, 0, "LOCKED_VERSION");
+  return { ...row, reasons };
 }
 
 export function composeAutomatic(input: ComposeAutomaticInput): ComposeAutomaticOutput {
