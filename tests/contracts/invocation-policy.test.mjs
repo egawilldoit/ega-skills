@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
-import { parseInvocationPolicy, validateInvocationPolicy } from "../../packages/project/dist/index.js";
+import { createInvocationRelease, DEFAULT_RELEASE_CONTRACTS, parseInvocationPolicy, validateInvocationPolicy, verifyHubRelease, verifyInvocationRelease } from "../../packages/project/dist/index.js";
 
 const contract = readFileSync(new URL("../../docs/contracts/PROPOSED-INVOCATION-POLICY-168.md", import.meta.url), "utf8");
 const raw = contract.match(/```json\n([\s\S]*?)\n```/)[1];
@@ -37,4 +37,32 @@ test("rejects missing, stale, malformed and overlapping binding structure", () =
   rejected((p) => { p.payload.bindings[1].rules[0].alternatives = structuredClone(p.payload.bindings[0].rules[0].alternatives); });
   rejected((p) => { p.payload.bindings[0].rules[0].alternatives[0][0] = { literal: "UPPER" }; });
   rejected((p) => { p.payload.bindings[0].rules[0].alternatives[0].push({ pr_number: false }); });
+});
+
+test("I1 release binds policy, source commit and exact skill versions while V1 readers reject it", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  const payload = {
+    hub_id: "test", skill_versions: Object.fromEntries(reviewed.payload.bindings.map((b) => [b.skill_id, b.version_hash])),
+    alias_map_digest: digest, search_index_input_digest: digest, token_artifact_digest: digest,
+    adopted_sources: [{ source_id: "t3dotgg-tstack", source_config_digest: digest, resolved_commit: reviewed.payload.sources[0].resolved_commit, selected_skill_tree_digest: digest, vendored_snapshot_digest: digest }],
+    contracts: DEFAULT_RELEASE_CONTRACTS, build: { fresh_registry: true, import_failures: 0, expected_catalog_match: true },
+  };
+  const base = createEnvelope({ object_type: "ega.hub-release", schema_version: 1, payload });
+  verifyHubRelease(base);
+  const v2 = createInvocationRelease(base, reviewed);
+  verifyInvocationRelease(v2, reviewed);
+  assert.throws(() => verifyHubRelease(v2), { code: "E_RELEASE_SCHEMA" });
+  for (const change of [
+    (p) => { p.invocation_policy_digest = digest; },
+    (p) => { p.adopted_sources[0].resolved_commit = "a".repeat(40); },
+    (p) => { p.skill_versions["t3dotgg/council"] = digest; },
+    (p) => { p.contracts.router = 1; },
+    (p) => { p.unexpected = true; },
+  ]) {
+    const changed = structuredClone(v2.payload);
+    change(changed);
+    const resigned = createEnvelope({ object_type: "ega.hub-release", schema_version: 2, payload: changed });
+    assert.throws(() => verifyInvocationRelease(resigned, reviewed));
+  }
+  assert.throws(() => verifyInvocationRelease(v2, undefined), { code: "E_INVOCATION_POLICY_INVALID" });
 });

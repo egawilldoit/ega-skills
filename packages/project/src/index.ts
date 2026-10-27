@@ -238,3 +238,5 @@ export type {
 } from "./hub/release.js";
 export { INVOCATION_PROFILE, InvocationPolicyError, parseInvocationPolicy, validateInvocationPolicy } from "./hub/invocation-policy.js";
 export type { InvocationPolicy, InvocationPolicyAtom, InvocationPolicyBinding, InvocationPolicyRule, InvocationPolicySource } from "./hub/invocation-policy.js";
+export { createInvocationRelease, verifyInvocationRelease } from "./hub/invocation-release.js";
+export type { InvocationHubRelease } from "./hub/invocation-release.js";
