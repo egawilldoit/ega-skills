@@ -1,13 +1,19 @@
-# Issue 168 routing review (scratch evaluation)
+# Issue 168 routing review (canonical governed evaluation)
 
-This is pre-adoption evidence, not release certification. It compares the saved
-117-skill baseline and a 126-skill scratch registry using a synthetic semantic
-release with placeholder source digests. All 82 automatic-selection lists were
-identical. The existing discovery evaluator reports 22 incorrect automatic
-selections at baseline; these are not new integration failures. An independent
-comparison of the evaluator's selected-then-candidates, deduplicated top-three
-window found no expected-primary top-one/top-three regressions; one improved.
-The complete evaluator and real governed release still require certification.
+This is pre-adoption evidence, not release certification. The final run used the
+verified 126-skill canonical registry, the reviewable invocation policy
+`sha256:0e5304ee…` and the independently reproduced I1 release
+`sha256:08b12c28…`. It is not a synthetic scratch fixture.
+
+All 82 automatic-selection lists were unchanged. The same 22 incorrect automatic
+selections present at the 117 baseline are still present; none is new and none
+changed identity. Top-1 stayed at 44/82; top-3 improved from 71/82 to 72/82.
+Catastrophic automatic selections remained zero.
+
+Targeted governed results: 27/27 reviewed positive phrase alternatives, 9/9
+explicit references at the exact version, and 11/11 negative/ambiguous prompts
+with no TStack automatic selection. The prior `full send buffer` and `city
+council data model` false positives are eliminated.
 
 The ten previously observed suggestion-list changes were examined individually:
 

@@ -247,3 +247,28 @@ export { createInvocationReleaseDiff, verifyInvocationReleaseDiff } from "./hub/
 export type { InvocationReleaseDiff, InvocationReleaseSide } from "./hub/invocation-release-diff.js";
 export { createInvocationCandidate, exportInvocationCandidate, loadLocalInvocationCandidate, verifyInvocationCandidate, writeInvocationCandidate } from "./hub/invocation-candidate.js";
 export type { InvocationCandidate, InvocationCandidatePayload } from "./hub/invocation-candidate.js";
+export {
+  PUBLICATION_APPROVAL_OBJECT_TYPE,
+  PUBLICATION_APPROVAL_SCHEMA_VERSION,
+  PUBLICATION_RECEIPT_OBJECT_TYPE,
+  PUBLICATION_RECEIPT_SCHEMA_VERSION,
+  PublicationGateError,
+  assessProductionPublication,
+  createPublicationApproval,
+  createPublicationReceipt,
+  verifyPublicationApproval,
+  verifyPublicationReceipt,
+} from "./hub/publication.js";
+export type {
+  PublicationApproval,
+  PublicationApprovalPayload,
+  ProductionPublicationAssessment,
+  ProductionPublicationBlocker,
+  ProductionPublicationBlockerCode,
+  PublicationCandidateIdentity,
+  PublicationExpectation,
+  PublicationObservation,
+  PublicationPublisher,
+  PublicationReceipt,
+  PublicationReceiptPayload,
+} from "./hub/publication.js";
