@@ -66,7 +66,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 
 /* -------------------------------------------------------------------------- */
@@ -108,10 +108,10 @@ const PROMOTE_POLL_MS = 5_000;
 async function projectModule() {
   const entry = join(REPO_ROOT, "packages", "project", "dist", "index.js");
   if (!existsSync(entry)) {
-    const built = spawnSync("pnpm", ["exec", "tsc", "-b"], { cwd: REPO_ROOT, stdio: "inherit" });
+    const built = spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["exec", "tsc", "-b"], { cwd: REPO_ROOT, stdio: "inherit" });
     if (built.status !== 0) refuse("E_PUBLICATION_BUILD", "the domain packages must be built before publication");
   }
-  return import(entry);
+  return import(pathToFileURL(entry).href);
 }
 
 /** Verify a candidate locally and return the exact identity the gate binds. */
@@ -369,7 +369,7 @@ function vercelToken() {
 }
 
 function runVercel(args, { token, scope, cwd }) {
-  const result = spawnSync("vercel", [...args, ...(scope ? ["--scope", scope] : [])], {
+  const result = spawnSync(process.platform === "win32" ? "vercel.cmd" : "vercel", [...args, ...(scope ? ["--scope", scope] : [])], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, VERCEL_TOKEN: token },

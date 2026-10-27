@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   assessProductionPublication,
@@ -357,7 +358,7 @@ test("the CLI never imports a token from argv", () => {
 });
 
 test("the real candidate reader feeds the gate with a defined candidate digest", async () => {
-  const directory = new URL("../../packages/mcp/artifact/", import.meta.url).pathname;
+  const directory = fileURLToPath(new URL("../../packages/mcp/artifact/", import.meta.url));
   const read = await readCandidate(directory);
   const raw = JSON.parse(readFileSync(join(directory, "candidate.json"), "utf8"));
   assert.equal(read.candidate_digest, raw.digest);
