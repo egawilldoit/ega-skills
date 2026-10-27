@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createEnvelope } from "../../packages/hashing/dist/index.js";
-import { createInvocationRelease, DEFAULT_RELEASE_CONTRACTS, parseInvocationPolicy, validateInvocationPolicy, verifyHubRelease, verifyInvocationRelease } from "../../packages/project/dist/index.js";
+import { createInvocationRelease, createInvocationReleaseDiff, DEFAULT_RELEASE_CONTRACTS, parseInvocationPolicy, validateInvocationPolicy, verifyHubRelease, verifyInvocationRelease, verifyInvocationReleaseDiff } from "../../packages/project/dist/index.js";
 
 const contract = readFileSync(new URL("../../docs/contracts/PROPOSED-INVOCATION-POLICY-168.md", import.meta.url), "utf8");
 const raw = contract.match(/```json\n([\s\S]*?)\n```/)[1];
@@ -65,4 +65,17 @@ test("I1 release binds policy, source commit and exact skill versions while V1 r
     assert.throws(() => verifyInvocationRelease(resigned, reviewed));
   }
   assert.throws(() => verifyInvocationRelease(v2, undefined), { code: "E_INVOCATION_POLICY_INVALID" });
+  const previous = { release: base };
+  const candidate = { release: v2, policy: reviewed };
+  const diff = createInvocationReleaseDiff(previous, candidate);
+  assert.equal(diff.payload.status, "CHANGED");
+  assert.equal(diff.payload.invocation_policy.previous, null);
+  assert.equal(diff.payload.invocation_policy.candidate.digest, reviewed.digest);
+  assert.equal(verifyInvocationReleaseDiff(diff, previous, candidate).digest, diff.digest);
+  const substituted = structuredClone(diff.payload);
+  substituted.invocation_policy.previous = substituted.invocation_policy.candidate;
+  assert.throws(() => verifyInvocationReleaseDiff(createEnvelope({ object_type: "ega.release-diff", schema_version: 2, payload: substituted }), previous, candidate));
+  assert.throws(() => verifyInvocationReleaseDiff(diff, candidate, previous));
+  assert.equal(createInvocationReleaseDiff(candidate, candidate).payload.status, "UNCHANGED");
+  assert.equal(createInvocationReleaseDiff(candidate, previous).payload.invocation_policy.candidate, null);
 });

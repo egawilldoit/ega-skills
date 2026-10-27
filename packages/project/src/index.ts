@@ -240,3 +240,5 @@ export { INVOCATION_PROFILE, InvocationPolicyError, parseInvocationPolicy, valid
 export type { InvocationPolicy, InvocationPolicyAtom, InvocationPolicyBinding, InvocationPolicyRule, InvocationPolicySource } from "./hub/invocation-policy.js";
 export { createInvocationRelease, verifyInvocationRelease } from "./hub/invocation-release.js";
 export type { InvocationHubRelease } from "./hub/invocation-release.js";
+export { createInvocationReleaseDiff, verifyInvocationReleaseDiff } from "./hub/invocation-release-diff.js";
+export type { InvocationReleaseDiff, InvocationReleaseSide } from "./hub/invocation-release-diff.js";
