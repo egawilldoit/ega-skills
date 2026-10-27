@@ -50,8 +50,9 @@ is exactly 126: 117 preserved, nine added, zero changed, zero removed.
 
 ## Independent release reproduction
 
-A separate assembly script (not the projection or release builder) reconstructed
-the I1 envelope preimage from:
+A separate assembly script, committed at
+`scripts/eval/issue-168-independent-release.mjs` (it does not import the release
+builder or projection), reconstructed the I1 envelope preimage from:
 
 - the 126 registry rows and their canonical manifests;
 - the token-count table (`ega-o200k-v1`, L2);
@@ -119,7 +120,10 @@ grant authority through the Hub itself.
 Vercel API response-shape mapping is unit-tested against documented objects but
 was not exercised against a live project in this cycle. The publisher refuses
 unrecognised or unobservable platform state rather than assuming it. A release
-credential is required before promotion.
+credential is required before promotion. The Vercel project also hit its
+free-plan daily deployment quota on 2026-10-27 (`api-deployments-free-per-day`,
+over 100 deployments/day), so a preview deployment could not be created even
+with a credential; that is an external quota blocker, not a code result.
 
 This is **not** a test of any specific host's enforcement. Whether Codex,
 OpenCode or another client lets a skill body trigger delegation, merge or deploy

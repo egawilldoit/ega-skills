@@ -74,7 +74,7 @@
  * prints the plan, contacting only read-only endpoints.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -298,7 +298,12 @@ export function observationFromVercel({ user, project, deployments, served, expe
   // `gitProviderOptions.createDeployments` are the current project controls.
   const git = project?.git ?? {};
   const enabled = git.deploymentEnabled;
-  const productionBranch = project?.link?.productionBranch ?? git.productionBranch;
+  const linkedBranch = project?.link?.productionBranch;
+  const gitBranch = git.productionBranch;
+  if (typeof linkedBranch === "string" && typeof gitBranch === "string" && linkedBranch !== gitBranch) {
+    refuse("E_PLATFORM_GUARD", "the linked production branch and the Git integration branch disagree");
+  }
+  const productionBranch = linkedBranch ?? gitBranch;
   if (typeof productionBranch !== "string" || productionBranch.length === 0) {
     refuse("E_PLATFORM_GUARD", "the Vercel production branch is not observable; refusing to infer it");
   }
@@ -306,14 +311,18 @@ export function observationFromVercel({ user, project, deployments, served, expe
     ? `${project.link.org}/${project.link.repo}`
     : undefined;
   const policyRules = project?.deploymentPolicy?.gitSources;
-  const policyDisabledProduction = Array.isArray(policyRules) && policyRules.some((rule) => {
-    if (rule?.enabled !== false || !Array.isArray(rule.environments) || !rule.environments.includes("production")) return false;
+  const ruleCoversProject = (rule) => {
+    if (!Array.isArray(rule?.environments) || !rule.environments.includes("production")) return false;
     const sources = rule.sources;
-    // An empty source list is deny-all for that rule. A source-scoped rule only
-    // covers this project when it names the linked repository; otherwise it
-    // disables production for some other integration and proves nothing.
     if (!Array.isArray(sources) || sources.length === 0) return true;
     return typeof linkedRepository === "string" && sources.every((entry) => typeof entry === "string") && sources.includes(linkedRepository);
+  };
+  const policyDisabledProduction = Array.isArray(policyRules) && policyRules.some((rule) => rule?.enabled === false && ruleCoversProject(rule));
+  const policyEnabledProduction = Array.isArray(policyRules) && policyRules.some((rule) => {
+    if (rule?.enabled !== true || !Array.isArray(rule.environments) || !rule.environments.includes("production")) return false;
+    const sources = rule.sources;
+    // `enabled: true` with no sources is deny-all, not an allow.
+    return Array.isArray(sources) && sources.length > 0 && typeof linkedRepository === "string" && sources.every((entry) => typeof entry === "string") && sources.includes(linkedRepository);
   });
   const providerSetting = project?.gitProviderOptions?.createDeployments;
   const providerDisabled = providerSetting === "disabled";
@@ -322,7 +331,7 @@ export function observationFromVercel({ user, project, deployments, served, expe
   const legacyDisabled = enabled === false || (enabled !== null && typeof enabled === "object" && enabled[productionBranch] === false);
   // Contradictory observables are not proof of control. Any explicit "enabled"
   // wins over a different signal that says "disabled".
-  const autoDeploy = legacyEnabled || providerEnabled || !(legacyDisabled || policyDisabledProduction || providerDisabled);
+  const autoDeploy = legacyEnabled || providerEnabled || policyEnabledProduction || !(legacyDisabled || policyDisabledProduction || providerDisabled);
   const conclusion = String(canonical.checksConclusion ?? "");
   const state = String(canonical.checksState ?? "");
   const checks = conclusion === "succeeded" ? "succeeded"
@@ -428,7 +437,7 @@ async function restoreAfterFailure({ approval, candidate, deps, expected }) {
     previous_deployment_id: expected.predecessor_deployment_id,
     previous_release_digest: expected.predecessor_release_digest,
     previous_revision: expected.expected_revision,
-    publication_revision: expected.expected_revision + 1,
+    publication_revision: expected.expected_revision,
     release_digest: candidate.release_digest,
     status: "FAILED",
   });
@@ -574,6 +583,7 @@ export async function executeRollback({ chain, current, target, deps, apply }) {
   const domain = await projectModule();
   if (!Array.isArray(chain) || chain.length === 0) refuse("E_ROLLBACK_TARGET", "the full receipt chain is required");
   if (chain[0]?.digest !== current.digest) refuse("E_ROLLBACK_TARGET", "the receipt chain does not start at the current publication");
+  if (chain.some((receipt) => receipt.payload.status !== "SUCCEEDED")) refuse("E_ROLLBACK_TARGET", "the rollback chain must contain only successful publications");
   for (let index = 1; index < chain.length; index += 1) {
     domain.verifyPublicationReceipt(chain[index - 1], chain[index]);
   }
@@ -786,14 +796,25 @@ async function main() {
     const current = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "current")), "utf8")));
     const target = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(required(values, "target")), "utf8")));
     if (chain[0]?.digest !== current.digest) refuse("E_ROLLBACK_TARGET", "the receipt chain must start at --current");
-    const result = await executeRollback({ apply: values.apply === true, chain, current, deps, target });
-    if (result.receipt) {
+    let receiptFd;
+    if (values.apply === true) {
       const receiptPath = resolve(required(values, "receipt"));
       mkdirSync(dirname(receiptPath), { recursive: true });
-      writeFileSync(receiptPath, `${JSON.stringify(result.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+      // Reserve the evidence path before touching production. A later failure
+      // leaves an explicit empty intent file rather than an unrecorded move.
+      receiptFd = openSync(receiptPath, "wx", 0o600);
     }
-    print(result);
-    return;
+    try {
+      const result = await executeRollback({ apply: values.apply === true, chain, current, deps, target });
+      if (result.receipt && receiptFd !== undefined) {
+        writeSync(receiptFd, `${JSON.stringify(result.receipt, null, 2)}\n`);
+        fsyncSync(receiptFd);
+      }
+      print(result);
+      return;
+    } finally {
+      if (receiptFd !== undefined) closeSync(receiptFd);
+    }
   }
 
   const expected = {
@@ -848,7 +869,11 @@ async function main() {
     try {
       result = await executePromotion({ approval, apply: values.apply === true, candidate, deps, expected });
     } catch (error) {
-      if (error?.receipt) writeReceipt(error.receipt);
+      if (error?.receipt) {
+        const failedPath = `${receiptPath}.failed.json`;
+        mkdirSync(dirname(failedPath), { recursive: true });
+        writeFileSync(failedPath, `${JSON.stringify(error.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+      }
       throw error;
     }
     if (result.receipt) writeReceipt(result.receipt);

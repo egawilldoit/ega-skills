@@ -338,6 +338,8 @@ test("rollback requires a contiguous receipt chain and verifies the retained rel
 
   const foreign = createPublicationReceipt({ ...base, action: "PROMOTE", completed_at: "2026-10-27T12:30:00.000Z", deployment_id: "dpl_foreign123456", previous_deployment_id: "dpl_first12345678", previous_release_digest: PREV, previous_revision: 1, publication_revision: 2, release_digest: DIGEST("f"), status: "SUCCEEDED" });
   await assert.rejects(() => executeRollback({ apply: false, chain: [second, first], current: second, deps, target: foreign }), (error) => error.code === "E_ROLLBACK_TARGET");
+  const failed = createPublicationReceipt({ ...base, action: "PROMOTE", completed_at: "2026-10-27T12:40:00.000Z", deployment_id: "dpl_failed1234567", previous_deployment_id: "dpl_first12345678", previous_release_digest: PREV, previous_revision: 1, publication_revision: 1, release_digest: DIGEST("8"), status: "FAILED" });
+  await assert.rejects(() => executeRollback({ apply: false, chain: [second, failed], current: second, deps, target: failed }), (error) => error.code === "E_ROLLBACK_TARGET");
 });
 
 test("approval and receipt envelopes reject unknown fields and broken chains", () => {
@@ -356,6 +358,13 @@ test("approval and receipt envelopes reject unknown fields and broken chains", (
   const receipt = createPublicationReceipt({ ...base, action: "PROMOTE", deployment_id: "dpl_first12345678", previous_deployment_id: "dpl_zero12345678", previous_release_digest: PREV, previous_revision: 0, publication_revision: 1, release_digest: NEXT, status: "SUCCEEDED" });
   assert.throws(() => verifyPublicationReceipt(receipt, receipt), /contiguous/);
   assert.throws(() => verifyPublicationReceipt({ ...receipt, payload: { ...receipt.payload, publication_revision: 3 } }), /digest|envelope/i);
+
+  // A FAILED side receipt records the attempt at the same revision and never
+  // advances the successful chain.
+  const failed = createPublicationReceipt({ ...base, action: "PROMOTE", deployment_id: "dpl_first12345678", previous_deployment_id: "dpl_zero12345678", previous_release_digest: PREV, previous_revision: 0, publication_revision: 0, release_digest: NEXT, status: "FAILED" });
+  assert.equal(verifyPublicationReceipt(failed).payload.publication_revision, 0);
+  const invalidFailed = createPublicationReceipt({ ...base, action: "PROMOTE", deployment_id: "dpl_first12345678", previous_deployment_id: "dpl_zero12345678", previous_release_digest: PREV, previous_revision: 0, publication_revision: 1, release_digest: NEXT, status: "FAILED" });
+  assert.throws(() => verifyPublicationReceipt(invalidFailed), /failed receipt/i);
 });
 
 test("the CLI never imports a token from argv", () => {

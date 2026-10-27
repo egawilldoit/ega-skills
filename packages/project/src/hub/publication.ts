@@ -105,6 +105,7 @@ export interface PublicationExpectation {
 }
 
 export interface PublicationCandidateIdentity {
+  readonly hub_id: string;
   readonly release_digest: string;
   readonly candidate_digest: string;
   readonly previous_release_digest: string;
@@ -286,6 +287,7 @@ export function assessProductionPublication(input: {
 
   if (approval) {
     const p = approval.payload;
+    if (p.hub_id !== candidate.hub_id) block("E_CANDIDATE_MISMATCH", "approval Hub does not match the candidate");
     if (p.release_digest !== candidate.release_digest || p.candidate_digest !== candidate.candidate_digest || p.previous_release_digest !== candidate.previous_release_digest) {
       block("E_CANDIDATE_MISMATCH", "approval does not bind the exact candidate, release and predecessor");
     }
@@ -391,7 +393,8 @@ export function verifyPublicationReceipt(value: unknown, previous?: unknown): Pu
   for (const field of ["previous_revision", "publication_revision"]) {
     if (!Number.isSafeInteger(p[field]) || (p[field] as number) < 0) fail(`receipt ${field} is invalid`);
   }
-  if ((p["publication_revision"] as number) !== (p["previous_revision"] as number) + 1) fail("receipt must advance the publication revision exactly once");
+  if (p["status"] === "SUCCEEDED" && (p["publication_revision"] as number) !== (p["previous_revision"] as number) + 1) fail("a successful receipt must advance the publication revision exactly once");
+  if (p["status"] === "FAILED" && (p["publication_revision"] as number) !== (p["previous_revision"] as number)) fail("a failed receipt is side evidence and must not advance the publication revision");
   const receipt: PublicationReceipt = {
     digest: digest(value["digest"], "receipt digest"),
     object_type: PUBLICATION_RECEIPT_OBJECT_TYPE,

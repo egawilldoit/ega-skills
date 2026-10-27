@@ -43,10 +43,12 @@ mismatch restores the recorded predecessor only if this promotion is still the
 current alias; if another publication won, the script refuses to clobber it.
 Every completed promotion or rollback writes an append-only receipt bounded to
 the approval, candidate, predecessor, deployment and monotonic publication
-revision; a handled failure that restored the predecessor writes a `FAILED`
-receipt. A blocked or dry-run attempt performs no mutation and writes no
-receipt. If the publishing process is killed after the alias moves, run
-`reconcile` to record the already-live exact candidate without moving the alias.
+revision. A handled failure that restored the predecessor writes a separate
+`FAILED` side receipt (`<receipt>.failed.json`) at the same revision; it records
+the attempt but does not enter or advance the successful receipt chain. A
+blocked or dry-run attempt performs no mutation and writes no receipt. If the
+publishing process is killed after the alias moves, run `reconcile` to record
+the already-live exact candidate without moving the alias.
 Receipt files must live outside the repository and outside any synced source
 tree.
 
@@ -144,7 +146,7 @@ node scripts/hosted/publish-production.mjs stage \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
   --expect-revision <n> \
-  --staging-out /secure/outside-repo/staging-<n>.json
+  --staging-out /secure/outside-repo/staging-<n>.json --apply
 
 EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
 EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
@@ -168,6 +170,8 @@ is not accepted. If the process is killed after the alias moved, do not re-run
 `promote`. Reconcile the observed result:
 
 ```
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
 node scripts/hosted/publish-production.mjs reconcile \
   --candidate /path/to/candidate --approval /path/to/approval.json \
   --staging /secure/outside-repo/staging-<n>.json \
@@ -185,7 +189,8 @@ Use `--genesis` only for the first governed release (revision 0). Every later
 promotion must pass `--previous-receipt <the last receipt>` instead, and the
 script refuses a receipt/revision/predecessor mismatch.
 
-`--staging-out` writes the exact staging record that `--staging` consumes. The
+`--staging-out` writes the exact staging record that `--staging` consumes; it
+requires `--apply`, because a dry-run stage creates no deployment. The
 stage command's stdout also contains it under `.staging`, but that wrapper is not
 the record `promote` expects. `EGA_PUBLICATION_STATE_DIR` must be on storage
 shared by every publisher; a per-machine directory narrows but does not remove
@@ -233,6 +238,7 @@ Preview proof and the immutable-deployment transcript:
 
    ```
    EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+   EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
    node scripts/hosted/publish-production.mjs rollback \
      --chain /secure/receipt-3.json,/secure/receipt-2.json,/secure/receipt-1.json \
      --current /secure/receipt-3.json \
