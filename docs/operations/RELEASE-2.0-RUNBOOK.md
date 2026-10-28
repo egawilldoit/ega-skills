@@ -412,9 +412,11 @@ node scripts/hosted/publish-production.mjs verify \
 Run every command from a **clean checkout at the exact tested commit**. The CLI
 refuses a dirty worktree, requires the checkout's `packages/mcp/artifact` to be
 the exact `--candidate`, and deploys a fresh detached worktree at `HEAD` with
-`--meta githubCommitSha=<HEAD>`. The staging record binds that source commit;
-`promote` and `reconcile` refuse a staging record or deployment identity whose
-source commit does not match the checkout.
+`--meta githubCommitSha=<HEAD>`. `--expect-source-commit` must name that exact
+commit, and the commit must be reachable from `origin/release/2.0` (fetch it
+first; `EGA_RELEASE_REF` is an explicit override for a reviewed release ref).
+The staging record binds that source commit; `promote` and `reconcile` refuse a
+staging record or deployment identity whose source commit does not match.
 
 Stage, then promote, using the approval packet and the independently verified
 predecessor (all values are required; `stage`/`promote` refuse a mismatch):
@@ -430,7 +432,7 @@ node scripts/hosted/publish-production.mjs stage \
   --production-branch release/2.0 \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
-  --expect-revision <n> \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
   --staging-out /secure/outside-repo/staging-<n>.json \
   --readiness /secure/outside-repo/readiness.json --apply
 
@@ -445,7 +447,7 @@ node scripts/hosted/publish-production.mjs promote \
   --production-branch release/2.0 \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
-  --expect-revision <n> \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
   --staged-deployment dpl_… \
   --genesis \
   --receipt /secure/outside-repo/receipt-<n>.json \
@@ -465,7 +467,8 @@ node scripts/hosted/publish-production.mjs reconcile \
   --team … --project … --publisher … --production-branch release/2.0 \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
-  --expect-revision <n> --staged-deployment dpl_… --genesis \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
+  --staged-deployment dpl_… --genesis \
   --receipt /secure/outside-repo/receipt-<n>.json \
   --readiness /secure/outside-repo/readiness.json --apply
 ```

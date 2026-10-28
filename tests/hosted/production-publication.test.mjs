@@ -599,6 +599,23 @@ test("an interrupted promotion can be reconciled only from the exact live candid
 });
 
 
+test("reconcile refuses a live release that changes before the receipt is written", async (t) => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-reconcile-race-"));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const live = { alias: STAGED_DEPLOYMENT, served: NEXT };
+  let probes = 0;
+  const deps = {
+    maxAttempts: 3,
+    now: () => Date.parse("2026-10-27T13:00:00Z"),
+    probe: async () => ({ publication_revision: 0, release_digest: probes++ === 0 ? NEXT : DIGEST("9") }),
+    readObservation: async () => observation({ alias_target_deployment_id: live.alias, served_deployment_id: live.alias, served_release_digest: live.served }),
+    readDeploymentIdentity: async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: expected.source_commit, target: "production", url: "staged.example.com" }),
+    sleep: async () => {},
+    stateDir, readiness: readiness(stateDir), recordReceipt: async () => {},
+  };
+  await assert.rejects(() => executeReconcile({ apply: true, approval: approval(), candidate, deps, expected }), { code: "E_PUBLICATION_RACE" });
+});
+
 test("expired active lease cannot be stolen and cannot authorize a later mutation", async t => {
   const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-expiry-"));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));

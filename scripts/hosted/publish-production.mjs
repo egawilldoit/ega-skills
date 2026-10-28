@@ -352,6 +352,26 @@ export function currentSourceCommit(repoRoot = REPO_ROOT) {
   return head.stdout.trim();
 }
 
+/**
+ * The operator must name the owner-approved runtime source commit and run from
+ * that exact clean checkout. The commit must be reachable from the release
+ * branch; a clean but unmerged local commit is not a release source.
+ */
+export function verifyApprovedSourceCommit(expectedCommit, releaseRef = process.env.EGA_RELEASE_REF ?? "origin/release/2.0", repoRoot = REPO_ROOT) {
+  if (typeof expectedCommit !== "string" || !/^[0-9a-f]{40}$/.test(expectedCommit)) {
+    refuse("E_SOURCE_COMMIT", "--expect-source-commit must be a full lowercase 40-hex commit");
+  }
+  const head = currentSourceCommit(repoRoot);
+  if (head !== expectedCommit) {
+    refuse("E_SOURCE_COMMIT", `the checkout HEAD ${head} is not the approved source commit ${expectedCommit}`);
+  }
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", expectedCommit, releaseRef], { cwd: repoRoot, encoding: "utf8" });
+  if (ancestor.status !== 0) {
+    refuse("E_SOURCE_COMMIT", `the approved source commit is not reachable from ${releaseRef}`);
+  }
+  return head;
+}
+
 /** Verify that a directory is a clean checkout at the exact reviewed commit. */
 export function verifyBaselineWorktree({ directory, expectedCommit, role }) {
   const resolved = resolve(directory);
@@ -1203,8 +1223,10 @@ export async function executeReconcile({ approval, candidate, expected, deps, ap
       refuse("E_RECONCILE_STATE", "live production is not serving the candidate release; nothing to reconcile");
     }
     const observation = await deps.readObservation(expected, served);
-    if (observation.alias_target_deployment_id !== expected.staged_deployment_id) {
-      refuse("E_RECONCILE_STATE", "live production alias does not point at the staged deployment");
+    if (observation.alias_target_deployment_id !== expected.staged_deployment_id ||
+        observation.served_deployment_id !== expected.staged_deployment_id ||
+        observation.served_release_digest !== candidate.release_digest) {
+      refuse("E_RECONCILE_STATE", "live production alias, deployment and served release are not the exact staged candidate");
     }
     if (typeof deps.readDeploymentIdentity !== "function") refuse("E_RECONCILE_STATE", "the live deployment identity must be verified");
     const identity = await deps.readDeploymentIdentity(expected.staged_deployment_id, expected);
@@ -1230,6 +1252,16 @@ export async function executeReconcile({ approval, candidate, expected, deps, ap
       refuse("E_RECONCILE_STATE", assessment.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`).join("; "));
     }
     if (!apply) return { observation, status: "DRY_RUN" };
+    const reServed = await deps.probe(expected.canonical_alias);
+    const reObservation = await deps.readObservation(expected, reServed);
+    if (reServed.release_digest !== candidate.release_digest ||
+        reObservation.alias_target_deployment_id !== expected.staged_deployment_id ||
+        reObservation.served_deployment_id !== expected.staged_deployment_id ||
+        reObservation.served_release_digest !== candidate.release_digest ||
+        JSON.stringify(reObservation) !== JSON.stringify(observation)) {
+      refuse("E_PUBLICATION_RACE", "live production identity changed before the reconciled receipt was written");
+    }
+    lease.assertHeld(deps.now?.() ?? Date.now());
     return await finishPublication({
       receipt: domain.createPublicationReceipt({
         action: "PROMOTE",
@@ -1801,7 +1833,7 @@ async function main() {
   };
   if (!Number.isSafeInteger(expected.expected_revision) || expected.expected_revision < 0) refuse("E_ARGUMENT", "--expect-revision must be a non-negative integer");
   if (mode === "stage" || mode === "promote" || mode === "reconcile") {
-    expected.source_commit = currentSourceCommit();
+    expected.source_commit = verifyApprovedSourceCommit(required(values, "expect-source-commit"));
   }
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });

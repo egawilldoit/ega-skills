@@ -347,9 +347,12 @@ the exact merged implementation/release commit, with the candidate and approval
 recorded in issue #168. The CLI now refuses a dirty checkout, requires the
 checkout's `packages/mcp/artifact` to be the exact `--candidate`, and deploys a
 fresh detached worktree at `HEAD` with `--meta githubCommitSha=<HEAD>`. The
-staging record binds that source commit; `promote`/`reconcile` refuse a staging
-record or deployment whose identity/source does not match. Run the commands from
-a clean checkout of the tested commit.
+`--expect-source-commit` flag must name that exact commit, and the commit must
+be reachable from `origin/release/2.0` (fetch first; `EGA_RELEASE_REF` is an
+explicit override for a reviewed release ref). The staging record binds that
+source commit; `promote`/`reconcile` refuse a staging record or deployment whose
+identity/source does not match. Run the commands from a clean checkout of the
+tested commit.
 
 ```
 EGA_VERCEL_TOKEN_FILE=/secure/vercel.token \
@@ -365,6 +368,7 @@ node scripts/hosted/publish-production.mjs stage \
   --expect-release sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297 \
   --expect-deployment <migration deployment> \
   --expect-revision 0 \
+  --expect-source-commit <exact merged release SHA> \
   --staging-out /secure/outside-repo/staging-0.json \
   --readiness /secure/outside-repo/readiness.json --apply
 ```
@@ -386,6 +390,7 @@ node scripts/hosted/publish-production.mjs promote \
   --expect-release sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297 \
   --expect-deployment <migration deployment> \
   --expect-revision 0 \
+  --expect-source-commit <exact merged release SHA> \
   --staged-deployment <staged deployment> \
   --genesis \
   --receipt /secure/outside-repo/receipt-1.json \

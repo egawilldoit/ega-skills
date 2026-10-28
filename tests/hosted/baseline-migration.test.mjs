@@ -23,6 +23,7 @@ import {
   VercelApi,
   verifyBaselineDelta,
   verifyBaselineRuntimeFiles,
+  verifyApprovedSourceCommit,
   verifyBaselineStaging,
   verifyBaselineWorktree,
 } from "../../scripts/hosted/publish-production.mjs";
@@ -330,6 +331,38 @@ test("the platform mapping refuses alias movement, foreign targets and incomplet
   const extra = await mockVercel({ inventory: { aliases: [{ alias: ALIAS, deploymentId: PREDECESSOR }, { alias: "extra.vercel.app" }] } });
   assert.deepEqual(extra.production_aliases, [ALIAS, "extra.vercel.app"]);
   assert.ok(assessBaselineMigration({ authorization: authorization(), expected, observation: extra }).blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
+});
+
+test("the approved source commit must be the clean HEAD and reachable from the release branch", () => {
+  const repo = mkdtempSync(join(tmpdir(), "ega-approved-source-"));
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "test"]);
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  git(["add", "a.txt"]);
+  git(["commit", "-m", "release"]);
+  const release = git(["rev-parse", "HEAD"]);
+  git(["branch", "release/2.0"]);
+  writeFileSync(join(repo, "a.txt"), "unmerged\n");
+  git(["add", "a.txt"]);
+  git(["commit", "-m", "unmerged"]);
+  const unmerged = git(["rev-parse", "HEAD"]);
+
+  git(["checkout", release]);
+  assert.equal(verifyApprovedSourceCommit(release, "release/2.0", repo), release);
+  writeFileSync(join(repo, "dirty.txt"), "dirty\n");
+  assert.throws(() => verifyApprovedSourceCommit(release, "release/2.0", repo), { code: "E_SOURCE_DIRTY" });
+  rmSync(join(repo, "dirty.txt"));
+
+  git(["checkout", unmerged]);
+  assert.throws(() => verifyApprovedSourceCommit(unmerged, "release/2.0", repo), { code: "E_SOURCE_COMMIT" });
+  assert.throws(() => verifyApprovedSourceCommit(release, "release/2.0", repo), { code: "E_SOURCE_COMMIT" });
+  rmSync(repo, { recursive: true, force: true });
 });
 
 test("the migration delta is only the reviewed readiness paths and the runtime files come from Git objects", () => {
