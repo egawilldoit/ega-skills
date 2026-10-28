@@ -148,6 +148,34 @@ If these platform controls cannot be established, do not promote. The
 independent review of this boundary must reject any claim of an atomic
 guarantee that the platform cannot enforce.
 
+### Vercel observation compatibility (issue #168)
+
+`gitProviderOptions.createDeployments` controls GitHub `deployment_status`
+notifications; disabling it does **not** disable Vercel Git builds. See the
+[Vercel provider's authoritative field documentation](https://github.com/vercel/terraform-provider-vercel/blob/main/vercel/resource_project.go)
+and [Git configuration](https://vercel.com/docs/project-configuration/git-configuration).
+An ignored build command is also not a production publication ACL. The
+publisher accepts only an observable `git.deploymentEnabled: false` or an
+exact production-branch false rule with exclusively false rules. Other shapes,
+including deployment-policy allowlists, remain blocked pending a separately
+reviewed adapter; missing fields are never interpreted as disabled.
+
+The publisher resolves the canonical alias with `GET /v4/aliases/{alias}`,
+retrieves its full immutable deployment and complete deployment alias inventory,
+and checks the alias again after probing readiness. A recent deployment list
+does not contain the necessary alias or check fields and may list an unpromoted
+staged build first. Alias movement during the observation is a failure. These
+bracketing reads detect observed movement; they do not provide compare-and-swap
+or eliminate a change-and-restore race. Absent deployment checks remain `none`,
+and additional automatic aliases remain visible to the existing strict gate.
+
+Live read-only inspection on 2026-10-28 found no observable Git deployment
+switch on the production project, `createDeployments: enabled`, no deployment
+check conclusion, and two additional automatic aliases. These are unresolved
+publication prerequisites, alongside the legacy readiness limitation above and
+external operator certification. Do not disable notification events or invent
+successful checks to make the gate pass.
+
 ## Pre-deployment
 
 1. Verify the exact release SHA is green in CI:

@@ -275,9 +275,11 @@ export function observationFromVercel({ user, project, deployments, served, expe
   if (served.served_deployment_id !== undefined && served.served_deployment_id !== canonical.id) {
     refuse("E_ALIAS_DRIFT", "the deployment behind the alias is not the deployment that answered the probe");
   }
-  // Git production deployment must be observably disabled. `git.deploymentEnabled`
-  // is the legacy per-branch switch; `deploymentPolicy.gitSources` and
-  // `gitProviderOptions.createDeployments` are the current project controls.
+  // Only an actual Git deployment switch is evidence here. In particular,
+  // gitProviderOptions.createDeployments controls GitHub deployment_status
+  // notifications, not Vercel builds. deploymentPolicy is an allowlist with a
+  // different schema, not an enabled/disabled auto-deploy switch. Neither is
+  // interpreted as proof that automatic production deployments are disabled.
   const git = project?.git ?? {};
   const enabled = git.deploymentEnabled;
   const linkedBranch = project?.link?.productionBranch;
@@ -289,31 +291,13 @@ export function observationFromVercel({ user, project, deployments, served, expe
   if (typeof productionBranch !== "string" || productionBranch.length === 0) {
     refuse("E_PLATFORM_GUARD", "the Vercel production branch is not observable; refusing to infer it");
   }
-  const linkedRepository = typeof project?.link?.org === "string" && typeof project?.link?.repo === "string"
-    ? `${project.link.org}/${project.link.repo}`
-    : undefined;
-  const policyRules = project?.deploymentPolicy?.gitSources;
-  const ruleCoversProject = (rule) => {
-    if (!Array.isArray(rule?.environments) || !rule.environments.includes("production")) return false;
-    const sources = rule.sources;
-    if (!Array.isArray(sources) || sources.length === 0) return true;
-    return typeof linkedRepository === "string" && sources.every((entry) => typeof entry === "string") && sources.includes(linkedRepository);
-  };
-  const policyDisabledProduction = Array.isArray(policyRules) && policyRules.some((rule) => rule?.enabled === false && ruleCoversProject(rule));
-  const policyEnabledProduction = Array.isArray(policyRules) && policyRules.some((rule) => {
-    if (rule?.enabled !== true || !Array.isArray(rule.environments) || !rule.environments.includes("production")) return false;
-    const sources = rule.sources;
-    // `enabled: true` with no sources is deny-all, not an allow.
-    return Array.isArray(sources) && sources.length > 0 && typeof linkedRepository === "string" && sources.every((entry) => typeof entry === "string") && sources.includes(linkedRepository);
-  });
-  const providerSetting = project?.gitProviderOptions?.createDeployments;
-  const providerDisabled = providerSetting === "disabled";
-  const providerEnabled = providerSetting === "enabled";
-  const legacyEnabled = enabled === true || (enabled !== null && typeof enabled === "object" && enabled[productionBranch] === true);
-  const legacyDisabled = enabled === false || (enabled !== null && typeof enabled === "object" && enabled[productionBranch] === false);
-  // Contradictory observables are not proof of control. Any explicit "enabled"
-  // wins over a different signal that says "disabled".
-  const autoDeploy = legacyEnabled || providerEnabled || policyEnabledProduction || !(legacyDisabled || policyDisabledProduction || providerDisabled);
+  // Vercel permits minimatch branch rules and any matching true rule wins.
+  // Accept only the unambiguous subset: global false, or an exact branch false
+  // with exclusively false rules. Unknown patterns/values remain blocked.
+  const gitDisabled = enabled === false || (enabled !== null && typeof enabled === "object" &&
+    !Array.isArray(enabled) && Object.hasOwn(enabled, productionBranch) && enabled[productionBranch] === false &&
+    Object.values(enabled).every((value) => value === false));
+  const autoDeploy = !gitDisabled;
   const conclusion = String(canonical.checksConclusion ?? "");
   const state = String(canonical.checksState ?? "");
   const checks = conclusion === "succeeded" ? "succeeded"
@@ -360,11 +344,37 @@ export class VercelApi {
   async readProduction(expected, probe) {
     const user = await this.get("/v2/user");
     const project = await this.get(`/v9/projects/${encodeURIComponent(expected.project_id)}`);
-    const deployments = await this.get(`/v6/deployments?projectId=${encodeURIComponent(expected.project_id)}&target=production&limit=20`);
+    // The deployment list omits aliases/checks and its newest entry may be an
+    // unpromoted --skip-domain build. Resolve the actual canonical alias, then
+    // fetch that immutable deployment, rather than searching a recent list.
+    const aliasPath = `/v4/aliases/${encodeURIComponent(expected.canonical_alias)}`;
+    const readAlias = async () => {
+      const alias = await this.get(aliasPath);
+      if (alias?.alias !== expected.canonical_alias || alias.projectId !== expected.project_id ||
+          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect) {
+        refuse("E_ALIAS_DRIFT", "canonical alias is not assigned directly to the approved project");
+      }
+      return alias;
+    };
+    const before = await readAlias();
+    const deployment = await this.get(`/v13/deployments/${encodeURIComponent(before.deploymentId)}`);
+    if (deployment?.id !== before.deploymentId || deployment.projectId !== expected.project_id || deployment.target !== "production") {
+      refuse("E_ALIAS_DRIFT", "canonical alias deployment identity or project does not match");
+    }
+    const aliases = await this.get(`/v2/deployments/${encodeURIComponent(deployment.id)}/aliases`);
+    if (!Array.isArray(aliases?.aliases) || aliases.aliases.some((entry) => typeof entry?.alias !== "string" ||
+        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id)) || aliases.pagination?.next != null) {
+      refuse("E_PLATFORM_GUARD", "complete deployment alias inventory is unavailable");
+    }
+    const names = aliases.aliases.map((entry) => entry.alias);
+    if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
     // Recovery may need the authenticated immutable deployment identity while
     // /readyz is unavailable. Do not invent a served release in that case.
     const served = probe ? await probe(expected.canonical_alias) : {};
-    return observationFromVercel({ deployments: deployments?.deployments ?? [], expected, project, served, user: user?.user ?? user });
+    const after = await readAlias();
+    if (before.deploymentId !== after.deploymentId) refuse("E_ALIAS_DRIFT", "canonical alias moved during the live observation");
+    return observationFromVercel({ deployments: [{ ...deployment, alias: names }], expected, project,
+      served: { ...served, served_deployment_id: served.served_deployment_id ?? deployment.id }, user: user?.user ?? user });
   }
 }
 
@@ -899,10 +909,7 @@ async function main() {
       // Never pass --force: deployment checks must be allowed to block.
       runVercel(["promote", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
     },
-    readObservation: async (expectation, served) => {
-      const current = await api.readProduction({ ...expectation, canonical_alias: expectation.canonical_alias }, (alias) => probe(alias));
-      return { ...current, served_deployment_id: current.alias_target_deployment_id, served_release_digest: served.release_digest };
-    },
+    readObservation: (expectation) => api.readProduction(expectation, (alias) => probe(alias)),
     readRecoveryObservation: (expectation) => api.readProduction(expectation),
     rollback: (deployment) => {
       runVercel(["rollback", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
