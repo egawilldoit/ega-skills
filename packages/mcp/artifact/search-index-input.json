@@ -1594,6 +1594,105 @@
       "aliases": []
     },
     {
+      "skill_id": "t3dotgg/babysit-pr",
+      "version_hash": "sha256:e04074fafff80b5b89d8713d46278f74e310e71d936af7bffffa7b8ed3862370",
+      "name": "babysit-pr",
+      "description": "Monitor a pull request through review and CI. Use when the user asks to monitor, watch, or babysit a PR.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/council",
+      "version_hash": "sha256:3886b94694c14043eb69ae549026fb58c03b2df5f2f02078fb130fffa092424e",
+      "name": "council",
+      "description": "Trigger this if the user says 'council'.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/file-pr",
+      "version_hash": "sha256:f122b9983ba8d71d5904eecdfaec2087b340f5931006cd63892bf1913e3d576c",
+      "name": "file-pr",
+      "description": "File a concise pull request. Use when the user asks to file, open, or create a PR.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/full-send",
+      "version_hash": "sha256:c665966575ce8896ce9cfe87f9a9962e60b5ae5c3e15f5915d026d97de1796ef",
+      "name": "full-send",
+      "description": "Trigger this if the user says 'full send'.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/full-stop",
+      "version_hash": "sha256:c1be4648ab8b5bc2e4659174aa6f109d5af27718e901e5e8ef5e1821be59edc5",
+      "name": "full-stop",
+      "description": "Trigger this if the user says 'full stop'.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/leaving-pr-comments",
+      "version_hash": "sha256:cb6bf03e50106ae957670029043649fd87c9a29c529104f2bb03cf0212cb4dbf",
+      "name": "leaving-pr-comments",
+      "description": "Use whenever leaving comments on GitHub.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/modernize",
+      "version_hash": "sha256:43f822037b0b0e624274e3dc1127fbb4a269ca920a8ac5e8409f151827ea7958",
+      "name": "modernize",
+      "description": "For getting old prs up to date. Use when asked to rebase a pr or \"modernize\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/sol-loop",
+      "version_hash": "sha256:ae8fb31ef38a9e30bdca3381c91017aed680f1e319fe9fb2ae2f1fe23cf30d5b",
+      "name": "sol-loop",
+      "description": "Use when the user says \"sol loop\".",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
+      "skill_id": "t3dotgg/takeover",
+      "version_hash": "sha256:39a467c35ec9dfc3937f53e2d4f1c2d23b6a6ff0c3aafc397fef9d9e307cae40",
+      "name": "takeover",
+      "description": "Take over existing work. Use when the user asks to take over a PR, branch, or agent thread, or requests a takeover.",
+      "domains": [],
+      "platforms": [],
+      "frameworks": [],
+      "triggers": [],
+      "aliases": []
+    },
+    {
       "skill_id": "vercel/composition-patterns",
       "version_hash": "sha256:bb7b0f9e6c022f9e38efcb7d2533059a7a3a584c13235561ae443d0e8312f711",
       "name": "composition-patterns",
