@@ -10,11 +10,12 @@ import { createRequire } from "node:module";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
+import { runList, runInspect, readL0Metadata } from "../../packages/cli/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
 import { parseServerConfig } from "../../apps/web/server/env.ts";
 import { getReleaseComparison } from "../../apps/web/server/releases.ts";
 
-async function localResolve(t, home, project, trustedRelease) {
+async function localTools(t, home, project, calls, trustedRelease) {
   const child = spawn(process.execPath, [join(process.cwd(), "packages/mcp/bin/ega-mcp.mjs")], { cwd: project, env: { ...process.env, EGA_SKILLS_HOME: home, ...(trustedRelease ? { EGA_SKILLS_TRUSTED_RELEASE: trustedRelease } : {}) }, stdio: ["pipe", "pipe", "pipe"] });
   const closed = once(child, "close");
   child.stderr.resume();
@@ -28,12 +29,20 @@ async function localResolve(t, home, project, trustedRelease) {
   try {
     await request(1, "initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "i1-test", version: "1" } });
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-    return (await request(2, "tools/call", { name: "resolve", arguments: { task: "alpha", explicit_skills: ["ega/alpha"] } })).result;
+    const results = [];
+    for (const [index, [name, args]] of calls.entries()) {
+      results.push((await request(index + 2, "tools/call", { name, arguments: args })).result);
+    }
+    return results;
   } finally {
     child.stdin.end();
     if (child.exitCode === null && child.signalCode === null) child.kill();
     await closed;
   }
+}
+
+async function localResolve(t, home, project, trustedRelease) {
+  return (await localTools(t, home, project, [["resolve", { task: "alpha", explicit_skills: ["ega/alpha"] }]], trustedRelease))[0];
 }
 
 test("hosted I1 activation verifies sidecars and resolves with the release policy", async (t) => {
@@ -70,6 +79,44 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   assert.notEqual(rpc.result.isError, true, JSON.stringify(rpc));
   assert.equal(rpc.result.structuredContent.result.router_contract_version, 2);
   assert.equal(rpc.result.structuredContent.result.explicit[0].id, "ega/alpha");
+  // Exercise the read-only context path as well as resolve's router path:
+  // I1 artifacts use a distinct SQLite schema version from V1.
+  const versionHash = build.release.payload.skill_versions["ega/alpha"];
+  const readCalls = [
+    ["search", { query: "alpha" }],
+    ["inspect", { skill_id: "ega/alpha", version_hash: versionHash }],
+    ["get_content", { skill_id: "ega/alpha", version_hash: versionHash, level: "L2", max_tokens: 1000 }],
+  ];
+  for (const [name, args] of readCalls) {
+    const response = await handler.fetch(new Request("http://localhost/mcp", { method: "POST", headers: { authorization: "Bearer test", "content-type": "application/json", accept: "application/json, text/event-stream", origin: "http://localhost" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: { ...args, release_digest: snapshot.releaseDigest } } }) }));
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    const rpc = JSON.parse(text.match(/data: (.+)/)?.[1] ?? text);
+    assert.notEqual(rpc.result.isError, true, JSON.stringify(rpc));
+    const output = name === "inspect" ? rpc.result.structuredContent : rpc.result.structuredContent.result;
+    if (name === "search") {
+      assert.equal(output.effective_release_digest, snapshot.releaseDigest);
+      assert.ok(output.results.some((row) => row.skill_id === "ega/alpha"));
+    }
+    if (name === "inspect") assert.equal(output.version_hash, versionHash);
+    if (name === "get_content") {
+      assert.equal(output.version_hash, versionHash);
+      assert.match(output.content, /Use alpha/);
+    }
+  }
+  const beforeReads = sha256Hex(readFileSync(join(dir, "registry.sqlite")));
+  const cliEnv = { EGA_SKILLS_HOME: dir, EGA_SKILLS_TRUSTED_RELEASE: build.release.digest };
+  assert.deepEqual(await runList(cliEnv), [{ skillId: "ega/alpha", currentVersionHash: versionHash }]);
+  assert.equal((await runInspect("ega/alpha", cliEnv)).currentVersionHash, versionHash);
+  assert.deepEqual([...readL0Metadata(cliEnv).keys()], ["ega/alpha"]);
+  const wrongCliEnv = { ...cliEnv, EGA_SKILLS_TRUSTED_RELEASE: digest };
+  await assert.rejects(runList(wrongCliEnv), /trusted local release identity mismatch/);
+  await assert.rejects(runInspect("ega/alpha", wrongCliEnv), /trusted local release identity mismatch/);
+  assert.throws(() => readL0Metadata(wrongCliEnv), /trusted local release identity mismatch/);
+  for (const result of await localTools(t, dir, root, readCalls, build.release.digest)) {
+    assert.notEqual(result.isError, true, JSON.stringify(result));
+  }
+  assert.equal(sha256Hex(readFileSync(join(dir, "registry.sqlite"))), beforeReads);
   const local = await localResolve(t, dir, root);
   assert.equal(local.isError, false);
   assert.equal(local.structuredContent.result.router_contract_version, 2);
@@ -96,12 +143,24 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   cpSync(dir, broken, { recursive: true });
   rmSync(join(broken, "invocation-policy.json"));
   assert.throws(() => loadHostedReleaseSnapshot(broken));
+  const brokenCliEnv = { EGA_SKILLS_HOME: broken };
+  await assert.rejects(runList(brokenCliEnv));
+  await assert.rejects(runInspect("ega/alpha", brokenCliEnv));
+  assert.throws(() => readL0Metadata(brokenCliEnv));
+  for (const result of await localTools(t, broken, root, readCalls)) {
+    assert.equal(result.isError, true);
+    assert.equal((result.structuredContent.error ?? result.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(result));
+  }
   const localBroken = await localResolve(t, broken, root);
   assert.equal(localBroken.isError, true);
   assert.equal((localBroken.structuredContent.error ?? localBroken.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localBroken));
   const stripped = join(root, "stripped");
   cpSync(dir, stripped, { recursive: true });
   for (const file of ["hub-release.json", "candidate.json", "invocation-policy.json"]) rmSync(join(stripped, file));
+  for (const result of await localTools(t, stripped, root, readCalls)) {
+    assert.equal(result.isError, true);
+    assert.equal((result.structuredContent.error ?? result.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(result));
+  }
   const localStripped = await localResolve(t, stripped, root);
   assert.equal(localStripped.isError, true);
   assert.equal((localStripped.structuredContent.error ?? localStripped.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localStripped));
@@ -109,6 +168,10 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   const altered = new Database(join(stripped, "registry.sqlite"));
   altered.exec("DROP TABLE ega_invocation_profile; PRAGMA user_version = 2");
   altered.close();
+  for (const result of await localTools(t, stripped, root, readCalls, build.release.digest)) {
+    assert.equal(result.isError, true);
+    assert.equal((result.structuredContent.error ?? result.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(result));
+  }
   const localAltered = await localResolve(t, stripped, root, build.release.digest);
   assert.equal(localAltered.isError, true);
   assert.equal((localAltered.structuredContent.error ?? localAltered.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localAltered));

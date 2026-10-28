@@ -31,6 +31,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { openRegistry, searchSkills } from "../../packages/registry/dist/index.js";
+import { loadLocalInvocationCandidate } from "../../packages/project/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
 
 export const DISCOVERY_EVALUATION_SCHEMA_VERSION = 1;
@@ -227,7 +228,6 @@ export async function evaluateDiscovery(corpus, options = {}) {
 
   // A throwaway bare project so project discovery never picks up this repo's
   // own control files; every intent is evaluated from the artifact catalog.
-  const project = await mkdtemp(join(tmpdir(), "ega-discovery-eval-"));
   const env = { ...process.env, EGA_SKILLS_HOME: artifactDir };
 
   // Fail closed on a corpus that targets a different release. Without this, a
@@ -243,6 +243,9 @@ export async function evaluateDiscovery(corpus, options = {}) {
 
   // The read-only handle stays open for the whole run: `search` and
   // `resolve` both read the same verified catalog snapshot.
+  const verified = loadLocalInvocationCandidate(artifactDir, env.EGA_SKILLS_TRUSTED_RELEASE);
+  const invocation = verified === undefined ? undefined : { release: verified.release, policy: verified.policy };
+  const project = await mkdtemp(join(tmpdir(), "ega-discovery-eval-"));
   const readable = openRegistry({ env, readonly: true });
   try {
     // Fail closed BEFORE doing any work on a corpus that measures nothing.
@@ -277,6 +280,7 @@ export async function evaluateDiscovery(corpus, options = {}) {
         task: intent.task,
         projectPath: project,
         env,
+        ...(invocation === undefined ? {} : { invocation }),
         ...(intent.max_skills === undefined ? {} : { budget: { maxSkills: intent.max_skills } }),
       });
       rows.push({ ...scoreIntent(intent, resolved, searchByTask(intent.task)), pending: Boolean(intent.pending_skill) });

@@ -23,7 +23,9 @@ import { resolve as resolvePath } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
-import { openRegistry, searchSkills } from "@ega-skills/registry";
+import { loadLocalInvocationCandidate } from "@ega-skills/project";
+
+import { openRegistry, resolveRegistryHome, searchSkills } from "@ega-skills/registry";
 
 /** Presentation metadata schema version understood by this module. */
 export const CATALOG_PRESENTATION_SCHEMA_VERSION = 1;
@@ -281,6 +283,7 @@ export function validatePresentation(
 
 /** Read every skill's L0 metadata from the local registry, keyed by canonical id. */
 export function readL0Metadata(env: Record<string, string | undefined>): Map<string, CatalogSkill> {
+  loadLocalInvocationCandidate(resolveRegistryHome(env), env["EGA_SKILLS_TRUSTED_RELEASE"]);
   const registry = openRegistry({ env, readonly: true });
   try {
     const db = registry.db as unknown as {

@@ -39,6 +39,20 @@ favorites:
 # Human-intent groups. Order here is the order rendered; skills inside a group
 # are always sorted by id so output stays deterministic.
 groups:
+  - id: tstack-pr
+    title: TStack PR workflows
+    blurb: Reviewed upstream workflows. Selection grants no permission to delegate, merge, deploy or write; user restrictions still apply. Hosted content does not install companion scripts.
+    skills:
+      - t3dotgg/babysit-pr
+      - t3dotgg/council
+      - t3dotgg/file-pr
+      - t3dotgg/full-send
+      - t3dotgg/full-stop
+      - t3dotgg/leaving-pr-comments
+      - t3dotgg/modernize
+      - t3dotgg/sol-loop
+      - t3dotgg/takeover
+
   - id: notsure
     title: Not sure which skill?
     blurb: When you only know what you want, not which skill does it.

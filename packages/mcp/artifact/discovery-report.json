@@ -3,10 +3,10 @@
   "report_kind": "pinned-synthetic-intent-inspection",
   "sanitized": true,
   "production_prompts_included": false,
-  "release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
-  "evaluated_release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
-  "evaluated_catalog_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
-  "artifact_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "release_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
+  "evaluated_release_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
+  "evaluated_catalog_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
+  "artifact_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
   "source_artifact": "packages/mcp/artifact",
   "case": {
     "intent_id": "debug-hard-bug",
@@ -20,8 +20,8 @@
       "mattpocock/pr"
     ],
     "confidence": "MEDIUM",
-    "reason": "Automatic selection (MEDIUM confidence) chose mattpocock/pr by DESCRIPTION_MATCH; the expected skill egawilldoit/principle-attack-the-premise was only a candidate via LEXICAL_MATCH. This is a wrong automatic selection.",
-    "failure_reason": "Automatic selection (MEDIUM confidence) chose mattpocock/pr by DESCRIPTION_MATCH; the expected skill egawilldoit/principle-attack-the-premise was only a candidate via LEXICAL_MATCH. This is a wrong automatic selection.",
+    "reason": "Pinned synthetic inspection: automatic selection (MEDIUM) chose mattpocock/pr; expected egawilldoit/principle-attack-the-premise. See ranking and candidates for actual observed results. This record is not production traffic.",
+    "failure_reason": "Pinned synthetic inspection: automatic selection (MEDIUM) chose mattpocock/pr; expected egawilldoit/principle-attack-the-premise. See ranking and candidates for actual observed results. This record is not production traffic.",
     "wrong_automatic_selections": [
       "mattpocock/pr"
     ],

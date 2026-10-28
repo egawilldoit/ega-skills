@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "corpus_id": "personal-intents-v1",
+  "release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "catalog_skill_count": 117,
+  "summary": {
+    "intent_count": 81,
+    "auto_select_attempts": 33,
+    "top1_count": 41,
+    "top1_rate": 0.5061728395061729,
+    "top3_count": 70,
+    "top3_rate": 0.8641975308641975,
+    "search_reachable_count": 71,
+    "search_reachable_rate": 0.8765432098765432,
+    "wrong_automatic_selection_count": 22,
+    "wrong_automatic_selection_intents": 22,
+    "wrong_automatic_selection_rate": 0.6666666666666666,
+    "catastrophic_top3_count": 16,
+    "catastrophic_auto_selected_count": 0,
+    "catastrophic_suggested_only_count": 16,
+    "low_confidence_count": 48,
+    "targets": {
+      "measured_attempts": true,
+      "wrong_automatic_selections": false,
+      "top1": false,
+      "top3": false,
+      "no_catastrophic_auto_selection": true
+    },
+    "exec_ok": false,
+    "discovery_ok": false
+  },
+  "pending_skill_intents": [
+    {
+      "id": "ambiguous-skill-memory",
+      "expected_primary": "egawilldoit/find-skill"
+    }
+  ],
+  "known_external_auto_routes": [
+    "certify-release",
+    "checks-failing",
+    "create-verification-workflow",
+    "debug-hard-bug",
+    "deep-independent-review",
+    "frontend-implementation",
+    "hard-to-trace-code",
+    "mcp-production",
+    "mcp-server-building",
+    "novel-ui-no-precedent",
+    "pr-stack",
+    "production-target",
+    "prove-actually-true",
+    "record-evidence",
+    "research-primary-sources",
+    "review-this-pr",
+    "smoke-tests",
+    "teach-concept",
+    "triage-inbox",
+    "type-design",
+    "verify-cli",
+    "verify-one-claim"
+  ],
+  "measurement_notes": {
+    "discovery_window": "resolver selected+candidates only, max 3. Raw FTS search hits are NOT appended to the window; search reachability is reported separately as search_reachable_rate.",
+    "wrong_automatic_selection_rate": "denominator is auto_select_attempts (intents that actually selected something), not intent_count, because most intents are LOW and select nothing.",
+    "catastrophic_split": "catastrophic_auto_selected_count is a safety failure (an excluded skill would have run); catastrophic_suggested_only_count is a presentation issue only."
+  },
+  "note": "Recorded baseline measured on the approved 117-skill Ship One Outcome immutable candidate. Existing routing defects remain reported, not waived. Regenerate with node scripts/eval/discovery.mjs tests/discovery/personal-intents.json; compare prior release in Git history."
+}

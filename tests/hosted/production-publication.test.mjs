@@ -501,8 +501,11 @@ test("the real candidate reader feeds the gate with a defined candidate digest",
   const read = await readCandidate(directory);
   const raw = JSON.parse(readFileSync(join(directory, "candidate.json"), "utf8"));
   assert.equal(read.candidate_digest, raw.digest);
-  assert.equal(read.source_snapshot_digest, "");
-  const payload = createPublicationApprovalPayload(read, "");
+  const sourceSnapshot = "sha256:baee615c166889a7a6743cbff0eb4cf24e9f37cbe621d1fd69723de4ce599360";
+  assert.equal(raw.schema_version, 3);
+  assert.equal(read.source_snapshot_digest, sourceSnapshot);
+  assert.equal(read.policy_digest, "sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6");
+  const payload = createPublicationApprovalPayload(read, sourceSnapshot);
   const approvalValue = createPublicationApproval(payload);
   const result = assessProductionPublication({
     approval: approvalValue,
@@ -519,6 +522,14 @@ test("the real candidate reader feeds the gate with a defined candidate digest",
     }),
   });
   assert.equal(result.status, "READY", JSON.stringify(result.blockers));
+  const mismatchedSource = assessProductionPublication({
+    approval: createPublicationApproval({ ...payload, source_snapshot_digest: "" }),
+    candidate: read,
+    expected: { ...expected, predecessor_release_digest: read.previous_release_digest },
+    observation: observation({ served_release_digest: read.previous_release_digest }),
+  });
+  assert.equal(mismatchedSource.status, "BLOCKED");
+  assert.ok(mismatchedSource.blockers.some((blocker) => blocker.code === "E_CANDIDATE_MISMATCH" && blocker.message.includes("source snapshot")));
 });
 
 function createPublicationApprovalPayload(read, snapshot) {

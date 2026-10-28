@@ -11,6 +11,8 @@
 // Tests import the built packages (pnpm build) exactly like the other suites.
 
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { INVOCATION_REGISTRY_SCHEMA_VERSION } from "../../packages/registry/dist/index.js";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
@@ -291,6 +293,20 @@ test("boundary: read-only open leaves the database file byte-identical", () => {
   }
   const after = createHash("sha256").update(readFileSync(dbPath)).digest("hex");
   assert.equal(after, before, "database file must be byte-identical after read-only open");
+});
+
+test("boundary: unsupported future registry schema rejects without mutation", () => {
+  const home = makeTempRoot("home-future-schema");
+  const project = makeTempRoot("project-future-schema");
+  const dbPath = join(home, "registry.sqlite");
+  const Database = createRequire(new URL("../../packages/registry/package.json", import.meta.url))("better-sqlite3");
+  const db = new Database(dbPath);
+  db.pragma(`user_version = ${INVOCATION_REGISTRY_SCHEMA_VERSION + 1}`);
+  db.close();
+  const before = readFileSync(dbPath);
+  const ctx = resolveMcpProjectContext(project, { env: envFor(home) });
+  expectContextError(() => openReadOnlyRegistry(ctx), "E_REGISTRY_UNAVAILABLE");
+  assert.deepEqual(readFileSync(dbPath), before);
 });
 
 test("boundary: project sources are never mutated by context resolution", () => {

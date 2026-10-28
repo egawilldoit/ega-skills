@@ -497,6 +497,11 @@ function openCliRegistry(env: Record<string, string | undefined>): RegistryHandl
   return openRegistry({ env });
 }
 
+function openCliReadRegistry(env: Record<string, string | undefined>): RegistryHandle | undefined {
+  loadLocalInvocationCandidate(resolveRegistryHome(env), env["EGA_SKILLS_TRUSTED_RELEASE"]);
+  return existsSync(resolveRegistryPaths(env).database) ? openRegistry({ env, readonly: true }) : undefined;
+}
+
 /** REQUIRED surface: import a skill root or collection, return the summary. */
 export async function runImport(
   path: string,
@@ -832,7 +837,8 @@ export function runHubCollectionsValidate(options: HubCollectionsValidateCommand
 export async function runList(
   env: Record<string, string | undefined>,
 ): Promise<ListEntry[]> {
-  const registry = openCliRegistry(env);
+  const registry = openCliReadRegistry(env);
+  if (registry === undefined) return [];
   try {
     return queryAll<{ skill_id: string; current_version_hash: string }>(
       registry,
@@ -1147,7 +1153,10 @@ export async function runInspect(
   skillId: string,
   env: Record<string, string | undefined>,
 ): Promise<InspectResult> {
-  const registry = openCliRegistry(env);
+  const registry = openCliReadRegistry(env);
+  if (registry === undefined) {
+    throw new RegistryError("E_VERSION_NOT_FOUND", `Unknown skill ${JSON.stringify(skillId)}: no current version.`);
+  }
   try {
     const skill = queryOne<{ skill_id: string; namespace: string; name: string; current_version_hash: string }>(
       registry,

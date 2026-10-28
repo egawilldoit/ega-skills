@@ -1,8 +1,8 @@
 {
-  "digest": "sha256:c06de68b48193ed6089afa20a9f5a87316f2aa5326751e96b7b09c0d6d150901",
+  "digest": "sha256:644fff8181836b6fbcfece543bac65bb1d771000eb1089277c0efdb8abb7b967",
   "object_type": "ega.publication-preflight",
   "payload": {
-    "approval_set_digest": "sha256:bc03080d81056b3a98cd3cdef0ff3ec5b775cfe9a38c42b682e65f5573780149",
+    "approval_set_digest": "sha256:874b5a937e0fad70ba6c42f3c2afbf5bb5069e980a4348da8d536104d26ecc44",
     "blockers": [],
     "hub_id": "personal",
     "reviews": [
@@ -871,6 +871,78 @@
         "version_hash": "sha256:5296e833a83f9775e7abc0c81ec21e94e63ad4860ba94d7ba71f585f80d1cd53"
       },
       {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:0a5321b15fe7289fcba298ec56f876278226b11ae746c0cff747bd6463c4e91f",
+        "skill_id": "t3dotgg/babysit-pr",
+        "version_hash": "sha256:e04074fafff80b5b89d8713d46278f74e310e71d936af7bffffa7b8ed3862370"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:fe7dc13a634abda7e21c2d147984c009686b3b265dceef34df63985b9f0a21cd",
+        "skill_id": "t3dotgg/council",
+        "version_hash": "sha256:3886b94694c14043eb69ae549026fb58c03b2df5f2f02078fb130fffa092424e"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:dc4c9b32ece6a9f074bcea1fe52d661c6649c8a1c9f19fa899e879f9ec84e132",
+        "skill_id": "t3dotgg/file-pr",
+        "version_hash": "sha256:f122b9983ba8d71d5904eecdfaec2087b340f5931006cd63892bf1913e3d576c"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:52e14e0c0097d72e571bd827f1fe2ae834eb651a3c3bc75c25cc03e1ab09d61f",
+        "skill_id": "t3dotgg/full-send",
+        "version_hash": "sha256:c665966575ce8896ce9cfe87f9a9962e60b5ae5c3e15f5915d026d97de1796ef"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:e68c298c00bdaac2f4efb618094711ea71a174d13763399970cec86733238629",
+        "skill_id": "t3dotgg/full-stop",
+        "version_hash": "sha256:c1be4648ab8b5bc2e4659174aa6f109d5af27718e901e5e8ef5e1821be59edc5"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:e24dd1ee6995367439c492a5590190e89b85a6f581fce41d419179a128b7e58b",
+        "skill_id": "t3dotgg/leaving-pr-comments",
+        "version_hash": "sha256:cb6bf03e50106ae957670029043649fd87c9a29c529104f2bb03cf0212cb4dbf"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:9cf2dac3d3577914633dd5e9bfe59cda33a6b0e1a75722f8fac988877fbdcae7",
+        "skill_id": "t3dotgg/modernize",
+        "version_hash": "sha256:43f822037b0b0e624274e3dc1127fbb4a269ca920a8ac5e8409f151827ea7958"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:2c1314ae400142ed1345776bdc7c079ea72c7da15f0a26e9edf1392b06550b60",
+        "skill_id": "t3dotgg/sol-loop",
+        "version_hash": "sha256:ae8fb31ef38a9e30bdca3381c91017aed680f1e319fe9fb2ae2f1fe23cf30d5b"
+      },
+      {
+        "candidate_digest": "sha256:beead990accac2318a0aad15dc1058c2cb38947b008f209c621c3b51df9808cc",
+        "decision": "APPROVED",
+        "revision": 1,
+        "review_digest": "sha256:4f8a88c88794e9d710c6df3527c3288a0763f4ab77bb8debdefff0b483d07361",
+        "skill_id": "t3dotgg/takeover",
+        "version_hash": "sha256:39a467c35ec9dfc3937f53e2d4f1c2d23b6a6ff0c3aafc397fef9d9e307cae40"
+      },
+      {
         "candidate_digest": "sha256:dd8e8bef58087e527d82da475e210ae9a098fb9aa5d5baa4782d977e73bb3a57",
         "decision": "APPROVED",
         "revision": 1,
@@ -1052,6 +1124,15 @@
       "mattpocock/wayfinder": "sha256:6596ee6ad94133449b4c91474234e1b863209e8cf18b50269de0dfe0e2de8177",
       "mattpocock/wizard": "sha256:a0db405d4a299f296c0ed6da4ad700822f02285cdda59d4f0770a95bf86208b6",
       "mattpocock/writing-for-agents": "sha256:5296e833a83f9775e7abc0c81ec21e94e63ad4860ba94d7ba71f585f80d1cd53",
+      "t3dotgg/babysit-pr": "sha256:e04074fafff80b5b89d8713d46278f74e310e71d936af7bffffa7b8ed3862370",
+      "t3dotgg/council": "sha256:3886b94694c14043eb69ae549026fb58c03b2df5f2f02078fb130fffa092424e",
+      "t3dotgg/file-pr": "sha256:f122b9983ba8d71d5904eecdfaec2087b340f5931006cd63892bf1913e3d576c",
+      "t3dotgg/full-send": "sha256:c665966575ce8896ce9cfe87f9a9962e60b5ae5c3e15f5915d026d97de1796ef",
+      "t3dotgg/full-stop": "sha256:c1be4648ab8b5bc2e4659174aa6f109d5af27718e901e5e8ef5e1821be59edc5",
+      "t3dotgg/leaving-pr-comments": "sha256:cb6bf03e50106ae957670029043649fd87c9a29c529104f2bb03cf0212cb4dbf",
+      "t3dotgg/modernize": "sha256:43f822037b0b0e624274e3dc1127fbb4a269ca920a8ac5e8409f151827ea7958",
+      "t3dotgg/sol-loop": "sha256:ae8fb31ef38a9e30bdca3381c91017aed680f1e319fe9fb2ae2f1fe23cf30d5b",
+      "t3dotgg/takeover": "sha256:39a467c35ec9dfc3937f53e2d4f1c2d23b6a6ff0c3aafc397fef9d9e307cae40",
       "vercel/composition-patterns": "sha256:bb7b0f9e6c022f9e38efcb7d2533059a7a3a584c13235561ae443d0e8312f711",
       "vercel/deploy-to-vercel": "sha256:9b55712ae84cf97ac165e059d933622850864c6e88520971200e31f130485b45",
       "vercel/react-best-practices": "sha256:31856c5e77fb6ef39a8d44195453e0e3ad53bcb77827c16af9c0242f7f5c46bc",

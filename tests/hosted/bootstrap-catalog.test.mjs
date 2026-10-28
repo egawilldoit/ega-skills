@@ -74,7 +74,7 @@ describe("the registered digest is the reviewed artifact's digest", () => {
     assert.equal(release.hubReleaseDigest, PACKAGE.hub_release_digest);
     assert.equal(release.sqliteArtifactDigest, PACKAGE.sqlite_artifact_digest);
     assert.equal(release.skillCount, PACKAGE.snapshot_rows);
-    assert.equal(release.skillCount, 117);
+    assert.equal(release.skillCount, 126);
   });
 
   test("the artifact's own hub_id is reported but is not a database hub id", async () => {
