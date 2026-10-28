@@ -43,7 +43,7 @@ const versions = { "t3dotgg/babysit-pr": DIGEST("1"), "t3dotgg/council": DIGEST(
 
 function approvalPayload(overrides = {}) {
   return {
-    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#approval",
+    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-6471216248",
     approved_at: "2026-10-27T12:00:00.000Z",
     approved_by: "owner",
     candidate_digest: CANDIDATE,
@@ -82,6 +82,7 @@ const expected = {
   production_branch: "release/2.0",
   project_id: PROJECT,
   publisher_vercel_user_id: PUBLISHER,
+  source_commit: "f".repeat(40),
   staged_deployment_id: STAGED_DEPLOYMENT,
   team_id: TEAM,
 };
@@ -151,6 +152,16 @@ test("platform states that allow a bypass are refused", () => {
 
   const extraAlias = assess({ obs: observation({ production_aliases: [ALIAS, "mcp.example.com"] }) });
   assert.ok(extraAlias.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+
+  for (const malformed of [
+    { ...observation(), git_production_auto_deploy: undefined },
+    { ...observation(), production_aliases: undefined },
+    { ...observation(), production_aliases: { 0: ALIAS, length: 1 } },
+  ]) {
+    const result = assess({ obs: malformed });
+    assert.equal(result.status, "BLOCKED", JSON.stringify(malformed));
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  }
 
   const checks = assess({ obs: observation({ deployment_checks_state: "failed" }) });
   assert.ok(checks.blockers.some((blocker) => blocker.code === "E_CHECKS_NOT_PASSED"));
@@ -243,6 +254,7 @@ function promotionDeps({ mutate = (state) => { state.served = NEXT; state.alias 
     now: () => { clock += 6_000; return clock; },
     probe: async () => ({ publication_revision: 0, release_digest: state.served }),
     readObservation: async () => observation({ alias_target_deployment_id: state.alias, served_deployment_id: state.alias, served_release_digest: state.served }),
+    readDeploymentIdentity: async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: expected.source_commit, target: "production", url: "staged.example.com" }),
     promote: () => { state.calls += 1; mutate(state); },
     rollback: () => { state.rolledBack += 1; state.alias = PRED_DEPLOYMENT; state.served = PREV; },
     sleep: async () => {},
@@ -263,6 +275,18 @@ test("a promotion re-reads live production and records a verified receipt", asyn
   assert.equal(receipt.payload.release_digest, NEXT);
   assert.equal(receipt.payload.previous_release_digest, PREV);
   assert.equal(receipt.payload.publication_revision, 1);
+});
+
+test("a receipt failure after promotion restores the predecessor", async (t) => {
+  const { deps, state } = promotionDeps();
+  t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
+  deps.recordReceipt = async () => { throw Object.assign(new Error("receipt disk full"), { code: "E_RECEIPT_WRITE" }); };
+  await assert.rejects(
+    () => executePromotion({ apply: true, approval: approval(), candidate, deps, expected }),
+    (error) => error.code === "E_RECEIPT_WRITE" && error.receipt?.payload.status === "FAILED",
+  );
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.alias, PRED_DEPLOYMENT);
 });
 
 test("a concurrent change between verification and promotion blocks the write", async (t) => {
@@ -465,6 +489,9 @@ test("rollback requires a contiguous receipt chain and verifies the retained rel
 
 test("approval and receipt envelopes reject unknown fields and broken chains", () => {
   assert.throws(() => verifyPublicationApproval({ ...approval(), extra: true }), /invalid|unknown fields/);
+  for (const record of ["not a url", "https://", "https://example.com/approval", "http://github.com/egawilldoit/ega-skills/issues/168"]) {
+    assert.throws(() => createPublicationApproval(approvalPayload({ approval_record: record })), /approval_record|issue or pull request/);
+  }
   const actor = approval().payload.publisher;
   const base = {
     actor,
@@ -534,7 +561,7 @@ test("the real candidate reader feeds the gate with a defined candidate digest",
 
 function createPublicationApprovalPayload(read, snapshot) {
   return {
-    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#approval",
+    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-6471216248",
     approved_at: "2026-10-27T12:00:00.000Z",
     approved_by: "owner",
     candidate_digest: read.candidate_digest,
@@ -557,6 +584,7 @@ test("an interrupted promotion can be reconciled only from the exact live candid
     now: () => Date.parse("2026-10-27T13:00:00Z"),
     probe: async () => ({ publication_revision: 0, release_digest: live.served }),
     readObservation: async () => observation({ alias_target_deployment_id: live.alias, served_deployment_id: live.alias, served_release_digest: live.served }),
+    readDeploymentIdentity: async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: expected.source_commit, target: "production", url: "staged.example.com" }),
     sleep: async () => {},
     stateDir, readiness: readiness(stateDir), recordReceipt: async () => {},
   };
@@ -571,6 +599,23 @@ test("an interrupted promotion can be reconciled only from the exact live candid
 });
 
 
+test("reconcile refuses a live release that changes before the receipt is written", async (t) => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-reconcile-race-"));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const live = { alias: STAGED_DEPLOYMENT, served: NEXT };
+  let probes = 0;
+  const deps = {
+    maxAttempts: 3,
+    now: () => Date.parse("2026-10-27T13:00:00Z"),
+    probe: async () => ({ publication_revision: 0, release_digest: probes++ === 0 ? NEXT : DIGEST("9") }),
+    readObservation: async () => observation({ alias_target_deployment_id: live.alias, served_deployment_id: live.alias, served_release_digest: live.served }),
+    readDeploymentIdentity: async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: expected.source_commit, target: "production", url: "staged.example.com" }),
+    sleep: async () => {},
+    stateDir, readiness: readiness(stateDir), recordReceipt: async () => {},
+  };
+  await assert.rejects(() => executeReconcile({ apply: true, approval: approval(), candidate, deps, expected }), { code: "E_PUBLICATION_RACE" });
+});
+
 test("expired active lease cannot be stolen and cannot authorize a later mutation", async t => {
   const stateDir = mkdtempSync(join(tmpdir(), "ega-publication-expiry-"));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));
@@ -584,7 +629,15 @@ test("readiness certification is required, target-bound and time-bounded", () =>
   const dir = join(tmpdir(), "ega-publication-readiness");
   const now = Date.parse(expected.now);
   verifyPublicationReadiness(readiness(dir), expected, now, dir);
-  for (const record of [undefined, readiness(dir, { project_id: "other" }), readiness(dir, { state_dir: "/other" }), readiness(dir, { expires_at: expected.now }), readiness(dir, { residual_alias_race_accepted: false })]) {
+  for (const record of [
+    undefined,
+    readiness(dir, { project_id: "other" }),
+    readiness(dir, { state_dir: "/other" }),
+    readiness(dir, { expires_at: expected.now }),
+    readiness(dir, { residual_alias_race_accepted: false }),
+    readiness(dir, { review_record: "https://" }),
+    readiness(dir, { review_record: "not a url" }),
+  ]) {
     assert.throws(() => verifyPublicationReadiness(record, expected, now, dir), error => error.code === "E_PUBLICATION_READINESS");
   }
 });
@@ -594,7 +647,7 @@ test("receipt reservation precedes mutation and durable recording retains the le
   t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
   const path = join(deps.stateDir, "receipt.json");
   writeFileSync(path, "existing");
-  await assert.rejects(() => withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt }, expected })), error => error.code === "EEXIST");
+  await assert.rejects(() => withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt }, expected })), error => error.code === "E_PUBLICATION_RECEIPT");
   assert.equal(state.calls, 0);
   rmSync(path);
   const result = await withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt: async receipt => {
@@ -611,6 +664,27 @@ test("publication CLI fails clearly on unreviewed operating systems", () => {
   for (const platform of ["win32", "darwin"]) assert.throws(() => assertPublicationPlatform(platform), error => error.code === "E_PUBLICATION_PLATFORM");
 });
 
+
+test("staging refuses a deployment that does not report the tested source commit", async (t) => {
+  const { deps, state } = promotionDeps();
+  t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
+  deps.deployStagedProduction = async () => ({ deployment_id: STAGED_DEPLOYMENT, url: "https://staged.example.com" });
+  const probe = deps.probe;
+  deps.probe = async url => url === "https://staged.example.com" ? { release_digest: NEXT } : probe(url);
+  deps.readDeploymentIdentity = async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: "e".repeat(40), target: "production", url: "staged.example.com" });
+  await assert.rejects(() => executeStage({ apply: true, approval: approval(), candidate, deps, expected }), { code: "E_STAGE" });
+  assert.equal(state.alias, PRED_DEPLOYMENT);
+  assert.equal(state.calls, 0);
+});
+
+test("promotion refuses a staged deployment that does not report the tested source commit", async (t) => {
+  const { deps, state } = promotionDeps();
+  t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
+  deps.readDeploymentIdentity = async () => ({ checks_state: "succeeded", deployment_id: STAGED_DEPLOYMENT, project_id: PROJECT, ready_state: "READY", source_commit: "e".repeat(40), target: "production", url: "staged.example.com" });
+  await assert.rejects(() => executePromotion({ apply: true, approval: approval(), candidate, deps, expected }), { code: "E_STAGE" });
+  assert.equal(state.calls, 0);
+  assert.equal(state.alias, PRED_DEPLOYMENT);
+});
 
 test("staging verifies the candidate while retaining the live predecessor", async t => {
   const { deps, state } = promotionDeps();
