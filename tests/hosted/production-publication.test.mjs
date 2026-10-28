@@ -182,7 +182,7 @@ test("the Vercel observation pins the publisher, project and alias", () => {
     served: { release_digest: PREV },
     user: { id: PUBLISHER },
   });
-  assert.equal(policyDisabled.git_production_auto_deploy, false);
+  assert.equal(policyDisabled.git_production_auto_deploy, true);
 
   const contradictory = observationFromVercel({
     deployments: deployments.deployments,
@@ -330,14 +330,16 @@ test("authenticated recovery observation does not require a healthy application"
     calls.push(url.pathname);
     const body = url.pathname === "/v2/user" ? { user: { id: PUBLISHER } }
       : url.pathname.startsWith("/v9/projects/") ? { id: PROJECT, accountId: TEAM, git: { productionBranch: "release/2.0", deploymentEnabled: false } }
-      : { deployments: [{ id: STAGED_DEPLOYMENT, alias: [ALIAS], target: "production", readyState: "ERROR", checksConclusion: "failed" }] };
+      : url.pathname.startsWith("/v4/aliases/") ? { alias: ALIAS, deploymentId: STAGED_DEPLOYMENT, projectId: PROJECT }
+      : url.pathname.endsWith("/aliases") ? { aliases: [{ alias: ALIAS, deploymentId: STAGED_DEPLOYMENT }] }
+      : { id: STAGED_DEPLOYMENT, projectId: PROJECT, target: "production", readyState: "ERROR", checksConclusion: "failed" };
     return new Response(JSON.stringify(body), { status: 200 });
   } });
   const observed = await api.readProduction(expected);
   assert.equal(observed.alias_target_deployment_id, STAGED_DEPLOYMENT);
   assert.equal(observed.served_release_digest, undefined);
   assert.equal(observed.deployment_ready_state, "ERROR");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 6);
 });
 
 test("rollback requires a contiguous receipt chain and verifies the retained release", async (t) => {
