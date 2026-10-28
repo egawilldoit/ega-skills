@@ -344,10 +344,12 @@ Do not proceed to the 126 promotion if any of these is false.
 
 The normal publisher remains the only supported path. Stage and promote from
 the exact merged implementation/release commit, with the candidate and approval
-recorded in issue #168. The `stage` command verifies `--candidate`, then deploys
-`<checkout>/packages/mcp`; run it only from the checkout whose
-`packages/mcp/artifact` is that exact candidate. The staged `/readyz` digest
-check is the final guard, but a mismatch wastes a staging cycle.
+recorded in issue #168. The CLI now refuses a dirty checkout, requires the
+checkout's `packages/mcp/artifact` to be the exact `--candidate`, and deploys a
+fresh detached worktree at `HEAD` with `--meta githubCommitSha=<HEAD>`. The
+staging record binds that source commit; `promote`/`reconcile` refuse a staging
+record or deployment whose identity/source does not match. Run the commands from
+a clean checkout of the tested commit.
 
 ```
 EGA_VERCEL_TOKEN_FILE=/secure/vercel.token \

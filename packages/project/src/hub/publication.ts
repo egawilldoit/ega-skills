@@ -171,6 +171,19 @@ function text(value: unknown, name: string): string {
   return value;
 }
 
+/**
+ * An approval record is a concrete GitHub issue or pull-request record in the
+ * release repository. This does not authenticate the decision; it prevents an
+ * arbitrary string from being presented as the recorded authority.
+ */
+function approvalRecord(value: unknown): string {
+  const record = text(value, "approval_record");
+  if (!/^https:\/\/github\.com\/egawilldoit\/ega-skills\/(?:issues|pull)\/[0-9]+(?:#issuecomment-[0-9]+)?$/.test(record)) {
+    fail("approval_record must be an issue or pull request record in egawilldoit/ega-skills");
+  }
+  return record;
+}
+
 function digest(value: unknown, name: string): string {
   if (typeof value !== "string" || !DIGEST_RE.test(value)) fail(`${name} must match sha256:<64 lowercase hex>`);
   return value;
@@ -245,7 +258,7 @@ export function verifyPublicationApproval(value: unknown): PublicationApproval {
     digest: digest(value["digest"], "approval digest"),
     object_type: PUBLICATION_APPROVAL_OBJECT_TYPE,
     payload: {
-      approval_record: text(p["approval_record"], "approval_record"),
+      approval_record: approvalRecord(p["approval_record"]),
       approved_at: timestamp(p["approved_at"], "approved_at"),
       approved_by: text(p["approved_by"], "approved_by"),
       candidate_digest: digest(p["candidate_digest"], "candidate_digest"),
@@ -325,8 +338,10 @@ export function assessProductionPublication(input: {
   if (observed.project_id !== expected.project_id) block("E_PLATFORM_GUARD", "Vercel project identity mismatch");
   if (observed.production_branch !== expected.production_branch) block("E_PLATFORM_GUARD", "Vercel production branch mismatch");
   if (observed.canonical_alias !== expected.canonical_alias) block("E_ALIAS_DRIFT", "canonical production alias mismatch");
-  if (observed.git_production_auto_deploy) block("E_PLATFORM_GUARD", "Vercel Git auto-deploy is enabled for the production branch; staging would assign the public domain automatically");
-  if (observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) block("E_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  if (observed.git_production_auto_deploy !== false) block("E_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch; staging would assign the public domain automatically");
+  if (!Array.isArray(observed.production_aliases) || observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) {
+    block("E_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  }
   if (observed.deployment_ready_state !== "READY") block("E_DEPLOYMENT_NOT_READY", "the predecessor deployment is not READY");
   if (observed.deployment_checks_state !== "succeeded") block("E_CHECKS_NOT_PASSED", "deployment checks have not concluded successfully; force-promotion is forbidden");
 
@@ -523,15 +538,12 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
   if (p["legacy_deployment_checks"] !== "succeeded" && p["legacy_deployment_checks"] !== "absent-accepted") {
     fail("legacy_deployment_checks must be succeeded or absent-accepted");
   }
-  const approvalRecord = text(p["approval_record"], "approval_record");
-  if (!/^https:\/\/github\.com\/egawilldoit\/ega-skills\/(?:issues|pull)\/[0-9]+(?:#issuecomment-[0-9]+)?$/.test(approvalRecord)) {
-    fail("approval_record must be an issue or pull request record in egawilldoit/ega-skills");
-  }
+  const verifiedApprovalRecord = approvalRecord(p["approval_record"]);
   return {
     digest: digest(value["digest"], "authorization digest"),
     object_type: BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE,
     payload: {
-      approval_record: approvalRecord,
+      approval_record: verifiedApprovalRecord,
       approved_at: timestamp(p["approved_at"], "approved_at"),
       approved_by: text(p["approved_by"], "approved_by"),
       baseline_artifact_tree_digest: digest(p["baseline_artifact_tree_digest"], "baseline_artifact_tree_digest"),

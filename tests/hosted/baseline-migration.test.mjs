@@ -17,6 +17,7 @@ import {
   createBaselineDeployWorktree,
   executeBaselineMigration,
   executeBaselineReconcile,
+  persistFailedReceipt,
   probeLegacyReady,
   removeBaselineDeployWorktree,
   VercelApi,
@@ -510,6 +511,17 @@ function source() {
   };
 }
 
+test("FAILED side receipts are persisted without overwriting the final path", () => {
+  const root = mkdtempSync(join(tmpdir(), "ega-failed-receipt-"));
+  const final = join(root, "receipt.json");
+  const error = { receipt: { digest: "sha256:" + "e".repeat(64), payload: { status: "FAILED" } } };
+  assert.equal(persistFailedReceipt(final, error), true);
+  assert.deepEqual(JSON.parse(readFileSync(`${final}.failed.json`, "utf8")), error.receipt);
+  assert.equal(existsSync(final), false);
+  assert.equal(persistFailedReceipt(final, new Error("no receipt")), false);
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("baseline staging records are exact, well-formed and authorization-bound", () => {
   const auth = authorization();
   const record = staging({});
@@ -677,6 +689,26 @@ test("a promotion that fails before moving the alias reports the real error and 
   assert.equal(state.alias, PREDECESSOR);
 });
 
+test("an absent-accepted legacy predecessor is restored under the same check policy", async (t) => {
+  const { deps, state, stateDir } = migrationDeps({
+    mutate: (current) => { current.alias = STAGED; current.legacy = "digest"; current.served = "sha256:" + "f".repeat(64); },
+  });
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const original = deps.readObservation;
+  deps.readObservation = async () => {
+    const value = await original();
+    return { ...value, deployment_checks_state: value.alias_target_deployment_id === STAGED ? "succeeded" : "none" };
+  };
+  const absentAuth = authorization({ legacy_deployment_checks: "absent-accepted" });
+  const absentExpected = { ...expected, legacy_deployment_checks: "absent-accepted" };
+  await assert.rejects(
+    () => executeBaselineMigration({ apply: true, authorization: absentAuth, deps, expected: absentExpected, source: source() }),
+    (error) => error.code === "E_BASELINE_UNVERIFIED" && error.receipt?.payload.status === "FAILED",
+  );
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.alias, PREDECESSOR);
+});
+
 test("a migration superseded by another publication is never clobbered", async (t) => {
   const { deps, state, stateDir } = migrationDeps({
     mutate: (current) => { current.alias = OTHER; current.legacy = "digest"; current.served = BASELINE; },
@@ -700,6 +732,18 @@ test("an interrupted baseline migration reconciles only the exact live result", 
   assert.equal(result.status, "BASELINE_RECONCILED");
   assert.equal(verifyBaselineMigrationReceipt(result.receipt).payload.status, "SUCCEEDED");
   assert.equal(receipts.length, 1);
+
+  const absentAuth = authorization({ legacy_deployment_checks: "absent-accepted" });
+  const absentExpected = { ...expected, legacy_deployment_checks: "absent-accepted" };
+  const absent = await executeBaselineReconcile({
+    apply: true,
+    authorization: absentAuth,
+    deps,
+    expected: absentExpected,
+    source: source(),
+    staging: staging({}, { authorization_digest: absentAuth.digest }),
+  });
+  assert.equal(absent.status, "BASELINE_RECONCILED");
 
   deps.readObservation = async () => observation({ alias_target_deployment_id: PREDECESSOR });
   await assert.rejects(

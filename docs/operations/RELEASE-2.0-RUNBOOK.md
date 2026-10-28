@@ -409,6 +409,13 @@ node scripts/hosted/publish-production.mjs verify \
   --alias ega-skills-mcp.vercel.app
 ```
 
+Run every command from a **clean checkout at the exact tested commit**. The CLI
+refuses a dirty worktree, requires the checkout's `packages/mcp/artifact` to be
+the exact `--candidate`, and deploys a fresh detached worktree at `HEAD` with
+`--meta githubCommitSha=<HEAD>`. The staging record binds that source commit;
+`promote` and `reconcile` refuse a staging record or deployment identity whose
+source commit does not match the checkout.
+
 Stage, then promote, using the approval packet and the independently verified
 predecessor (all values are required; `stage`/`promote` refuse a mismatch):
 

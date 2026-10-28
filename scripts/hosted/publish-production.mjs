@@ -338,6 +338,20 @@ function gitValue(args, cwd) {
   return result.stdout.trim();
 }
 
+/**
+ * The normal publisher must also run from the exact tested checkout. A dirty
+ * worktree has no source identity and is never a valid stage/promote source.
+ */
+export function currentSourceCommit(repoRoot = REPO_ROOT) {
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
+  if (head.status !== 0) refuse("E_SOURCE_COMMIT", "cannot read the tested source commit");
+  const status = spawnSync("git", ["-c", "core.filemode=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+  if (status.status !== 0 || status.stdout.trim() !== "") {
+    refuse("E_SOURCE_DIRTY", "the publication source checkout must be clean and at the tested commit");
+  }
+  return head.stdout.trim();
+}
+
 /** Verify that a directory is a clean checkout at the exact reviewed commit. */
 export function verifyBaselineWorktree({ directory, expectedCommit, role }) {
   const resolved = resolve(directory);
@@ -740,6 +754,16 @@ function runVercel(args, { token, scope, cwd }) {
   return { stderr: result.stderr ?? "", stdout: result.stdout ?? "" };
 }
 
+function isHttpsUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname !== "" && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
+}
+
 /** An operator-reviewed record is an external prerequisite, not a platform ACL.
  * Its authenticity must be checked against review_record by the release owner. */
 export function verifyPublicationReadiness(record, expected, now, stateDir) {
@@ -751,7 +775,7 @@ export function verifyPublicationReadiness(record, expected, now, stateDir) {
       record.project_id !== expected.project_id || record.canonical_alias !== expected.canonical_alias ||
       record.production_branch !== expected.production_branch || record.state_dir !== resolve(stateDir ?? defaultStateDir()) ||
       typeof record.certified_by !== "string" || !record.certified_by.trim() ||
-      typeof record.review_record !== "string" || !/^https:\/\//.test(record.review_record) ||
+      !isHttpsUrl(record.review_record) ||
       record.access_controls_reviewed !== true || record.single_writer_controls_reviewed !== true || record.residual_alias_race_accepted !== true) {
     refuse("E_PUBLICATION_READINESS", "fresh external publication-readiness certification for this exact target and shared state directory is required");
   }
@@ -914,6 +938,12 @@ export async function executePromotion({ approval, candidate, expected, deps, ap
     try {
       checkReadiness(true, deps, expected);
       lease.assertHeld(deps.now?.() ?? Date.now());
+      if (typeof deps.readDeploymentIdentity !== "function") refuse("E_STAGE", "the staged deployment identity must be verified before promotion");
+      const identity = await deps.readDeploymentIdentity(expected.staged_deployment_id, expected);
+      if (identity.project_id !== expected.project_id || identity.target !== "production" ||
+          identity.source_commit !== expected.source_commit) {
+        refuse("E_STAGE", "the staged deployment identity or source commit does not match the tested source");
+      }
       promoted = true; // CLI failure can still follow a successful alias move.
       await deps.promote(expected.staged_deployment_id);
       const deadline = (deps.now?.() ?? Date.now()) + PROMOTE_TIMEOUT_MS;
@@ -998,6 +1028,21 @@ export async function executeStage({ approval, candidate, expected, deps, apply 
     if (typeof deployed?.deployment_id !== "string") refuse("E_STAGE", "the staging deployment did not report an id");
     const staged = await deps.probe(deployed.url, { bypass: deps.bypass });
     if (staged.release_digest !== candidate.release_digest) refuse("E_STAGE", "the staged deployment serves a different release digest");
+    if (typeof deps.readDeploymentIdentity !== "function") refuse("E_STAGE", "the staged deployment identity must be verified");
+    const identity = await deps.readDeploymentIdentity(deployed.deployment_id, expected);
+    if (identity.project_id !== expected.project_id || identity.target !== "production") {
+      refuse("E_STAGE", "the staged deployment is not a production deployment of the approved project");
+    }
+    if (identity.source_commit !== expected.source_commit) {
+      refuse("E_STAGE", "the staged deployment does not report the tested source commit");
+    }
+    let stagedHost;
+    try {
+      stagedHost = new URL(deployed.url).hostname;
+    } catch {
+      refuse("E_STAGE", "the staged deployment URL is malformed");
+    }
+    if (identity.url !== stagedHost) refuse("E_STAGE", "the staged URL does not belong to the reported deployment");
     const current = await deps.probe(expected.canonical_alias);
     verifyLiveTarget(await deps.readObservation(expected, current), expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
 
@@ -1010,6 +1055,7 @@ export async function executeStage({ approval, candidate, expected, deps, apply 
         previous_deployment_id: expected.predecessor_deployment_id,
         previous_release_digest: expected.predecessor_release_digest,
         release_digest: candidate.release_digest,
+        source_commit: expected.source_commit,
         staged_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
         url: deployed.url,
       },
@@ -1160,6 +1206,12 @@ export async function executeReconcile({ approval, candidate, expected, deps, ap
     if (observation.alias_target_deployment_id !== expected.staged_deployment_id) {
       refuse("E_RECONCILE_STATE", "live production alias does not point at the staged deployment");
     }
+    if (typeof deps.readDeploymentIdentity !== "function") refuse("E_RECONCILE_STATE", "the live deployment identity must be verified");
+    const identity = await deps.readDeploymentIdentity(expected.staged_deployment_id, expected);
+    if (identity.project_id !== expected.project_id || identity.target !== "production" ||
+        identity.source_commit !== expected.source_commit) {
+      refuse("E_RECONCILE_STATE", "the live deployment identity or source commit does not match the tested source");
+    }
     // Re-run the gate with the already-advanced predecessor fields restored, so
     // approval, publisher, policy, version and platform-guard bindings are still
     // checked. This does not fabricate the live candidate identity above.
@@ -1298,7 +1350,10 @@ async function restoreBaselineAfterFailure({ expected, deps, lease, stagedDeploy
     if (restored.alias_target_deployment_id === expected.predecessor_deployment_id && restored.legacy_readyz === "legacy") {
       verifyTargetControls(restored, expected, expected.predecessor_deployment_id);
       if (restored.deployment_ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the restored legacy deployment is not READY");
-      if (restored.deployment_checks_state !== "succeeded") refuse("E_BASELINE_CHECKS_NOT_PASSED", "the restored legacy deployment checks did not succeed");
+      const restoredChecks = expected.legacy_deployment_checks === "absent-accepted" ? "none" : "succeeded";
+      if (restored.deployment_checks_state !== restoredChecks) {
+        refuse("E_BASELINE_CHECKS_NOT_PASSED", "the restored legacy deployment does not match the authorized check policy");
+      }
       break;
     }
     if (++attempts >= (deps.maxAttempts ?? 120) || (deps.now?.() ?? Date.now()) >= deadline) {
@@ -1514,6 +1569,11 @@ export async function executeBaselineReconcile({ authorization, expected, stagin
       observation: {
         ...observed,
         alias_target_deployment_id: expected.predecessor_deployment_id,
+        // The live staged deployment was already required to have successful
+        // checks. Project the predecessor's authorized check policy only for
+        // the authorization/platform re-check; the real staged facts were
+        // verified above.
+        deployment_checks_state: expected.legacy_deployment_checks === "absent-accepted" ? "none" : "succeeded",
         deployment_source_commit: expected.predecessor_source_commit,
         legacy_readyz: "legacy",
         served_deployment_id: expected.predecessor_deployment_id,
@@ -1588,6 +1648,22 @@ function required(values, key) {
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Persist a FAILED side receipt from an operation error without masking the
+ * original failure. The final receipt path is never overwritten; the side
+ * receipt is separate evidence.
+ */
+export function persistFailedReceipt(receiptPath, error) {
+  if (error === null || typeof error !== "object" || error.receipt === undefined) return false;
+  const failedPath = `${resolve(receiptPath)}.failed.json`;
+  try {
+    writeDurableExclusive(failedPath, `${JSON.stringify(error.receipt, null, 2)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function runBaselineCli(mode, values) {
@@ -1682,11 +1758,7 @@ async function runBaselineCli(mode, values) {
         ? executeBaselineMigration({ apply: values.apply === true, authorization, deps: { ...deps, recordReceipt }, expected, source })
         : executeBaselineReconcile({ apply: values.apply === true, authorization, deps: { ...deps, recordReceipt }, expected, staging }));
   } catch (error) {
-    if (error?.receipt) {
-      const failedPath = `${receiptPath}.failed.json`;
-      mkdirSync(dirname(failedPath), { recursive: true });
-      writeFileSync(failedPath, `${JSON.stringify(error.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    }
+    persistFailedReceipt(receiptPath, error);
     throw error;
   }
   print(result);
@@ -1728,6 +1800,9 @@ async function main() {
     team_id: teamId,
   };
   if (!Number.isSafeInteger(expected.expected_revision) || expected.expected_revision < 0) refuse("E_ARGUMENT", "--expect-revision must be a non-negative integer");
+  if (mode === "stage" || mode === "promote" || mode === "reconcile") {
+    expected.source_commit = currentSourceCommit();
+  }
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });
   const probe = (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, options);
@@ -1735,16 +1810,28 @@ async function main() {
     readiness: values.readiness === undefined ? undefined : JSON.parse(readFileSync(resolve(values.readiness), "utf8")),
     bypass: process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined,
     deployStagedProduction: () => {
-      const output = runVercel(["deploy", "--prod", "--skip-domain", "--yes", "--project", expected.project_id], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
-      const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
-      if (!url) refuse("E_STAGE", "could not read the staged production deployment URL");
-      const deployment = runVercel(["inspect", url, "--json"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
-      const parsed = JSON.parse(deployment.stdout);
-      if (typeof parsed.id !== "string" || !DEPLOYMENT_ID_RE.test(parsed.id)) refuse("E_STAGE", "the staged deployment did not report a valid deployment id");
-      return { deployment_id: parsed.id, url };
+      const deploy = createBaselineDeployWorktree(REPO_ROOT, expected.source_commit);
+      try {
+        const cwd = join(deploy.directory, "packages", "mcp");
+        const output = runVercel([
+          "deploy", "--prod", "--skip-domain", "--yes",
+          "--project", expected.project_id,
+          "--meta", `githubCommitSha=${expected.source_commit}`,
+          "--meta", "githubCommitRef=release/2.0",
+        ], { cwd, scope: teamId, token });
+        const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
+        if (!url) refuse("E_STAGE", "could not read the staged production deployment URL");
+        const deployment = runVercel(["inspect", url, "--json"], { cwd, scope: teamId, token });
+        const parsed = JSON.parse(deployment.stdout);
+        if (typeof parsed.id !== "string" || !DEPLOYMENT_ID_RE.test(parsed.id)) refuse("E_STAGE", "the staged deployment did not report a valid deployment id");
+        return { deployment_id: parsed.id, url };
+      } finally {
+        removeBaselineDeployWorktree({ directory: deploy.directory, parent: deploy.parent, sourceDir: REPO_ROOT });
+      }
     },
     now: () => Date.now(),
     probe,
+    readDeploymentIdentity: (deploymentId, expectation) => api.readDeploymentIdentity(deploymentId, expectation),
     promote: (deployment) => {
       // Never pass --force: deployment checks must be allowed to block.
       runVercel(["promote", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
@@ -1765,8 +1852,15 @@ async function main() {
     const target = values.target === undefined ? undefined : domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(values.target), "utf8")));
     const previousCandidate = values["predecessor-candidate"] === undefined ? undefined : await readCandidate(values["predecessor-candidate"]);
     if (chain[0]?.digest !== current.digest) refuse("E_ROLLBACK_TARGET", "the receipt chain must start at --current");
-    const result = await withPublicationReceipt(resolve(required(values, "receipt")), values.apply === true,
-      (recordReceipt) => executeRollback({ apply: values.apply === true, chain, current, deps: { ...deps, recordReceipt }, expected, previousCandidate, target }));
+    const receiptPath = resolve(required(values, "receipt"));
+    let result;
+    try {
+      result = await withPublicationReceipt(receiptPath, values.apply === true,
+        (recordReceipt) => executeRollback({ apply: values.apply === true, chain, current, deps: { ...deps, recordReceipt }, expected, previousCandidate, target }));
+    } catch (error) {
+      persistFailedReceipt(receiptPath, error);
+      throw error;
+    }
     print(result);
     return;
   }
@@ -1775,12 +1869,14 @@ async function main() {
 
   if (mode === "stage") {
     const candidate = await readCandidate(required(values, "candidate"));
+    const checkoutCandidate = await readCandidate(join(REPO_ROOT, "packages", "mcp", "artifact"));
+    if (checkoutCandidate.release_digest !== candidate.release_digest || checkoutCandidate.candidate_digest !== candidate.candidate_digest) {
+      refuse("E_STAGE", "the tested checkout artifact is not the requested candidate");
+    }
     const approval = (await projectModule()).verifyPublicationApproval(JSON.parse(readFileSync(resolve(required(values, "approval")), "utf8")));
     const staged = await executeStage({ approval, apply: values.apply === true, candidate, deps, expected });
     if (values["staging-out"] !== undefined && staged.staging) {
-      const stagingPath = resolve(values["staging-out"]);
-      mkdirSync(dirname(stagingPath), { recursive: true });
-      writeFileSync(stagingPath, `${JSON.stringify(staged.staging, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+      writeDurableExclusive(resolve(values["staging-out"]), `${JSON.stringify(staged.staging, null, 2)}\n`);
     }
     print(staged);
     return;
@@ -1800,8 +1896,8 @@ async function main() {
     }
     const stagingDocument = JSON.parse(readFileSync(resolve(values.staging), "utf8"));
     const staging = stagingDocument.staging ?? stagingDocument;
-    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id) {
-      refuse("E_STAGE", "the staging record does not bind this candidate, approval and predecessor");
+    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id || staging.source_commit !== expected.source_commit) {
+      refuse("E_STAGE", "the staging record does not bind this candidate, approval, source and predecessor");
     }
     const receiptPath = resolve(required(values, "receipt"));
     let result;
@@ -1809,11 +1905,7 @@ async function main() {
       result = await withPublicationReceipt(receiptPath, values.apply === true,
         (recordReceipt) => executePromotion({ approval, apply: values.apply === true, candidate, deps: { ...deps, recordReceipt }, expected }));
     } catch (error) {
-      if (error?.receipt) {
-        const failedPath = `${receiptPath}.failed.json`;
-        mkdirSync(dirname(failedPath), { recursive: true });
-        writeFileSync(failedPath, `${JSON.stringify(error.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-      }
+      persistFailedReceipt(receiptPath, error);
       throw error;
     }
     print(result);
@@ -1825,8 +1917,8 @@ async function main() {
     const approval = domain.verifyPublicationApproval(JSON.parse(readFileSync(resolve(required(values, "approval")), "utf8")));
     const stagingDocument = JSON.parse(readFileSync(resolve(required(values, "staging")), "utf8"));
     const staging = stagingDocument.staging ?? stagingDocument;
-    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id) {
-      refuse("E_STAGE", "the staging record does not bind this candidate, approval and predecessor");
+    if (staging.deployment_id !== expected.staged_deployment_id || staging.release_digest !== candidate.release_digest || staging.candidate_digest !== candidate.candidate_digest || staging.approval_digest !== approval.digest || staging.previous_release_digest !== expected.predecessor_release_digest || staging.previous_deployment_id !== expected.predecessor_deployment_id || staging.source_commit !== expected.source_commit) {
+      refuse("E_STAGE", "the staging record does not bind this candidate, approval, source and predecessor");
     }
     if (values["previous-receipt"] !== undefined) {
       const previous = domain.verifyPublicationReceipt(JSON.parse(readFileSync(resolve(values["previous-receipt"]), "utf8")));
