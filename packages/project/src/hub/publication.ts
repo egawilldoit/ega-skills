@@ -38,6 +38,19 @@ export const PUBLICATION_APPROVAL_SCHEMA_VERSION = 1 as const;
 export const PUBLICATION_RECEIPT_OBJECT_TYPE = "ega.production-publication-receipt" as const;
 export const PUBLICATION_RECEIPT_SCHEMA_VERSION = 1 as const;
 
+/**
+ * The first governed release is preceded by a runtime that predates the
+ * readiness-identity endpoint. A separate, owner-authorized migration deploys
+ * the reviewed runtime with the *unchanged* retained artifact, so the publisher
+ * can observe a real digest before the first semantic release change. This is
+ * not a publication receipt and never enters the publication revision chain.
+ */
+export const BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE = "ega.baseline-runtime-migration-authorization" as const;
+export const BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION = 1 as const;
+export const BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE = "ega.baseline-runtime-migration-receipt" as const;
+export const BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION = 1 as const;
+export const BASELINE_MIGRATION_SCOPE = "runtime-readiness-only" as const;
+
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const DEPLOYMENT_RE = /^dpl_[A-Za-z0-9]{8,}$/;
 const ALIAS_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -427,4 +440,320 @@ export function verifyPublicationReceipt(value: unknown, previous?: unknown): Pu
     if (prior.payload.deployment_id !== receipt.payload.previous_deployment_id) fail("receipt chain predecessor does not match the prior deployment");
   }
   return receipt;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Baseline runtime migration                                                  */
+/* -------------------------------------------------------------------------- */
+
+const COMMIT_RE = /^[0-9a-f]{40}$/;
+
+function commitSha(value: unknown, name: string): string {
+  if (typeof value !== "string" || !COMMIT_RE.test(value)) fail(`${name} must be a full lowercase 40-hex Git commit`);
+  return value;
+}
+
+export interface BaselineMigrationAuthorizationPayload {
+  readonly scope: typeof BASELINE_MIGRATION_SCOPE;
+  readonly hub_id: string;
+  /** Exact retained 117-skill release that must continue to be served. */
+  readonly baseline_release_digest: string;
+  /** Exact retained candidate envelope that produced that release. */
+  readonly baseline_candidate_digest: string;
+  /** Physical artifact-tree digest of the retained artifact directory. */
+  readonly baseline_artifact_tree_digest: string;
+  /** Commit that produced the currently serving legacy deployment. */
+  readonly predecessor_source_commit: string;
+  /** Reviewed commit that adds only the readiness identity to that runtime. */
+  readonly migration_source_commit: string;
+  readonly predecessor_deployment_id: string;
+  readonly canonical_alias: string;
+  readonly production_branch: string;
+  readonly publisher: PublicationPublisher;
+  readonly approved_by: string;
+  readonly approval_record: string;
+  readonly approved_at: string;
+}
+
+export type BaselineMigrationAuthorization = {
+  readonly object_type: typeof BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE;
+  readonly schema_version: typeof BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION;
+  readonly payload: BaselineMigrationAuthorizationPayload;
+  readonly digest: string;
+};
+
+/** Verify the exact owner authorization for one runtime-only migration. */
+export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMigrationAuthorization {
+  const envelope = verifyEnvelope(value);
+  if (!envelope.ok || !isObject(value) || value["object_type"] !== BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE ||
+      value["schema_version"] !== BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION) {
+    fail(`baseline migration authorization is invalid: ${envelope.ok ? "unexpected type or schema" : envelope.message}`);
+  }
+  exactKeys(value, ["digest", "object_type", "payload", "schema_version"], "baseline migration authorization envelope");
+  if (!isObject(value["payload"])) fail("baseline migration authorization payload must be an object");
+  const p = value["payload"];
+  exactKeys(p, [
+    "approval_record",
+    "approved_at",
+    "approved_by",
+    "baseline_artifact_tree_digest",
+    "baseline_candidate_digest",
+    "baseline_release_digest",
+    "canonical_alias",
+    "hub_id",
+    "migration_source_commit",
+    "predecessor_deployment_id",
+    "predecessor_source_commit",
+    "production_branch",
+    "publisher",
+    "scope",
+  ], "baseline migration authorization payload");
+  if (p["scope"] !== BASELINE_MIGRATION_SCOPE) fail("baseline migration authorization scope is not runtime-readiness-only");
+  return {
+    digest: digest(value["digest"], "authorization digest"),
+    object_type: BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE,
+    payload: {
+      approval_record: text(p["approval_record"], "approval_record"),
+      approved_at: timestamp(p["approved_at"], "approved_at"),
+      approved_by: text(p["approved_by"], "approved_by"),
+      baseline_artifact_tree_digest: digest(p["baseline_artifact_tree_digest"], "baseline_artifact_tree_digest"),
+      baseline_candidate_digest: digest(p["baseline_candidate_digest"], "baseline_candidate_digest"),
+      baseline_release_digest: digest(p["baseline_release_digest"], "baseline_release_digest"),
+      canonical_alias: alias(p["canonical_alias"], "canonical_alias"),
+      hub_id: text(p["hub_id"], "hub_id"),
+      migration_source_commit: commitSha(p["migration_source_commit"], "migration_source_commit"),
+      predecessor_deployment_id: deploymentId(p["predecessor_deployment_id"], "predecessor_deployment_id"),
+      predecessor_source_commit: commitSha(p["predecessor_source_commit"], "predecessor_source_commit"),
+      production_branch: text(p["production_branch"], "production_branch"),
+      publisher: publisher(p["publisher"]),
+      scope: BASELINE_MIGRATION_SCOPE,
+    },
+    schema_version: BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION,
+  };
+}
+
+export function createBaselineMigrationAuthorization(payload: BaselineMigrationAuthorizationPayload): BaselineMigrationAuthorization {
+  const raw = createEnvelope({
+    object_type: BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE,
+    payload,
+    schema_version: BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION,
+  });
+  return verifyBaselineMigrationAuthorization(raw);
+}
+
+export interface BaselineMigrationObservation {
+  readonly team_id: string;
+  readonly project_id: string;
+  readonly production_branch: string;
+  readonly canonical_alias: string;
+  readonly git_production_auto_deploy: boolean;
+  readonly production_aliases: readonly string[];
+  readonly alias_target_deployment_id: string;
+  readonly deployment_ready_state: string;
+  readonly deployment_checks_state: "succeeded" | "failed" | "pending" | "none";
+  /** Vercel's immutable source-commit metadata for the serving deployment. */
+  readonly deployment_source_commit: string;
+  /** Shape of the live /readyz response; only "legacy" is migratable. */
+  readonly legacy_readyz: "legacy" | "digest" | "unavailable";
+  readonly served_release_digest?: string;
+}
+
+export interface BaselineMigrationExpectation {
+  readonly team_id: string;
+  readonly project_id: string;
+  readonly production_branch: string;
+  readonly canonical_alias: string;
+  readonly predecessor_deployment_id: string;
+  readonly predecessor_release_digest: string;
+  readonly baseline_candidate_digest: string;
+  readonly baseline_artifact_tree_digest: string;
+  readonly predecessor_source_commit: string;
+  readonly migration_source_commit: string;
+  readonly publisher_vercel_user_id: string;
+  readonly now: string;
+  readonly max_approval_age_ms: number;
+}
+
+export type BaselineMigrationBlockerCode =
+  | "E_BASELINE_AUTHORIZATION_INVALID"
+  | "E_BASELINE_AUTHORIZATION_STALE"
+  | "E_BASELINE_IDENTITY_MISMATCH"
+  | "E_BASELINE_SOURCE_MISMATCH"
+  | "E_BASELINE_PREDECESSOR_MISMATCH"
+  | "E_BASELINE_LEGACY_STATE"
+  | "E_BASELINE_PLATFORM_GUARD"
+  | "E_BASELINE_DEPLOYMENT_NOT_READY"
+  | "E_BASELINE_CHECKS_NOT_PASSED";
+
+export interface BaselineMigrationAssessment {
+  readonly status: "READY" | "BLOCKED";
+  readonly blockers: readonly { readonly code: BaselineMigrationBlockerCode; readonly message: string }[];
+  readonly authorization_digest: string;
+  readonly release_digest: string;
+  readonly candidate_digest: string;
+  readonly artifact_tree_digest: string;
+}
+
+/**
+ * Pure baseline-migration gate. The migration is legitimate only when every
+ * one of these is simultaneously true:
+ *
+ *   * the owner authorized exactly this migration source, predecessor source,
+ *     candidate, artifact tree and publisher;
+ *   * the live alias targets the recorded legacy deployment, that deployment
+ *     is READY with successful checks, and its immutable source commit is the
+ *     recorded predecessor commit;
+ *   * the live `/readyz` is the legacy shape. A runtime that already reports a
+ *     digest must use the normal publisher, and an unavailable probe is not
+ *     evidence;
+ *   * Git production auto-deploy is disabled and the canonical alias is the
+ *     only production alias.
+ *
+ * A missing or substituted fact blocks; no optional field is inferred.
+ */
+export function assessBaselineMigration(input: {
+  readonly authorization: unknown;
+  readonly observation: BaselineMigrationObservation;
+  readonly expected: BaselineMigrationExpectation;
+}): BaselineMigrationAssessment {
+  const blockers: { code: BaselineMigrationBlockerCode; message: string }[] = [];
+  const block = (code: BaselineMigrationBlockerCode, message: string) => blockers.push({ code, message });
+  const expected = input.expected;
+  const observed = input.observation;
+
+  let authorization: BaselineMigrationAuthorization | undefined;
+  try {
+    authorization = verifyBaselineMigrationAuthorization(input.authorization);
+  } catch (error) {
+    block("E_BASELINE_AUTHORIZATION_INVALID", error instanceof Error ? error.message : String(error));
+  }
+
+  if (authorization) {
+    const p = authorization.payload;
+    if (p.hub_id !== "personal") block("E_BASELINE_IDENTITY_MISMATCH", "baseline migration Hub is not the retained personal Hub");
+    if (p.baseline_release_digest !== expected.predecessor_release_digest) block("E_BASELINE_PREDECESSOR_MISMATCH", "authorization baseline release is not the expected predecessor release");
+    if (p.baseline_candidate_digest !== expected.baseline_candidate_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization candidate does not match the retained candidate");
+    if (p.baseline_artifact_tree_digest !== expected.baseline_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization artifact tree does not match the retained artifact");
+    if (p.predecessor_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization predecessor source commit does not match");
+    if (p.migration_source_commit !== expected.migration_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source commit does not match");
+    if (p.predecessor_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "authorization predecessor deployment does not match");
+    if (p.canonical_alias !== expected.canonical_alias) block("E_BASELINE_IDENTITY_MISMATCH", "authorization canonical alias does not match");
+    if (p.production_branch !== expected.production_branch) block("E_BASELINE_IDENTITY_MISMATCH", "authorization production branch does not match");
+    if (p.publisher.team_id !== expected.team_id || p.publisher.project_id !== expected.project_id) block("E_BASELINE_IDENTITY_MISMATCH", "authorization publisher team/project does not match the target");
+    if (p.publisher.vercel_user_id !== expected.publisher_vercel_user_id) block("E_BASELINE_IDENTITY_MISMATCH", "executing Vercel identity is not the approved publisher");
+    if (p.approved_by !== p.publisher.owner_subject) block("E_BASELINE_IDENTITY_MISMATCH", "authorization actor and publisher owner differ");
+    const approvedAt = Date.parse(p.approved_at);
+    const now = Date.parse(expected.now);
+    if (!Number.isFinite(now)) fail("expected.now is not a timestamp");
+    if (approvedAt > now + 5 * 60_000) block("E_BASELINE_AUTHORIZATION_STALE", "authorization timestamp is in the future");
+    else if (now - approvedAt > expected.max_approval_age_ms) block("E_BASELINE_AUTHORIZATION_STALE", "authorization is older than the accepted window");
+  }
+
+  if (observed.team_id !== expected.team_id) block("E_BASELINE_IDENTITY_MISMATCH", "Vercel team identity mismatch");
+  if (observed.project_id !== expected.project_id) block("E_BASELINE_IDENTITY_MISMATCH", "Vercel project identity mismatch");
+  if (observed.production_branch !== expected.production_branch) block("E_BASELINE_IDENTITY_MISMATCH", "Vercel production branch mismatch");
+  if (observed.canonical_alias !== expected.canonical_alias) block("E_BASELINE_PLATFORM_GUARD", "canonical production alias mismatch");
+  if (observed.alias_target_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "production alias does not target the recorded legacy deployment");
+  if (observed.deployment_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "the serving deployment's immutable source commit is not the recorded predecessor commit");
+  if (observed.legacy_readyz === "digest") block("E_BASELINE_LEGACY_STATE", "the live runtime already reports a release digest; use the normal publisher");
+  else if (observed.legacy_readyz === "unavailable") block("E_BASELINE_LEGACY_STATE", "the legacy readiness probe is unavailable; 200 alone is not predecessor proof");
+  if (observed.legacy_readyz === "legacy" && observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
+  if (observed.git_production_auto_deploy) block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is enabled for the production branch");
+  if (observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) block("E_BASELINE_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  if (observed.deployment_ready_state !== "READY") block("E_BASELINE_DEPLOYMENT_NOT_READY", "the legacy deployment is not READY");
+  if (observed.deployment_checks_state !== "succeeded") block("E_BASELINE_CHECKS_NOT_PASSED", "the legacy deployment checks have not concluded successfully");
+
+  return {
+    artifact_tree_digest: expected.baseline_artifact_tree_digest,
+    authorization_digest: authorization?.digest ?? "",
+    blockers,
+    candidate_digest: expected.baseline_candidate_digest,
+    release_digest: expected.predecessor_release_digest,
+    status: blockers.length === 0 ? "READY" : "BLOCKED",
+  };
+}
+
+export interface BaselineMigrationReceiptPayload {
+  readonly action: "BASELINE_RUNTIME_MIGRATION";
+  readonly status: "SUCCEEDED" | "FAILED";
+  readonly hub_id: string;
+  readonly release_digest: string;
+  readonly candidate_digest: string;
+  readonly artifact_tree_digest: string;
+  readonly predecessor_deployment_id: string;
+  readonly deployment_id: string;
+  readonly predecessor_source_commit: string;
+  readonly migration_source_commit: string;
+  readonly authorization_digest: string;
+  readonly canonical_alias: string;
+  readonly actor: PublicationPublisher;
+  readonly completed_at: string;
+  readonly detail: string;
+}
+
+export type BaselineMigrationReceipt = {
+  readonly object_type: typeof BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE;
+  readonly schema_version: typeof BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION;
+  readonly payload: BaselineMigrationReceiptPayload;
+  readonly digest: string;
+};
+
+export function createBaselineMigrationReceipt(payload: BaselineMigrationReceiptPayload): BaselineMigrationReceipt {
+  return createEnvelope({
+    object_type: BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE,
+    payload,
+    schema_version: BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION,
+  }) as BaselineMigrationReceipt;
+}
+
+export function verifyBaselineMigrationReceipt(value: unknown): BaselineMigrationReceipt {
+  const envelope = verifyEnvelope(value);
+  if (!envelope.ok || !isObject(value) || value["object_type"] !== BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE ||
+      value["schema_version"] !== BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION) {
+    fail(`baseline migration receipt is invalid: ${envelope.ok ? "unexpected type or schema" : envelope.message}`);
+  }
+  exactKeys(value, ["digest", "object_type", "payload", "schema_version"], "baseline migration receipt envelope");
+  if (!isObject(value["payload"])) fail("baseline migration receipt payload must be an object");
+  const p = value["payload"];
+  exactKeys(p, [
+    "action",
+    "actor",
+    "artifact_tree_digest",
+    "authorization_digest",
+    "canonical_alias",
+    "completed_at",
+    "candidate_digest",
+    "deployment_id",
+    "detail",
+    "hub_id",
+    "migration_source_commit",
+    "predecessor_deployment_id",
+    "predecessor_source_commit",
+    "release_digest",
+    "status",
+  ], "baseline migration receipt payload");
+  if (p["action"] !== "BASELINE_RUNTIME_MIGRATION") fail("baseline migration receipt action is invalid");
+  if (p["status"] !== "SUCCEEDED" && p["status"] !== "FAILED") fail("baseline migration receipt status is invalid");
+  return {
+    digest: digest(value["digest"], "receipt digest"),
+    object_type: BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE,
+    payload: {
+      action: "BASELINE_RUNTIME_MIGRATION",
+      actor: publisher(p["actor"]),
+      artifact_tree_digest: digest(p["artifact_tree_digest"], "artifact_tree_digest"),
+      authorization_digest: digest(p["authorization_digest"], "authorization_digest"),
+      canonical_alias: alias(p["canonical_alias"], "canonical_alias"),
+      candidate_digest: digest(p["candidate_digest"], "candidate_digest"),
+      completed_at: timestamp(p["completed_at"], "completed_at"),
+      deployment_id: deploymentId(p["deployment_id"], "deployment_id"),
+      detail: text(p["detail"], "detail"),
+      hub_id: text(p["hub_id"], "hub_id"),
+      migration_source_commit: commitSha(p["migration_source_commit"], "migration_source_commit"),
+      predecessor_deployment_id: deploymentId(p["predecessor_deployment_id"], "predecessor_deployment_id"),
+      predecessor_source_commit: commitSha(p["predecessor_source_commit"], "predecessor_source_commit"),
+      release_digest: digest(p["release_digest"], "release_digest"),
+      status: p["status"],
+    },
+    schema_version: BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION,
+  };
 }

@@ -72,17 +72,31 @@
  *   For the first governed release, replace --target with
  *     --predecessor-candidate <verified-retained-original-candidate-dir>.
  *
+ *   node scripts/hosted/publish-production.mjs baseline-authorize \
+ *     --payload <authorization-payload.json> --out <authorization.json>
+ *
+ *   node scripts/hosted/publish-production.mjs baseline \
+ *     --authorization <authorization.json> \
+ *     --predecessor-source <clean-worktree-at-live-deployment-commit> \
+ *     --migration-source <clean-worktree-at-reviewed-migration-commit> \
+ *     ...target flags... --staging-out <staging.json> \
+ *     --receipt <receipt.json> [--readiness <record.json> --apply]
+ *
+ *   node scripts/hosted/publish-production.mjs baseline-reconcile \
+ *     --authorization ... --predecessor-source ... --migration-source ... \
+ *     ...target flags... --staging <staging.json> --receipt <new.json> [--apply]
+ *
  * Applying commands also require --readiness <externally-certified-record.json>.
  * `--apply` performs the Vercel mutation. Without it the script verifies and
  * prints the plan, contacting only read-only endpoints.
  */
 
-import { closeSync, existsSync, ftruncateSync, fsyncSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, ftruncateSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 /* -------------------------------------------------------------------------- */
 /* Errors and small helpers                                                    */
@@ -115,6 +129,7 @@ export const REPO_ROOT = findRepoRoot();
 const MAX_APPROVAL_AGE_MS = 24 * 60 * 60 * 1000;
 const PROMOTE_TIMEOUT_MS = 10 * 60 * 1000;
 const PROMOTE_POLL_MS = 5_000;
+const DEPLOYMENT_ID_RE = /^dpl_[A-Za-z0-9]{8,}$/;
 
 /* -------------------------------------------------------------------------- */
 /* Domain gate (compiled package)                                              */
@@ -247,6 +262,142 @@ export async function probeReady(url, options = {}) {
 }
 
 /**
+ * Tolerant probe used ONLY to classify the legacy readiness shape. It never
+ * converts a 200 into predecessor proof: the baseline migration gate requires
+ * the exact legacy shape (ready, no digest), the live alias target, the
+ * immutable source commit and the retained artifact tree to agree.
+ */
+export async function probeLegacyReady(url, options = {}) {
+  const target = new URL("/readyz", url.endsWith("/") ? url : `${url}/`);
+  if (target.protocol !== "https:" && target.hostname !== "127.0.0.1" && target.hostname !== "localhost") {
+    refuse("E_PROBE_URL", "the legacy readiness probe must use HTTPS");
+  }
+  const headers = {};
+  if (options.bypass) headers["x-vercel-protection-bypass"] = options.bypass;
+  let response;
+  try {
+    response = await (options.fetch ?? fetch)(target, { headers, signal: options.signal });
+  } catch {
+    return { shape: "unavailable" };
+  }
+  const body = await response.json().catch(() => undefined);
+  if (response.status !== 200 || body?.status !== "ready") return { shape: "unavailable" };
+  if (typeof body.release_digest === "string") return { shape: "digest", release_digest: body.release_digest };
+  return { shape: "legacy" };
+}
+
+/**
+ * Runbook artifact-tree digest, reproduced without a shell:
+ *   find <root>/<artifact> -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum
+ * Paths are repository-relative, so the digest is stable across worktrees and
+ * platforms (the repository's runbook uses this exact form).
+ */
+export function artifactTreeDigest(rootDirectory, artifactRelativePath) {
+  const root = resolve(rootDirectory);
+  const artifactRoot = resolve(root, artifactRelativePath);
+  if (!existsSync(artifactRoot) || !lstatSync(artifactRoot).isDirectory()) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", `artifact directory ${artifactRelativePath} is missing`);
+  }
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      if (entry.isDirectory()) walk(absolute);
+      else if (entry.isFile()) files.push({ absolute, path: relative(root, absolute).split(sep).join("/") });
+    }
+  };
+  walk(artifactRoot);
+  const lines = files.map(({ absolute, path }) => {
+    const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
+    return `${hash}  ${path}`;
+  });
+  lines.sort((left, right) => {
+    const leftPath = left.slice(66);
+    const rightPath = right.slice(66);
+    return Buffer.compare(Buffer.from(leftPath, "utf8"), Buffer.from(rightPath, "utf8"));
+  });
+  return `sha256:${createHash("sha256").update(`${lines.join("\n")}\n`).digest("hex")}`;
+}
+
+function gitValue(args, cwd) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) refuse("E_BASELINE_SOURCE_MISMATCH", `git ${args.at(-1)} failed in the baseline source worktree`);
+  return result.stdout.trim();
+}
+
+/** Verify that a directory is a clean checkout at the exact reviewed commit. */
+export function verifyBaselineWorktree({ directory, expectedCommit, role }) {
+  const resolved = resolve(directory);
+  if (!existsSync(resolved)) refuse("E_BASELINE_SOURCE_MISMATCH", `${role} worktree is missing`);
+  const head = gitValue(["rev-parse", "HEAD"], resolved);
+  if (head !== expectedCommit) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", `${role} worktree is at ${head}, not the authorized ${expectedCommit}`);
+  }
+  // Executable-bit noise from a local package install is not a source change;
+  // content, additions, deletions and renames are.
+  if (gitValue(["-c", "core.filemode=false", "status", "--porcelain"], resolved) !== "") {
+    refuse("E_BASELINE_SOURCE_MISMATCH", `${role} worktree is not clean; a migration source must be the reviewed commit`);
+  }
+  return resolved;
+}
+
+function fileDigest(file) {
+  return `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
+}
+
+/**
+ * The migration source may differ from main in the retained artifact and in the
+ * rest of the older release/2.0 runtime. The two files that define the
+ * readiness identity must be byte-identical to the reviewed implementation in
+ * this repository, so the deployed `/readyz` behavior is exactly the reviewed
+ * behavior and not a locally invented variant.
+ */
+export function verifyBaselineRuntimeFiles({ repoRoot, migrationSourceDir }) {
+  for (const relativePath of ["packages/mcp/src/vercel-adapter.ts", "packages/mcp/server.mts"]) {
+    const reviewed = join(repoRoot, relativePath);
+    const migrated = join(migrationSourceDir, relativePath);
+    if (!existsSync(migrated) || fileDigest(migrated) !== fileDigest(reviewed)) {
+      refuse("E_BASELINE_SOURCE_MISMATCH", `migration source ${relativePath} is not the reviewed readiness implementation`);
+    }
+  }
+}
+
+/**
+ * Verify the retained baseline candidate and both source worktrees. The
+ * predecessor worktree binds the live deployment's immutable source commit to
+ * the artifact tree; the migration worktree binds the deployment we will stage.
+ */
+export async function readBaselineSources({ repoRoot, predecessorSourceDir, migrationSourceDir, expected }) {
+  const predecessor = verifyBaselineWorktree({ directory: predecessorSourceDir, expectedCommit: expected.predecessor_source_commit, role: "predecessor source" });
+  const migration = verifyBaselineWorktree({ directory: migrationSourceDir, expectedCommit: expected.migration_source_commit, role: "migration source" });
+  const predecessorArtifact = join(predecessor, "packages/mcp/artifact");
+  const migrationArtifact = join(migration, "packages/mcp/artifact");
+  const predecessorTree = artifactTreeDigest(predecessor, "packages/mcp/artifact");
+  const migrationTree = artifactTreeDigest(migration, "packages/mcp/artifact");
+  if (predecessorTree !== expected.baseline_artifact_tree_digest || migrationTree !== expected.baseline_artifact_tree_digest) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the retained artifact tree digest does not match the authorized baseline");
+  }
+  const predecessorCandidate = await readCandidate(predecessorArtifact);
+  const migrationCandidate = await readCandidate(migrationArtifact);
+  for (const [role, read] of [["predecessor", predecessorCandidate], ["migration", migrationCandidate]]) {
+    if (read.release_digest !== expected.predecessor_release_digest || read.candidate_digest !== expected.baseline_candidate_digest) {
+      refuse("E_BASELINE_SOURCE_MISMATCH", `${role} source artifact is not the authorized baseline release and candidate`);
+    }
+    if (read.hub_id !== "personal") refuse("E_BASELINE_SOURCE_MISMATCH", `${role} source artifact is not the personal Hub baseline`);
+  }
+  verifyBaselineRuntimeFiles({ migrationSourceDir: migration, repoRoot });
+  return {
+    artifact_tree_digest: expected.baseline_artifact_tree_digest,
+    candidate_digest: expected.baseline_candidate_digest,
+    migration_source_commit: expected.migration_source_commit,
+    migration_source_dir: migration,
+    predecessor_source_commit: expected.predecessor_source_commit,
+    predecessor_source_dir: predecessor,
+    release_digest: expected.predecessor_release_digest,
+  };
+}
+
+/**
  * Build the observation the gate consumes from Vercel API documents. Kept pure
  * so the platform mapping is unit-tested without network access.
  */
@@ -375,6 +526,55 @@ export class VercelApi {
     if (before.deploymentId !== after.deploymentId) refuse("E_ALIAS_DRIFT", "canonical alias moved during the live observation");
     return observationFromVercel({ deployments: [{ ...deployment, alias: names }], expected, project,
       served: { ...served, served_deployment_id: served.served_deployment_id ?? deployment.id }, user: user?.user ?? user });
+  }
+
+  /**
+   * Baseline-migration observation. It uses the same live alias, immutable
+   * deployment, complete alias inventory and publisher identity reads as the
+   * normal gate, plus a tolerant `/readyz` classification and the deployment's
+   * immutable source commit. The assessment decides whether the legacy shape
+   * is acceptable; this method never turns a 200 into a digest.
+   */
+  async readBaseline(expected, probeLegacy) {
+    const user = await this.get("/v2/user");
+    const project = await this.get(`/v9/projects/${encodeURIComponent(expected.project_id)}`);
+    const aliasPath = `/v4/aliases/${encodeURIComponent(expected.canonical_alias)}`;
+    const readAlias = async () => {
+      const alias = await this.get(aliasPath);
+      if (alias?.alias !== expected.canonical_alias || alias.projectId !== expected.project_id ||
+          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect) {
+        refuse("E_ALIAS_DRIFT", "canonical alias is not assigned directly to the approved project");
+      }
+      return alias;
+    };
+    const before = await readAlias();
+    const deployment = await this.get(`/v13/deployments/${encodeURIComponent(before.deploymentId)}`);
+    if (deployment?.id !== before.deploymentId || deployment.projectId !== expected.project_id || deployment.target !== "production") {
+      refuse("E_ALIAS_DRIFT", "canonical alias deployment identity or project does not match");
+    }
+    const aliases = await this.get(`/v2/deployments/${encodeURIComponent(deployment.id)}/aliases`);
+    if (!Array.isArray(aliases?.aliases) || aliases.aliases.some((entry) => typeof entry?.alias !== "string" ||
+        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id)) || aliases.pagination?.next != null) {
+      refuse("E_PLATFORM_GUARD", "complete deployment alias inventory is unavailable");
+    }
+    const names = aliases.aliases.map((entry) => entry.alias);
+    if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
+    const legacy = await probeLegacy(expected.canonical_alias);
+    const after = await readAlias();
+    if (before.deploymentId !== after.deploymentId) refuse("E_ALIAS_DRIFT", "canonical alias moved during the live observation");
+    const base = observationFromVercel({
+      deployments: [{ ...deployment, alias: names }],
+      expected,
+      project,
+      served: { served_deployment_id: deployment.id },
+      user: user?.user ?? user,
+    });
+    return {
+      ...base,
+      deployment_source_commit: typeof deployment.meta?.githubCommitSha === "string" ? deployment.meta.githubCommitSha : "",
+      legacy_readyz: legacy.shape,
+      ...(legacy.release_digest === undefined ? {} : { served_release_digest: legacy.release_digest }),
+    };
   }
 }
 
@@ -830,6 +1030,309 @@ export async function executeReconcile({ approval, candidate, expected, deps, ap
 }
 
 /* -------------------------------------------------------------------------- */
+/* Baseline runtime migration                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Verify the staging record written before the alias moved. Reconciliation uses
+ * this record, not an operator-supplied deployment id, so an interrupted
+ * migration can only be completed for the exact deployment that was staged.
+ */
+export function verifyBaselineStaging(staging, expected, authorizationDigest) {
+  const keys = [
+    "artifact_tree_digest", "authorization_digest", "candidate_digest", "deployment_id",
+    "migration_source_commit", "predecessor_deployment_id", "predecessor_release_digest",
+    "release_digest", "staged_at", "url",
+  ].sort();
+  if (staging === null || typeof staging !== "object" || Array.isArray(staging) ||
+      JSON.stringify(Object.keys(staging).sort()) !== JSON.stringify(keys)) {
+    refuse("E_BASELINE_STAGE", "baseline staging record has missing or unknown fields");
+  }
+  if (staging.authorization_digest !== authorizationDigest ||
+      staging.artifact_tree_digest !== expected.baseline_artifact_tree_digest ||
+      staging.candidate_digest !== expected.baseline_candidate_digest ||
+      staging.migration_source_commit !== expected.migration_source_commit ||
+      staging.predecessor_deployment_id !== expected.predecessor_deployment_id ||
+      staging.predecessor_release_digest !== expected.predecessor_release_digest ||
+      staging.release_digest !== expected.predecessor_release_digest ||
+      typeof staging.deployment_id !== "string" || !DEPLOYMENT_ID_RE.test(staging.deployment_id) ||
+      typeof staging.url !== "string" || !/^https:\/\//.test(staging.url) ||
+      typeof staging.staged_at !== "string" || Number.isNaN(Date.parse(staging.staged_at))) {
+    refuse("E_BASELINE_STAGE", "baseline staging record does not bind this authorization, source, predecessor and release");
+  }
+  return staging;
+}
+
+async function waitForExactStagedReady(deps, url, digest) {
+  const deadline = (deps.now?.() ?? Date.now()) + PROMOTE_TIMEOUT_MS;
+  let attempts = 0;
+  for (;;) {
+    try {
+      const served = await deps.probeReady(url, { bypass: deps.bypass });
+      if (served.release_digest === digest) return served;
+    } catch {
+      // A staged deployment is not ready until the build completes; keep
+      // polling rather than treating the first 503 as a release failure.
+    }
+    if (++attempts >= (deps.maxAttempts ?? 120) || (deps.now?.() ?? Date.now()) >= deadline) {
+      refuse("E_BASELINE_STAGE", "the staged deployment did not serve the retained baseline release digest");
+    }
+    await deps.sleep?.(PROMOTE_POLL_MS);
+  }
+}
+
+/**
+ * A failed baseline migration is restored only while this migration is still
+ * the current one. The original runtime has no digest, so recovery is certified
+ * by the exact alias target, READY deployment state, successful checks and the
+ * re-observed legacy readiness shape — never by a configured digest.
+ */
+async function restoreBaselineAfterFailure({ expected, deps, lease, stagedDeploymentId, actor, authorizationDigest }) {
+  if (typeof deps.rollback !== "function") return undefined;
+  const current = await deps.readObservation(expected);
+  // The CLI can fail before the alias moves. There is nothing to restore, and
+  // the original promotion error must not be masked by a false supersession.
+  if (current.alias_target_deployment_id === expected.predecessor_deployment_id) return undefined;
+  if (current.alias_target_deployment_id !== stagedDeploymentId) {
+    refuse("E_PUBLICATION_SUPERSEDED", "baseline migration was superseded by another publication; refusing to restore over it");
+  }
+  verifyTargetControls(current, expected, stagedDeploymentId);
+  checkReadiness(true, deps, expected);
+  lease.assertHeld(deps.now?.() ?? Date.now());
+  await deps.rollback(expected.predecessor_deployment_id);
+  const deadline = (deps.now?.() ?? Date.now()) + PROMOTE_TIMEOUT_MS;
+  let attempts = 0;
+  let restored;
+  for (;;) {
+    restored = await deps.readObservation(expected);
+    if (restored.alias_target_deployment_id === expected.predecessor_deployment_id && restored.legacy_readyz === "legacy") {
+      verifyTargetControls(restored, expected, expected.predecessor_deployment_id);
+      if (restored.deployment_ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the restored legacy deployment is not READY");
+      if (restored.deployment_checks_state !== "succeeded") refuse("E_BASELINE_CHECKS_NOT_PASSED", "the restored legacy deployment checks did not succeed");
+      break;
+    }
+    if (++attempts >= (deps.maxAttempts ?? 120) || (deps.now?.() ?? Date.now()) >= deadline) {
+      refuse("E_ROLLBACK_UNVERIFIED", "the restored legacy deployment did not return the legacy readiness shape");
+    }
+    await deps.sleep?.(PROMOTE_POLL_MS);
+  }
+  const domain = await projectModule();
+  return domain.createBaselineMigrationReceipt({
+    action: "BASELINE_RUNTIME_MIGRATION",
+    actor,
+    artifact_tree_digest: expected.baseline_artifact_tree_digest,
+    authorization_digest: authorizationDigest,
+    canonical_alias: expected.canonical_alias,
+    candidate_digest: expected.baseline_candidate_digest,
+    completed_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+    deployment_id: stagedDeploymentId,
+    detail: "baseline migration failed verification; predecessor restored with legacy readiness re-observed",
+    hub_id: "personal",
+    migration_source_commit: expected.migration_source_commit,
+    predecessor_deployment_id: expected.predecessor_deployment_id,
+    predecessor_source_commit: expected.predecessor_source_commit,
+    release_digest: expected.predecessor_release_digest,
+    status: "FAILED",
+  });
+}
+
+/**
+ * Stage the reviewed runtime with the retained artifact, prove the exact
+ * baseline digest, then promote without --force. The only predecessor evidence
+ * accepted here is the combination of the recorded immutable deployment, its
+ * live alias target, its immutable source commit, the retained artifact tree,
+ * and the legacy readiness shape. Any missing or substituted fact blocks.
+ */
+export async function executeBaselineMigration({ authorization, expected, source, deps, apply }) {
+  const domain = await projectModule();
+  const auth = domain.verifyBaselineMigrationAuthorization(authorization);
+  checkReadiness(apply, deps, expected);
+  if (apply && typeof deps.recordReceipt !== "function") refuse("E_PUBLICATION_RECEIPT", "durable receipt sink is required before mutation");
+  const lease = await acquirePublicationLease({
+    now: deps.now?.() ?? Date.now(),
+    publisher: `baseline:${expected.publisher_vercel_user_id}:${expected.canonical_alias}`,
+    stateDir: deps.stateDir,
+  });
+  try {
+    const assess = async () => {
+      const observation = await deps.readObservation(expected);
+      const result = domain.assessBaselineMigration({
+        authorization: auth,
+        expected: { ...expected, now: new Date(deps.now?.() ?? Date.now()).toISOString(), max_approval_age_ms: MAX_APPROVAL_AGE_MS },
+        observation,
+      });
+      if (result.status !== "READY") {
+        refuse("E_BASELINE_BLOCKED", result.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`).join("; "));
+      }
+      return { observation, result };
+    };
+
+    const first = await assess();
+    if (!apply) return { assessment: first.result, observation: first.observation, status: "DRY_RUN" };
+    const second = await assess();
+    if (JSON.stringify(first.observation) !== JSON.stringify(second.observation)) {
+      refuse("E_PUBLICATION_RACE", "live production identity changed between verification and migration");
+    }
+
+    let staged;
+    let promoted = false;
+    let observed;
+    try {
+      staged = await deps.deployStagedProduction(source.migration_source_dir);
+      if (typeof staged?.deployment_id !== "string" || typeof staged?.url !== "string") {
+        refuse("E_BASELINE_STAGE", "the baseline staging deployment did not report an id and URL");
+      }
+      await waitForExactStagedReady(deps, staged.url, expected.predecessor_release_digest);
+      await assess();
+      if (typeof deps.writeStaging !== "function") refuse("E_BASELINE_STAGE", "a durable staging record is required before promotion");
+      await deps.writeStaging({
+        artifact_tree_digest: expected.baseline_artifact_tree_digest,
+        authorization_digest: auth.digest,
+        candidate_digest: expected.baseline_candidate_digest,
+        deployment_id: staged.deployment_id,
+        migration_source_commit: expected.migration_source_commit,
+        predecessor_deployment_id: expected.predecessor_deployment_id,
+        predecessor_release_digest: expected.predecessor_release_digest,
+        release_digest: expected.predecessor_release_digest,
+        staged_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+        url: staged.url,
+      });
+      checkReadiness(true, deps, expected);
+      lease.assertHeld(deps.now?.() ?? Date.now());
+      promoted = true; // A CLI failure can still follow a successful alias move.
+      await deps.promote(staged.deployment_id);
+
+      const deadline = (deps.now?.() ?? Date.now()) + PROMOTE_TIMEOUT_MS;
+      let attempts = 0;
+      for (;;) {
+        let served;
+        try {
+          served = await deps.probeReady(expected.canonical_alias, { bypass: deps.bypass });
+        } catch {
+          served = undefined;
+        }
+        observed = await deps.readObservation(expected);
+        if (observed.alias_target_deployment_id === staged.deployment_id && served?.release_digest === expected.predecessor_release_digest) {
+          verifyLiveTarget(observed, expected, staged.deployment_id, expected.predecessor_release_digest);
+          break;
+        }
+        if (++attempts >= (deps.maxAttempts ?? 120) || (deps.now?.() ?? Date.now()) >= deadline) {
+          refuse("E_BASELINE_UNVERIFIED", "the production alias did not serve the retained baseline digest from the staged deployment");
+        }
+        await deps.sleep?.(PROMOTE_POLL_MS);
+      }
+    } catch (error) {
+      if (promoted) {
+        const receipt = await restoreBaselineAfterFailure({
+          actor: auth.payload.publisher,
+          authorizationDigest: auth.digest,
+          deps,
+          expected,
+          lease,
+          stagedDeploymentId: staged?.deployment_id,
+        });
+        if (receipt && typeof error === "object" && error !== null) error.receipt = receipt;
+      }
+      throw error;
+    }
+
+    return await finishPublication({
+      observation: observed,
+      receipt: domain.createBaselineMigrationReceipt({
+        action: "BASELINE_RUNTIME_MIGRATION",
+        actor: auth.payload.publisher,
+        artifact_tree_digest: expected.baseline_artifact_tree_digest,
+        authorization_digest: auth.digest,
+        canonical_alias: expected.canonical_alias,
+        candidate_digest: expected.baseline_candidate_digest,
+        completed_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+        deployment_id: staged.deployment_id,
+        detail: "deployed the reviewed readiness runtime with the unchanged retained baseline artifact and verified the exact live release digest",
+        hub_id: "personal",
+        migration_source_commit: expected.migration_source_commit,
+        predecessor_deployment_id: expected.predecessor_deployment_id,
+        predecessor_source_commit: expected.predecessor_source_commit,
+        release_digest: expected.predecessor_release_digest,
+        status: "SUCCEEDED",
+      }),
+      status: "BASELINE_MIGRATED",
+    }, deps, apply);
+  } finally {
+    lease.release();
+  }
+}
+
+/**
+ * Complete an interrupted baseline migration. This never moves the alias: it
+ * accepts only the exact staged deployment already serving the exact retained
+ * baseline digest, and re-checks every authorization/platform binding.
+ */
+export async function executeBaselineReconcile({ authorization, expected, staging, deps, apply }) {
+  const domain = await projectModule();
+  const auth = domain.verifyBaselineMigrationAuthorization(authorization);
+  const verifiedStaging = verifyBaselineStaging(staging, expected, auth.digest);
+  expected = { ...expected, staged_deployment_id: verifiedStaging.deployment_id };
+  checkReadiness(apply, deps, expected);
+  if (apply && typeof deps.recordReceipt !== "function") refuse("E_PUBLICATION_RECEIPT", "durable receipt sink is required before mutation");
+  const lease = await acquirePublicationLease({
+    now: deps.now?.() ?? Date.now(),
+    publisher: `baseline-reconcile:${expected.publisher_vercel_user_id}:${expected.canonical_alias}`,
+    stateDir: deps.stateDir,
+  });
+  try {
+    const observed = await deps.readObservation(expected);
+    if (observed.alias_target_deployment_id !== expected.staged_deployment_id) {
+      refuse("E_BASELINE_RECONCILE_STATE", "live production alias does not point at the staged baseline deployment");
+    }
+    if (observed.legacy_readyz !== "digest" || observed.served_release_digest !== expected.predecessor_release_digest) {
+      refuse("E_BASELINE_RECONCILE_STATE", "live production does not serve the exact retained baseline digest");
+    }
+    verifyTargetControls(observed, expected, expected.staged_deployment_id);
+    if (observed.deployment_ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the staged baseline deployment is not READY");
+    if (observed.deployment_checks_state !== "succeeded") refuse("E_BASELINE_CHECKS_NOT_PASSED", "the staged baseline deployment checks did not succeed");
+    const assessment = domain.assessBaselineMigration({
+      authorization: auth,
+      expected: { ...expected, now: new Date(deps.now?.() ?? Date.now()).toISOString(), max_approval_age_ms: MAX_APPROVAL_AGE_MS },
+      // The live facts above were checked directly. Restore the predecessor
+      // projection only so the pure authorization/platform binding is re-run.
+      observation: {
+        ...observed,
+        alias_target_deployment_id: expected.predecessor_deployment_id,
+        deployment_source_commit: expected.predecessor_source_commit,
+        legacy_readyz: "legacy",
+        served_release_digest: undefined,
+      },
+    });
+    if (assessment.status !== "READY") {
+      refuse("E_BASELINE_RECONCILE_STATE", assessment.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`).join("; "));
+    }
+    if (!apply) return { observation: observed, status: "DRY_RUN" };
+    return await finishPublication({
+      receipt: domain.createBaselineMigrationReceipt({
+        action: "BASELINE_RUNTIME_MIGRATION",
+        actor: auth.payload.publisher,
+        artifact_tree_digest: expected.baseline_artifact_tree_digest,
+        authorization_digest: auth.digest,
+        canonical_alias: expected.canonical_alias,
+        candidate_digest: expected.baseline_candidate_digest,
+        completed_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+        deployment_id: expected.staged_deployment_id,
+        detail: "reconciled a completed baseline runtime migration after the publishing process was interrupted",
+        hub_id: "personal",
+        migration_source_commit: expected.migration_source_commit,
+        predecessor_deployment_id: expected.predecessor_deployment_id,
+        predecessor_source_commit: expected.predecessor_source_commit,
+        release_digest: expected.predecessor_release_digest,
+        status: "SUCCEEDED",
+      }),
+      status: "BASELINE_RECONCILED",
+    }, deps, apply);
+  } finally {
+    lease.release();
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -866,12 +1369,112 @@ function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+async function runBaselineCli(mode, values) {
+  const authorization = (await projectModule()).verifyBaselineMigrationAuthorization(
+    JSON.parse(readFileSync(resolve(required(values, "authorization")), "utf8")),
+  );
+  const teamId = required(values, "team");
+  const expected = {
+    baseline_artifact_tree_digest: authorization.payload.baseline_artifact_tree_digest,
+    baseline_candidate_digest: authorization.payload.baseline_candidate_digest,
+    canonical_alias: required(values, "alias"),
+    migration_source_commit: authorization.payload.migration_source_commit,
+    predecessor_deployment_id: required(values, "expect-deployment"),
+    predecessor_release_digest: required(values, "expect-release"),
+    predecessor_source_commit: authorization.payload.predecessor_source_commit,
+    production_branch: required(values, "production-branch"),
+    project_id: required(values, "project"),
+    publisher_vercel_user_id: required(values, "publisher"),
+    staged_deployment_id: values["staged-deployment"],
+    team_id: teamId,
+  };
+  if (authorization.payload.canonical_alias !== expected.canonical_alias ||
+      authorization.payload.production_branch !== expected.production_branch ||
+      authorization.payload.predecessor_deployment_id !== expected.predecessor_deployment_id ||
+      authorization.payload.baseline_release_digest !== expected.predecessor_release_digest ||
+      authorization.payload.publisher.team_id !== expected.team_id ||
+      authorization.payload.publisher.project_id !== expected.project_id ||
+      authorization.payload.publisher.vercel_user_id !== expected.publisher_vercel_user_id) {
+    refuse("E_BASELINE_IDENTITY_MISMATCH", "the baseline authorization does not bind the CLI target and predecessor");
+  }
+  if (mode === "baseline") required(values, "staging-out");
+  const staging = mode === "baseline-reconcile"
+    ? verifyBaselineStaging(JSON.parse(readFileSync(resolve(required(values, "staging")), "utf8")), expected, authorization.digest)
+    : undefined;
+  if (staging) expected.staged_deployment_id = staging.deployment_id;
+  const source = await readBaselineSources({
+    expected,
+    migrationSourceDir: required(values, "migration-source"),
+    predecessorSourceDir: required(values, "predecessor-source"),
+    repoRoot: REPO_ROOT,
+  });
+  const token = vercelToken();
+  const api = new VercelApi({ teamId, token });
+  const bypass = process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined;
+  const cwd = join(source.migration_source_dir, "packages", "mcp");
+  const deps = {
+    bypass,
+    readiness: values.readiness === undefined ? undefined : JSON.parse(readFileSync(resolve(values.readiness), "utf8")),
+    now: () => Date.now(),
+    readObservation: (expectation) => api.readBaseline(expectation, (alias) =>
+      probeLegacyReady(alias.startsWith("http") ? alias : `https://${alias}`, { bypass })),
+    probeReady: (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, { ...options, bypass }),
+    deployStagedProduction: (sourceDir) => {
+      const output = runVercel(["deploy", "--prod", "--skip-domain", "--yes"], { cwd: join(sourceDir, "packages", "mcp"), scope: teamId, token });
+      const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
+      if (!url) refuse("E_BASELINE_STAGE", "could not read the staged baseline deployment URL");
+      const deployment = runVercel(["inspect", url, "--json"], { cwd: join(sourceDir, "packages", "mcp"), scope: teamId, token });
+      const parsed = JSON.parse(deployment.stdout);
+      return { deployment_id: parsed.id, url };
+    },
+    promote: (deployment) => runVercel(["promote", deployment, "--yes"], { cwd, scope: teamId, token }),
+    rollback: (deployment) => runVercel(["rollback", deployment, "--yes"], { cwd, scope: teamId, token }),
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    stateDir: process.env.EGA_PUBLICATION_STATE_DIR,
+    writeStaging: mode === "baseline" ? (record) => {
+      const path = resolve(required(values, "staging-out"));
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    } : undefined,
+  };
+  const receiptPath = resolve(required(values, "receipt"));
+  let result;
+  try {
+    result = await withPublicationReceipt(receiptPath, values.apply === true, (recordReceipt) =>
+      mode === "baseline"
+        ? executeBaselineMigration({ apply: values.apply === true, authorization, deps: { ...deps, recordReceipt }, expected, source })
+        : executeBaselineReconcile({ apply: values.apply === true, authorization, deps: { ...deps, recordReceipt }, expected, staging }));
+  } catch (error) {
+    if (error?.receipt) {
+      const failedPath = `${receiptPath}.failed.json`;
+      mkdirSync(dirname(failedPath), { recursive: true });
+      writeFileSync(failedPath, `${JSON.stringify(error.receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    }
+    throw error;
+  }
+  print(result);
+}
+
 async function main() {
   const { mode, values } = parseArgs(process.argv.slice(2));
   if (values.apply === true) assertPublicationPlatform();
   if (mode === "verify") {
     const alias = required(values, "alias");
     print(await probeReady(alias.startsWith("http") ? alias : `https://${alias}`));
+    return;
+  }
+  if (mode === "baseline-authorize") {
+    const domain = await projectModule();
+    const payload = JSON.parse(readFileSync(resolve(required(values, "payload")), "utf8"));
+    const auth = domain.createBaselineMigrationAuthorization(payload);
+    const out = resolve(required(values, "out"));
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, `${JSON.stringify(auth, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    print({ authorization_digest: auth.digest, out });
+    return;
+  }
+  if (mode === "baseline" || mode === "baseline-reconcile") {
+    await runBaselineCli(mode, values);
     return;
   }
   if (mode === "promote" || mode === "reconcile") { required(values, "staged-deployment"); required(values, "staging"); }

@@ -115,11 +115,154 @@ Authenticated MCP verification is still required after promotion.
 **Legacy predecessor blocker:** on 2026-10-28, current production returned
 HTTP 200 with only `{"status":"ready"}`. That response cannot pass the
 publisher's predecessor or restored-target identity probe. An authenticated
-MCP digest alone does not satisfy this probe. Before the first governed
-promotion, obtain independent review of a supported predecessor verification
-and recovery migration, or complete an independently authorized and certified
-baseline-runtime migration. Do not assume the new endpoint already exists,
-substitute a configured digest for a live observation, or bypass the publisher.
+MCP digest alone does not satisfy this probe. The supported resolution is the
+separately authorized and certified baseline-runtime migration below. Do not
+assume the new endpoint already exists, substitute a configured digest for a
+live observation, or bypass the publisher.
+
+### Baseline runtime migration (first governed release)
+
+The legacy runtime predates `/readyz` release identity. The migration deploys
+the reviewed runtime with the **unchanged retained 117-skill artifact**, so the
+new endpoint reports a real digest before any semantic release change. It is a
+runtime-only operation, not a publication and not a rollback receipt. The
+original legacy deployment and artifact are retained.
+
+The supported migration command is `baseline` in
+`scripts/hosted/publish-production.mjs`. It refuses unless all of the following
+are live and exact:
+
+- the owner authorization binds the 117 release, the retained candidate, the
+  physical artifact-tree digest, the legacy deployment, the legacy deployment's
+  immutable source commit, the reviewed migration source commit, the publisher,
+  team, project, canonical alias and production branch;
+- the live canonical alias targets that exact legacy deployment;
+- that deployment is `READY`, its checks concluded `succeeded`, its immutable
+  source commit is the authorized predecessor commit, Git production auto-deploy
+  is disabled, and the canonical alias is the only production alias;
+- `/readyz` is the legacy shape (HTTP 200, `status: "ready"`, no
+  `release_digest`). An unavailable probe, a response that already carries a
+  digest, or a 200 with no identity is not accepted;
+- both the predecessor worktree and the migration worktree are clean and at
+  their authorized commits, and both artifact trees reproduce the authorized
+  digest. The migration worktree's readiness files must be byte-identical to
+  the reviewed implementation.
+
+Prepare the two clean worktrees after the readiness PR is merged:
+
+```
+PRE_COMMIT=$(git -C <repo> rev-parse <live-deployment-source-commit>)
+MIGRATION_COMMIT=$(git -C <repo> rev-parse origin/release/2.0)  # exact merged readiness PR
+
+git -C <repo> worktree add --detach /secure/predecessor-source "$PRE_COMMIT"
+git -C <repo> worktree add --detach /secure/migration-source "$MIGRATION_COMMIT"
+```
+
+Record the retained identities from both worktrees:
+
+```
+node scripts/hosted/validate-artifact.mjs /secure/predecessor-source/packages/mcp/artifact
+node scripts/hosted/validate-artifact.mjs /secure/migration-source/packages/mcp/artifact
+(cd /secure/predecessor-source && find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum)
+(cd /secure/migration-source && find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum)
+```
+
+Both runs must report release
+`sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+and tree digest
+`sha256:ad9f0cfa1c68a1531c964d921dfc4e6acf94357447517138aa7d69187f88276a`.
+The candidate envelope digest is
+`sha256:5c441c3f0d7f5acf0cbdf005e6b4db8d05105783c38f37b4939b3b0ae54a45bc`.
+
+Create the authorization envelope from the owner-approved payload. The
+`baseline-authorize` command validates and canonicalizes; it does not grant
+approval and the script never records an owner decision on its own:
+
+```
+node scripts/hosted/publish-production.mjs baseline-authorize \
+  --payload /secure/outside-repo/baseline-authorization-payload.json \
+  --out /secure/outside-repo/baseline-authorization.json
+```
+
+The payload fields are exactly:
+
+```json
+{
+  "approval_record": "https://github.com/egawilldoit/ega-skills/issues/168#...",
+  "approved_at": "<RFC3339 UTC>",
+  "approved_by": "<release owner>",
+  "baseline_artifact_tree_digest": "sha256:ad9f…",
+  "baseline_candidate_digest": "sha256:5c44…",
+  "baseline_release_digest": "sha256:3c08…",
+  "canonical_alias": "ega-skills-mcp.vercel.app",
+  "hub_id": "personal",
+  "migration_source_commit": "<merged readiness PR commit>",
+  "predecessor_deployment_id": "<live legacy deployment>",
+  "predecessor_source_commit": "<live deployment meta.githubCommitSha>",
+  "production_branch": "release/2.0",
+  "publisher": {
+    "owner_subject": "<owner>",
+    "project_id": "prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG",
+    "team_id": "team_e2x4kf12yL43qmBIs2t2YaD2",
+    "vercel_user_id": "Dc0U1Ov3Zh5zeFKeic10bVWj"
+  },
+  "scope": "runtime-readiness-only"
+}
+```
+
+Dry-run (no mutation, no receipt):
+
+```
+EGA_VERCEL_TOKEN_FILE=/secure/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs baseline \
+  --authorization /secure/outside-repo/baseline-authorization.json \
+  --predecessor-source /secure/predecessor-source \
+  --migration-source /secure/migration-source \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG \
+  --publisher Dc0U1Ov3Zh5zeFKeic10bVWj \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-deployment <live legacy deployment> \
+  --expect-release sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297 \
+  --staging-out /secure/outside-repo/baseline-staging.json \
+  --receipt /secure/outside-repo/baseline-receipt.json
+```
+
+Apply the same command with `--readiness /secure/outside-repo/readiness.json
+--apply`. The command stages with `vercel deploy --prod --skip-domain`, requires
+the staged `/readyz` to serve the exact 117 digest, writes the immutable staging
+record, promotes without `--force`, and writes the append-only migration
+receipt. It never changes the artifact tree or the semantic release.
+
+Success is all of:
+
+- `/readyz` returns HTTP 200 with
+  `release_digest: sha256:3c08…`, `status: "ready"`;
+- the alias targets the staged deployment, which is `READY` with successful
+  checks;
+- authenticated MCP still reports the 117 release and no `t3dotgg/*` skills;
+- the staging record, authorization, readiness record and receipt are retained
+  outside the repository.
+
+If the process dies after the alias moved, use `baseline-reconcile` with the
+same authorization, sources, target flags, `--staging
+/secure/outside-repo/baseline-staging.json` and a **new** receipt path. It never
+moves the alias and accepts only the exact staged deployment serving the exact
+117 digest. If the migration fails after promotion, the command restores the
+original legacy deployment and verifies the legacy readiness shape again; the
+FAILED receipt is written beside the reserved intent as `<receipt>.failed.json`.
+A bare `vercel rollback` to the original legacy deployment after a successful
+migration is containment only (the normal publisher cannot verify its legacy
+readiness); record it as an audit gap and re-run the migration before the
+governed promotion.
+
+The subsequent 126-skill promotion remains a normal `stage`/`promote
+--genesis` operation with `--expect-deployment <migration deployment>` and
+`--expect-release sha256:3c08…`. The migration deployment, not the original
+legacy deployment, is the governed rollback predecessor; the original remains
+retained as the emergency containment target.
 
 ### What is and is not atomic
 
