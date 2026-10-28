@@ -59,12 +59,33 @@ test("I1 candidate verifies policy, previous envelope, release artifacts and app
   const exported = exportInvocationCandidate(source, join(workspace, "exported"));
   assert.equal(exported.candidate.digest, candidate.digest);
   assert.throws(() => exportInvocationCandidate(source, join(source, "nested")));
+  const deploymentOut = join(workspace, "deployment-export");
+  const deployment = spawnSync(process.execPath, [join(process.cwd(), "scripts/hosted/build-deployment-artifact.mjs"), "--candidate", join(source, "candidate.json"), "--out", deploymentOut], { encoding: "utf8" });
+  assert.equal(deployment.status, 0, deployment.stderr);
+  assert.equal(verifyInvocationCandidate(deploymentOut).candidate.digest, candidate.digest);
+  const renamed = join(source, "different-candidate.json");
+  writeFileSync(renamed, JSON.stringify({ ...candidate, digest: `sha256:${"f".repeat(64)}` }));
+  const renamedOut = join(workspace, "renamed-export");
+  const rejectedName = spawnSync(process.execPath, [join(process.cwd(), "scripts/hosted/build-deployment-artifact.mjs"), "--candidate", renamed, "--out", renamedOut], { encoding: "utf8" });
+  assert.notEqual(rejectedName.status, 0);
+  assert.equal(existsSync(renamedOut), false);
+  rmSync(renamed);
+
+  assert.deepEqual(readFileSync(join(deploymentOut, "registry.sqlite")), readFileSync(join(source, "registry.sqlite")));
+
   assert.throws(() => verifyReleaseCandidate(source));
   for (const file of ["invocation-policy.json", "previous-hub-release.json", "publication-preflight.json", "release-diff.json", "registry.sqlite"]) {
     const dir = join(workspace, `missing-${file}`);
     cpSync(source, dir, { recursive: true });
     rmSync(join(dir, file));
     assert.throws(() => verifyInvocationCandidate(dir), `missing ${file} must fail`);
+    if (file === "invocation-policy.json") {
+      const out = join(workspace, "invalid-deployment-export");
+      const rejected = spawnSync(process.execPath, [join(process.cwd(), "scripts/hosted/build-deployment-artifact.mjs"), "--candidate", join(dir, "candidate.json"), "--out", out], { encoding: "utf8" });
+      assert.notEqual(rejected.status, 0);
+      assert.equal(existsSync(out), false);
+    }
+
   }
   const changed = join(workspace, "changed");
   cpSync(source, changed, { recursive: true });
