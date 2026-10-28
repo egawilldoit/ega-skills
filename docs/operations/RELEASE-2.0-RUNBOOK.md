@@ -481,9 +481,10 @@ promotion must pass `--previous-receipt <the last receipt>` instead, and the
 script refuses a receipt/revision/predecessor mismatch.
 
 `--staging-out` writes the exact staging record that `--staging` consumes; it
-requires `--apply`, because a dry-run stage creates no deployment. The
-stage command's stdout also contains it under `.staging`, but that wrapper is not
-the record `promote` expects. `EGA_PUBLICATION_STATE_DIR` must be on storage
+requires `--apply`, because a dry-run stage creates no deployment. The stage
+command's stdout also contains the record under `.staging`; the CLI accepts that
+wrapper for convenience, but the file written by `--staging-out` is the
+supported handoff. `EGA_PUBLICATION_STATE_DIR` must be on storage
 shared by every publisher; a per-machine directory narrows but does not remove
 the race. Both the final receipt and its `.pending` intent are created with
 `O_EXCL`; a retry must use a new receipt name so the previous evidence is never

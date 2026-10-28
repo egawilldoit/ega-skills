@@ -53,17 +53,20 @@
  *     --production-branch release/2.0 \
  *     --alias ega-skills-mcp.vercel.app \
  *     --expect-release <sha256:...> --expect-deployment <dpl_...> \
- *     --expect-revision <n> --staging-out <staging.json> [--apply]
+ *     --expect-revision <n> --expect-source-commit <sha> \
+ *     --staging-out <staging.json> [--apply]
  *
  *   node scripts/hosted/publish-production.mjs promote \
  *     --staging <staging.json> --candidate <dir> --approval <approval.json> \
  *     ...same target flags... --staged-deployment <dpl_...> \
+ *     --expect-source-commit <sha> \
  *     (--previous-receipt <last.json> | --genesis) \
  *     --receipt <receipt.json> [--apply]
  *
  *   node scripts/hosted/publish-production.mjs reconcile \
  *     --candidate <dir> --approval <approval.json> --staging <staging.json> \
  *     ...same target flags... --staged-deployment <dpl_...> \
+ *     --expect-source-commit <sha> \
  *     (--previous-receipt <last.json> | --genesis) \
  *     --receipt <receipt.json> [--apply]
  *
