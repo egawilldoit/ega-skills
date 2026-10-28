@@ -68,19 +68,26 @@ node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
 These are repository facts, not Vercel or OAuth facts:
 
 - `pnpm build`, `pnpm typecheck`, `pnpm catalog:check`, `pnpm specs:check` pass.
-- The focused publication suites pass, including 20 new baseline-migration
+- The focused publication suites pass, including 29 baseline-migration
   tests covering missing, mismatched, stale, substituted and unavailable
-  predecessor evidence, failed-promotion restore, no-move promotion failure,
-  supersession, interrupted reconciliation and lease exclusion.
+  predecessor evidence, pinned reviewed runtime files, the reviewed migration
+  delta, source/release-branch binding, failed-promotion restore, no-move
+  promotion failure, supersession, interrupted reconciliation and lease
+  exclusion.
 - The 126 artifact validates and reports exactly
   `sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`,
-  126 skills, and the SQLite digest above.
+  126 skills, and the SQLite digest above. The nine approved
+  `t3dotgg/*` version hashes match the approval packet 9/9; all 117
+  previous version hashes are unchanged; zero removed; zero changed.
 - The 117 artifact validates and reports exactly
   `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`,
-  117 skills.
+  117 skills, and tree digest
+  `sha256:ad9f0cfa1c68a1531c964d921dfc4e6acf94357447517138aa7d69187f88276a`.
 - The 27/27 positive alternatives, 9/9 explicit references, 11/11 negative
   cases, 82/82 unchanged automatic-selection lists and the known discovery
-  baseline failures are recorded in the release evidence and CI.
+  baseline failures are recorded in the release evidence and CI. The 126
+  registry contains exactly the approved nine additions and no changed
+  previous version.
 - The publisher's Vercel HTTP behavior is tested against mocked responses. This
   proves code behavior only, not live Vercel configuration.
 
