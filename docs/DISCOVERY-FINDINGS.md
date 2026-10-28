@@ -3,8 +3,16 @@
 Evidence for the discovery work in this branch, and the exact changes that
 belong in the **separate** skill corpus repository rather than here.
 
-Measured against release `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
-(117 skills: `anthropic` 14, `egawilldoit` 67, `mattpocock` 27, `vercel` 9).
+Current evaluation targets the approved 126-skill I1 release
+`sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`.
+The original 117-skill summary is preserved verbatim in
+`tests/discovery/baseline-117.json`; its reproduced full 82-prompt report is in
+`tests/discovery/baseline-117-evaluation.json`. Tests compare every automatic
+selection and all 117 original version identities. The 22 existing incorrect
+automatic selections remain baseline failures. Top-1 remains 41/81 and top-3
+improves from 70/81 to 71/81. The ten changed suggestion rankings and nine new
+candidate lists are reviewed individually in
+[the issue 168 routing review](evidence/ISSUE-168-ROUTING-REVIEW.md).
 
 Reproduce with:
 
@@ -68,7 +76,7 @@ skills per task, so concatenating it pads the window with rows that carry no
 ranking signal. Search reachability is therefore reported on its own.
 
 <!-- discovery-summary:start -->
-Release: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`; catalog: 117 skills; corpus: `personal-intents-v1`.
+Release: `sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`; catalog: 126 skills; corpus: `personal-intents-v1`.
 
 | Metric | Value | Target | Status |
 | --- | --- | --- | --- |
@@ -76,18 +84,19 @@ Release: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f08929
 | Automatic selection attempts | 33/81 | — | informational |
 | Wrong automatic selections | 22 across 33 attempts (66.7% of attempts) | 0 | **not met** |
 | Excluded skill **auto-selected** | 0 | 0 | met |
-| Excluded skill in a suggestion slot only | 16 | — | presentation issue, not safety |
+| Excluded skill in a suggestion slot only | 15 | — | presentation issue, not safety |
 | Expected skill ranked #1 | 41/81 = 50.6% | >= 90% | **not met** |
-| Expected skill in top 3 (resolver window) | 70/81 = 86.4% | >= 98% | **not met** |
-| Expected skill in top 3 of raw `search` | 71/81 = 87.7% | — | fallback path only |
+| Expected skill in top 3 (resolver window) | 71/81 = 87.7% | >= 98% | **not met** |
+| Expected skill in top 3 of raw `search` | 72/81 = 88.9% | — | fallback path only |
 | LOW-confidence results | 48/81 | — | informational |
 
 Wrong-selection rate uses the 33 attempted automatic selections as its denominator, not all 81 intents.
-Excluded skills appear in 16 windows: 0 auto-selected and 16 suggestion-only.
+Excluded skills appear in 15 windows: 0 auto-selected and 15 suggestion-only.
 Pending skills: 1 intent(s), excluded from the measured rates above.
 <!-- discovery-summary:end -->
 
-`ROUTER_SEMANTICS_UNCHANGED`. The resolver is untouched: every number above comes
+The frozen V1 semantics and all 82 automatic selections are unchanged. The I1
+policy governs only the nine additions; every number above comes
 from calling `resolveSkills` exactly as SPEC-004 freezes it. This reporting repair
 does not change routing. The current baseline also includes the accepted
 `mattpocock/pr` substring-matching defect documented in

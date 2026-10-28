@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 import { createEnvelope, sha256Hex } from "../../packages/hashing/dist/index.js";
 import { approvalSetDigest, buildHubRelease, buildInvocationHubRelease, createArtifactCandidate, createInvocationCandidate, createInvocationReleaseDiff, writeArtifactCandidate, writeInvocationCandidate } from "../../packages/project/dist/index.js";
 import { createHostedMcpHandler, createRetainedManifest, loadHostedReleaseSnapshot, loadRetainedReleaseSet, promoteRetainedRelease, rollbackRetainedRelease } from "../../packages/mcp/dist/index.js";
+import { runList, runInspect, readL0Metadata } from "../../packages/cli/dist/index.js";
 import { resolveSkills } from "../../packages/router/dist/index.js";
 import { parseServerConfig } from "../../apps/web/server/env.ts";
 import { getReleaseComparison } from "../../apps/web/server/releases.ts";
@@ -104,6 +105,14 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
     }
   }
   const beforeReads = sha256Hex(readFileSync(join(dir, "registry.sqlite")));
+  const cliEnv = { EGA_SKILLS_HOME: dir, EGA_SKILLS_TRUSTED_RELEASE: build.release.digest };
+  assert.deepEqual(await runList(cliEnv), [{ skillId: "ega/alpha", currentVersionHash: versionHash }]);
+  assert.equal((await runInspect("ega/alpha", cliEnv)).currentVersionHash, versionHash);
+  assert.deepEqual([...readL0Metadata(cliEnv).keys()], ["ega/alpha"]);
+  const wrongCliEnv = { ...cliEnv, EGA_SKILLS_TRUSTED_RELEASE: digest };
+  await assert.rejects(runList(wrongCliEnv), /trusted local release identity mismatch/);
+  await assert.rejects(runInspect("ega/alpha", wrongCliEnv), /trusted local release identity mismatch/);
+  assert.throws(() => readL0Metadata(wrongCliEnv), /trusted local release identity mismatch/);
   for (const result of await localTools(t, dir, root, readCalls, build.release.digest)) {
     assert.notEqual(result.isError, true, JSON.stringify(result));
   }
@@ -134,6 +143,10 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   cpSync(dir, broken, { recursive: true });
   rmSync(join(broken, "invocation-policy.json"));
   assert.throws(() => loadHostedReleaseSnapshot(broken));
+  const brokenCliEnv = { EGA_SKILLS_HOME: broken };
+  await assert.rejects(runList(brokenCliEnv));
+  await assert.rejects(runInspect("ega/alpha", brokenCliEnv));
+  assert.throws(() => readL0Metadata(brokenCliEnv));
   for (const result of await localTools(t, broken, root, readCalls)) {
     assert.equal(result.isError, true);
     assert.equal((result.structuredContent.error ?? result.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(result));

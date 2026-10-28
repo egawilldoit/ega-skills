@@ -11,6 +11,8 @@ import { openRegistry } from "../../packages/registry/dist/index.js";
 
 const execFileAsync = promisify(execFile);
 const CORPUS_PATH = join(process.cwd(), "tests/discovery/personal-intents.json");
+const PREVIOUS_BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline-117.json");
+const PREVIOUS_EVALUATION_PATH = join(process.cwd(), "tests/discovery/baseline-117-evaluation.json");
 const BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline.json");
 const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
 
@@ -324,7 +326,7 @@ test("the recorded baseline summary matches the full pinned-catalog evaluation",
 
 test("discovery quality does not regress below the recorded baseline", async () => {
   const { summary } = await report();
-  const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));
+  const baseline = JSON.parse(await readFile(PREVIOUS_BASELINE_PATH, "utf8"));
 
   assert.ok(
     summary.top1_rate >= baseline.summary.top1_rate,
@@ -369,5 +371,25 @@ test("a LOW intent ranks suggestions but never selects them", async () => {
     for (const id of row.ranking) {
       assert.ok(!row.selected.includes(id), `${row.id} ranking must not overlap its own selections`);
     }
+  }
+});
+
+
+test("all 82 automatic selections and original 117 versions match retained V1 evidence", async () => {
+  const actual = await report();
+  const previous = JSON.parse(await readFile(PREVIOUS_EVALUATION_PATH, "utf8"));
+  const previousSummary = JSON.parse(await readFile(PREVIOUS_BASELINE_PATH, "utf8"));
+  assert.equal(previous.release_digest, "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297");
+  assert.deepEqual(previous.summary, previousSummary.summary);
+  assert.equal(previous.results.length, 82);
+  assert.deepEqual(actual.results.map(({ id, task, selected }) => ({ id, task, selected })),
+    previous.results.map(({ id, task, selected }) => ({ id, task, selected })));
+  const oldRelease = JSON.parse(await readFile(join(ENV.EGA_SKILLS_HOME, "previous-hub-release.json"), "utf8"));
+  const release = JSON.parse(await readFile(join(ENV.EGA_SKILLS_HOME, "hub-release.json"), "utf8"));
+  assert.equal(oldRelease.digest, previous.release_digest);
+  assert.equal(Object.keys(oldRelease.payload.skill_versions).length, 117);
+  assert.equal(Object.keys(release.payload.skill_versions).length, 126);
+  for (const [id, version] of Object.entries(oldRelease.payload.skill_versions)) {
+    assert.equal(release.payload.skill_versions[id], version, id);
   }
 });

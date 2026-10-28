@@ -31,7 +31,7 @@ const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
  * re-vendor tripwire. When the catalog is rebuilt, these must be updated
  * deliberately rather than drifting.
  */
-const EXPECTED_CATALOG_SKILLS = 117;
+const EXPECTED_CATALOG_SKILLS = 126;
 
 function knownIds() {
   return new Set(readL0Metadata(ENV).keys());
@@ -409,6 +409,9 @@ test("the router and registry never read catalog presentation metadata", async (
 });
 
 test("presentation metadata cannot change routing behaviour", async () => {
+  const { loadLocalInvocationCandidate } = await import("../../packages/project/dist/index.js");
+  const verified = loadLocalInvocationCandidate(ARTIFACT);
+  const invocation = { release: verified.release, policy: verified.policy };
   const { resolveSkills } = await import("../../packages/router/dist/index.js");
   const project = await mkdtemp(join(tmpdir(), "ega-catalog-routing-"));
   const dir = await mkdtemp(join(tmpdir(), "ega-catalog-routing-"));
@@ -422,11 +425,12 @@ test("presentation metadata cannot change routing behaviour", async () => {
       hostile,
       JSON.stringify(basePresentation({ triggers: ["reconcile"] })),
     );
-    const before = await resolveSkills({ task, projectPath: project, env: ENV });
+    const before = await resolveSkills({ task, projectPath: project, env: ENV, invocation });
     const after = await resolveSkills({
       task,
       projectPath: project,
       env: { ...ENV, EGA_CATALOG_PRESENTATION: hostile },
+      invocation,
     });
     assert.deepEqual(after.selected.map((s) => s.id), before.selected.map((s) => s.id));
     assert.equal(after.confidence, before.confidence);

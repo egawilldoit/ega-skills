@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cacheBlobPathForHash, openRegistry, prepareSkillRoot } from "../../packages/registry/dist/index.js";
+import { verifyEnvelope } from "../../packages/hashing/dist/index.js";
 import { buildHubRelease } from "../../packages/project/dist/index.js";
 import { loadHostedReleaseSnapshot } from "../../packages/mcp/dist/index.js";
 
@@ -25,12 +26,21 @@ export const PATCHES = {
 export async function buildRoutingCandidate() {
   const baseline = join(ROOT, "packages/mcp/artifact");
   const original = loadHostedReleaseSnapshot(baseline);
-  assert.equal(original.releaseDigest, BASE_DIGEST);
+  // This historical V1 metadata experiment deliberately excludes the nine I1
+  // additions. Its predecessor envelope is certified by the current candidate.
+  const previous = JSON.parse(await readFile(join(baseline, "previous-hub-release.json"), "utf8"));
+  assert.equal(verifyEnvelope(previous).ok, true);
+  assert.equal(previous.digest, BASE_DIGEST);
+  const baselineVersions = previous.payload.skill_versions;
+  assert.equal(Object.keys(baselineVersions).length, 117);
+  for (const [id, version] of Object.entries(baselineVersions)) {
+    assert.equal(original.release.payload.skill_versions[id], version, id);
+  }
   const hub = await mkdtemp(join(tmpdir(), "ega-routing-source-"));
   const registry = openRegistry({ env: { EGA_SKILLS_HOME: baseline }, readonly: true });
   const namespaces = new Set();
   try {
-    for (const [id, version] of Object.entries(original.release.payload.skill_versions)) {
+    for (const [id, version] of Object.entries(baselineVersions)) {
       const [namespace, name] = id.split("/");
       namespaces.add(namespace);
       const root = join(hub, "owned", namespace, name);
@@ -78,7 +88,7 @@ export async function buildRoutingCandidate() {
   const built = await buildHubRelease(hub);
   const candidate = loadHostedReleaseSnapshot(built.registryHome);
   assert.notEqual(candidate.releaseDigest, BASE_DIGEST);
-  const changed = built.skills.filter(skill => original.release.payload.skill_versions[skill.skillId] !== skill.versionHash).map(skill => skill.skillId).sort();
+  const changed = built.skills.filter(skill => baselineVersions[skill.skillId] !== skill.versionHash).map(skill => skill.skillId).sort();
   assert.deepEqual(changed, Object.keys(PATCHES).sort());
   await writeFile(join(built.registryHome, "routing-experiment.json"), JSON.stringify({ baseline: BASE_DIGEST, candidate: candidate.releaseDigest, source: "verified baseline manifests and content-addressed blobs", ownedSourcePR: "https://github.com/egawilldoit/skills/pull/8", ownedSourceHead: "da7fe7e6cb7f85397ed0fee30ed81ad164ec52fe", patches: PATCHES, changed }, null, 2));
   return { artifactDir: built.registryHome, digest: candidate.releaseDigest, changed };
