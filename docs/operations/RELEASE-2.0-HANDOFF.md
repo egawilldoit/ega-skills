@@ -17,8 +17,9 @@ alias inventories and checks are observations, not constants.
 | Release target branch | `release/2.0` |
 | Release PR (draft) | https://github.com/egawilldoit/ega-skills/pull/176 |
 | Main preparation merge | `6b9b2a8623e22eada4feb66b5c48b2f198a3ceac` (PR #175) |
-| Baseline readiness PR | https://github.com/egawilldoit/ega-skills/pull/177 |
+| Baseline readiness PR | https://github.com/egawilldoit/ega-skills/pull/177 (merged at `f9e1301a726dc48d81bfefe9e3a490787563725e`) |
 | Baseline migration implementation PR | https://github.com/egawilldoit/ega-skills/pull/178 |
+| Migration source commit `M1` | `f9e1301a726dc48d81bfefe9e3a490787563725e` (PR #177 merge into `release/2.0`) |
 | Vercel team | `team_e2x4kf12yL43qmBIs2t2YaD2` |
 | Vercel project | `prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG` (`ega-skills-mcp`) |
 | Canonical alias | `ega-skills-mcp.vercel.app` |
@@ -195,16 +196,20 @@ the new runtime reports the real 117 digest.
 
 ### 5.1 Merge the readiness PR
 
-Merge https://github.com/egawilldoit/ega-skills/pull/177 into `release/2.0`
-with the merge guard active (see section 4 and section 10). Record the exact
-merge commit `M1`; do not use the branch tip. Confirm the merge-window
-deployment is `CANCELED`/ignored and the canonical alias did not move.
+PR #177 is merged into `release/2.0` at
+`f9e1301a726dc48d81bfefe9e3a490787563725e` (`M1`). The PR-head Vercel MCP build
+was observed `Canceled by Ignored Build Step`; the release operator must still
+read back the merge-window deployment and confirm it is `CANCELED`/ignored and
+that the canonical alias did not move. If the merge-window build did deploy,
+treat that deployment as the baseline migration only after verifying it serves
+the exact 117 digest and its source commit is `M1`; record it and do not run
+`baseline` against an already-migrated runtime.
 
 ### 5.2 Prepare clean sources
 
 ```
 PRE_COMMIT=$(git -C <repo> rev-parse <live-deployment-meta.githubCommitSha>)
-MIGRATION_COMMIT=<exact M1 merge commit>
+MIGRATION_COMMIT=f9e1301a726dc48d81bfefe9e3a490787563725e
 REVIEWED_COMMIT=<exact baseline-migration implementation merge commit>
 
 git -C <repo> worktree add --detach /secure/predecessor-source "$PRE_COMMIT"

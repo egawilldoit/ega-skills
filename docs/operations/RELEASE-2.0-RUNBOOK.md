@@ -165,11 +165,17 @@ are live and exact:
   the staged deployment must report the exact migration source commit in
   `meta.githubCommitSha`.
 
-Prepare the two clean worktrees after the readiness PR is merged:
+Prepare the two clean worktrees after the readiness PR is merged. PR #177 is
+merged at `f9e1301a726dc48d81bfefe9e3a490787563725e` (`M1`); the Vercel MCP build
+for the PR head was observed `Canceled by Ignored Build Step`, but the operator
+must still read back the merge-window deployment and the alias before continuing.
+If the merge-window build did deploy, verify it serves the exact 117 digest and
+its source commit is `M1`, record it, and do not run `baseline` against an
+already-migrated runtime.
 
 ```
 PRE_COMMIT=$(git -C <repo> rev-parse <live-deployment-source-commit>)
-MIGRATION_COMMIT=<the exact merge commit of PR #177, recorded in issue #168>
+MIGRATION_COMMIT=f9e1301a726dc48d81bfefe9e3a490787563725e  # PR #177 merge into release/2.0
 REVIEWED_COMMIT=<the exact merge commit of the baseline-migration implementation PR>
 
 git -C <repo> worktree add --detach /secure/predecessor-source "$PRE_COMMIT"
