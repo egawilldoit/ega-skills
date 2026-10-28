@@ -420,6 +420,8 @@ export function verifyPublicationReceipt(value: unknown, previous?: unknown): Pu
   };
   if (previous !== undefined) {
     const prior = verifyPublicationReceipt(previous);
+    if (prior.payload.hub_id !== receipt.payload.hub_id || prior.payload.canonical_alias !== receipt.payload.canonical_alias ||
+        JSON.stringify(prior.payload.actor) !== JSON.stringify(receipt.payload.actor)) fail("receipt chain crosses a Hub, alias or publisher boundary");
     if (prior.payload.publication_revision !== receipt.payload.previous_revision) fail("receipt chain revision is not contiguous");
     if (prior.payload.release_digest !== receipt.payload.previous_release_digest) fail("receipt chain predecessor does not match the prior release");
     if (prior.payload.deployment_id !== receipt.payload.previous_deployment_id) fail("receipt chain predecessor does not match the prior deployment");
