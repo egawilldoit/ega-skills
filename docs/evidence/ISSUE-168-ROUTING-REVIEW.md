@@ -7,7 +7,12 @@ verified 126-skill canonical registry, the reviewable invocation policy
 
 All 82 automatic-selection lists were unchanged. The same 22 incorrect automatic
 selections present at the 117 baseline are still present; none is new and none
-changed identity. Top-1 stayed at 44/82; top-3 improved from 71/82 to 72/82.
+changed identity. On the 81 measurable intents, top-1 stayed at 41/81; top-3
+improved from 70/81 to 71/81. The 82nd intent is marked `pending_skill` in the
+committed corpus and is excluded from discovery rates, but included in the
+automatic-selection comparison. Fresh reproduction on 2026-10-28 corrected the
+earlier unsupported 44/82 and 71/82 → 72/82 figures; the baseline harness and
+its committed report agree with the corrected counts.
 Catastrophic automatic selections remained zero.
 
 Targeted governed results: 27/27 reviewed positive phrase alternatives, 9/9

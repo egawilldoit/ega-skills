@@ -79,8 +79,8 @@ semantic release. They are not synthetic scratch fixtures.
 | Negative / ambiguous prompts | 11/11 selected no TStack skill |
 | Existing 82-prompt automatic selections | 82/82 unchanged |
 | Existing baseline wrong automatic selections | 22 before, the same 22 after |
-| Discovery top-1 | 44/82 unchanged |
-| Discovery top-3 | 71/82 → 72/82 (one improvement, no regression) |
+| Discovery top-1 (81 measurable intents) | 41/81 unchanged |
+| Discovery top-3 (81 measurable intents) | 70/81 → 71/81 (one improvement, no regression) |
 | Catastrophic automatic selections | 0 |
 | Full-send buffer / city-council false positives | eliminated |
 | Suggestion-list changes | 19 total (10 previously reviewed + 9 newly enumerated) |
@@ -89,6 +89,16 @@ The 19 candidate-list changes are documented individually in
 `docs/evidence/ISSUE-168-ROUTING-REVIEW.md`. None changes an automatic
 selection. The two previously observed unrelated auto-selections are now
 `LOW`/`INVOCATION_UNCONFIRMED` at most.
+
+The 2026-10-28 fresh reproduction corrected earlier unsupported discovery
+counts. All 82 prompts are compared for automatic-selection preservation;
+the corpus's one `pending_skill` intent is excluded from discovery rates.
+The same reproduction reacquired the pinned source, rebuilt the read-only
+projection, and independently assembled the semantic preimage again with
+`scripts/eval/issue-168-independent-release.mjs`. All bound identities above
+matched; the isolated Hub baseline remained unchanged. See
+`docs/evidence/ISSUE-168-PUBLICATION-AUDIT.md` for follow-up security findings
+and remaining production prerequisites.
 
 ## Policy and runtime certification
 

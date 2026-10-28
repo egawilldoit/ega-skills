@@ -23,6 +23,9 @@ The supported production writer is
 `scripts/hosted/publish-production.mjs`. Contract R2's revisioned retained
 manifest protects the durable promotion path; this script connects that
 decision to the Vercel alias, which is a separate last-write-wins surface.
+Production publication is supported only on the reviewed Linux host; applying
+commands reject other operating systems. Windows CI certifies portable domain
+behavior, not execution of the Vercel publication CLI.
 
 Before any alias mutation the gate requires, from live reads:
 
@@ -35,26 +38,88 @@ Before any alias mutation the gate requires, from live reads:
 4. the executing Vercel user, team and project equal the approved publisher; and
 5. the owner approval is no older than 24 hours.
 
-Staging creates a PREVIEW deployment (never `--prod`) and proves its `/readyz`
-release digest before promotion. Promotion re-reads the live predecessor
+Staging uses `vercel deploy --prod --skip-domain` to build with the production
+environment without assigning the public domain. It proves the staged `/readyz`
+release digest and rechecks the live predecessor before returning. Retained
+deployments are restored using `vercel rollback`, not a second promotion. See
+[Vercel staged production deployment](https://vercel.com/docs/cli/deploying-from-cli)
+and [promotion and rollback semantics](https://vercel.com/docs/deployments/promoting-a-deployment).
+Promotion re-reads the live predecessor
 immediately before the write, promotes without `--force`, then polls both the
 alias target and `/readyz` until the exact candidate digest is served. A
 mismatch restores the recorded predecessor only if this promotion is still the
-current alias; if another publication won, the script refuses to clobber it.
+current alias; an unhealthy current deployment may be restored, but the restored
+predecessor must be READY with successful checks before recovery is certified.
+If another publication won, the script refuses to clobber it.
 Every completed promotion or rollback writes an append-only receipt bounded to
 the approval, candidate, predecessor, deployment and monotonic publication
 revision. A handled failure that restored the predecessor writes a separate
 `FAILED` side receipt (`<receipt>.failed.json`) at the same revision; it records
 the attempt but does not enter or advance the successful receipt chain. A
-blocked or dry-run attempt performs no mutation and writes no receipt. If the
+dry-run attempt performs no mutation and writes no receipt. A blocked applying
+attempt can leave a reserved PENDING intent; preserve it. If the
 publishing process is killed after the alias moves, run `reconcile` to record
 the already-live exact candidate without moving the alias.
 Receipt files must live outside the repository and outside any synced source
 tree.
 
-`/readyz` reports the exact `release_digest`. This is a public semantic identity,
+All applying commands additionally require `--readiness <record.json>`. This
+is a genuine external operator certification, checked against its HTTPS review
+record before execution; a locally hashable JSON file does not prove authorship.
+The schema is `schema_version: 1`, `verified_at`, `expires_at` (at most 24 hours
+apart), `certified_by`, `review_record`, `publisher_vercel_user_id`, `team_id`,
+`project_id`, `canonical_alias`, `production_branch`, and the absolute shared
+`state_dir`. It also requires `access_controls_reviewed: true`,
+`single_writer_controls_reviewed: true`, and `residual_alias_race_accepted: true`.
+These flags record the external review; the Vercel API does not establish or
+enforce principal exclusivity. Keep this record with the approval and receipts.
+
+All supported publishers must use the same `EGA_PUBLICATION_STATE_DIR` on a
+single coordinated filesystem. An existing lease is never reclaimed just
+because its timestamp expired. Before manual recovery, prove that the former
+process and any Vercel CLI child have stopped, inspect the actual alias and
+reconcile any completed publication. Never remove a live writer's lease.
+Mutations stop after lease expiry. Restart from fresh observations and valid
+approval/readiness records after recovering the stopped operation.
+
+Applying promote, reconcile and rollback reserve and fsync a `PENDING` intent
+at `--receipt` before executing. The final receipt is fsynced under the lease.
+An existing evidence path blocks mutation. Keep incomplete intent files as
+evidence; use a new receipt path for reconciliation after inspecting live state.
+An interrupted rollback requires manual live-state reconciliation before retry.
+
+For the first governed promotion, retain and certify the original 117-skill R1
+candidate and deployment before staging. There is no fabricated revision-zero
+receipt. To restore that original release, use rollback with `--chain` and
+`--current` pointing to the first successful promotion receipt, replace
+`--target` with `--predecessor-candidate <retained-original-candidate-dir>`, and
+supply all normal target flags: `--team`, `--project`, `--publisher`, `--alias`,
+`--production-branch`, `--expect-release`, `--expect-deployment`, and
+`--expect-revision` (the current receipt's revision). The verified candidate
+must match the receipt's exact predecessor release and Hub. Later rollbacks use
+an earlier receipt in the contiguous successful chain. Both paths check the
+live deployment and platform controls immediately before mutation, and verify
+the exact retained deployment and release afterward. Recovery permits an
+unhealthy current deployment: the authenticated Vercel API must still identify
+the exact deployment bound by the receipt (or this operation's staged ID).
+An unavailable readiness endpoint is not represented as a successful probe.
+The restored target must pass readiness and deployment checks before a receipt
+is certified. Cross-project, cross-Hub,
+cross-alias and publisher-rotation receipt chains are rejected; publisher
+rotation requires separate reviewed migration support.
+
+The new runtime's `/readyz` reports the exact `release_digest`. This is a public semantic identity,
 not a secret; it makes the live promotion verifiable without an OAuth token.
 Authenticated MCP verification is still required after promotion.
+
+**Legacy predecessor blocker:** on 2026-10-28, current production returned
+HTTP 200 with only `{"status":"ready"}`. That response cannot pass the
+publisher's predecessor or restored-target identity probe. An authenticated
+MCP digest alone does not satisfy this probe. Before the first governed
+promotion, obtain independent review of a supported predecessor verification
+and recovery migration, or complete an independently authorized and certified
+baseline-runtime migration. Do not assume the new endpoint already exists,
+substitute a configured digest for a live observation, or bypass the publisher.
 
 ### What is and is not atomic
 
@@ -146,7 +211,8 @@ node scripts/hosted/publish-production.mjs stage \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
   --expect-revision <n> \
-  --staging-out /secure/outside-repo/staging-<n>.json --apply
+  --staging-out /secure/outside-repo/staging-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
 
 EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
 EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
@@ -162,7 +228,8 @@ node scripts/hosted/publish-production.mjs promote \
   --expect-revision <n> \
   --staged-deployment dpl_… \
   --genesis \
-  --receipt /secure/outside-repo/receipt-<n>.json --apply
+  --receipt /secure/outside-repo/receipt-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
 ```
 
 Promotion requires the staging record (`--staging`); `--staged-deployment` alone
@@ -179,7 +246,8 @@ node scripts/hosted/publish-production.mjs reconcile \
   --alias ega-skills-mcp.vercel.app \
   --expect-release sha256:… --expect-deployment dpl_… \
   --expect-revision <n> --staged-deployment dpl_… --genesis \
-  --receipt /secure/outside-repo/receipt-<n>.json --apply
+  --receipt /secure/outside-repo/receipt-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
 ```
 
 `reconcile` refuses unless the live alias and served release are exactly the
@@ -247,7 +315,10 @@ Preview proof and the immutable-deployment transcript:
      --project prj_… --publisher <vercel-user-id> \
      --production-branch release/2.0 \
      --alias ega-skills-mcp.vercel.app \
-     --receipt /secure/receipt-4.json --apply
+     --expect-revision 3 --expect-deployment <current-dpl-id> \
+     --expect-release <current-release-digest> \
+     --receipt /secure/receipt-4.json \
+     --readiness /secure/outside-repo/readiness.json --apply
    ```
 
    A bare `vercel rollback`/`vercel promote` is an emergency containment
@@ -255,9 +326,10 @@ Preview proof and the immutable-deployment transcript:
    treat the missing receipt as an audit gap.
 3. Re-run the post-deployment smoke against the production origin and confirm
    `/readyz` 200 and the expected `release_digest`.
-4. To restore the new release, promote its recorded deployment through the
-   boundary again and repeat the smoke. Rollback advances the revision; it never
-   decrements it.
+4. To restore the new release, roll back to its earlier receipt using the
+   advanced current receipt and complete chain, then repeat the smoke. Vercel
+   requires `rollback` for deployments that have previously served production.
+   Every successful restoration advances the revision; it never decrements it.
 
 ## Fail-closed recovery
 

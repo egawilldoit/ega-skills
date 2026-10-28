@@ -59,6 +59,8 @@ policy change, removal of any existing skill, or a force-promote.
 - `docs/evidence/ISSUE-168-ROUTING-REVIEW.md` — full routing evaluation and all
   19 candidate-list changes.
 - PR #172 — implementation, publication boundary and the exact reviewed head.
+- `docs/evidence/ISSUE-168-PUBLICATION-AUDIT.md` — fresh independent reproduction,
+  publication remediation, corrected discovery counts and production blockers.
 - The nine version hashes were recomputed from canonical manifests, and every
   manifest file record was matched to the pinned upstream bytes.
 
