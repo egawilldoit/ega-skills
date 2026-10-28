@@ -782,15 +782,14 @@ describe("protected content is not exposed", () => {
     } finally {
       handle.close();
     }
-    // The refusals are the protected-role files across the whole release: the
-// script entries, one SKILL.md per skill, and the asset manifest. The skill
-// term is derived because it moves with every catalog republish; hardcoding the
-// total made this assertion fail for a reason unrelated to what it checks.
-assert.equal(
-  forbiddenRoleRefusals,
-  39 + COMMITTED_SKILL_COUNT + 1,
-  "39 script + one SKILL.md per skill + 1 asset manifest entry",
-);
+    // The approved TStack addition contributes babysit-pr/scripts/pr-wait to
+    // the original 39 scripts. Every script remains forbidden through hosted
+    // content, alongside one SKILL.md per skill and the asset manifest.
+    assert.equal(
+      forbiddenRoleRefusals,
+      40 + COMMITTED_SKILL_COUNT + 1,
+      "40 scripts (including pr-wait) + one SKILL.md per skill + 1 asset manifest entry",
+    );
     // Every registry-only ega.yaml row is refused as not a manifest entry. If a
     // forbidden-role row other than ega-metadata were absent from the manifest,
     // the total would exceed that row count and this equality would fail.
