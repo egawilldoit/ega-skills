@@ -40,6 +40,7 @@ import Database, { type DatabaseConnection } from "better-sqlite3";
 import {
   PROJECT_CONFIG_V1_DEFAULTS,
   discoverConfig,
+  loadLocalInvocationCandidate,
   readConfigAndLock,
   resolveEffectiveProjectPath,
   resolveLockMode,
@@ -47,7 +48,7 @@ import {
   type ProjectLockMode,
   type ProjectLockV1,
 } from "@ega-skills/project";
-import { CURRENT_SCHEMA_VERSION, resolveRegistryHome } from "@ega-skills/registry";
+import { CURRENT_SCHEMA_VERSION, INVOCATION_REGISTRY_SCHEMA_VERSION, resolveRegistryHome } from "@ega-skills/registry";
 
 /** Primary frozen codes produced by this boundary module. */
 export const MCP_BOUNDARY_ERROR_CODES = [
@@ -113,6 +114,8 @@ export interface McpProjectContext {
   readonly registryDatabase: string;
   /** False when the database file is absent — tools then fail with `E_REGISTRY_UNAVAILABLE` instead of creating anything. */
   readonly registryAvailable: boolean;
+  /** Optional operator-supplied identity, never taken from tool arguments. */
+  readonly trustedReleaseDigest?: string;
 }
 
 export interface McpProjectContextOptions {
@@ -209,6 +212,7 @@ export function resolveMcpProjectContext(
     registryHome,
     registryDatabase,
     registryAvailable,
+    ...(env["EGA_SKILLS_TRUSTED_RELEASE"] === undefined ? {} : { trustedReleaseDigest: env["EGA_SKILLS_TRUSTED_RELEASE"] }),
   });
 }
 
@@ -248,11 +252,20 @@ export function openReadOnlyRegistry(context: McpProjectContext): ReadOnlyRegist
   }
   try {
     const schemaVersion = db.pragma<number>("user_version", { simple: true });
-    if (!Number.isInteger(schemaVersion) || schemaVersion < 0 || schemaVersion > CURRENT_SCHEMA_VERSION) {
+    if (!Number.isInteger(schemaVersion) || schemaVersion < 0 || (schemaVersion > CURRENT_SCHEMA_VERSION && schemaVersion !== INVOCATION_REGISTRY_SCHEMA_VERSION)) {
       throw new McpContextError(
         "E_REGISTRY_UNAVAILABLE",
         `Local registry schema is unusable (user_version ${String(schemaVersion)})`,
       );
+    }
+    // Content access is not invocation authorization, but an I1 artifact must
+    // pass the same activation checks before any local or hosted tool reads it.
+    // The loader leaves ordinary V1 registries unchanged and detects stripped
+    // I1 sidecars, including a downgraded database with a trusted release pin.
+    try {
+      loadLocalInvocationCandidate(context.registryHome, context.trustedReleaseDigest);
+    } catch {
+      throw new McpContextError("E_INVOCATION_POLICY_INVALID", "Invocation release verification failed");
     }
     // FTS5 must exist for project-scoped search. The probe touches the temp
     // schema only and is dropped before the read-only lockdown, so the
