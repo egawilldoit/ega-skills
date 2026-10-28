@@ -43,6 +43,7 @@ let handler: McpHttpHandler | undefined;
 let maxBodyBytes = 1_048_576;
 let maxResponseBytes = 4 * 1_048_576;
 let protectedResourceMetadata: unknown;
+let releaseIdentity: { release_digest: string } | undefined;
 
 function socketEnv(raw: string | undefined, fallback: number, name: string): number {
   if (raw === undefined) return fallback;
@@ -64,6 +65,7 @@ try {
   maxBodyBytes = runtime.maxBodyBytes;
   maxResponseBytes = runtime.maxResponseBytes;
   protectedResourceMetadata = runtime.protectedResourceMetadata;
+  releaseIdentity = { release_digest: runtime.snapshot.releaseDigest };
 } catch (error) {
   handler = undefined;
   process.stderr.write(`ega-mcp-vercel startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -74,6 +76,7 @@ const listener = createVercelRequestListener({
   maxBodyBytes,
   maxResponseBytes,
   getProtectedResourceMetadata: () => protectedResourceMetadata,
+  getReleaseIdentity: () => releaseIdentity,
 });
 
 const server = createServer((incoming, outgoing) => {
