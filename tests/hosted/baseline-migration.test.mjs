@@ -223,7 +223,7 @@ test("the artifact tree digest reproduces the runbook's sorted sha256sum form", 
 });
 
 test("the committed artifact tree digest is stable", () => {
-  const root = new URL("../..", import.meta.url).pathname;
+  const root = fileURLToPath(new URL("../..", import.meta.url));
   assert.equal(artifactTreeDigest(root, "packages/mcp/artifact"), CURRENT_TREE);
 });
 
