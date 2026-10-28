@@ -265,6 +265,18 @@ test("a promotion re-reads live production and records a verified receipt", asyn
   assert.equal(receipt.payload.publication_revision, 1);
 });
 
+test("a receipt failure after promotion restores the predecessor", async (t) => {
+  const { deps, state } = promotionDeps();
+  t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
+  deps.recordReceipt = async () => { throw Object.assign(new Error("receipt disk full"), { code: "E_RECEIPT_WRITE" }); };
+  await assert.rejects(
+    () => executePromotion({ apply: true, approval: approval(), candidate, deps, expected }),
+    (error) => error.code === "E_RECEIPT_WRITE" && error.receipt?.payload.status === "FAILED",
+  );
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.alias, PRED_DEPLOYMENT);
+});
+
 test("a concurrent change between verification and promotion blocks the write", async (t) => {
   const { deps, state } = promotionDeps();
   t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
@@ -594,7 +606,7 @@ test("receipt reservation precedes mutation and durable recording retains the le
   t.after(() => rmSync(deps.stateDir, { recursive: true, force: true }));
   const path = join(deps.stateDir, "receipt.json");
   writeFileSync(path, "existing");
-  await assert.rejects(() => withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt }, expected })), error => error.code === "EEXIST");
+  await assert.rejects(() => withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt }, expected })), error => error.code === "E_PUBLICATION_RECEIPT");
   assert.equal(state.calls, 0);
   rmSync(path);
   const result = await withPublicationReceipt(path, true, recordReceipt => executePromotion({ apply: true, approval: approval(), candidate, deps: { ...deps, recordReceipt: async receipt => {

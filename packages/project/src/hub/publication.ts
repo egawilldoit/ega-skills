@@ -464,8 +464,17 @@ export interface BaselineMigrationAuthorizationPayload {
   readonly baseline_artifact_tree_digest: string;
   /** Commit that produced the currently serving legacy deployment. */
   readonly predecessor_source_commit: string;
+  /** Reviewed implementation commit whose readiness files must match. */
+  readonly reviewed_runtime_commit: string;
   /** Reviewed commit that adds only the readiness identity to that runtime. */
   readonly migration_source_commit: string;
+  /**
+   * The legacy deployment predates deployment checks. "succeeded" requires a
+   * real successful check; "absent-accepted" is an explicit owner acceptance of
+   * a pre-check immutable deployment that is READY and serves the verified
+   * artifact. Neither value accepts a failed or pending check.
+   */
+  readonly legacy_deployment_checks: "succeeded" | "absent-accepted";
   readonly predecessor_deployment_id: string;
   readonly canonical_alias: string;
   readonly production_branch: string;
@@ -501,19 +510,28 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
     "baseline_release_digest",
     "canonical_alias",
     "hub_id",
+    "legacy_deployment_checks",
     "migration_source_commit",
     "predecessor_deployment_id",
     "predecessor_source_commit",
     "production_branch",
+    "reviewed_runtime_commit",
     "publisher",
     "scope",
   ], "baseline migration authorization payload");
   if (p["scope"] !== BASELINE_MIGRATION_SCOPE) fail("baseline migration authorization scope is not runtime-readiness-only");
+  if (p["legacy_deployment_checks"] !== "succeeded" && p["legacy_deployment_checks"] !== "absent-accepted") {
+    fail("legacy_deployment_checks must be succeeded or absent-accepted");
+  }
+  const approvalRecord = text(p["approval_record"], "approval_record");
+  if (!/^https:\/\/github\.com\/egawilldoit\/ega-skills\/(?:issues|pull)\/[0-9]+(?:#issuecomment-[0-9]+)?$/.test(approvalRecord)) {
+    fail("approval_record must be an issue or pull request record in egawilldoit/ega-skills");
+  }
   return {
     digest: digest(value["digest"], "authorization digest"),
     object_type: BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE,
     payload: {
-      approval_record: text(p["approval_record"], "approval_record"),
+      approval_record: approvalRecord,
       approved_at: timestamp(p["approved_at"], "approved_at"),
       approved_by: text(p["approved_by"], "approved_by"),
       baseline_artifact_tree_digest: digest(p["baseline_artifact_tree_digest"], "baseline_artifact_tree_digest"),
@@ -521,11 +539,13 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
       baseline_release_digest: digest(p["baseline_release_digest"], "baseline_release_digest"),
       canonical_alias: alias(p["canonical_alias"], "canonical_alias"),
       hub_id: text(p["hub_id"], "hub_id"),
+      legacy_deployment_checks: p["legacy_deployment_checks"],
       migration_source_commit: commitSha(p["migration_source_commit"], "migration_source_commit"),
       predecessor_deployment_id: deploymentId(p["predecessor_deployment_id"], "predecessor_deployment_id"),
       predecessor_source_commit: commitSha(p["predecessor_source_commit"], "predecessor_source_commit"),
       production_branch: text(p["production_branch"], "production_branch"),
       publisher: publisher(p["publisher"]),
+      reviewed_runtime_commit: commitSha(p["reviewed_runtime_commit"], "reviewed_runtime_commit"),
       scope: BASELINE_MIGRATION_SCOPE,
     },
     schema_version: BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION,
@@ -549,6 +569,7 @@ export interface BaselineMigrationObservation {
   readonly git_production_auto_deploy: boolean;
   readonly production_aliases: readonly string[];
   readonly alias_target_deployment_id: string;
+  readonly served_deployment_id: string;
   readonly deployment_ready_state: string;
   readonly deployment_checks_state: "succeeded" | "failed" | "pending" | "none";
   /** Vercel's immutable source-commit metadata for the serving deployment. */
@@ -568,7 +589,9 @@ export interface BaselineMigrationExpectation {
   readonly baseline_candidate_digest: string;
   readonly baseline_artifact_tree_digest: string;
   readonly predecessor_source_commit: string;
+  readonly reviewed_runtime_commit: string;
   readonly migration_source_commit: string;
+  readonly legacy_deployment_checks: "succeeded" | "absent-accepted";
   readonly publisher_vercel_user_id: string;
   readonly now: string;
   readonly max_approval_age_ms: number;
@@ -635,7 +658,9 @@ export function assessBaselineMigration(input: {
     if (p.baseline_candidate_digest !== expected.baseline_candidate_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization candidate does not match the retained candidate");
     if (p.baseline_artifact_tree_digest !== expected.baseline_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization artifact tree does not match the retained artifact");
     if (p.predecessor_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization predecessor source commit does not match");
+    if (p.reviewed_runtime_commit !== expected.reviewed_runtime_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization reviewed runtime commit does not match");
     if (p.migration_source_commit !== expected.migration_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source commit does not match");
+    if (p.legacy_deployment_checks !== expected.legacy_deployment_checks) block("E_BASELINE_CHECKS_NOT_PASSED", "authorization legacy check policy does not match the target");
     if (p.predecessor_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "authorization predecessor deployment does not match");
     if (p.canonical_alias !== expected.canonical_alias) block("E_BASELINE_IDENTITY_MISMATCH", "authorization canonical alias does not match");
     if (p.production_branch !== expected.production_branch) block("E_BASELINE_IDENTITY_MISMATCH", "authorization production branch does not match");
@@ -654,14 +679,24 @@ export function assessBaselineMigration(input: {
   if (observed.production_branch !== expected.production_branch) block("E_BASELINE_IDENTITY_MISMATCH", "Vercel production branch mismatch");
   if (observed.canonical_alias !== expected.canonical_alias) block("E_BASELINE_PLATFORM_GUARD", "canonical production alias mismatch");
   if (observed.alias_target_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "production alias does not target the recorded legacy deployment");
+  if (observed.served_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "the deployment that answered the probe is not the recorded legacy deployment");
   if (observed.deployment_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "the serving deployment's immutable source commit is not the recorded predecessor commit");
-  if (observed.legacy_readyz === "digest") block("E_BASELINE_LEGACY_STATE", "the live runtime already reports a release digest; use the normal publisher");
-  else if (observed.legacy_readyz === "unavailable") block("E_BASELINE_LEGACY_STATE", "the legacy readiness probe is unavailable; 200 alone is not predecessor proof");
-  if (observed.legacy_readyz === "legacy" && observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
-  if (observed.git_production_auto_deploy) block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is enabled for the production branch");
-  if (observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) block("E_BASELINE_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  if (observed.legacy_readyz !== "legacy") {
+    block("E_BASELINE_LEGACY_STATE", observed.legacy_readyz === "digest"
+      ? "the live runtime already reports a release digest; use the normal publisher"
+      : "the live runtime is not the exact legacy readiness shape; 200 alone is not predecessor proof");
+  }
+  if (observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
+  if (observed.git_production_auto_deploy !== false) block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch");
+  if (!Array.isArray(observed.production_aliases) || observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) {
+    block("E_BASELINE_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  }
   if (observed.deployment_ready_state !== "READY") block("E_BASELINE_DEPLOYMENT_NOT_READY", "the legacy deployment is not READY");
-  if (observed.deployment_checks_state !== "succeeded") block("E_BASELINE_CHECKS_NOT_PASSED", "the legacy deployment checks have not concluded successfully");
+  if (expected.legacy_deployment_checks === "succeeded") {
+    if (observed.deployment_checks_state !== "succeeded") block("E_BASELINE_CHECKS_NOT_PASSED", "the legacy deployment checks have not concluded successfully");
+  } else if (observed.deployment_checks_state !== "none") {
+    block("E_BASELINE_CHECKS_NOT_PASSED", "the legacy deployment checks are present but not successful; absent-accepted does not accept failed or pending checks");
+  }
 
   return {
     artifact_tree_digest: expected.baseline_artifact_tree_digest,

@@ -130,10 +130,19 @@ documented" as inventory proof.
 ### 4.3 Deployment checks concluded successfully
 
 Read the immutable deployment `GET /v13/deployments/<deploymentId>`.
-Accept only `readyState === "READY"` and `checksConclusion === "succeeded"`.
-`checksState: "completed"` with no conclusion, a pending check, a failed check,
-or no check configuration (`none`) blocks. Configure a real production check if
-none exists; do not force-promote.
+
+For the **legacy 117 predecessor**, the deployment predates deployment checks.
+Use `legacy_deployment_checks: "absent-accepted"` only when the deployment is
+`READY`, `/readyz` is the exact legacy shape, the artifact/source binding is
+exact, and the owner explicitly accepts the absence. `failed` and `pending`
+always block. If the legacy deployment already has a successful conclusion, use
+`"succeeded"` instead.
+
+For the **migration deployment and the 126 predecessor**, accept only
+`readyState === "READY"` and `checksConclusion === "succeeded"`. If the project
+does not attach checks to CLI deployments, configure a real deployment check
+before the migration; do not force-promote. The migration will restore the
+predecessor if the promoted deployment has no successful check.
 
 ### 4.4 Genuine external single-writer / access-control certification
 
@@ -158,8 +167,10 @@ Create a readiness record outside the repository with exactly these fields:
 }
 ```
 
-The flags are review attestations, not Vercel ACL enforcement. The reviewer
-must actually verify that the publisher token is the only production-capable
+The flags are review attestations, not Vercel ACL enforcement. The script
+validates the record's shape, target binding, freshness and HTTPS URL, but it
+does not fetch or authenticate the linked review. The release operator must
+actually verify that the publisher token is the only production-capable
 credential and that every other principal's deployment/promotion rights are
 removed. Record the residual risk explicitly: Vercel aliases have no
 compare-and-swap, so a principal with dashboard rights can still move the alias
@@ -185,22 +196,36 @@ the new runtime reports the real 117 digest.
 ### 5.1 Merge the readiness PR
 
 Merge https://github.com/egawilldoit/ega-skills/pull/177 into `release/2.0`
-with the merge guard active (see section 10). Record the merge commit `M1`.
-Confirm the merge-window deployment is `CANCELED`/ignored and the canonical
-alias did not move.
+with the merge guard active (see section 4 and section 10). Record the exact
+merge commit `M1`; do not use the branch tip. Confirm the merge-window
+deployment is `CANCELED`/ignored and the canonical alias did not move.
 
 ### 5.2 Prepare clean sources
 
 ```
 PRE_COMMIT=$(git -C <repo> rev-parse <live-deployment-meta.githubCommitSha>)
-MIGRATION_COMMIT=$(git -C <repo> rev-parse <M1>)
+MIGRATION_COMMIT=<exact M1 merge commit>
+REVIEWED_COMMIT=<exact baseline-migration implementation merge commit>
 
 git -C <repo> worktree add --detach /secure/predecessor-source "$PRE_COMMIT"
 git -C <repo> worktree add --detach /secure/migration-source "$MIGRATION_COMMIT"
+git -C <repo> merge-base --is-ancestor "$PRE_COMMIT" "$MIGRATION_COMMIT"
+git -C <repo> diff --name-status "$PRE_COMMIT" "$MIGRATION_COMMIT"
 ```
 
+The diff must contain exactly `packages/mcp/server.mts`,
+`packages/mcp/src/vercel-adapter.ts` and
+`tests/mcp/vercel-adapter.test.mjs`. Any other path means the migration is not
+the reviewed readiness change and must not run. If the release branch tip
+contains unrelated commits after the live deployment's source commit, create a
+dedicated commit from `PRE_COMMIT` that applies only those three reviewed paths,
+review it, and authorize that exact commit instead. The two readiness files are
+pinned by code constants in the publisher and compared from Git objects, not
+the working tree.
+
 Both worktrees must be clean. Do not run `pnpm install` in them; the Vercel
-build runs from the uploaded source. Verify both artifacts:
+build runs from a fresh detached worktree at `MIGRATION_COMMIT` with no
+untracked or ignored files. Verify both artifacts:
 
 ```
 (cd /secure/predecessor-source && node <repo>/scripts/hosted/validate-artifact.mjs packages/mcp/artifact)
@@ -230,15 +255,21 @@ The payload is exactly the schema in the runbook section
 - `baseline_artifact_tree_digest = sha256:ad9f…`
 - `predecessor_deployment_id = <live alias target>`
 - `predecessor_source_commit = <live deployment meta.githubCommitSha>`
+- `reviewed_runtime_commit = <exact implementation merge commit>`
 - `migration_source_commit = M1`
+- `legacy_deployment_checks = "absent-accepted"` (or `"succeeded"` if the
+  legacy deployment has a real successful check)
 - `canonical_alias = ega-skills-mcp.vercel.app`
 - `production_branch = release/2.0`
 - publisher team/project/user as in section 1
-- `approved_by`, `approved_at`, `approval_record`, `scope:
+- `approved_by`, `approved_at`, `approval_record` (a concrete GitHub issue or
+  pull request URL in `egawilldoit/ega-skills`), `scope:
   "runtime-readiness-only"`
 
-`baseline-authorize` validates and writes the envelope; it does not grant
-approval.
+`baseline-authorize` validates and writes the envelope; it does not grant or
+authenticate approval. The operator must verify the owner decision at
+`approval_record` before using the envelope. The script treats the envelope as
+a transcription of that decision, exactly like the normal publication approval.
 
 ### 5.4 Dry-run, then apply
 
@@ -271,21 +302,30 @@ Apply by adding:
 The command:
 
 1. requires the legacy `/readyz` shape, exact alias target, immutable source
-   commit, artifact tree and platform controls;
-2. stages with `vercel deploy --prod --skip-domain`;
-3. requires the staged `/readyz` to report the exact 117 digest;
-4. writes the immutable staging record;
+   commit, artifact tree, reviewed delta/runtime files and platform controls;
+2. creates a fresh detached worktree at the exact migration commit, requires
+   no untracked or ignored files, and stages it with `vercel deploy --prod
+   --skip-domain --project <id> --meta githubCommitSha=<M1>`;
+3. requires the staged `/readyz` to report the exact 117 digest and the staged
+   deployment API document to report the exact migration source commit;
+4. fsyncs the immutable staging record;
 5. promotes without `--force`;
-6. polls the alias and `/readyz` until the exact 117 digest is served;
-7. writes an append-only migration receipt bound to the authorization,
-   candidate, artifact tree, source commits and deployments.
+6. polls the alias, deployment source commit and `/readyz` until the exact 117
+   digest is served by the authorized commit;
+7. writes a write-once migration receipt bound to the authorization, candidate,
+   artifact tree, source commits and deployments. The reserved
+   `<receipt>.pending` intent is retained.
 
 If the process dies after the alias moves, run `baseline-reconcile` with the
 same authorization/sources/target flags, `--staging
 /secure/outside-repo/baseline-staging.json` and a **new** receipt path. It
-never moves the alias. If the migration fails after promotion, the command
-restores the original legacy deployment and verifies its legacy readiness
-shape; the FAILED receipt is written as `<receipt>.failed.json`.
+never moves the alias, requires the live deployment to report the exact
+migration source commit, and re-reads the live identity before writing the
+receipt. If the migration fails after promotion, the command restores the
+original legacy deployment and verifies its legacy readiness shape; if recovery
+returns evidence, the FAILED receipt is written as `<receipt>.failed.json`. If
+recovery itself fails, preserve the pending intent and staging record and
+reconcile manually — do not claim a successful restore.
 
 ### 5.5 Expected result
 
@@ -304,7 +344,10 @@ Do not proceed to the 126 promotion if any of these is false.
 
 The normal publisher remains the only supported path. Stage and promote from
 the exact merged implementation/release commit, with the candidate and approval
-recorded in issue #168.
+recorded in issue #168. The `stage` command verifies `--candidate`, then deploys
+`<checkout>/packages/mcp`; run it only from the checkout whose
+`packages/mcp/artifact` is that exact candidate. The staged `/readyz` digest
+check is the final guard, but a mismatch wastes a staging cycle.
 
 ```
 EGA_VERCEL_TOKEN_FILE=/secure/vercel.token \

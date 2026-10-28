@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   assessBaselineMigration,
@@ -13,10 +14,14 @@ import {
 import {
   acquirePublicationLease,
   artifactTreeDigest,
+  createBaselineDeployWorktree,
   executeBaselineMigration,
   executeBaselineReconcile,
   probeLegacyReady,
+  removeBaselineDeployWorktree,
   VercelApi,
+  verifyBaselineDelta,
+  verifyBaselineRuntimeFiles,
   verifyBaselineStaging,
   verifyBaselineWorktree,
 } from "../../scripts/hosted/publish-production.mjs";
@@ -34,11 +39,12 @@ const PUBLISHER = "Dc0U1Ov3Zh5zeFKeic10bVWj";
 const ALIAS = "ega-skills-mcp.vercel.app";
 const PRE_COMMIT = "a".repeat(40);
 const MIGRATION_COMMIT = "b".repeat(40);
+const REVIEWED_COMMIT = "d".repeat(40);
 const NOW = Date.parse("2026-10-27T13:00:00.000Z");
 
 function authorizationPayload(overrides = {}) {
   return {
-    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#baseline-migration",
+    approval_record: "https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-6471216248",
     approved_at: "2026-10-27T12:00:00.000Z",
     approved_by: "owner",
     baseline_artifact_tree_digest: BASELINE_TREE,
@@ -46,11 +52,13 @@ function authorizationPayload(overrides = {}) {
     baseline_release_digest: BASELINE,
     canonical_alias: ALIAS,
     hub_id: "personal",
+    legacy_deployment_checks: "succeeded",
     migration_source_commit: MIGRATION_COMMIT,
     predecessor_deployment_id: PREDECESSOR,
     predecessor_source_commit: PRE_COMMIT,
     production_branch: "release/2.0",
     publisher: { owner_subject: "owner", project_id: PROJECT, team_id: TEAM, vercel_user_id: PUBLISHER },
+    reviewed_runtime_commit: REVIEWED_COMMIT,
     scope: "runtime-readiness-only",
     ...overrides,
   };
@@ -64,6 +72,7 @@ const expected = {
   baseline_artifact_tree_digest: BASELINE_TREE,
   baseline_candidate_digest: BASELINE_CANDIDATE,
   canonical_alias: ALIAS,
+  legacy_deployment_checks: "succeeded",
   max_approval_age_ms: 24 * 60 * 60 * 1000,
   migration_source_commit: MIGRATION_COMMIT,
   now: "2026-10-27T13:00:00.000Z",
@@ -73,6 +82,7 @@ const expected = {
   production_branch: "release/2.0",
   project_id: PROJECT,
   publisher_vercel_user_id: PUBLISHER,
+  reviewed_runtime_commit: REVIEWED_COMMIT,
   staged_deployment_id: STAGED,
   team_id: TEAM,
 };
@@ -112,6 +122,19 @@ test("the exact authorized baseline migration is READY only for the legacy readi
   }
 });
 
+test("a pre-check legacy deployment is accepted only with explicit absent-accepted authorization", () => {
+  const auth = authorization({ legacy_deployment_checks: "absent-accepted" });
+  const absent = observation({ deployment_checks_state: "none" });
+  const expect = { ...expected, legacy_deployment_checks: "absent-accepted" };
+  assert.equal(assessBaselineMigration({ authorization: auth, expected: expect, observation: absent }).status, "READY");
+  for (const checks of ["failed", "pending", "succeeded"]) {
+    const result = assessBaselineMigration({ authorization: auth, expected: expect, observation: observation({ deployment_checks_state: checks }) });
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_BASELINE_CHECKS_NOT_PASSED"), checks);
+  }
+  const strict = assessBaselineMigration({ authorization: authorization(), expected, observation: absent });
+  assert.ok(strict.blockers.some((blocker) => blocker.code === "E_BASELINE_CHECKS_NOT_PASSED"));
+});
+
 test("missing, substituted and stale predecessor evidence is refused", () => {
   const cases = [
     [{ alias_target_deployment_id: OTHER }, "E_BASELINE_PREDECESSOR_MISMATCH"],
@@ -126,6 +149,11 @@ test("missing, substituted and stale predecessor evidence is refused", () => {
     [{ team_id: "team_other" }, "E_BASELINE_IDENTITY_MISMATCH"],
     [{ project_id: "prj_other" }, "E_BASELINE_IDENTITY_MISMATCH"],
     [{ production_branch: "main" }, "E_BASELINE_IDENTITY_MISMATCH"],
+    [{ served_deployment_id: OTHER }, "E_BASELINE_PREDECESSOR_MISMATCH"],
+    [{ legacy_readyz: undefined }, "E_BASELINE_LEGACY_STATE"],
+    [{ legacy_readyz: "unknown" }, "E_BASELINE_LEGACY_STATE"],
+    [{ git_production_auto_deploy: undefined }, "E_BASELINE_PLATFORM_GUARD"],
+    [{ production_aliases: undefined }, "E_BASELINE_PLATFORM_GUARD"],
   ];
   for (const [change, code] of cases) {
     const result = assess({ obs: observation(change) });
@@ -143,7 +171,9 @@ test("authorization must bind the exact candidate, artifact tree, commits, publi
     [{ baseline_candidate_digest: "sha256:" + "1".repeat(64) }, "E_BASELINE_SOURCE_MISMATCH"],
     [{ baseline_artifact_tree_digest: "sha256:" + "2".repeat(64) }, "E_BASELINE_SOURCE_MISMATCH"],
     [{ predecessor_source_commit: "c".repeat(40) }, "E_BASELINE_SOURCE_MISMATCH"],
-    [{ migration_source_commit: "d".repeat(40) }, "E_BASELINE_SOURCE_MISMATCH"],
+    [{ reviewed_runtime_commit: "e".repeat(40) }, "E_BASELINE_SOURCE_MISMATCH"],
+    [{ migration_source_commit: "f".repeat(40) }, "E_BASELINE_SOURCE_MISMATCH"],
+    [{ legacy_deployment_checks: "absent-accepted" }, "E_BASELINE_CHECKS_NOT_PASSED"],
     [{ predecessor_deployment_id: OTHER }, "E_BASELINE_PREDECESSOR_MISMATCH"],
     [{ baseline_release_digest: "sha256:" + "3".repeat(64) }, "E_BASELINE_PREDECESSOR_MISMATCH"],
     [{ canonical_alias: "other.vercel.app" }, "E_BASELINE_IDENTITY_MISMATCH"],
@@ -168,6 +198,7 @@ test("a tampered or extended authorization envelope is refused", () => {
     { ...auth, digest: "sha256:" + "0".repeat(64) },
     { ...auth, extra: true },
     { ...auth, payload: { ...auth.payload, scope: "release-change" } },
+    { ...auth, payload: { ...auth.payload, approval_record: "https://example.com/approval" } },
   ]) {
     const result = assess({ auth: candidate });
     assert.equal(result.status, "BLOCKED");
@@ -194,6 +225,16 @@ test("the committed artifact tree digest is stable", () => {
   assert.equal(artifactTreeDigest(root, "packages/mcp/artifact"), CURRENT_TREE);
 });
 
+test("artifact trees reject escaping paths and symlinks", { skip: process.platform === "win32" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "ega-baseline-symlink-"));
+  mkdirSync(join(root, "artifact"), { recursive: true });
+  writeFileSync(join(root, "artifact", "file.txt"), "bytes\n");
+  symlinkSync(join(root, "artifact", "file.txt"), join(root, "artifact", "link.txt"));
+  assert.throws(() => artifactTreeDigest(root, "artifact"), { code: "E_BASELINE_SOURCE_MISMATCH" });
+  assert.throws(() => artifactTreeDigest(root, "../escape"), { code: "E_BASELINE_SOURCE_MISMATCH" });
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("the legacy readiness probe classifies but never invents a digest", async () => {
   const legacy = await probeLegacyReady(`https://${ALIAS}`, {
     fetch: async () => new Response(JSON.stringify({ status: "ready" }), { status: 200 }),
@@ -205,7 +246,13 @@ test("the legacy readiness probe classifies but never invents a digest", async (
   });
   assert.deepEqual(digest, { release_digest: BASELINE, shape: "digest" });
 
-  for (const response of [new Response("{}", { status: 503 }), new Response("not json", { status: 200 }), new Response(JSON.stringify({ status: "unavailable" }), { status: 200 })]) {
+  for (const response of [
+    new Response("{}", { status: 503 }),
+    new Response("not json", { status: 200 }),
+    new Response(JSON.stringify({ status: "unavailable" }), { status: 200 }),
+    new Response(JSON.stringify({ release_digest: 123, status: "ready" }), { status: 200 }),
+    new Response(JSON.stringify({ release_digest: "not-a-digest", status: "ready" }), { status: 200 }),
+  ]) {
     assert.deepEqual(await probeLegacyReady(`https://${ALIAS}`, { fetch: async () => response.clone() }), { shape: "unavailable" });
   }
   assert.deepEqual(await probeLegacyReady(`https://${ALIAS}`, { fetch: async () => { throw new Error("offline"); } }), { shape: "unavailable" });
@@ -284,6 +331,75 @@ test("the platform mapping refuses alias movement, foreign targets and incomplet
   assert.ok(assessBaselineMigration({ authorization: authorization(), expected, observation: extra }).blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
 });
 
+test("the migration delta is only the reviewed readiness paths and the runtime files come from Git objects", () => {
+  const repo = mkdtempSync(join(tmpdir(), "ega-baseline-delta-"));
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const write = (path, content) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), content);
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "test"]);
+  const pinned = {
+    "packages/mcp/server.mts": readFileSync(new URL("../../packages/mcp/server.mts", import.meta.url)),
+    "packages/mcp/src/vercel-adapter.ts": readFileSync(new URL("../../packages/mcp/src/vercel-adapter.ts", import.meta.url)),
+  };
+  for (const path of ["packages/mcp/server.mts", "packages/mcp/src/vercel-adapter.ts", "tests/mcp/vercel-adapter.test.mjs"]) write(path, "old\n");
+  write("packages/mcp/src/hosted.ts", "runtime\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "predecessor"]);
+  const predecessor = git(["rev-parse", "HEAD"]);
+
+  for (const path of ["packages/mcp/server.mts", "packages/mcp/src/vercel-adapter.ts"]) write(path, pinned[path]);
+  write("tests/mcp/vercel-adapter.test.mjs", "reviewed\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "readiness"]);
+  const migration = git(["rev-parse", "HEAD"]);
+  assert.deepEqual(verifyBaselineDelta({ migrationCommit: migration, predecessorCommit: predecessor, sourceDir: repo }).changed_paths, [
+    "packages/mcp/server.mts",
+    "packages/mcp/src/vercel-adapter.ts",
+    "tests/mcp/vercel-adapter.test.mjs",
+  ]);
+  verifyBaselineRuntimeFiles({ migrationCommit: migration, repoRoot: repo, reviewedCommit: migration, sourceDir: repo });
+
+  write("packages/mcp/src/hosted.ts", "unreviewed runtime change\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "unreviewed"]);
+  const unreviewed = git(["rev-parse", "HEAD"]);
+  assert.throws(
+    () => verifyBaselineDelta({ migrationCommit: unreviewed, predecessorCommit: predecessor, sourceDir: repo }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
+
+  write("packages/mcp/src/vercel-adapter.ts", "tampered\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "tampered"]);
+  const tampered = git(["rev-parse", "HEAD"]);
+  assert.throws(
+    () => verifyBaselineRuntimeFiles({ migrationCommit: tampered, repoRoot: repo, reviewedCommit: migration, sourceDir: repo }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("the deployment worktree is a fresh clean checkout at the exact commit", { skip: process.platform === "win32" }, () => {
+  const repo = fileURLToPath(new URL("../..", import.meta.url));
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout.trim();
+  const worktree = createBaselineDeployWorktree(repo, head);
+  try {
+    assert.equal(spawnSync("git", ["-C", worktree.directory, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim(), head);
+    assert.equal(existsSync(join(worktree.directory, "packages/mcp/artifact/hub-release.json")), true);
+    assert.equal(spawnSync("git", ["-C", worktree.directory, "status", "--porcelain", "--ignored"], { encoding: "utf8" }).stdout.trim(), "");
+  } finally {
+    removeBaselineDeployWorktree({ directory: worktree.directory, parent: worktree.parent, sourceDir: repo });
+  }
+});
+
 test("a migration source worktree must be clean and at the exact reviewed commit", () => {
   const repo = mkdtempSync(join(tmpdir(), "ega-baseline-git-"));
   const git = (args) => {
@@ -345,6 +461,15 @@ function migrationDeps({ mutate = (state) => { state.alias = STAGED; state.legac
       if (state.alias !== STAGED) throw Object.assign(new Error("legacy"), { code: "E_PROBE_UNAVAILABLE" });
       return { release_digest: state.served };
     },
+    readDeploymentIdentity: async () => ({
+      checks_state: "succeeded",
+      deployment_id: STAGED,
+      project_id: PROJECT,
+      ready_state: "READY",
+      source_commit: MIGRATION_COMMIT,
+      target: "production",
+      url: "staged.example.com",
+    }),
     deployStagedProduction: async () => { state.deployed += 1; return { deployment_id: STAGED, url: "https://staged.example.com" }; },
     promote: async () => { state.promoted += 1; mutate(state); },
     recordReceipt: async () => {},
@@ -381,6 +506,7 @@ function source() {
     predecessor_source_commit: PRE_COMMIT,
     predecessor_source_dir: "/tmp/predecessor-source",
     release_digest: BASELINE,
+    reviewed_runtime_commit: REVIEWED_COMMIT,
   };
 }
 
@@ -394,9 +520,17 @@ test("baseline staging records are exact, well-formed and authorization-bound", 
     { ...record, release_digest: "sha256:" + "8".repeat(64) },
     { ...record, authorization_digest: "sha256:" + "7".repeat(64) },
     { ...record, staged_at: "not-a-time" },
+    { ...record, url: "not a URL" },
+    { ...record, url: "http://staged.example.com" },
+    { ...record, url: "https://user:pass@staged.example.com" },
+    { ...record, url: "https://staged.example.com/?a=1" },
   ]) {
     assert.throws(() => verifyBaselineStaging(invalid, expected, auth.digest), { code: "E_BASELINE_STAGE" });
   }
+  assert.throws(
+    () => verifyBaselineStaging(record, expected, auth.digest, Date.parse("2026-10-27T12:30:00.000Z")),
+    { code: "E_BASELINE_STAGE" },
+  );
 });
 
 test("baseline migration stages, promotes and records the exact retained digest", async (t) => {
@@ -453,6 +587,68 @@ test("readiness is mandatory for an applying baseline migration", async (t) => {
     () => executeBaselineMigration({ apply: true, authorization: authorization(), deps, expected, source: source() }),
     { code: "E_PUBLICATION_READINESS" },
   );
+});
+
+test("a staged deployment without the authorized source commit never promotes", async (t) => {
+  const { deps, state, stateDir } = migrationDeps();
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  deps.readDeploymentIdentity = async () => ({
+    checks_state: "succeeded",
+    deployment_id: STAGED,
+    project_id: PROJECT,
+    ready_state: "READY",
+    source_commit: "c".repeat(40),
+    target: "production",
+    url: "staged.example.com",
+  });
+  await assert.rejects(
+    () => executeBaselineMigration({ apply: true, authorization: authorization(), deps, expected, source: source() }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
+  assert.equal(state.promoted, 0);
+
+  deps.readDeploymentIdentity = async () => ({
+    checks_state: "succeeded",
+    deployment_id: STAGED,
+    project_id: PROJECT,
+    ready_state: "READY",
+    source_commit: MIGRATION_COMMIT,
+    target: "production",
+    url: "other.example.com",
+  });
+  await assert.rejects(
+    () => executeBaselineMigration({ apply: true, authorization: authorization(), deps, expected, source: source() }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
+  assert.equal(state.promoted, 0);
+});
+
+test("a promoted deployment that reports a different source commit is restored", async (t) => {
+  const { deps, state, stateDir } = migrationDeps();
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const original = deps.readObservation;
+  deps.readObservation = async () => {
+    const value = await original();
+    return value.alias_target_deployment_id === STAGED ? { ...value, deployment_source_commit: "c".repeat(40) } : value;
+  };
+  await assert.rejects(
+    () => executeBaselineMigration({ apply: true, authorization: authorization(), deps, expected, source: source() }),
+    (error) => error.code === "E_BASELINE_SOURCE_MISMATCH" && error.receipt?.payload.status === "FAILED",
+  );
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.alias, PREDECESSOR);
+});
+
+test("a receipt write failure after promotion restores the predecessor", async (t) => {
+  const { deps, state, stateDir } = migrationDeps();
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  deps.recordReceipt = async () => { throw Object.assign(new Error("receipt disk full"), { code: "E_RECEIPT_WRITE" }); };
+  await assert.rejects(
+    () => executeBaselineMigration({ apply: true, authorization: authorization(), deps, expected, source: source() }),
+    (error) => error.code === "E_RECEIPT_WRITE" && error.receipt?.payload.status === "FAILED",
+  );
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.alias, PREDECESSOR);
 });
 
 test("a failed promotion restores the legacy deployment and records FAILED side evidence", async (t) => {
