@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { vercelToken } from "../../scripts/hosted/publish-production.mjs";
 
-test("publisher credential requires an owner-only regular file without symlinks", () => {
+test("publisher credential requires an owner-only regular file without symlinks", { skip: process.platform !== "linux" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "publisher-token-"));
   try {
     const file = join(dir, "token");

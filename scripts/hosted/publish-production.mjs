@@ -758,6 +758,7 @@ export class VercelApi {
 /* -------------------------------------------------------------------------- */
 
 export function vercelToken(file = process.env.EGA_VERCEL_TOKEN_FILE) {
+  assertPublicationPlatform();
   if (!file) refuse("E_VERCEL_TOKEN", "EGA_VERCEL_TOKEN_FILE must name a 0600 Vercel token file");
   let fd;
   try {
