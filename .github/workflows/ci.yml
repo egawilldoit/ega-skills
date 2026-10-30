@@ -140,7 +140,7 @@ jobs:
         run: pnpm test:web:components
 
       - name: Web API and integration tests
-        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
+        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs tests/web/vercel-cdn-config.test.mjs
 
   web-isolation:
     name: web isolation (real PostgreSQL 16)
