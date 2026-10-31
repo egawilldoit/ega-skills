@@ -1053,14 +1053,10 @@ describe("response size, deadline and concurrency are bounded", () => {
     assert.ok(answers.some((answer) => answer.status === 200));
   });
 
-  test("every route is registered exactly once and is GET-only", () => {
+  test("every route is registered exactly once with its permitted method", () => {
     const ids = REGISTERED_ROUTES.map((route) => route.id);
     assert.equal(new Set(ids).size, ids.length, "no route is registered twice");
-    // Sorted, because the assertion sorts the actual ids. Seven of these are
-    // control-plane surfaces served through the authenticated caller seam
-    // (audit-events, project-detail, projects, security-denies, workspace,
-    // workspace-members, workspace-quotas); the other eight come from the
-    // verified artifact.
+    // Keep the complete inventory explicit so new routes require review.
     assert.deepEqual([...ids].sort(), [
       "analytics-usage",
       "audit-events",
@@ -1076,12 +1072,20 @@ describe("response size, deadline and concurrency are bounded", () => {
       "skill-content",
       "skill-detail",
       "skills",
+      "source-editor-capability",
+      "source-github-import",
+      "source-proposal-preview",
+      "source-proposal-status",
+      "source-proposal-submit",
+      "source-skill-detail",
+      "source-skill-index",
       "workspace",
       "workspace-members",
       "workspace-quotas",
     ]);
+    const writes = new Set(["source-github-import", "source-proposal-preview", "source-proposal-submit"]);
     for (const route of REGISTERED_ROUTES) {
-      assert.deepEqual(route.methods, ["GET"], `${route.id} must be read-only`);
+      assert.deepEqual(route.methods, writes.has(route.id) ? ["POST"] : ["GET"], `${route.id} has unexpected methods`);
       assert.equal(typeof route.handle, "function");
     }
   });
