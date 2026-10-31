@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSkillArchive } from '../../../apps/web/server/source-manager/archive.ts';
+import { prepareSkillArchive, validateSkillArchive } from '../../../apps/web/server/source-manager/archive.ts';
 
 const entry = (path, content, overrides = {}) => {
   const bytes = Buffer.from(content);
@@ -32,5 +32,33 @@ test('rejects traversal, collisions, symlinks, encryption and archive bombs befo
 test('rejects entry streams exceeding or falling short of declared sizes', async () => {
   for (const declared of [1, 3]) {
     await assert.rejects(validateSkillArchive([skill(), entry('sample/assets/file', 'xx', { uncompressedSize: declared })]), error => error.code === 'E_UPLOAD_ARCHIVE');
+  }
+});
+
+test('preserves streamed bytes when a reader reuses its buffer', async () => {
+  const resource = entry('sample/assets/file', 'abcd', {
+    async *read() {
+      const buffer = Buffer.from('ab');
+      yield buffer;
+      buffer.write('cd');
+      yield buffer;
+    },
+  });
+  const result = await validateSkillArchive([skill(), resource]);
+  assert.equal(Buffer.from(result.files[1].bytes).toString(), 'abcd');
+});
+
+test('prepares validated archive content and preserves resource bytes and modes', async () => {
+  const result = await prepareSkillArchive([skill(), entry('sample/scripts/check.sh', '#!/bin/sh\n', { unixMode: 0o100755 })], () => ({ name: 'sample', description: 'A skill' }));
+  assert.equal(result.name, 'sample');
+  assert.equal(result.description, 'A skill');
+  assert.equal(result.body, '# Sample');
+  assert.equal(result.resources[0].mode, '100755');
+  assert.equal(Buffer.from(result.resources[0].contentBase64, 'base64').toString(), '#!/bin/sh\n');
+});
+
+test('refuses invalid or unsupported archive frontmatter', async () => {
+  for (const parse of [() => ({ name: 'another', description: 'A skill' }), () => ({ name: 'sample', description: 'A skill', license: 'MIT' }), () => { throw new Error('invalid YAML'); }]) {
+    await assert.rejects(prepareSkillArchive([skill()], parse), error => error.code === 'E_UPLOAD_ARCHIVE');
   }
 });

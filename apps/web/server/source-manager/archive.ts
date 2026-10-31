@@ -63,7 +63,7 @@ export async function validateSkillArchive(entries: readonly ArchiveEntry[]): Pr
         if (!(chunk instanceof Uint8Array) || ++count > 4096) return invalid('Archive entry content is invalid.');
         size += chunk.byteLength;
         if (size > file.entry.uncompressedSize || size > MAX_FILE_BYTES) return invalid('Archive entry exceeded its declared size.');
-        chunks.push(chunk);
+        chunks.push(Uint8Array.from(chunk));
       }
     } catch (error) { if (error instanceof SourceGuardError) throw error; return invalid('Archive entry could not be read.'); }
     if (size !== file.entry.uncompressedSize) return invalid('Archive entry size does not match its declaration.');
@@ -74,4 +74,25 @@ export async function validateSkillArchive(entries: readonly ArchiveEntry[]): Pr
   }
   if (validateSourceFiles(output).length) return invalid('Archive contains invalid skill files.');
   return { name: root, files: output };
+}
+
+/** Prepare validated archive contents for the existing add-proposal flow. */
+export async function prepareSkillArchive(entries: readonly ArchiveEntry[], parseYaml: (text: string) => unknown): Promise<{
+  name: string;
+  description: string;
+  body: string;
+  resources: Array<{ path: string; mode: string; contentBase64: string }>;
+}> {
+  const { name, files } = await validateSkillArchive(entries);
+  const skill = files.find(file => file.path === 'SKILL.md')!;
+  if (skill.bytes.byteLength > 200_000) return invalid('SKILL.md exceeds 200 KB.');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(skill.bytes);
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  let metadata: unknown;
+  try { if (!match) throw new Error(); metadata = parseYaml(match[1]!); }
+  catch { return invalid('SKILL.md must have valid YAML frontmatter.'); }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || Object.keys(metadata).sort().join(',') !== 'description,name') return invalid('Frontmatter must contain only name and description.');
+  const value = metadata as Record<string, unknown>;
+  if (value.name !== name || typeof value.description !== 'string' || !value.description.trim() || !match?.[2]?.trim()) return invalid('Skill name must match the directory and description and body must be nonempty.');
+  return { name, description: value.description, body: match[2].trim(), resources: files.filter(file => file.path !== 'SKILL.md').map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.bytes).toString('base64') })) };
 }

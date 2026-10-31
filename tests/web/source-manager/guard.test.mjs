@@ -24,5 +24,7 @@ test('requires verified allowlisted subject and rejects origin and content-type 
 test('JSON body parser enforces streaming byte limit and valid UTF-8 JSON', async () => {
   assert.deepEqual(await readEditorJson(req(headers, 'POST', '{"ok":true}')), { ok: true });
   await assert.rejects(readEditorJson(req(headers, 'POST', '{')), e => e.status === 400);
-  await assert.rejects(readEditorJson(req(headers, 'POST', 'x'.repeat(1_000_001))), e => e.status === 413);
+  const encodedResource = Buffer.alloc(900_000).toString('base64');
+  assert.equal((await readEditorJson(req(headers, 'POST', JSON.stringify({ encodedResource })))).encodedResource, encodedResource);
+  await assert.rejects(readEditorJson(req(headers, 'POST', 'x'.repeat(2_500_001))), e => e.status === 413);
 });

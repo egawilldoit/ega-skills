@@ -4,7 +4,9 @@ interface SessionReader {
   resolveCaller(request: { method?: string | undefined; headers: Readonly<Record<string, string | readonly string[] | undefined>>; signal?: AbortSignal | undefined }): Promise<{ subject: string }>;
 }
 
-const MAX_BODY_BYTES = 1_000_000;
+// Resource bytes are base64 encoded in proposal JSON, alongside the editable
+// skill body and metadata. Keep the transport limit above the skill byte cap.
+const MAX_BODY_BYTES = 2_500_000;
 const SUBJECT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class SourceGuardError extends Error {
   readonly status: number;
