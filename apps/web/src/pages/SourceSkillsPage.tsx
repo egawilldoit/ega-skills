@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { parse } from 'yaml';
 import { useApiClient } from '../api/useApiClient';
 import { toApiError } from '../api/client';
+import type { CatalogPage } from '../api/contracts';
 import { useWorkspace } from '../workspace/WorkspaceProvider';
+import { sourcePublishedLinks } from './sourcePublishedLinks';
 
 type Item = { name: string; description: string; provenance: 'copied' | 'adapted' | 'original' };
 type Index = { sha: string; total: number; items: Item[] };
@@ -84,6 +86,8 @@ export function SourceSkillsPage(): ReactNode {
   const [request, setRequest] = useState<unknown>(null);
   const [pr, setPr] = useState<Proposal | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [published, setPublished] = useState<Set<string> | null>(null);
+  const [publishedUnavailable, setPublishedUnavailable] = useState(false);
 
   const load = async (signal?: AbortSignal): Promise<void> => {
     setLoading(true); setError('');
@@ -99,6 +103,15 @@ export function SourceSkillsPage(): ReactNode {
     finally { if (!signal?.aborted) setLoading(false); }
   };
   useEffect(() => { if (role !== 'owner') return; const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [client, role]);
+  useEffect(() => {
+    if (role !== 'owner') return;
+    const controller = new AbortController();
+    setPublished(null); setPublishedUnavailable(false);
+    void sourcePublishedLinks(offset => client.get<CatalogPage>('/skills', { query: { namespace: 'egawilldoit', limit: 200, offset }, signal: controller.signal, timeoutMs: 15_000 }))
+      .then(ids => { if (!controller.signal.aborted) setPublished(ids); })
+      .catch(() => { if (!controller.signal.aborted) setPublishedUnavailable(true); });
+    return () => controller.abort();
+  }, [client, role]);
   if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
@@ -193,9 +206,11 @@ export function SourceSkillsPage(): ReactNode {
     {loading ? <p role="status">Loading source…</p> : null}
     {mode === 'list' && index ? <>
       <button className="button button--primary" onClick={startAdd}>Add skill</button>
+      {publishedUnavailable ? <p>Published skill links are unavailable; source management remains available.</p> : null}
       <p><label>Search <input value={search} onChange={event => setSearch(event.target.value)} /></label>{' '}<label>Provenance <select value={filter} onChange={event => setFilter(event.target.value)}><option value="">All</option><option>original</option><option>adapted</option><option>copied</option></select></label></p>
       <ul>{index.items.filter(item => (!filter || item.provenance === filter) && `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())).map(item => <li key={item.name}>
         <strong>{item.name}</strong> ({item.provenance}) — {item.description}{' '}
+        {published?.has(`egawilldoit/${item.name}`) ? <><a href={`/skills/${encodeURIComponent(`egawilldoit/${item.name}`)}`}>View published skill</a>{' '}</> : null}
         <button disabled={loading} onClick={() => void startEdit(item)}>Edit skill</button>{' '}
         <button disabled={loading} onClick={() => { clear(); setName(item.name); setConfirmation(''); setMode('remove'); }}>Remove from next catalog</button>
       </li>)}</ul>

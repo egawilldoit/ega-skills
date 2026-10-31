@@ -31,8 +31,8 @@ const registryPath = 'upstream-sources.json';
 function validateRoutingTags(tags: RoutingTags): string[] {
   const errors: string[] = [];
   for (const [field, values] of Object.entries(tags)) {
-    const normalized = values.map(value => value.trim().toLowerCase());
-    if (normalized.some(value => !/^[a-z0-9][a-z0-9._+-]{0,63}$/.test(value)) || new Set(normalized).size !== normalized.length) errors.push(`${field} must contain unique valid routing identifiers.`);
+    const normalized = values.map((value: string) => value.trim().toLowerCase());
+    if (normalized.some((value: string) => !/^[a-z0-9][a-z0-9._+-]{0,63}$/.test(value)) || new Set(normalized).size !== normalized.length) errors.push(`${field} must contain unique valid routing identifiers.`);
   }
   return errors;
 }
@@ -95,7 +95,7 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
   changes[casesPath] = JSON.stringify(cases, null, 2) + '\n';
   changes[`skills/${name}/SKILL.md`] = `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body.trim()}\n`;
   const yamlList = (values: string[]) => values.map(value => `  - ${JSON.stringify(value.trim())}\n`).join('');
-  const tagYaml = input.routingTags ? Object.entries(input.routingTags).filter(([, values]) => values.length).map(([field, values]) => `${field}:\n${yamlList(values.map(value => value.trim().toLowerCase()))}`).join('') : '';
+  const tagYaml = input.routingTags ? Object.entries(input.routingTags).filter(([, values]) => values.length).map(([field, values]) => `${field}:\n${yamlList(values.map((value: string) => value.trim().toLowerCase()))}`).join('') : '';
   changes[`skills/${name}/ega.yaml`] = `schema_version: 1\n${tagYaml}triggers:\n${yamlList(input.triggers)}anti_triggers:\n${yamlList(input.antiTriggers)}`;
   changes[`skills/${name}/agents/openai.yaml`] = `interface:\n  display_name: "${input.interface.displayName}"\n  short_description: "${input.interface.shortDescription}"\n  default_prompt: "${input.interface.prompt}"\n`;
   for (const file of resources) changes[`skills/${name}/${file.path}`] = { contentBase64: file.contentBase64, mode: file.mode };
@@ -161,7 +161,7 @@ export function planSkillUpdate(snapshot: SourceSnapshot, input: SkillUpdate, pa
       if (metadata.schema_version !== 1 || (metadata.triggers != null && (!Array.isArray(metadata.triggers) || metadata.triggers.some(v => typeof v !== 'string'))) || (metadata.anti_triggers != null && (!Array.isArray(metadata.anti_triggers) || metadata.anti_triggers.some(v => typeof v !== 'string')))) throw new Error();
       const triggers = input.routing.triggers.map(value => value.trim());
       const antiTriggers = input.routing.antiTriggers.map(value => value.trim());
-      const tags = input.routing.tags ? Object.fromEntries(Object.entries(input.routing.tags).map(([key, values]) => [key, values.map(value => value.trim().toLowerCase())])) : {};
+      const tags = input.routing.tags ? Object.fromEntries(Object.entries(input.routing.tags).map(([key, values]) => [key, values.map((value: string) => value.trim().toLowerCase())])) : {};
       if (JSON.stringify(metadata.triggers ?? []) !== JSON.stringify(triggers) || JSON.stringify(metadata.anti_triggers ?? []) !== JSON.stringify(antiTriggers) || Object.entries(tags).some(([key, values]) => JSON.stringify(metadata[key] ?? []) !== JSON.stringify(values))) {
         changes[routingPath] = JSON.stringify({ ...metadata, ...tags, triggers, anti_triggers: antiTriggers }, null, 2) + '\n';
       }
