@@ -428,3 +428,16 @@ describe("every endpoint the console calls has a declared decoder", () => {
     }
   });
 });
+test("the client sends a source proposal as same-origin JSON with the verified session token", async () => {
+  const { createApiClient } = await import('../../apps/web/src/api/client.ts');
+  let sent;
+  const client = createApiClient({ getAccessToken: async () => 'session', fetchImpl: async (url, init) => { sent = { url, init }; return new Response(JSON.stringify({ ok: true })); } });
+  await client.post('/skill-proposals/preview', { proposal: 'example' });
+  assert.equal(sent.url, '/api/skill-proposals/preview');
+  assert.equal(sent.init.method, 'POST');
+  assert.equal(sent.init.credentials, 'same-origin');
+  assert.equal(sent.init.redirect, 'error');
+  assert.equal(sent.init.headers.authorization, 'Bearer session');
+  assert.equal(sent.init.headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(sent.init.body), { proposal: 'example' });
+});

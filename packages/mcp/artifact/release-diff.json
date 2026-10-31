@@ -1,9 +1,17 @@
 {
-  "digest": "sha256:782095535e3d450326034c55105be1e0d75afe19287073ab47c88d9cb007bb7b",
+  "digest": "sha256:82f90d305b8a89b4817b55aa2d1894a229f98aacc4dcf2cad7b0f1a2e0c46c68",
   "object_type": "ega.release-diff",
   "payload": {
     "added_skill_ids": [
-      "egawilldoit/ship-one-outcome"
+      "t3dotgg/babysit-pr",
+      "t3dotgg/council",
+      "t3dotgg/file-pr",
+      "t3dotgg/full-send",
+      "t3dotgg/full-stop",
+      "t3dotgg/leaving-pr-comments",
+      "t3dotgg/modernize",
+      "t3dotgg/sol-loop",
+      "t3dotgg/takeover"
     ],
     "artifact_changes": {
       "adopted_sources": true,
@@ -11,33 +19,19 @@
       "search_index_input": true,
       "token_artifact": true
     },
-    "base_release_digest": "sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3",
-    "candidate_release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+    "base_release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+    "candidate_release_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
     "hub_id": "personal",
     "removed_skill_ids": [],
     "status": "CHANGED",
-    "updated_skills": [
-      {
-        "candidate_version_hash": "sha256:514cb81b926468f8a277900ac78f64d5f6bcec76ee8f3a42e5a53d97056a5258",
-        "previous_version_hash": "sha256:359d3ea13c11e512a7481bbe1ee44e97bdb8bbfafe7485f08764271d456dab3d",
-        "skill_id": "egawilldoit/certify-production-target"
-      },
-      {
-        "candidate_version_hash": "sha256:fbf30a715b0a29167c2fb33f37211b1702e55f6a205f91fc236a1c7848ce4675",
-        "previous_version_hash": "sha256:6cf6aedc14e04689b2c3723da51a9712b27f7b9c67dc172c8fe08504947861fe",
-        "skill_id": "egawilldoit/certify-release"
-      },
-      {
-        "candidate_version_hash": "sha256:5f76a0254477a0e2c1c57d77b386d4195c60ae544601f20eb72f37e31407d925",
-        "previous_version_hash": "sha256:379754e7058ac53bb3cd915732a82fd7787401dfee9d81f40934d6335d90aa45",
-        "skill_id": "egawilldoit/design-architecture"
-      },
-      {
-        "candidate_version_hash": "sha256:10fd167c88adaa4c0dcf513a48c89ee8b154799ef39edb55cffeb8138af577b9",
-        "previous_version_hash": "sha256:eb14e648dca516c6f62261e45d8c0f1e117adf0648f4dcaad1ff1bdb8c31f9bb",
-        "skill_id": "egawilldoit/get-pr-comments"
+    "updated_skills": [],
+    "invocation_policy": {
+      "previous": null,
+      "candidate": {
+        "digest": "sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6",
+        "profile": "ega-invocation-policy-v1"
       }
-    ]
+    }
   },
-  "schema_version": 1
+  "schema_version": 2
 }

@@ -6,7 +6,7 @@
  * The categories the Skills page renders are the catalog's own values for
  * `namespace`, `domain`, `framework` and the human-intent presentation `group`
  * — the panel holds no registry of its own. These tests execute that claim
- * against the REAL committed release (`packages/mcp/artifact`, 116 skills)
+ * against the REAL committed release (`packages/mcp/artifact`, 126 skills)
  * rather than trusting the source:
  *
  * 1. every axis the panel declares is a filter the catalog really accepts, and
@@ -182,10 +182,17 @@ describe("the categories the panel renders are the catalog's own categories", ()
 
   test("the groups facet exposes the presentation groups with real counts", () => {
     const groups = fullCatalog().facets.groups;
-    assert.ok(groups.length === 13, `the committed presentation defines 13 groups, got ${groups.length}`);
+    assert.ok(groups.length === 14, `the committed presentation defines 14 groups, got ${groups.length}`);
     for (const entry of groups) {
       assert.ok(entry.skill_count > 0, `group ${entry.value} must cover at least one real skill`);
     }
+    const tstack = groups.find((entry) => entry.value === "tstack-pr");
+    assert.equal(tstack?.skill_count, 9, "the TStack group must contain all nine approved skills");
+    assert.deepEqual(
+      presentationGroupMembers("tstack-pr").sort(),
+      COMMITTED_SKILL_IDS.filter((id) => id.startsWith("t3dotgg/")).sort(),
+      "TStack presentation membership must match the exact released additions",
+    );
     const verify = groups.find((entry) => entry.value === "verify");
     assert.ok(verify, "the committed presentation must still contain the verify group");
   });
@@ -276,10 +283,10 @@ describe("a category cannot fabricate a skill", () => {
     // Facets over an empty filtered set are honestly empty — no group invented.
     assert.deepEqual([...page.facets.groups], []);
     // And the unfiltered catalog is unaffected: the empty result is recoverable
-    // and the release's real 13 groups are still there.
+    // and the release's real 14 groups are still there.
     const unfiltered = fullCatalog();
     assert.ok(unfiltered.total > 0);
-    assert.equal(unfiltered.facets.groups.length, 13);
+    assert.equal(unfiltered.facets.groups.length, 14);
   });
 
   test("an unknown skill id reached from a category is a 404, not a nearest match", () => {

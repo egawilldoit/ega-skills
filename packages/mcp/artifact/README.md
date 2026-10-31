@@ -1,52 +1,33 @@
-# Bundled immutable HubRelease artifact (Vercel deployment)
+# Prepared immutable I1 release — not production acceptance
 
-This directory is the deployment-time home of the ONE immutable verified
-HubRelease served by the Vercel Node runtime.
+Hub `personal`; 126 skills: the original 117 unchanged, plus nine TStack skills.
 
-Set on Vercel:
+- Semantic release: `sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`
+- Candidate: `sha256:bcc1f72e30f36deaa16fbaee5af00ab19ebf1022029a77207244d0794e902775`
+- Policy: `sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6`
+- SQLite: `sha256:dfe974301b67cd36aa53208c24e2bc3b2bfca3d3d306488dc0aa772e141b6896`
 
-```text
-EGA_HOSTED_ARTIFACT_DIR=./artifact
-```
+Exported from the governed candidate without rebuilding source inputs. Runtime
+activation requires the complete I1 policy, candidate and approval sidecars;
+older runtimes must reject it. Validate with `scripts/hosted/validate-artifact.mjs`.
 
-## Prepared release candidate
+The release owner approved the exact nine versions and semantic identity, then
+confirmed publisher MORTAKI0 / mortaki0, Vercel user Dc0U1Ov3Zh5zeFKeic10bVWj.
+Recorded evidence: https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-6471216248
+This is an operator transcription of the genuine owner decision, not a new approval.
 
-- Release digest: `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
-- Hub: `personal`; 117 skills (mattpocock 27, anthropic 14, vercel 9, egawilldoit 67).
-- Source: `egawilldoit/skills@8f264fc5fcb5691694c3653287f4d9370c5b025c`.
-- Delta: 112 unchanged, four metadata-only updates, Ship One Outcome added, zero removed.
-- Parent catalog: `catalog-2026-10-06.1`, digest
-  `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`.
-- Software remains EGA Skills **2.0.1**. See `PROVENANCE.md` and the
-  `docs/evidence/catalog/ship-one-outcome/` receipts.
-- Local preparation is approved. PR merge and all production publication actions
-  require separate authorization. These files do not establish hosted availability.
+Production publication remains gated by the release runbook. These committed
+bytes and a preview deployment do not establish production availability.
+The previous 117-skill release `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+and its governed candidate remain retained for rollback.
 
-A valid artifact contains everything required by the current loader
-(`loadHostedReleaseSnapshot`), including:
+Original TStack content is unmodified at commit
+`7de017b3fc9d50c03cf3ecb98fb71e0ca65a78bd`, under the MIT license.
+Hosted get_content serves text, not executable companion installation.
+For babysit-pr/scripts/pr-wait, retrieve from the pinned original upstream and
+verify SHA-256 `90393f85b95b78bff1b039744bdfb09dc88ff2b430e1c3df687ee6f449c97214`
+before any separately authorized host-side use. Skill selection grants no
+permission to delegate, merge, deploy or write; external hosts enforce permissions.
 
-- `hub-release.json`
-- `release-package.json`
-- `registry.sqlite`
-- required `cache/sha256/` blob content
-
-Do NOT invent an artifact. Do NOT use a random test fixture as production
-content. Do NOT regenerate an identity silently.
-
-Validate a proposed artifact BEFORE deployment with the deterministic
-checker (calls the existing release verification code, weakens nothing):
-
-```sh
-pnpm build
-node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
-```
-
-The application reaches `/readyz = 200` only after the complete release
-passes verification.
-
-Note: `registry.sqlite*` and `cache/` stay git-ignored by default
-(developer safety). The provisioned production files above were added
-explicitly with `git add -f`; `.gitattributes` pins them binary so no
-platform normalizes the bytes. Re-provisioning means rebuilding with the
-script, re-validating (exit 0), and force-adding the new exact bytes —
-never editing them in place.
+registry.sqlite and cache blobs are immutable binary inputs, explicitly tracked
+with git add -f. Never edit adopted snapshots or normalize their bytes.

@@ -1,0 +1,2510 @@
+{
+  "schema_version": 1,
+  "corpus_id": "personal-intents-v1",
+  "release_digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "catalog_skill_count": 117,
+  "summary": {
+    "intent_count": 81,
+    "auto_select_attempts": 33,
+    "top1_count": 41,
+    "top1_rate": 0.5061728395061729,
+    "top3_count": 70,
+    "top3_rate": 0.8641975308641975,
+    "search_reachable_count": 71,
+    "search_reachable_rate": 0.8765432098765432,
+    "wrong_automatic_selection_count": 22,
+    "wrong_automatic_selection_intents": 22,
+    "wrong_automatic_selection_rate": 0.6666666666666666,
+    "catastrophic_top3_count": 16,
+    "catastrophic_auto_selected_count": 0,
+    "catastrophic_suggested_only_count": 16,
+    "low_confidence_count": 48,
+    "targets": {
+      "measured_attempts": true,
+      "wrong_automatic_selections": false,
+      "top1": false,
+      "top3": false,
+      "no_catastrophic_auto_selection": true
+    },
+    "exec_ok": false,
+    "discovery_ok": false
+  },
+  "pending_skill_intents": [
+    {
+      "id": "ambiguous-skill-memory",
+      "expected_primary": "egawilldoit/find-skill"
+    }
+  ],
+  "results": [
+    {
+      "id": "understand-code",
+      "task": "I just joined this codebase and I have no idea how the request path actually works. Walk me through it.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/understand-codebase",
+        "anthropic/academy-guide",
+        "egawilldoit/recover-design-rationale"
+      ],
+      "ranking": [
+        "egawilldoit/understand-codebase",
+        "anthropic/academy-guide",
+        "egawilldoit/recover-design-rationale"
+      ],
+      "expected_primary": "egawilldoit/understand-codebase",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "recover-design-rationale",
+      "task": "Why is this module shaped like this? Nobody on the team remembers and I want to understand the original reasoning before I touch it.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/recover-design-rationale",
+        "egawilldoit/understand-codebase",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "egawilldoit/recover-design-rationale",
+        "egawilldoit/understand-codebase",
+        "anthropic/academy-guide"
+      ],
+      "expected_primary": "egawilldoit/recover-design-rationale",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "architecture-design",
+      "task": "We need to split the monolith into services next quarter. I want a proper architecture proposal before anyone writes code.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/design-architecture"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/design-architecture"
+      ],
+      "expected_primary": "egawilldoit/design-architecture",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "compare-designs",
+      "task": "We have three possible designs for the scheduling layer and I genuinely cannot tell which one is better. Generate independent reviews and compare them.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/compare-designs",
+        "mattpocock/grill-with-docs",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "egawilldoit/compare-designs",
+        "mattpocock/grill-with-docs",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/compare-designs",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "debug-root-cause",
+      "task": "Users intermittently get a 500 on checkout. I do not want a band-aid, I want the actual underlying cause.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/what-did-i-get-done",
+        "anthropic/academy-guide",
+        "egawilldoit/preflight-repository"
+      ],
+      "ranking": [
+        "egawilldoit/what-did-i-get-done",
+        "anthropic/academy-guide",
+        "egawilldoit/preflight-repository"
+      ],
+      "expected_primary": "egawilldoit/principle-fix-root-causes",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 7,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "debug-hard-bug",
+      "task": "This bug has survived four attempted fixes and keeps coming back on the same gate. Something is wrong with how we are approaching it.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/principle-attack-the-premise",
+        "egawilldoit/understand-codebase",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/principle-attack-the-premise",
+        "egawilldoit/understand-codebase"
+      ],
+      "expected_primary": "egawilldoit/principle-attack-the-premise",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "tdd-explicit",
+      "task": "Let's do this test first. Write the failing test before the implementation, I want strict TDD here.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/tdd",
+        "egawilldoit/tdd"
+      ],
+      "candidates": [],
+      "ranking": [
+        "mattpocock/tdd",
+        "egawilldoit/tdd"
+      ],
+      "expected_primary": "egawilldoit/tdd",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "regression-test",
+      "task": "Write me a regression test that fails on the current code and passes once the bug is fixed.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/tdd",
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "ranking": [
+        "egawilldoit/tdd",
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "expected_primary": "egawilldoit/tdd",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "single-ci-failure",
+      "task": "CI is red, go look at the logs and fix whatever broke.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/fix-ci",
+        "mattpocock/tdd",
+        "egawilldoit/loop-on-ci"
+      ],
+      "ranking": [
+        "egawilldoit/fix-ci",
+        "mattpocock/tdd",
+        "egawilldoit/loop-on-ci"
+      ],
+      "expected_primary": "egawilldoit/fix-ci",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/loop-on-ci"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "ci-until-green",
+      "task": "keep working on CI until everything is green",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/loop-on-ci",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/fix-ci"
+      ],
+      "ranking": [
+        "egawilldoit/loop-on-ci",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/fix-ci"
+      ],
+      "expected_primary": "egawilldoit/loop-on-ci",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/fix-ci"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "checks-failing",
+      "task": "The required checks on this PR are failing. I want someone watching them and retrying until the whole pipeline is clean.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/loop-on-ci",
+        "mattpocock/wayfinder",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/loop-on-ci",
+        "mattpocock/wayfinder"
+      ],
+      "expected_primary": "egawilldoit/loop-on-ci",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "verify-one-claim",
+      "task": "Someone claims the retry logic is safe under concurrency. Prove it or disprove it with real evidence.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/verify-this",
+        "egawilldoit/certify-database-rollout",
+        "egawilldoit/blast-radius"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/verify-this",
+        "egawilldoit/certify-database-rollout"
+      ],
+      "expected_primary": "egawilldoit/verify-this",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "prove-actually-true",
+      "task": "prove whether this is actually true before I trust it",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/verify-this",
+        "egawilldoit/blast-radius",
+        "egawilldoit/recover-work-context"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/verify-this",
+        "egawilldoit/blast-radius"
+      ],
+      "expected_primary": "egawilldoit/verify-this",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "verify-ui",
+      "task": "I need to confirm the new onboarding modal actually renders and the button works in a real browser.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-prove-it-works",
+        "anthropic/academy-guide",
+        "egawilldoit/verify-ui"
+      ],
+      "ranking": [
+        "egawilldoit/principle-prove-it-works",
+        "anthropic/academy-guide",
+        "egawilldoit/verify-ui"
+      ],
+      "expected_primary": "egawilldoit/verify-ui",
+      "rank_of_expected": 2,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 2,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "verify-cli",
+      "task": "Check the terminal behavior of the new subcommand, including the prompt and the output when it fails.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/verify-cli",
+        "anthropic/discernment-nudge",
+        "egawilldoit/verify-ui"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/verify-cli",
+        "anthropic/discernment-nudge"
+      ],
+      "expected_primary": "egawilldoit/verify-cli",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "smoke-tests",
+      "task": "Run the project's end to end suite and tell me what broke.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/run-smoke-tests",
+        "egawilldoit/verify-ui",
+        "egawilldoit/recover-work-context"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/run-smoke-tests",
+        "egawilldoit/verify-ui"
+      ],
+      "expected_primary": "egawilldoit/run-smoke-tests",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [
+        "egawilldoit/verify-ui"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "blast-radius-tiny-change",
+      "task": "check what this tiny change could break elsewhere in the system before it goes out",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/blast-radius",
+        "egawilldoit/adversarial-review",
+        "egawilldoit/design-architecture"
+      ],
+      "ranking": [
+        "egawilldoit/blast-radius",
+        "egawilldoit/adversarial-review",
+        "egawilldoit/design-architecture"
+      ],
+      "expected_primary": "egawilldoit/blast-radius",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/adversarial-review"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "normal-pr-review",
+      "task": "Review my branch, fix anything you find, and get it ready to merge.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/fix-merge-conflicts",
+        "egawilldoit/fix-ci",
+        "egawilldoit/principle-fix-root-causes"
+      ],
+      "ranking": [
+        "egawilldoit/fix-merge-conflicts",
+        "egawilldoit/fix-ci",
+        "egawilldoit/principle-fix-root-causes"
+      ],
+      "expected_primary": "egawilldoit/review-and-ship",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 4,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "review-this-pr",
+      "task": "review this PR and fix whatever's wrong with it so we can ship it",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/review-and-ship",
+        "egawilldoit/new-branch-and-pr",
+        "mattpocock/grill-with-docs"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/review-and-ship",
+        "egawilldoit/new-branch-and-pr"
+      ],
+      "expected_primary": "egawilldoit/review-and-ship",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "deep-independent-review",
+      "task": "I need an independent pre-merge challenge focused on correctness, security and maintainability. Do not rubber stamp it.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/adversarial-review",
+        "egawilldoit/review-and-ship",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/adversarial-review",
+        "egawilldoit/review-and-ship"
+      ],
+      "expected_primary": "egawilldoit/adversarial-review",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [
+        "egawilldoit/review-and-ship"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "pr-comments",
+      "task": "What exactly did the reviewers ask me to change on this pull request?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/get-pr-comments",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "egawilldoit/get-pr-comments",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/get-pr-comments",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "pr-cleanup",
+      "task": "This PR has nine commits with a messy history and a vague description. Make it presentable without changing the behavior.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/make-pr-easy-to-review",
+        "egawilldoit/create-verification-workflow",
+        "egawilldoit/recover-work-context"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/make-pr-easy-to-review",
+        "egawilldoit/create-verification-workflow"
+      ],
+      "expected_primary": "egawilldoit/make-pr-easy-to-review",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "pr-stack",
+      "task": "I have four dependent PRs stacked on each other and need them landed in order without breaking the chain.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/integrate-pr-stack",
+        "egawilldoit/principle-sequence-verifiable-units",
+        "egawilldoit/preflight-repository"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/integrate-pr-stack",
+        "egawilldoit/principle-sequence-verifiable-units"
+      ],
+      "expected_primary": "egawilldoit/integrate-pr-stack",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "new-branch-and-pr",
+      "task": "Start a fresh branch off the default branch, make the change, commit, push and open a PR.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/new-branch-and-pr"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/new-branch-and-pr"
+      ],
+      "expected_primary": "egawilldoit/new-branch-and-pr",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "resume-previous-agent-work",
+      "task": "Another agent worked on this yesterday. Recover where it stopped and continue safely.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "anthropic/claude-api",
+        "mattpocock/handoff",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "anthropic/claude-api",
+        "mattpocock/handoff",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/recover-work-context",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 3,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "mattpocock/handoff",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "take-over-work",
+      "task": "another agent already worked on this and stopped. I need to pick up where it left off without re-reading everything.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/recover-work-context",
+        "mattpocock/handoff",
+        "anthropic/claude-api"
+      ],
+      "ranking": [
+        "egawilldoit/recover-work-context",
+        "mattpocock/handoff",
+        "anthropic/claude-api"
+      ],
+      "expected_primary": "egawilldoit/recover-work-context",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "reconcile-conflicting-truth",
+      "task": "The agent report, GitHub, CI, and deployment disagree about what shipped. Tell me what is actually true.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/reconcile-project-truth",
+        "egawilldoit/recover-work-context",
+        "vercel/deploy-to-vercel"
+      ],
+      "ranking": [
+        "egawilldoit/reconcile-project-truth",
+        "egawilldoit/recover-work-context",
+        "vercel/deploy-to-vercel"
+      ],
+      "expected_primary": "egawilldoit/reconcile-project-truth",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "what-actually-shipped",
+      "task": "Three of our systems tell different stories about this release. I need one answer I can trust.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "anthropic/academy-guide",
+        "egawilldoit/certify-release",
+        "egawilldoit/record-evidence"
+      ],
+      "ranking": [
+        "anthropic/academy-guide",
+        "egawilldoit/certify-release",
+        "egawilldoit/record-evidence"
+      ],
+      "expected_primary": "egawilldoit/reconcile-project-truth",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 4,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "commit-summary",
+      "task": "Summarize what I personally committed over the last three days.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/what-did-i-get-done",
+        "egawilldoit/recover-work-context",
+        "mattpocock/wait-what"
+      ],
+      "ranking": [
+        "egawilldoit/what-did-i-get-done",
+        "egawilldoit/recover-work-context",
+        "mattpocock/wait-what"
+      ],
+      "expected_primary": "egawilldoit/what-did-i-get-done",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/recover-work-context"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "weekly-review",
+      "task": "Give me a weekly synthesis of my authored commits, grouped into a few real highlights.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/weekly-review"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/weekly-review"
+      ],
+      "expected_primary": "egawilldoit/weekly-review",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "certify-release",
+      "task": "Is this release actually good to ship? Certify it against code, runtime and product gates.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/certify-release",
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/certify-pr-head"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/certify-release",
+        "egawilldoit/maintain-verification-workflow"
+      ],
+      "expected_primary": "egawilldoit/certify-release",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "certify-pr-head",
+      "task": "The CI evidence was generated two commits ago. Make sure it actually belongs to the current head before I declare this done.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/recover-work-context",
+        "egawilldoit/certify-pr-head",
+        "egawilldoit/preflight-repository"
+      ],
+      "ranking": [
+        "egawilldoit/recover-work-context",
+        "egawilldoit/certify-pr-head",
+        "egawilldoit/preflight-repository"
+      ],
+      "expected_primary": "egawilldoit/certify-pr-head",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 1,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "artifact-provenance",
+      "task": "Trace exactly how this shipped artifact came from that source commit, through the build, to the digest we deployed.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/trace-artifact-provenance",
+        "egawilldoit/reconcile-project-truth",
+        "egawilldoit/understand-codebase"
+      ],
+      "ranking": [
+        "egawilldoit/trace-artifact-provenance",
+        "egawilldoit/reconcile-project-truth",
+        "egawilldoit/understand-codebase"
+      ],
+      "expected_primary": "egawilldoit/trace-artifact-provenance",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "production-target",
+      "task": "Before this destructive migration runs, prove we are pointed at the right production database and not staging.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/certify-production-target",
+        "egawilldoit/certify-database-rollout",
+        "egawilldoit/design-investigation"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/certify-production-target",
+        "egawilldoit/certify-database-rollout"
+      ],
+      "expected_primary": "egawilldoit/certify-production-target",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "prove-really-deployed",
+      "task": "prove this is really live in the running environment and not just committed somewhere",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/certify-production-target"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/certify-production-target"
+      ],
+      "expected_primary": "egawilldoit/certify-production-target",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "database-rollout",
+      "task": "This migration needs to work on a fresh database, on upgrade, and under concurrent traffic. Certify the whole lifecycle.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/certify-database-rollout",
+        "egawilldoit/certify-release",
+        "egawilldoit/certify-production-target"
+      ],
+      "ranking": [
+        "egawilldoit/certify-database-rollout",
+        "egawilldoit/certify-release",
+        "egawilldoit/certify-production-target"
+      ],
+      "expected_primary": "egawilldoit/certify-database-rollout",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/certify-release",
+        "egawilldoit/certify-production-target"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "mcp-production",
+      "task": "Certify that our production MCP server negotiates the protocol, does OAuth, and exposes its tools correctly.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/certify-mcp-production",
+        "anthropic/mcp-builder",
+        "egawilldoit/certify-production-target"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/certify-mcp-production",
+        "anthropic/mcp-builder"
+      ],
+      "expected_primary": "egawilldoit/certify-mcp-production",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "parallel-work",
+      "task": "This is big enough to split. Have several agents work it in parallel and merge the results deterministically.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/parallelize-work",
+        "mattpocock/code-review",
+        "egawilldoit/integrate-pr-stack"
+      ],
+      "ranking": [
+        "egawilldoit/parallelize-work",
+        "mattpocock/code-review",
+        "egawilldoit/integrate-pr-stack"
+      ],
+      "expected_primary": "egawilldoit/parallelize-work",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "execution-contract",
+      "task": "Turn this design into a bounded contract another agent can pick up and execute without guessing.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/build-execution-contract",
+        "mattpocock/handoff",
+        "mattpocock/to-questionnaire"
+      ],
+      "ranking": [
+        "egawilldoit/build-execution-contract",
+        "mattpocock/handoff",
+        "mattpocock/to-questionnaire"
+      ],
+      "expected_primary": "egawilldoit/build-execution-contract",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "large-investigation",
+      "task": "This is a huge multi-quarter migration. I need an auditable investigation plan before anyone starts.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/design-investigation"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/design-investigation"
+      ],
+      "expected_primary": "egawilldoit/design-investigation",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "work-retrospective",
+      "task": "That session was rough. Review it and route what we learned to the right durable artifact.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/work-retrospective",
+        "egawilldoit/deliver-software",
+        "egawilldoit/recover-work-context"
+      ],
+      "ranking": [
+        "egawilldoit/work-retrospective",
+        "egawilldoit/deliver-software",
+        "egawilldoit/recover-work-context"
+      ],
+      "expected_primary": "egawilldoit/work-retrospective",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "mine-recurring-workflow",
+      "task": "I keep doing this same manual release checklist every single time. Let's figure out if it should become a skill.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/work-retrospective",
+        "anthropic/academy-guide",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "ranking": [
+        "egawilldoit/work-retrospective",
+        "anthropic/academy-guide",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "expected_primary": "egawilldoit/mine-work-patterns",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 10,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/work-retrospective"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "repeating-workflow",
+      "task": "I keep repeating this workflow. Should we automate this?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/mine-work-patterns",
+        "egawilldoit/work-retrospective",
+        "egawilldoit/create-verification-workflow"
+      ],
+      "ranking": [
+        "egawilldoit/mine-work-patterns",
+        "egawilldoit/work-retrospective",
+        "egawilldoit/create-verification-workflow"
+      ],
+      "expected_primary": "egawilldoit/mine-work-patterns",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "skill-creation",
+      "task": "I want to author a brand new skill and get it measured for quality.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/what-did-i-get-done",
+        "anthropic/skill-creator",
+        "anthropic/brand-guidelines"
+      ],
+      "ranking": [
+        "egawilldoit/what-did-i-get-done",
+        "anthropic/skill-creator",
+        "anthropic/brand-guidelines"
+      ],
+      "expected_primary": "anthropic/skill-creator",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 1,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "ui-product-design",
+      "task": "There's a tradeoff between what is easy to build and what the user would actually love here. Help me choose.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/reconcile-project-truth",
+        "anthropic/academy-guide",
+        "egawilldoit/mine-work-patterns"
+      ],
+      "ranking": [
+        "egawilldoit/reconcile-project-truth",
+        "anthropic/academy-guide",
+        "egawilldoit/mine-work-patterns"
+      ],
+      "expected_primary": "egawilldoit/principle-experience-first",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 3,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "frontend-implementation",
+      "task": "Build a distinctive new UI for this product. I want it to look intentional, not like every other dashboard.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "anthropic/frontend-design",
+        "anthropic/academy-guide",
+        "mattpocock/prototype"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "anthropic/frontend-design",
+        "anthropic/academy-guide"
+      ],
+      "expected_primary": "anthropic/frontend-design",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "react-performance",
+      "task": "Our React app feels sluggish. Apply the performance and architecture guidance from the Vercel team.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "vercel/react-best-practices",
+        "vercel/deploy-to-vercel",
+        "vercel/react-native-skills"
+      ],
+      "ranking": [
+        "vercel/react-best-practices",
+        "vercel/deploy-to-vercel",
+        "vercel/react-native-skills"
+      ],
+      "expected_primary": "vercel/react-best-practices",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "mcp-server-building",
+      "task": "I need to build a new MCP server that exposes tools well and handles the protocol correctly.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "anthropic/mcp-builder",
+        "egawilldoit/certify-mcp-production",
+        "egawilldoit/principle-laziness-protocol"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "anthropic/mcp-builder",
+        "egawilldoit/certify-mcp-production"
+      ],
+      "expected_primary": "anthropic/mcp-builder",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [
+        "egawilldoit/certify-mcp-production"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "preflight-repository",
+      "task": "Before I start anything substantial, tell me exactly what repository state I am standing on.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/preflight-repository"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/preflight-repository"
+      ],
+      "expected_primary": "egawilldoit/preflight-repository",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "merge-conflicts",
+      "task": "I am in the middle of a rebase and there are conflicts everywhere. Resolve them without me babysitting.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/fix-merge-conflicts",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/preflight-repository"
+      ],
+      "ranking": [
+        "egawilldoit/fix-merge-conflicts",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/preflight-repository"
+      ],
+      "expected_primary": "egawilldoit/fix-merge-conflicts",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "prove-it-works",
+      "task": "I finished the feature. Before I call it done, verify it against the real running artifact.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-prove-it-works",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "egawilldoit/principle-prove-it-works",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/principle-prove-it-works",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "compiler-errors",
+      "task": "The type checker is throwing a wall of errors. Run the compile step and group them for me.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/check-compiler-errors",
+        "mattpocock/wayfinder",
+        "egawilldoit/principle-type-system-discipline"
+      ],
+      "ranking": [
+        "egawilldoit/check-compiler-errors",
+        "mattpocock/wayfinder",
+        "egawilldoit/principle-type-system-discipline"
+      ],
+      "expected_primary": "egawilldoit/check-compiler-errors",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "record-evidence",
+      "task": "Keep an auditable ledger of the decisions and evidence as this multi-phase effort proceeds.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/record-evidence",
+        "egawilldoit/design-investigation",
+        "egawilldoit/loop-on-ci"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/record-evidence",
+        "egawilldoit/design-investigation"
+      ],
+      "expected_primary": "egawilldoit/record-evidence",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "code-slop",
+      "task": "This diff is full of AI-generated filler comments and defensive noise. Strip it back to our local style.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/deslop",
+        "egawilldoit/unslop",
+        "egawilldoit/blast-radius"
+      ],
+      "ranking": [
+        "egawilldoit/deslop",
+        "egawilldoit/unslop",
+        "egawilldoit/blast-radius"
+      ],
+      "expected_primary": "egawilldoit/deslop",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "prose-tells",
+      "task": "This documentation reads like a chatbot wrote it. Remove the em dashes, the triads and the hedging.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/technical-writing"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/technical-writing"
+      ],
+      "expected_primary": "egawilldoit/unslop",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "technical-writing",
+      "task": "Rewrite this guide so it separates tutorials from reference and reads clearly.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "anthropic/academy-guide",
+        "anthropic/claude-api",
+        "egawilldoit/principle-guard-the-context-window"
+      ],
+      "ranking": [
+        "anthropic/academy-guide",
+        "anthropic/claude-api",
+        "egawilldoit/principle-guard-the-context-window"
+      ],
+      "expected_primary": "egawilldoit/technical-writing",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 60,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "create-verification-workflow",
+      "task": "We have no automated proof for this project. Set up a workflow that drives the real app and captures evidence.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/create-verification-workflow",
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/work-retrospective"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/create-verification-workflow",
+        "egawilldoit/maintain-verification-workflow"
+      ],
+      "expected_primary": "egawilldoit/create-verification-workflow",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [
+        "egawilldoit/maintain-verification-workflow"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "maintain-verification-workflow",
+      "task": "Our verification workflow has drifted from what the code actually does now. Audit it.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/create-verification-workflow",
+        "egawilldoit/blast-radius"
+      ],
+      "ranking": [
+        "egawilldoit/maintain-verification-workflow",
+        "egawilldoit/create-verification-workflow",
+        "egawilldoit/blast-radius"
+      ],
+      "expected_primary": "egawilldoit/maintain-verification-workflow",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/create-verification-workflow"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "research-primary-sources",
+      "task": "Investigate this open question against high-trust primary sources and write up what you find.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "mattpocock/research",
+        "egawilldoit/blast-radius",
+        "egawilldoit/reconcile-project-truth"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "mattpocock/research",
+        "egawilldoit/blast-radius"
+      ],
+      "expected_primary": "mattpocock/research",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "teach-concept",
+      "task": "Teach me this concept properly, with exercises, inside this workspace.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "mattpocock/teach",
+        "anthropic/academy-guide",
+        "vercel/deploy-to-vercel"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "mattpocock/teach",
+        "anthropic/academy-guide"
+      ],
+      "expected_primary": "mattpocock/teach",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [
+        "anthropic/academy-guide"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "deploy-vercel",
+      "task": "Deploy this app to Vercel for me.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "vercel/deploy-to-vercel",
+        "vercel/vercel-cli-with-tokens",
+        "vercel/vercel-optimize"
+      ],
+      "ranking": [
+        "vercel/deploy-to-vercel",
+        "vercel/vercel-cli-with-tokens",
+        "vercel/vercel-optimize"
+      ],
+      "expected_primary": "vercel/deploy-to-vercel",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "domain-modeling",
+      "task": "Our terminology is inconsistent across the codebase. Help me build and sharpen the domain model.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "mattpocock/domain-modeling",
+        "egawilldoit/understand-codebase",
+        "mattpocock/grill-me"
+      ],
+      "ranking": [
+        "mattpocock/domain-modeling",
+        "egawilldoit/understand-codebase",
+        "mattpocock/grill-me"
+      ],
+      "expected_primary": "mattpocock/domain-modeling",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/understand-codebase"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "triage-inbox",
+      "task": "Triage the issue backlog and the stale external PRs through the state machine.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "mattpocock/triage",
+        "mattpocock/setup-matt-pocock-skills",
+        "anthropic/mcp-builder"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "mattpocock/triage",
+        "mattpocock/setup-matt-pocock-skills"
+      ],
+      "expected_primary": "mattpocock/triage",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "handoff-context",
+      "task": "Write a compact handoff document capturing this conversation so another agent can pick it up.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "mattpocock/handoff",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/technical-writing"
+      ],
+      "ranking": [
+        "mattpocock/handoff",
+        "egawilldoit/recover-work-context",
+        "egawilldoit/technical-writing"
+      ],
+      "expected_primary": "mattpocock/handoff",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/recover-work-context"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "subtract-before-add",
+      "task": "Before we add another abstraction here, let's remove the dead code and redundant validators.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-subtract-before-you-add",
+        "egawilldoit/deslop",
+        "mattpocock/grill-with-docs"
+      ],
+      "ranking": [
+        "egawilldoit/principle-subtract-before-you-add",
+        "egawilldoit/deslop",
+        "mattpocock/grill-with-docs"
+      ],
+      "expected_primary": "egawilldoit/principle-subtract-before-you-add",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "context-window-full",
+      "task": "The context is filling up with huge file dumps. How should I restructure this work to stay sane?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-guard-the-context-window",
+        "egawilldoit/recover-work-context",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "egawilldoit/principle-guard-the-context-window",
+        "egawilldoit/recover-work-context",
+        "anthropic/academy-guide"
+      ],
+      "expected_primary": "egawilldoit/principle-guard-the-context-window",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "idempotent-operations",
+      "task": "This command can be stopped halfway and started again. Design it so running it twice leaves the same result.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/record-evidence",
+        "egawilldoit/run-smoke-tests",
+        "mattpocock/wizard"
+      ],
+      "ranking": [
+        "egawilldoit/record-evidence",
+        "egawilldoit/run-smoke-tests",
+        "mattpocock/wizard"
+      ],
+      "expected_primary": "egawilldoit/principle-make-operations-idempotent",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 19,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "concurrent-writers",
+      "task": "Two agents will be writing the same config file at the same time. How do I stop them colliding?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "anthropic/academy-guide",
+        "anthropic/discernment-nudge",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "anthropic/academy-guide",
+        "anthropic/discernment-nudge",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/principle-separate-before-serializing-shared-state",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 12,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "migrate-callers",
+      "task": "I'm introducing a new internal API while the old one still has callers. Migrate them then delete the legacy path.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+        "mattpocock/improve-codebase-architecture",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "ranking": [
+        "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+        "mattpocock/improve-codebase-architecture",
+        "egawilldoit/principle-test-behavior-not-implementation"
+      ],
+      "expected_primary": "egawilldoit/principle-migrate-callers-then-delete-legacy-apis",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "type-design",
+      "task": "I want the core types and data structures designed properly before anyone writes the logic.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/principle-boundary-discipline",
+        "egawilldoit/principle-type-system-discipline",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/principle-boundary-discipline",
+        "egawilldoit/principle-type-system-discipline"
+      ],
+      "expected_primary": "egawilldoit/principle-type-system-discipline",
+      "rank_of_expected": 2,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 2,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "nontrivial-work-lever",
+      "task": "This is going to be a lot of repetitive edits. Build the tooling that makes them mechanical instead of hand doing it.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-build-the-lever",
+        "egawilldoit/deliver-software",
+        "egawilldoit/principle-model-the-domain"
+      ],
+      "ranking": [
+        "egawilldoit/principle-build-the-lever",
+        "egawilldoit/deliver-software",
+        "egawilldoit/principle-model-the-domain"
+      ],
+      "expected_primary": "egawilldoit/principle-build-the-lever",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "outcome-oriented-rewrite",
+      "task": "Plan this effort in explicit stages with convergence points rather than one endless grind.",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "mattpocock/wayfinder",
+        "vercel/vercel-cli-with-tokens",
+        "anthropic/algorithmic-art"
+      ],
+      "ranking": [
+        "mattpocock/wayfinder",
+        "vercel/vercel-cli-with-tokens",
+        "anthropic/algorithmic-art"
+      ],
+      "expected_primary": "egawilldoit/principle-outcome-oriented-execution",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": 7,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "sequence-verifiable-units",
+      "task": "How should I slice and stack this multi-step change so each commit is independently verifiable?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-sequence-verifiable-units",
+        "egawilldoit/recover-work-context",
+        "anthropic/discernment-nudge"
+      ],
+      "ranking": [
+        "egawilldoit/principle-sequence-verifiable-units",
+        "egawilldoit/recover-work-context",
+        "anthropic/discernment-nudge"
+      ],
+      "expected_primary": "egawilldoit/principle-sequence-verifiable-units",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "redesign-from-first-principles",
+      "task": "This new requirement doesn't fit the existing design at all. Should we rethink the shape entirely?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-redesign-from-first-principles",
+        "anthropic/frontend-design",
+        "egawilldoit/mine-work-patterns"
+      ],
+      "ranking": [
+        "egawilldoit/principle-redesign-from-first-principles",
+        "anthropic/frontend-design",
+        "egawilldoit/mine-work-patterns"
+      ],
+      "expected_primary": "egawilldoit/principle-redesign-from-first-principles",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "novel-ui-no-precedent",
+      "task": "We've never built this interaction before and there's no precedent in the codebase. How should I approach it?",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/principle-exhaust-the-design-space",
+        "egawilldoit/recover-design-rationale",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/principle-exhaust-the-design-space",
+        "egawilldoit/recover-design-rationale"
+      ],
+      "expected_primary": "egawilldoit/principle-exhaust-the-design-space",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "hard-to-trace-code",
+      "task": "Answering a simple question about this code takes six files and four layers. That's a problem.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/principle-minimize-reader-load",
+        "egawilldoit/principle-laziness-protocol",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/principle-minimize-reader-load",
+        "egawilldoit/principle-laziness-protocol"
+      ],
+      "expected_primary": "egawilldoit/principle-minimize-reader-load",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [
+        "mattpocock/pr"
+      ],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": false,
+      "pending": false
+    },
+    {
+      "id": "boundary-validation",
+      "task": "Where should input guards live for this adapter layer?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "vercel/deploy-to-vercel",
+        "egawilldoit/certify-production-target",
+        "egawilldoit/principle-boundary-discipline"
+      ],
+      "ranking": [
+        "vercel/deploy-to-vercel",
+        "egawilldoit/certify-production-target",
+        "egawilldoit/principle-boundary-discipline"
+      ],
+      "expected_primary": "egawilldoit/principle-boundary-discipline",
+      "rank_of_expected": 2,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 2,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "test-behavior-not-impl",
+      "task": "Review this test. Is it asserting real user-visible behavior or just mirroring the implementation?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "mattpocock/implement",
+        "egawilldoit/principle-test-behavior-not-implementation",
+        "egawilldoit/adversarial-review"
+      ],
+      "ranking": [
+        "mattpocock/implement",
+        "egawilldoit/principle-test-behavior-not-implementation",
+        "egawilldoit/adversarial-review"
+      ],
+      "expected_primary": "egawilldoit/principle-test-behavior-not-implementation",
+      "rank_of_expected": 1,
+      "top1": false,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [
+        "egawilldoit/adversarial-review"
+      ],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "repeat-instruction-leak",
+      "task": "I notice I've written the same rule to the agent three times now. How do I stop that?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/principle-encode-lessons-in-structure",
+        "anthropic/academy-guide",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "ranking": [
+        "egawilldoit/principle-encode-lessons-in-structure",
+        "anthropic/academy-guide",
+        "egawilldoit/what-did-i-get-done"
+      ],
+      "expected_primary": "egawilldoit/principle-encode-lessons-in-structure",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "ambiguous-skill-memory",
+      "task": "didn't I have a skill for this?",
+      "confidence": "LOW",
+      "selected": [],
+      "candidates": [
+        "egawilldoit/what-did-i-get-done",
+        "egawilldoit/recover-work-context",
+        "anthropic/academy-guide"
+      ],
+      "ranking": [
+        "egawilldoit/what-did-i-get-done",
+        "egawilldoit/recover-work-context",
+        "anthropic/academy-guide"
+      ],
+      "expected_primary": "egawilldoit/find-skill",
+      "rank_of_expected": -1,
+      "top1": false,
+      "top3": false,
+      "search_reachable": false,
+      "search_rank": -1,
+      "auto_select_attempted": false,
+      "wrong_automatic_selections": [],
+      "low_confidence": true,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": true
+    },
+    {
+      "id": "release-certification-console",
+      "task": "software release readiness ship web console production rollout ci test security",
+      "confidence": "MEDIUM",
+      "selected": [
+        "egawilldoit/certify-release"
+      ],
+      "candidates": [],
+      "ranking": [
+        "egawilldoit/certify-release"
+      ],
+      "expected_primary": "egawilldoit/certify-release",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    },
+    {
+      "id": "write-pr-body",
+      "task": "Write the PR body for this small refactor.",
+      "confidence": "MEDIUM",
+      "selected": [
+        "mattpocock/pr"
+      ],
+      "candidates": [
+        "egawilldoit/technical-writing",
+        "egawilldoit/tdd",
+        "mattpocock/tdd"
+      ],
+      "ranking": [
+        "mattpocock/pr",
+        "egawilldoit/technical-writing",
+        "egawilldoit/tdd"
+      ],
+      "expected_primary": "mattpocock/pr",
+      "rank_of_expected": 0,
+      "top1": true,
+      "top3": true,
+      "search_reachable": true,
+      "search_rank": 0,
+      "auto_select_attempted": true,
+      "wrong_automatic_selections": [],
+      "low_confidence": false,
+      "catastrophic_top3": [],
+      "catastrophic_auto_selected": [],
+      "passed": true,
+      "pending": false
+    }
+  ]
+}

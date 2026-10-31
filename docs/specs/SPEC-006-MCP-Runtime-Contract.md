@@ -1,5 +1,9 @@
 # SPEC-006 — Local MCP Runtime Contract
 
+**Versioned extension:** [Contract I1](../contracts/CONTRACT-I1-Release-Bound-Invocation.md) defines an opt-in
+invocation-policy successor profile. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 **Status:** FROZEN (V1 normative behavioral contract).
 **Incorporates:** AMEND-02 (EGA-607: exact L1/L2 content returned by `get_content`),
 AMEND-03 (EGA-608: current/locked version visibility for search),

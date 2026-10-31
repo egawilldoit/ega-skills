@@ -18,6 +18,7 @@ import { SecurityPage } from "./SecurityPage";
 import { SettingsPage } from "./SettingsPage";
 import { SkillDetailPage } from "./SkillDetailPage";
 import { SkillsPage } from "./SkillsPage";
+import { SourceSkillsPage } from "./SourceSkillsPage";
 import { DiscoveryPage } from "./DiscoveryPage";
 import { UsagePage } from "./UsagePage";
 import { WorkspaceOverviewPage } from "./WorkspaceOverviewPage";
@@ -59,6 +60,10 @@ export function AppRoutes(): ReactNode {
                       <SkillsPage />
                     </RequirePermission>
                   }
+                />
+                <Route
+                  path="/source-skills"
+                  element={<SourceSkillsPage />}
                 />
                 <Route
                   path="/skills/:skillId"

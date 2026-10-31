@@ -166,6 +166,7 @@ export interface ApiClientOptions {
 export interface ApiClient {
   readonly basePath: string;
   get<T>(path: string, options?: RequestOptions<T>): Promise<T>;
+  post<T>(path: string, body: unknown, options?: RequestOptions<T>): Promise<T>;
 }
 
 /** Map an HTTP status onto an `ApiError` discriminant. */
@@ -280,7 +281,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const defaultHeaders = options.defaultHeaders ?? {};
   const defaultTimeoutMs = options.defaultTimeoutMs;
 
-  async function get<T>(path: string, requestOptions: RequestOptions<T> = {}): Promise<T> {
+  async function request<T>(method: 'GET' | 'POST', path: string, body: unknown, requestOptions: RequestOptions<T> = {}): Promise<T> {
     if (typeof fetchImpl !== "function") {
       throw error(
         "not_configured",
@@ -292,6 +293,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     const headers: Record<string, string> = {
       accept: "application/json",
       ...defaultHeaders,
+      ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
     };
     if (options.getAccessToken !== undefined) {
       const token = await options.getAccessToken();
@@ -305,8 +307,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     let response: Response;
     try {
       response = await fetchImpl(url, {
-        method: "GET",
+        method,
         headers,
+        ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
         // Same-origin only, so this sends cookies the BFF may need and never
         // crosses an origin boundary.
         credentials: "same-origin",
@@ -366,5 +369,5 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     return payload as T;
   }
 
-  return { basePath, get };
+  return { basePath, get: <T>(path: string, options?: RequestOptions<T>) => request<T>('GET', path, undefined, options), post: <T>(path: string, body: unknown, options?: RequestOptions<T>) => request<T>('POST', path, body, options) };
 }

@@ -1,5 +1,9 @@
 # Contract R1: immutable release candidates
 
+**Versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) defines an opt-in
+invocation-policy successor profile. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 R1 defines the handoff between a verified local Hub build and a deployment
 artifact. A release candidate is a retained, relocatable copy of one exact
 Contract C build. Export reads the candidate only; it does not fetch upstream

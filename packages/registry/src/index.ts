@@ -162,6 +162,9 @@ export interface OpenRegistryOptions {
   readonly readonly?: boolean;
 }
 
+/** Read-only C2 registries use a distinct version so V1 runtimes reject them. */
+export const INVOCATION_REGISTRY_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION + 1;
+
 export interface RegistryHandle {
   readonly db: DatabaseConnection;
   readonly paths: RegistryPaths;
@@ -208,7 +211,7 @@ export function openRegistry(options: OpenRegistryOptions = {}): RegistryHandle 
 
   try {
     const schemaVersion = readSchemaVersion(db);
-    if (schemaVersion > CURRENT_SCHEMA_VERSION) {
+    if (schemaVersion > CURRENT_SCHEMA_VERSION && !(readonly && schemaVersion === INVOCATION_REGISTRY_SCHEMA_VERSION)) {
       throw new RegistryError(
         "E_REGISTRY_SCHEMA_NEWER",
         `Registry schema ${schemaVersion} is newer than supported schema ${CURRENT_SCHEMA_VERSION}`,
@@ -218,7 +221,7 @@ export function openRegistry(options: OpenRegistryOptions = {}): RegistryHandle 
       // A read-only open must never upgrade the file: stale (or
       // uninitialized) schemas fail closed so the caller runs an explicit
       // read-write flow (import/refresh) first.
-      if (schemaVersion !== CURRENT_SCHEMA_VERSION) {
+      if (schemaVersion !== CURRENT_SCHEMA_VERSION && schemaVersion !== INVOCATION_REGISTRY_SCHEMA_VERSION) {
         throw new RegistryError(
           "E_REGISTRY_MIGRATION",
           `Registry schema ${schemaVersion} requires migration to ${CURRENT_SCHEMA_VERSION}; refusing read-only open`,

@@ -8,6 +8,365 @@ Never print or commit secrets. All values below come from the Vercel project
 environment (`ega-skills-mcp`, scope `team_e2x4kf12yL43qmBIs2t2YaD2`) or from
 short-lived token files with mode 0600.
 
+For an I1 policy release, independently verify the currently published release
+identity from the authenticated production service and retained deployment
+before previewing a forward release. Supply that verified digest as
+`EGA_SKILLS_TRUSTED_PUBLISHED_RELEASE`; preview rejects a different `--against`
+release. This value is an operator-supplied trust anchor, not proof that a
+digest is current. Local I1 launchers must set `EGA_SKILLS_TRUSTED_RELEASE` to
+their separately trusted expected release digest; a SQLite marker alone cannot
+resist replacement of the entire artifact.
+
+## Production publication boundary
+
+The supported production writer is
+`scripts/hosted/publish-production.mjs`. Contract R2's revisioned retained
+manifest protects the durable promotion path; this script connects that
+decision to the Vercel alias, which is a separate last-write-wins surface.
+Production publication is supported only on the reviewed Linux host; applying
+commands reject other operating systems. Windows CI certifies portable domain
+behavior, not execution of the Vercel publication CLI.
+
+Before any alias mutation the gate requires, from live reads:
+
+1. the exact R1/I1 candidate, owner approval, candidate envelope, policy digest,
+   skill-version map and source snapshot are digest-bound to each other;
+2. the live production alias and the release served by that deployment are the
+   exact predecessor recorded in the candidate and approval;
+3. Vercel Git production auto-deploy is disabled, the canonical alias is the
+   only production alias, and every deployment check has succeeded;
+4. the executing Vercel user, team and project equal the approved publisher; and
+5. the owner approval is no older than 24 hours.
+
+Staging uses `vercel deploy --prod --skip-domain` to build with the production
+environment without assigning the public domain. It proves the staged `/readyz`
+release digest and rechecks the live predecessor before returning. Retained
+deployments are restored using `vercel rollback`, not a second promotion. See
+[Vercel staged production deployment](https://vercel.com/docs/cli/deploying-from-cli)
+and [promotion and rollback semantics](https://vercel.com/docs/deployments/promoting-a-deployment).
+Promotion re-reads the live predecessor
+immediately before the write, promotes without `--force`, then polls both the
+alias target and `/readyz` until the exact candidate digest is served. A
+mismatch restores the recorded predecessor only if this promotion is still the
+current alias; an unhealthy current deployment may be restored, but the restored
+predecessor must be READY with successful checks before recovery is certified.
+If another publication won, the script refuses to clobber it.
+Every completed promotion or rollback writes a write-once final receipt bounded
+to the approval, candidate, predecessor, deployment and monotonic publication
+revision. The reserved `<receipt>.pending` intent is fsynced before mutation and
+retained as immutable evidence; it is never truncated into the final receipt.
+A handled failure that restored the predecessor writes a separate `FAILED` side
+receipt (`<receipt>.failed.json`) at the same revision; it records the attempt
+but does not enter or advance the successful receipt chain. A dry-run attempt
+performs no mutation and writes no receipt. A blocked applying attempt can
+leave a reserved PENDING intent; preserve it. If the publishing process is
+killed after the alias moves, run `reconcile` to record the already-live exact
+candidate without moving the alias. Receipt files must live outside the
+repository and outside any synced source tree.
+
+All applying commands additionally require `--readiness <record.json>`. This is
+an external operator certification. The script validates its shape, target
+binding and freshness, including that `review_record` is an HTTPS URL, but it
+does not fetch or authenticate that record: the release operator must verify
+the linked independent review and the actual Vercel access controls. A locally
+hashable JSON file does not prove authorship.
+The schema is `schema_version: 1`, `verified_at`, `expires_at` (at most 24 hours
+apart), `certified_by`, `review_record`, `publisher_vercel_user_id`, `team_id`,
+`project_id`, `canonical_alias`, `production_branch`, and the absolute shared
+`state_dir`. It also requires `access_controls_reviewed: true`,
+`single_writer_controls_reviewed: true`, and `residual_alias_race_accepted: true`.
+These flags record the external review; the Vercel API does not establish or
+enforce principal exclusivity. Keep this record with the approval and receipts.
+
+All supported publishers must use the same `EGA_PUBLICATION_STATE_DIR` on a
+single coordinated filesystem. An existing lease is never reclaimed just
+because its timestamp expired. Before manual recovery, prove that the former
+process and any Vercel CLI child have stopped, inspect the actual alias and
+reconcile any completed publication. Never remove a live writer's lease.
+Mutations stop after lease expiry. Restart from fresh observations and valid
+approval/readiness records after recovering the stopped operation.
+
+Applying promote, reconcile and rollback reserve and fsync a `PENDING` intent
+at `<receipt>.pending` before executing. The final receipt is written to
+`--receipt` with `O_EXCL`, fsynced under the lease, and the pending intent is
+left untouched. An existing evidence path blocks mutation. Keep incomplete
+intent files as evidence; use a new receipt path for reconciliation after
+inspecting live state. An interrupted rollback requires manual live-state
+reconciliation before retry.
+
+For the first governed promotion, retain and certify the original 117-skill R1
+candidate and deployment before staging. There is no fabricated revision-zero
+receipt. To restore that original release, use rollback with `--chain` and
+`--current` pointing to the first successful promotion receipt, replace
+`--target` with `--predecessor-candidate <retained-original-candidate-dir>`, and
+supply all normal target flags: `--team`, `--project`, `--publisher`, `--alias`,
+`--production-branch`, `--expect-release`, `--expect-deployment`, and
+`--expect-revision` (the current receipt's revision). The verified candidate
+must match the receipt's exact predecessor release and Hub. Later rollbacks use
+an earlier receipt in the contiguous successful chain. Both paths check the
+live deployment and platform controls immediately before mutation, and verify
+the exact retained deployment and release afterward. Recovery permits an
+unhealthy current deployment: the authenticated Vercel API must still identify
+the exact deployment bound by the receipt (or this operation's staged ID).
+An unavailable readiness endpoint is not represented as a successful probe.
+The restored target must pass readiness and deployment checks before a receipt
+is certified. Cross-project, cross-Hub,
+cross-alias and publisher-rotation receipt chains are rejected; publisher
+rotation requires separate reviewed migration support.
+
+The new runtime's `/readyz` reports the exact `release_digest`. This is a public semantic identity,
+not a secret; it makes the live promotion verifiable without an OAuth token.
+Authenticated MCP verification is still required after promotion.
+
+**Legacy predecessor blocker:** on 2026-10-28, current production returned
+HTTP 200 with only `{"status":"ready"}`. That response cannot pass the
+publisher's predecessor or restored-target identity probe. An authenticated
+MCP digest alone does not satisfy this probe. The supported resolution is the
+separately authorized and certified baseline-runtime migration below. Do not
+assume the new endpoint already exists, substitute a configured digest for a
+live observation, or bypass the publisher.
+
+### Baseline runtime migration (first governed release)
+
+The legacy runtime predates `/readyz` release identity. The migration deploys
+the reviewed runtime with the **unchanged retained 117-skill artifact**, so the
+new endpoint reports a real digest before any semantic release change. It is a
+runtime-only operation, not a publication and not a rollback receipt. The
+original legacy deployment and artifact are retained.
+
+The supported migration command is `baseline` in
+`scripts/hosted/publish-production.mjs`. It refuses unless all of the following
+are live and exact:
+
+- the owner authorization binds the 117 release, the retained candidate, the
+  physical artifact-tree digest, the legacy deployment, the legacy deployment's
+  immutable source commit, the reviewed implementation commit, the reviewed
+  migration source commit, the legacy check policy, the publisher, team,
+  project, canonical alias and production branch;
+- the live canonical alias targets that exact legacy deployment;
+- that deployment is `READY`, its immutable source commit is the authorized
+  predecessor commit, Git production auto-deploy is disabled, and the canonical
+  alias is the only production alias;
+- the legacy deployment's check policy is either `succeeded` (a real successful
+  conclusion) or `absent-accepted` (the owner explicitly accepts the pre-check
+  immutable deployment). `absent-accepted` is valid only when the deployment
+  reports `none`, never `failed` or `pending`;
+- `/readyz` is the exact legacy shape: HTTP 200, `status: "ready"`, and **no**
+  `release_digest` property. An unavailable probe, a present-but-malformed
+  digest, or a response that already carries a digest is not accepted. A 200
+  alone is never predecessor proof;
+- both source worktrees are clean and at their authorized commits, and both
+  artifact trees reproduce the authorized digest. The migration delta against
+  the predecessor commit must be exactly the three readiness paths; the two
+  readiness files must be byte-identical to the reviewed implementation commit,
+  read from Git objects rather than a working tree;
+- the Vercel upload is a fresh detached worktree at the exact migration commit
+  with no untracked or ignored files, not the operator's mutable worktree, and
+  the staged deployment must report the exact migration source commit in
+  `meta.githubCommitSha`.
+
+Prepare the two clean worktrees after the readiness PR is merged. PR #177 is
+merged at `f9e1301a726dc48d81bfefe9e3a490787563725e` (`M1`); the Vercel MCP build
+for the PR head was observed `Canceled by Ignored Build Step`, but the operator
+must still read back the merge-window deployment and the alias before continuing.
+If the merge-window build did deploy, verify it serves the exact 117 digest and
+its source commit is `M1`, record it, and do not run `baseline` against an
+already-migrated runtime.
+
+```
+PRE_COMMIT=$(git -C <repo> rev-parse <live-deployment-source-commit>)
+MIGRATION_COMMIT=f9e1301a726dc48d81bfefe9e3a490787563725e  # PR #177 merge into release/2.0
+REVIEWED_COMMIT=<the exact merge commit of the baseline-migration implementation PR>
+
+git -C <repo> worktree add --detach /secure/predecessor-source "$PRE_COMMIT"
+git -C <repo> worktree add --detach /secure/migration-source "$MIGRATION_COMMIT"
+git -C <repo> cat-file -e "$MIGRATION_COMMIT^{commit}"
+git -C <repo> merge-base --is-ancestor "$PRE_COMMIT" "$MIGRATION_COMMIT"
+```
+
+Do not use `origin/release/2.0` as the migration commit: a branch tip can move
+after the owner authorizes it. The migration commit must descend from the live
+predecessor commit and its diff must contain exactly
+`packages/mcp/server.mts`, `packages/mcp/src/vercel-adapter.ts` and
+`tests/mcp/vercel-adapter.test.mjs`. If the release branch tip contains
+unrelated commits after the live deployment's source commit, create a dedicated
+commit from the predecessor that applies only those three reviewed paths,
+review it, and authorize that exact commit.
+
+Record the retained identities from both worktrees:
+
+```
+node scripts/hosted/validate-artifact.mjs /secure/predecessor-source/packages/mcp/artifact
+node scripts/hosted/validate-artifact.mjs /secure/migration-source/packages/mcp/artifact
+(cd /secure/predecessor-source && find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum)
+(cd /secure/migration-source && find packages/mcp/artifact -type f -exec sha256sum {} \; | LC_ALL=C sort -k2 | sha256sum)
+```
+
+Both runs must report release
+`sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+and tree digest
+`sha256:ad9f0cfa1c68a1531c964d921dfc4e6acf94357447517138aa7d69187f88276a`.
+The candidate envelope digest is
+`sha256:5c441c3f0d7f5acf0cbdf005e6b4db8d05105783c38f37b4939b3b0ae54a45bc`.
+
+Create the authorization envelope from the owner-approved payload. The
+`baseline-authorize` command validates and canonicalizes; it does not grant or
+authenticate approval, and the script never records an owner decision on its
+own. The operator must verify the decision at `approval_record`:
+
+```
+node scripts/hosted/publish-production.mjs baseline-authorize \
+  --payload /secure/outside-repo/baseline-authorization-payload.json \
+  --out /secure/outside-repo/baseline-authorization.json
+```
+
+The payload fields are exactly:
+
+```json
+{
+  "approval_record": "https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-<id>",
+  "approved_at": "<RFC3339 UTC>",
+  "approved_by": "<release owner>",
+  "baseline_artifact_tree_digest": "sha256:ad9f…",
+  "baseline_candidate_digest": "sha256:5c44…",
+  "baseline_release_digest": "sha256:3c08…",
+  "canonical_alias": "ega-skills-mcp.vercel.app",
+  "hub_id": "personal",
+  "legacy_deployment_checks": "absent-accepted",
+  "migration_source_commit": "<exact merged readiness PR commit>",
+  "predecessor_deployment_id": "<live legacy deployment>",
+  "predecessor_source_commit": "<live deployment meta.githubCommitSha>",
+  "production_branch": "release/2.0",
+  "publisher": {
+    "owner_subject": "<owner>",
+    "project_id": "prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG",
+    "team_id": "team_e2x4kf12yL43qmBIs2t2YaD2",
+    "vercel_user_id": "Dc0U1Ov3Zh5zeFKeic10bVWj"
+  },
+  "reviewed_runtime_commit": "<exact implementation merge commit>",
+  "scope": "runtime-readiness-only"
+}
+```
+
+Dry-run (no mutation, no receipt):
+
+```
+EGA_VERCEL_TOKEN_FILE=/secure/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs baseline \
+  --authorization /secure/outside-repo/baseline-authorization.json \
+  --predecessor-source /secure/predecessor-source \
+  --migration-source /secure/migration-source \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG \
+  --publisher Dc0U1Ov3Zh5zeFKeic10bVWj \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-deployment <live legacy deployment> \
+  --expect-release sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297 \
+  --staging-out /secure/outside-repo/baseline-staging.json \
+  --receipt /secure/outside-repo/baseline-receipt.json
+```
+
+Apply the same command with `--readiness /secure/outside-repo/readiness.json
+--apply`. The command creates a fresh detached worktree at the exact migration
+commit, requires it to contain no untracked or ignored files, and stages that
+tree with `vercel deploy --prod --skip-domain --project <id> --meta
+githubCommitSha=<M1>`. It requires the staged `/readyz` to serve the
+exact 117 digest and the staged deployment API document to report the exact
+migration source commit. It then fsyncs the immutable staging record, promotes
+without `--force`, re-reads the alias, deployment, source commit and `/readyz`,
+and writes the final migration receipt to a new file (the reserved
+`<receipt>.pending` intent is never overwritten). It never changes the artifact
+tree or the semantic release.
+
+Success is all of:
+
+- `/readyz` returns HTTP 200 with
+  `release_digest: sha256:3c08…`, `status: "ready"`;
+- the alias targets the staged deployment, which is `READY` with successful
+  checks;
+- authenticated MCP still reports the 117 release and no `t3dotgg/*` skills;
+- the staging record, authorization, readiness record and receipt are retained
+  outside the repository.
+
+If the process dies after the alias moved, use `baseline-reconcile` with the
+same authorization, sources, target flags, `--staging
+/secure/outside-repo/baseline-staging.json` and a **new** receipt path. It never
+moves the alias; it accepts only the exact staged deployment and exact
+`meta.githubCommitSha` serving the exact 117 digest, and it re-reads the live
+identity before writing the receipt. If the migration fails after promotion,
+the command restores the original legacy deployment and verifies the legacy
+readiness shape again; if recovery returns evidence, the FAILED receipt is
+written as `<receipt>.failed.json`. If recovery itself fails, the PENDING intent
+and staging record remain and manual reconciliation is mandatory — do not claim
+a successful restore without a re-observed legacy readiness shape. A bare
+`vercel rollback` to the original legacy deployment after a successful migration
+is containment only (the normal publisher cannot verify its legacy readiness);
+record it as an audit gap and re-run the migration before the governed
+promotion.
+
+The subsequent 126-skill promotion remains a normal `stage`/`promote
+--genesis` operation with `--expect-deployment <migration deployment>` and
+`--expect-release sha256:3c08…`. The migration deployment, not the original
+legacy deployment, is the governed rollback predecessor; the original remains
+retained as the emergency containment target.
+
+### What is and is not atomic
+
+Vercel exposes no compare-and-swap operation for an alias, no project-scoped
+deploy token ACL, and no way for a repository process to revoke a team
+principal's dashboard promotion right. The boundary therefore does **not**
+claim alias-level atomicity. It makes EGA's publication decision serialized and
+reviewable, and it refuses to run when an observable bypass path exists.
+
+Residual risk is explicit: a Vercel principal that can independently promote or
+assign the production alias can still move it. The release owner must, before
+the first governed promotion:
+
+- disable Vercel Git deployments for the production branch (`release/2.0`) and
+  verify the setting is read back;
+- make the publisher token the only production-capable credential, and remove
+  deployment/promotion rights from every other principal that does not need
+  them;
+- keep the token in a `0600` file and inject it only as `VERCEL_TOKEN` to the
+  child process (`EGA_VERCEL_TOKEN_FILE`);
+- re-check the project after any team membership change; and
+- treat an unexplained alias move as a security incident, not a release
+  retry.
+
+If these platform controls cannot be established, do not promote. The
+independent review of this boundary must reject any claim of an atomic
+guarantee that the platform cannot enforce.
+
+### Vercel observation compatibility (issue #168)
+
+`gitProviderOptions.createDeployments` controls GitHub `deployment_status`
+notifications; disabling it does **not** disable Vercel Git builds. See the
+[Vercel provider's authoritative field documentation](https://github.com/vercel/terraform-provider-vercel/blob/main/vercel/resource_project.go)
+and [Git configuration](https://vercel.com/docs/project-configuration/git-configuration).
+An ignored build command is also not a production publication ACL. The
+publisher accepts only an observable `git.deploymentEnabled: false` or an
+exact production-branch false rule with exclusively false rules. Other shapes,
+including deployment-policy allowlists, remain blocked pending a separately
+reviewed adapter; missing fields are never interpreted as disabled.
+
+The publisher resolves the canonical alias with `GET /v4/aliases/{alias}`,
+retrieves its full immutable deployment and complete deployment alias inventory,
+and checks the alias again after probing readiness. A recent deployment list
+does not contain the necessary alias or check fields and may list an unpromoted
+staged build first. Alias movement during the observation is a failure. These
+bracketing reads detect observed movement; they do not provide compare-and-swap
+or eliminate a change-and-restore race. Absent deployment checks remain `none`,
+and additional automatic aliases remain visible to the existing strict gate.
+
+Live read-only inspection on 2026-10-28 found no observable Git deployment
+switch on the production project, `createDeployments: enabled`, no deployment
+check conclusion, and two additional automatic aliases. These are unresolved
+publication prerequisites, alongside the legacy readiness limitation above and
+external operator certification. Do not disable notification events or invent
+successful checks to make the gate pass.
+
 ## Pre-deployment
 
 1. Verify the exact release SHA is green in CI:
@@ -44,9 +403,98 @@ Follow `packages/mcp/VERCEL.md`:
 - Production Branch `release/2.0`, Root Directory `packages/mcp`,
   Install `pnpm install --frozen-lockfile`, Build `pnpm -w build`,
   Node 24, include files outside root.
-- Production deployment is a release-owner action. Preview/staging
-  verification uses the same project with preview-scoped environment values
-  and must never change the production alias.
+- Production deployment is a release-owner action performed only through
+  `publish-production.mjs`. Preview/staging verification uses the same project
+  with preview-scoped environment values and must never change the production
+  alias.
+
+Record the exact current deployment and release before staging:
+
+```
+node scripts/hosted/publish-production.mjs verify \
+  --alias ega-skills-mcp.vercel.app
+```
+
+Run every command from a **clean checkout at the exact tested commit**. The CLI
+refuses a dirty worktree, requires the checkout's `packages/mcp/artifact` to be
+the exact `--candidate`, and deploys a fresh detached worktree at `HEAD` with
+`--meta githubCommitSha=<HEAD>`. `--expect-source-commit` must name that exact
+commit, and the commit must be reachable from `origin/release/2.0` (fetch it
+first; `EGA_RELEASE_REF` is an explicit override for a reviewed release ref).
+The staging record binds that source commit; `promote` and `reconcile` refuse a
+staging record or deployment identity whose source commit does not match.
+
+Stage, then promote, using the approval packet and the independently verified
+predecessor (all values are required; `stage`/`promote` refuse a mismatch):
+
+```
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs stage \
+  --candidate /path/to/candidate \
+  --approval /path/to/approval.json \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_… --publisher <vercel-user-id> \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
+  --staging-out /secure/outside-repo/staging-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
+
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs promote \
+  --candidate /path/to/candidate \
+  --approval /path/to/approval.json \
+  --staging /secure/outside-repo/staging-<n>.json \
+  --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+  --project prj_… --publisher <vercel-user-id> \
+  --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
+  --staged-deployment dpl_… \
+  --genesis \
+  --receipt /secure/outside-repo/receipt-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
+```
+
+Promotion requires the staging record (`--staging`); `--staged-deployment` alone
+is not accepted. If the process is killed after the alias moved, do not re-run
+`promote`. Reconcile the observed result:
+
+```
+EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+node scripts/hosted/publish-production.mjs reconcile \
+  --candidate /path/to/candidate --approval /path/to/approval.json \
+  --staging /secure/outside-repo/staging-<n>.json \
+  --team … --project … --publisher … --production-branch release/2.0 \
+  --alias ega-skills-mcp.vercel.app \
+  --expect-release sha256:… --expect-deployment dpl_… \
+  --expect-revision <n> --expect-source-commit <exact merged release SHA> \
+  --staged-deployment dpl_… --genesis \
+  --receipt /secure/outside-repo/receipt-<n>.json \
+  --readiness /secure/outside-repo/readiness.json --apply
+```
+
+`reconcile` refuses unless the live alias and served release are exactly the
+staged deployment and candidate. It never moves the alias.
+
+Use `--genesis` only for the first governed release (revision 0). Every later
+promotion must pass `--previous-receipt <the last receipt>` instead, and the
+script refuses a receipt/revision/predecessor mismatch.
+
+`--staging-out` writes the exact staging record that `--staging` consumes; it
+requires `--apply`, because a dry-run stage creates no deployment. The stage
+command's stdout also contains the record under `.staging`; the CLI accepts that
+wrapper for convenience, but the file written by `--staging-out` is the
+supported handoff. `EGA_PUBLICATION_STATE_DIR` must be on storage
+shared by every publisher; a per-machine directory narrows but does not remove
+the race. Both the final receipt and its `.pending` intent are created with
+`O_EXCL`; a retry must use a new receipt name so the previous evidence is never
+overwritten.
 
 ## Post-deployment smoke
 
@@ -81,14 +529,37 @@ Preview proof and the immutable-deployment transcript:
 `packages/mcp/VERCEL.md` § "Rollback (immutable deployments)".
 
 1. Identify the previous known-good production deployment ID/URL and its
-   release digest (recorded in pre-deployment step 5).
-2. Re-point production to it:
-   `vercel rollback <deployment-url-or-id> --scope <team>` or
-   `vercel promote <deployment-url> --scope <team>`.
+   release digest (recorded in pre-deployment step 5 and in the publication
+   receipt chain).
+2. Re-point production through the boundary, not a bare `vercel` command. The
+   target must be an earlier receipt in the contiguous chain:
+
+   ```
+   EGA_VERCEL_TOKEN_FILE=/path/to/vercel.token \
+   EGA_PUBLICATION_STATE_DIR=/shared/ega-publication \
+   node scripts/hosted/publish-production.mjs rollback \
+     --chain /secure/receipt-3.json,/secure/receipt-2.json,/secure/receipt-1.json \
+     --current /secure/receipt-3.json \
+     --target /secure/receipt-2.json \
+     --team team_e2x4kf12yL43qmBIs2t2YaD2 \
+     --project prj_… --publisher <vercel-user-id> \
+     --production-branch release/2.0 \
+     --alias ega-skills-mcp.vercel.app \
+     --expect-revision 3 --expect-deployment <current-dpl-id> \
+     --expect-release <current-release-digest> \
+     --receipt /secure/receipt-4.json \
+     --readiness /secure/outside-repo/readiness.json --apply
+   ```
+
+   A bare `vercel rollback`/`vercel promote` is an emergency containment
+   action only. Record it, re-run the boundary verification immediately, and
+   treat the missing receipt as an audit gap.
 3. Re-run the post-deployment smoke against the production origin and confirm
-   `/readyz` 200 and the expected `effective_release_digest`.
-4. To restore the new release, promote/redeploy its immutable deployment URL
-   and repeat the smoke.
+   `/readyz` 200 and the expected `release_digest`.
+4. To restore the new release, roll back to its earlier receipt using the
+   advanced current receipt and complete chain, then repeat the smoke. Vercel
+   requires `rollback` for deployments that have previously served production.
+   Every successful restoration advances the revision; it never decrements it.
 
 ## Fail-closed recovery
 

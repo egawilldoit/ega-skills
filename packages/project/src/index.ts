@@ -49,6 +49,7 @@ export type { ApplyInput, HubLock } from "./hub/apply.js";
 export { acquireOwnerTokenLock } from "./hub/mutation-lock.js";
 export type { MutationLock, MutationLockOptions } from "./hub/mutation-lock.js";
 export { buildHub, discoverSkillDirs } from "./hub/builder.js";
+export { projectInvocationRelease } from "./hub/invocation-projection.js";
 export type { HubBuildResult, HubBuildSkill, HubBuildSource } from "./hub/builder.js";
 export { adoptedSourcePath } from "./hub/paths.js";
 export { acquireSource, releaseAcquiredSource } from "./intake/acquire.js";
@@ -236,3 +237,56 @@ export type {
   ReleasePackage,
   StablePointer,
 } from "./hub/release.js";
+export { INVOCATION_PROFILE, InvocationPolicyError, parseInvocationPolicy, validateInvocationPolicy } from "./hub/invocation-policy.js";
+export type { InvocationPolicy, InvocationPolicyAtom, InvocationPolicyBinding, InvocationPolicyRule, InvocationPolicySource } from "./hub/invocation-policy.js";
+export { createInvocationRelease, verifyInvocationRelease, verifyInvocationReleaseEnvelope, verifyInvocationTransition } from "./hub/invocation-release.js";
+export { buildInvocationHubRelease } from "./hub/invocation-build.js";
+export type { InvocationHubReleaseBuildResult } from "./hub/invocation-build.js";
+export type { InvocationHubRelease } from "./hub/invocation-release.js";
+export { createInvocationReleaseDiff, verifyInvocationReleaseDiff } from "./hub/invocation-release-diff.js";
+export type { InvocationReleaseDiff, InvocationReleaseSide } from "./hub/invocation-release-diff.js";
+export { createInvocationCandidate, exportInvocationCandidate, loadLocalInvocationCandidate, verifyInvocationCandidate, writeInvocationCandidate } from "./hub/invocation-candidate.js";
+export type { InvocationCandidate, InvocationCandidatePayload } from "./hub/invocation-candidate.js";
+export {
+  BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE,
+  BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION,
+  BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE,
+  BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION,
+  BASELINE_MIGRATION_SCOPE,
+  PUBLICATION_APPROVAL_OBJECT_TYPE,
+  PUBLICATION_APPROVAL_SCHEMA_VERSION,
+  PUBLICATION_RECEIPT_OBJECT_TYPE,
+  PUBLICATION_RECEIPT_SCHEMA_VERSION,
+  PublicationGateError,
+  assessBaselineMigration,
+  assessProductionPublication,
+  createBaselineMigrationAuthorization,
+  createBaselineMigrationReceipt,
+  createPublicationApproval,
+  createPublicationReceipt,
+  verifyBaselineMigrationAuthorization,
+  verifyBaselineMigrationReceipt,
+  verifyPublicationApproval,
+  verifyPublicationReceipt,
+} from "./hub/publication.js";
+export type {
+  BaselineMigrationAssessment,
+  BaselineMigrationAuthorization,
+  BaselineMigrationAuthorizationPayload,
+  BaselineMigrationBlockerCode,
+  BaselineMigrationExpectation,
+  BaselineMigrationObservation,
+  BaselineMigrationReceipt,
+  BaselineMigrationReceiptPayload,
+  PublicationApproval,
+  PublicationApprovalPayload,
+  ProductionPublicationAssessment,
+  ProductionPublicationBlocker,
+  ProductionPublicationBlockerCode,
+  PublicationCandidateIdentity,
+  PublicationExpectation,
+  PublicationObservation,
+  PublicationPublisher,
+  PublicationReceipt,
+  PublicationReceiptPayload,
+} from "./hub/publication.js";

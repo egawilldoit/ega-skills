@@ -1,17 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HubError,
   buildHub,
+  buildInvocationHubRelease,
   digestStagedTree,
   parseSourcesYaml,
   sourceConfigDigest,
+  verifyHubRelease,
   writeJournal,
 } from "../../packages/project/dist/index.js";
+import { createEnvelope } from "../../packages/hashing/dist/index.js";
 import { importSkills, openRegistry } from "../../packages/registry/dist/index.js";
 
 function skill(name, body) {
@@ -97,6 +101,37 @@ test("happy path builds the exact catalog into an isolated registry", async () =
   );
   for (const s of out.skills) assert.match(s.versionHash, /^sha256:[0-9a-f]{64}$/);
   assert.ok(existsSync(join(out.registryHome, "registry.sqlite")));
+});
+
+test("C2 build checks source provenance and emits release-bound policy", async () => {
+  const hub = setupBuildHub();
+  const baseline = await buildHub(hub);
+  const hash = baseline.skills.find((item) => item.skillId === "plan/alpha").versionHash;
+  const payload = {
+    profile: "ega-invocation-policy-v1",
+    sources: [{ source_id: "plan", repository: "https://example.com/plan", resolved_commit: "a".repeat(40), governed_skill_ids: ["plan/alpha"] }],
+    bindings: [{ source_id: "plan", skill_id: "plan/alpha", version_hash: hash, rules: [{ id: "review", alternatives: [[{ literal: "review" }, { literal: "alpha" }]] }] }],
+  };
+  const envelope = (p) => createEnvelope({ object_type: "ega.invocation-policy", schema_version: 1, payload: p });
+  const policy = envelope(payload);
+  const built = await buildInvocationHubRelease(hub, policy);
+  assert.equal(built.release.schema_version, 2);
+  assert.equal(built.release.payload.invocation_policy_digest, policy.digest);
+  assert.equal(built.releasePackage.hub_release_digest, built.release.digest);
+  assert.equal(built.releasePackage.sqlite_artifact_digest, `sha256:${createHash("sha256").update(readFileSync(join(built.registryHome, "registry.sqlite"))).digest("hex")}`);
+  assert.throws(() => verifyHubRelease(built.release), { code: "E_RELEASE_SCHEMA" });
+  assert.ok(existsSync(join(built.registryHome, "invocation-policy.json")));
+  const wrong = structuredClone(payload);
+  wrong.sources[0].repository = "https://example.com/other";
+  await assert.rejects(buildInvocationHubRelease(hub, envelope(wrong)), { code: "E_INVOCATION_POLICY_INVALID" });
+  const stale = structuredClone(payload);
+  stale.bindings[0].version_hash = `sha256:${"b".repeat(64)}`;
+  await assert.rejects(buildInvocationHubRelease(hub, envelope(stale)), { code: "E_INVOCATION_POLICY_INVALID" });
+  const mismapped = structuredClone(payload);
+  mismapped.sources[0].governed_skill_ids = ["ega/reviewer"];
+  mismapped.bindings[0].skill_id = "ega/reviewer";
+  mismapped.bindings[0].version_hash = baseline.skills.find((item) => item.skillId === "ega/reviewer").versionHash;
+  await assert.rejects(buildInvocationHubRelease(hub, envelope(mismapped)), { code: "E_INVOCATION_POLICY_INVALID" });
 });
 
 test("developer registry history cannot leak into the build", async () => {

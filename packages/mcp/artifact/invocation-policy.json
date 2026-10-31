@@ -1,0 +1,643 @@
+{
+  "digest": "sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6",
+  "object_type": "ega.invocation-policy",
+  "payload": {
+    "bindings": [
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "babysit"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "babysit"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ],
+              [
+                {
+                  "literal": "monitor"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "for"
+                },
+                {
+                  "literal": "checks"
+                },
+                {
+                  "literal": "and"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "feedback"
+                }
+              ]
+            ],
+            "id": "babysit-pr-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/babysit-pr",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:e04074fafff80b5b89d8713d46278f74e310e71d936af7bffffa7b8ed3862370"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "have"
+                },
+                {
+                  "literal": "three"
+                },
+                {
+                  "literal": "different"
+                },
+                {
+                  "literal": "ai"
+                },
+                {
+                  "literal": "models"
+                },
+                {
+                  "literal": "independently"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "design"
+                }
+              ],
+              [
+                {
+                  "literal": "run"
+                },
+                {
+                  "literal": "council"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "run"
+                },
+                {
+                  "literal": "council"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ]
+            ],
+            "id": "council-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/council",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:3886b94694c14043eb69ae549026fb58c03b2df5f2f02078fb130fffa092424e"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "file"
+                },
+                {
+                  "literal": "a"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "after"
+                },
+                {
+                  "literal": "implementation"
+                }
+              ],
+              [
+                {
+                  "literal": "file"
+                },
+                {
+                  "literal": "a"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "for"
+                },
+                {
+                  "literal": "these"
+                },
+                {
+                  "literal": "changes"
+                }
+              ],
+              [
+                {
+                  "literal": "open"
+                },
+                {
+                  "literal": "a"
+                },
+                {
+                  "literal": "pull"
+                },
+                {
+                  "literal": "request"
+                },
+                {
+                  "literal": "for"
+                },
+                {
+                  "literal": "these"
+                },
+                {
+                  "literal": "changes"
+                }
+              ]
+            ],
+            "id": "file-pr-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/file-pr",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:f122b9983ba8d71d5904eecdfaec2087b340f5931006cd63892bf1913e3d576c"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "full"
+                },
+                {
+                  "literal": "send"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                },
+                {
+                  "literal": "and"
+                },
+                {
+                  "literal": "merge"
+                },
+                {
+                  "literal": "when"
+                },
+                {
+                  "literal": "green"
+                }
+              ],
+              [
+                {
+                  "literal": "full"
+                },
+                {
+                  "literal": "send"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "and"
+                },
+                {
+                  "literal": "merge"
+                },
+                {
+                  "literal": "when"
+                },
+                {
+                  "literal": "green"
+                }
+              ],
+              [
+                {
+                  "literal": "full"
+                },
+                {
+                  "literal": "send"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ]
+            ],
+            "id": "full-send-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/full-send",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:c665966575ce8896ce9cfe87f9a9962e60b5ae5c3e15f5915d026d97de1796ef"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "full"
+                },
+                {
+                  "literal": "stop"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "full"
+                },
+                {
+                  "literal": "stop"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ],
+              [
+                {
+                  "literal": "prepare"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "through"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "and"
+                },
+                {
+                  "literal": "ci"
+                },
+                {
+                  "literal": "without"
+                },
+                {
+                  "literal": "merging"
+                }
+              ]
+            ],
+            "id": "full-stop-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/full-stop",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:c1be4648ab8b5bc2e4659174aa6f109d5af27718e901e5e8ef5e1821be59edc5"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "format"
+                },
+                {
+                  "literal": "agent"
+                },
+                {
+                  "literal": "authored"
+                },
+                {
+                  "literal": "comments"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "format"
+                },
+                {
+                  "literal": "these"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "literal": "comments"
+                }
+              ],
+              [
+                {
+                  "literal": "standardize"
+                },
+                {
+                  "literal": "these"
+                },
+                {
+                  "literal": "agent"
+                },
+                {
+                  "literal": "authored"
+                },
+                {
+                  "literal": "github"
+                },
+                {
+                  "literal": "comments"
+                }
+              ]
+            ],
+            "id": "leaving-pr-comments-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/leaving-pr-comments",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:cb6bf03e50106ae957670029043649fd87c9a29c529104f2bb03cf0212cb4dbf"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "modernize"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "modernize"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ],
+              [
+                {
+                  "literal": "update"
+                },
+                {
+                  "literal": "and"
+                },
+                {
+                  "literal": "rebase"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "older"
+                },
+                {
+                  "literal": "pr"
+                }
+              ]
+            ],
+            "id": "modernize-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/modernize",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:43f822037b0b0e624274e3dc1127fbb4a269ca920a8ac5e8409f151827ea7958"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "run"
+                },
+                {
+                  "literal": "an"
+                },
+                {
+                  "literal": "independent"
+                },
+                {
+                  "literal": "reviewer"
+                },
+                {
+                  "literal": "loop"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ],
+              [
+                {
+                  "literal": "run"
+                },
+                {
+                  "literal": "sol-loop"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "run"
+                },
+                {
+                  "literal": "sol-loop"
+                },
+                {
+                  "literal": "review"
+                },
+                {
+                  "literal": "on"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ]
+            ],
+            "id": "sol-loop-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/sol-loop",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:ae8fb31ef38a9e30bdca3381c91017aed680f1e319fe9fb2ae2f1fe23cf30d5b"
+      },
+      {
+        "rules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "literal": "continue"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "unfinished"
+                },
+                {
+                  "literal": "pr"
+                }
+              ],
+              [
+                {
+                  "literal": "take"
+                },
+                {
+                  "literal": "over"
+                },
+                {
+                  "literal": "pr"
+                },
+                {
+                  "pr_number": true
+                }
+              ],
+              [
+                {
+                  "literal": "take"
+                },
+                {
+                  "literal": "over"
+                },
+                {
+                  "literal": "this"
+                },
+                {
+                  "literal": "pr"
+                }
+              ]
+            ],
+            "id": "takeover-intent"
+          }
+        ],
+        "skill_id": "t3dotgg/takeover",
+        "source_id": "t3dotgg-tstack",
+        "version_hash": "sha256:39a467c35ec9dfc3937f53e2d4f1c2d23b6a6ff0c3aafc397fef9d9e307cae40"
+      }
+    ],
+    "profile": "ega-invocation-policy-v1",
+    "sources": [
+      {
+        "governed_skill_ids": [
+          "t3dotgg/babysit-pr",
+          "t3dotgg/council",
+          "t3dotgg/file-pr",
+          "t3dotgg/full-send",
+          "t3dotgg/full-stop",
+          "t3dotgg/leaving-pr-comments",
+          "t3dotgg/modernize",
+          "t3dotgg/sol-loop",
+          "t3dotgg/takeover"
+        ],
+        "repository": "https://github.com/t3dotgg/tstack",
+        "resolved_commit": "7de017b3fc9d50c03cf3ecb98fb71e0ca65a78bd",
+        "source_id": "t3dotgg-tstack"
+      }
+    ]
+  },
+  "schema_version": 1
+}

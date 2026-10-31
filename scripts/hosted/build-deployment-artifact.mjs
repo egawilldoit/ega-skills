@@ -26,12 +26,13 @@
 //   node scripts/hosted/build-deployment-artifact.mjs --fixture --out <artifact-dir>
 //
 // Exit 0: validated artifact written. Exit 1: anything failed.
-import { existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, cpSync, rmSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   buildHubRelease,
   exportReleaseCandidate,
+  exportInvocationCandidate,
   extractSelectedRootsFromGit,
   fetchExactCommit,
   parseSourcesYaml,
@@ -116,7 +117,16 @@ async function buildFromHub() {
 }
 
 async function exportCandidate() {
-  const verified = exportReleaseCandidate(resolve(CANDIDATE), OUT);
+  const candidatePath = resolve(CANDIDATE);
+  const envelope = JSON.parse(readFileSync(candidatePath, "utf8"));
+  if (envelope?.schema_version === 3 && basename(candidatePath) !== "candidate.json") {
+    fail("I1 input must name the canonical candidate.json envelope");
+  }
+  // Schema dispatch selects the verifier, never bypasses it. Both paths reject
+  // invalid envelopes and verify all governed sidecars before copying bytes.
+  const verified = envelope?.schema_version === 3
+    ? exportInvocationCandidate(dirname(candidatePath), OUT)
+    : exportReleaseCandidate(candidatePath, OUT);
   const snapshot = loadHostedReleaseSnapshot(OUT);
   writeFileSync(join(OUT, "PROVENANCE.md"), [
     "# Deployment artifact provenance",

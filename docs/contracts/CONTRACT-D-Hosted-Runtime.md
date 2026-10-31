@@ -1,5 +1,9 @@
 # Contract D — Hosted Personal EGA v1
 
+**Versioned extension:** [Contract I1](CONTRACT-I1-Release-Bound-Invocation.md) defines an opt-in
+invocation-policy successor profile. This contract remains authoritative for
+existing V1 behavior and retained releases.
+
 Status: frozen for the 1.2 implementation candidate.
 
 This contract defines the read-only hosted runtime over immutable 1.1

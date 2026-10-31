@@ -488,10 +488,12 @@ describe("facet counts report sparse reality", () => {
         ["egawilldoit", 67],
         ["mattpocock", 27],
         ["anthropic", 14],
+        ["t3dotgg", 9],
         ["vercel", 9],
       ],
     );
-    // All 117 skills report MISSING / UNKNOWN / local. Not one fabricated zero.
+    // All 126 materialized registry rows report MISSING / UNKNOWN / local.
+    // External Git provenance is separately bound by the I1 release snapshot.
     assert.deepEqual(page.facets.l1_statuses, [{ value: "MISSING", skill_count: COMMITTED_SKILL_COUNT }]);
     assert.deepEqual(page.facets.trust_levels, [{ value: "UNKNOWN", skill_count: COMMITTED_SKILL_COUNT }]);
     assert.deepEqual(page.facets.sources, [{ value: "local", skill_count: COMMITTED_SKILL_COUNT }]);

@@ -235,6 +235,15 @@ test("resolve: unknown explicit reference surfaces E_SKILL_NOT_FOUND verbatim", 
   );
 });
 
+test("resolve: invalid trusted I1 snapshot fails with its policy error", async (t) => {
+  const { home } = await setupHome(t, [["alpha", {}]]);
+  const project = await makeProject();
+  await assert.rejects(
+    runResolveTool({ task: "build" }, ctxFor(project, home), { invocation: { release: {}, policy: {} } }),
+    { code: "E_INVOCATION_POLICY_INVALID" },
+  );
+});
+
 test("resolve: repeated calls match except resolution_id, registry untouched", async (t) => {
   const { home } = await setupHome(t, [
     ["alpha", {}],
