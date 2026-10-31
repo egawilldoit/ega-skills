@@ -59,16 +59,20 @@ jobs:
 
   foundation:
     needs: classify
-    if: ${{ needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full' }}
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
     name: foundation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name != 'pull_request' || github.base_ref == 'release/2.0') && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -130,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name != 'pull_request' || github.base_ref == 'release/2.0') && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
       - name: Checkout
@@ -344,7 +348,7 @@ jobs:
 
   rls:
     needs: classify
-    if: ${{ needs.classify.outputs.mode == 'full' }}
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && needs.classify.outputs.mode == 'full')) }}
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -364,6 +368,10 @@ jobs:
           --health-retries 10
 
     steps:
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
