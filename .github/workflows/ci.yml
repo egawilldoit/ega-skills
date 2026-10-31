@@ -8,22 +8,71 @@ on:
       - release/2.0
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.base_ref != 'release/2.0' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.base_ref != 'release/2.0' }}
+
 permissions:
   contents: read
 
 jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - id: select
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_BASE_REF: ${{ github.base_ref }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/classify-changes.mjs
+
+  docs:
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: node --test tests/ci/classify-changes.test.mjs
+      - name: Check PR whitespace
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$CI_BASE_SHA...$CI_HEAD_SHA"
+      - run: echo "$CI_REASON"
+        env:
+          CI_REASON: ${{ needs.classify.outputs.reason }}
+
   foundation:
+    needs: classify
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
     name: foundation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-2022
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -71,21 +120,21 @@ jobs:
         run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
 
       - name: Test
-        run: pnpm test:ci
+        run: ${{ runner.os == 'Windows' && 'pnpm test:ci' || 'node scripts/release/run-tests-bounded.mjs --ci-scope=core' }}
 
       - name: Check frozen specs
         run: pnpm specs:check
 
   web:
+    needs: classify
+    if: ${{ needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full' }}
     name: web console (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-2022
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
       - name: Checkout
@@ -140,7 +189,7 @@ jobs:
         run: pnpm test:web:components
 
       - name: Web API and integration tests
-        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
+        run: node scripts/release/run-tests-bounded.mjs --ci-scope=web
 
       - name: Check out pinned source catalog fixture
         uses: actions/checkout@v6
@@ -217,6 +266,8 @@ jobs:
           exit "$failed"
 
   web-isolation:
+    needs: classify
+    if: ${{ needs.classify.outputs.mode == 'full' }}
     name: web isolation (real PostgreSQL 16)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -296,6 +347,8 @@ jobs:
           EGA_PGCRON_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
   rls:
+    needs: classify
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && needs.classify.outputs.mode == 'full')) }}
     name: contract-f rls (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -315,6 +368,10 @@ jobs:
           --health-retries 10
 
     steps:
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -354,3 +411,19 @@ jobs:
         run: node --test tests/rls/hosted-skill-scoped-live-membership.rls.mjs
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+  ci-gate:
+    name: ci-gate
+    if: ${{ always() }}
+    needs: [classify, docs, foundation, web, web-isolation, rls]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify every selected job succeeded
+        env:
+          CI_MODE: ${{ needs.classify.outputs.mode }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-gate.mjs

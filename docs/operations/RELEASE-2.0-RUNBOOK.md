@@ -372,7 +372,11 @@ successful checks to make the gate pass.
 1. Verify the exact release SHA is green in CI:
    `gh run list --repo egawilldoit/ega-skills --branch release/2.0 --limit 5`
    `gh run view <run-id> --repo egawilldoit/ega-skills`
-   Required: Linux PASS, Windows PASS, Contract F PASS, hashing PASS.
+   Require `foundation (ubuntu-latest)`, `foundation (windows-2022)`, and
+   `contract-f rls (ubuntu-latest)` to pass. Inspect both foundation logs to
+   confirm `tests/hashing-traversal.test.mjs` and
+   `tests/hashing-traversal-toctou.test.mjs` executed and passed. Hashing is
+   part of foundation; no separate hashing workflow check is emitted.
 2. Verify the candidate artifact and release digest:
    `node scripts/hosted/validate-artifact.mjs <artifact-dir>`
    `cat <artifact-dir>/hub-release.json | jq -r '.digest'`
