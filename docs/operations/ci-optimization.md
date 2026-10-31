@@ -1,53 +1,80 @@
-# CI optimization baseline
+# CI ownership and operations
 
-Baseline inspected 2026-10-31 at main `4d7c1d01e0668f424319a4405c2720d87769ec6f`. This is design evidence, not a claim that the proposed replacement is implemented or verified.
+The authoritative workflow is [ci.yml](../../.github/workflows/ci.yml). For
+release and deployment, use [RELEASE-2.0-RUNBOOK.md](RELEASE-2.0-RUNBOOK.md)
+and [web-console-production-promotion.md](web-console-production-promotion.md).
 
-## Existing ownership and proposed replacement
+## Workflow and selection
 
-| Existing owner | Coverage | Proposed owner and trigger |
-| --- | --- | --- |
-| CI foundation, Ubuntu and Windows | Frozen install and lockfile, build, committed and staged artifact checks, catalog, typecheck, registry cold-import performance, token vectors, bounded `test:ci`, frozen specs | Full foundation on release PRs, release pushes and manual runs on both platforms; main pushes use Linux; Linux on code changes until a narrower mapping is demonstrated. Keep release contexts unchanged. |
-| CI web console, Ubuntu and Windows | Domain build, both web typechecks, web build, component and API/integration tests, pinned source proposal tests; Linux also validates baseline and add/update/remove candidate trees | Web and source-manager changes plus full runs; Windows on release PRs, release pushes and manual runs. Preserve Linux candidate validation and fixture pin. |
-| CI web isolation | PostgreSQL 16 cross-workspace isolation, telemetry authorization, pg_cron scheduler and dedicated writer gateway | Database/security or uncertain/shared changes and full runs, unchanged real services. |
-| CI contract-f rls | PostgreSQL 16 Contract F, catalog bootstrap and both live membership regressions | Database/security or uncertain/shared changes and full runs; preserve release-required context. |
-| Hashing traversal, Ubuntu and Windows | Frozen install/lockfile, build, typecheck, registry performance, two explicit traversal files, bounded full suite, specs and whitespace | Full foundation covers shared checks. Traversal files match Node's default `*.test.mjs` discovery in `test:ci`; prove actual execution before removing duplicate workflow. Retain whitespace check and Windows full coverage. |
+`classify` selects `docs`, foundation, web, web-isolation and RLS as applicable;
+`ci-gate` checks that every selected job succeeded. These jobs run concurrently:
+feedback latency follows the longest required path, not the sum of job times.
+The workflow has no top-level paths filter. Superseded non-release PR runs cancel;
+release runs are not cancelled by this mechanism.
 
-Node's default discovery also includes `tests/hashing-enumeration.test.mjs`. The `.rls.mjs` suites are explicitly invoked, not ordinary test discovery. Source-manager tests and candidate validation require their pinned corpus fixture; do not infer that the ordinary suite substitutes for this job. The two explicit traversal invocations currently duplicate files matched by default discovery, but execution equivalence has not yet been demonstrated on a candidate head.
+Only a modified README selects docs. Modifications limited to README and the
+existing allowlisted StatCard, Icon, Disclosure and format components select web.
+All other changes, uncertainty, renames, deletions or missing history select full.
+Release PRs, pushes and manual runs select full. Pull request workflows normally
+checkout GitHub's synthetic merge ref; record both that checkout SHA and the PR
+head SHA when reporting evidence.
 
-Unknown paths, renames, deletions, missing history, shared packages, root scripts, manifests, dependency/build configuration and workflow changes must select FULL until a complete dependency map proves narrower selection safe. Security, database adapters, telemetry, workspace isolation and SQL require both real database jobs. No recurring schedule is proposed; a schedule would add the sum of its jobs' elapsed runner-minutes per run and needs owner approval.
+Full Linux runs foundation, web, real PostgreSQL 16 isolation and Contract F RLS,
+plus docs/classification and gate. Isolation includes telemetry, pg_cron and the
+writer gateway; RLS includes catalog bootstrap and membership regressions. Do not
+replace them with mocks or `continue-on-error`.
 
-## Measured starting runs
+## Test ownership
 
-Job runner-minutes are each job's `completed_at - started_at`, summed even where jobs overlap; latency below is the longest job duration, excluding queue time. One sample per row; variance and confidence limits cannot be estimated from one sample.
+`scripts/ci/test-ownership.json` lists all default Node-discovered files. At head
+`50b3a8c` it contains 150 core and 38 web files; `ownership.mjs` checks the
+inventory for missing, stale or duplicate owners. When a discovered test is
+added, removed or moved, update the manifest and run:
 
-| Run | Head | Slowest job | Sum runner-minutes | Result |
-| --- | --- | ---: | ---: | --- |
-| [PR #183 CI](https://github.com/egawilldoit/ega-skills/actions/runs/41215483740) | `46b68823d036eba34ac8c4ddc33ebf1397b1b68e` | 19.40 min | 43.80 min | success |
-| [main hashing](https://github.com/egawilldoit/ega-skills/actions/runs/41217819345) | `4d7c1d01e0668f424319a4405c2720d87769ec6f` | 13.58 min | 21.52 min | success |
+```sh
+node --test tests/ci/classify-changes.test.mjs tests/ci/test-ownership.test.mjs
+node -e "import('./scripts/ci/ownership.mjs').then(({discover,manifest,validateOwnership})=>{validateOwnership(discover(),manifest);console.log('ownership OK')})"
+```
 
-The latter is a different run from the earlier 24.4-minute sample in the request. A [source corpus validation run](https://github.com/egawilldoit/skills/actions/runs/40368765379) succeeded; the source repository is read-only for this work.
+Linux foundation uses the bounded runner's `--ci-scope=core`; web uses
+`--ci-scope=web`. Unscoped `pnpm test:ci` still runs default Node discovery.
+The pinned source-manager fixture is checked separately, including planner output
+and Python add/update/remove candidate validation. React component tests and
+explicit `.rls.mjs` suites retain separate execution contracts. The planner is
+intentionally run again to produce candidate plans.
 
-## Protection and costs
+Windows is omitted on routine PRs and main pushes, but release PRs/pushes and
+manual full runs retain Windows foundation and web. Windows foundation keeps the
+full unscoped suite, including deliberate release-time overlap with web. The
+release ruleset requires `foundation (ubuntu-latest)`, `foundation (windows-2022)`,
+and `contract-f rls (ubuntu-latest)`; preserve those exact names.
 
-On inspection main ruleset 22345614 had no required status checks; release ruleset 23893800 required `foundation (ubuntu-latest)`, `foundation (windows-2022)`, and `contract-f rls (ubuntu-latest)`. Workflow changes do not change rulesets. After a new `ci-gate` has been observed and verified on a PR, an authorized owner may add that exact context to main protection. Recheck rules before finalizing and preserve the three release contexts until an explicitly approved protection migration.
+The duplicate `hashing-traversal.yml` workflow was removed. The two traversal
+files and hashing enumeration remain in the foundation inventory; inspect both
+release foundation logs for traversal execution. The former separate hashing
+workflow references in historical evidence describe historical runs.
 
-Blacksmith is not enabled. An owner must install its app scoped to this repository, verify the organization's remaining allowance and confirm whether a hard spending cap exists before any pilot. A 4-vCPU runner consumes two equivalent 2-vCPU minutes per wall minute; alerts alone are not a hard cap. The public GitHub-hosted runner remains the fallback. Roll back a future pilot by switching its runner to GitHub, disabling the manual workflow and optionally removing app access.
+## Evidence and maintenance
 
-## Candidate implementation and limitations
+[Run 41227424085](https://github.com/egawilldoit/ega-skills/actions/runs/41227424085)
+passed for PR head `50b3a8c` on synthetic merge checkout `971f42d`: approximately
+6m36s run latency and 11.9 summed job-minutes, with foundation about 3m45s and
+web about 5m53s. The preceding [run 41224526338](https://github.com/egawilldoit/ega-skills/actions/runs/41224526338)
+took 9m24s. Each is one sample; scheduling and workload differ, so this does not
+establish a repeatable equal-workload improvement. Record run creation to gate
+completion separately from each job's start-to-finish duration and their sum.
 
-The candidate replaces the separate hashing workflow with foundation `test:ci`: the [Linux](https://github.com/egawilldoit/ega-skills/actions/runs/41215483740/job/124578997999) and [Windows](https://github.com/egawilldoit/ega-skills/actions/runs/41215483740/job/124578997922) foundation logs show named cases from both traversal files. The other hashing workflow checks are owned by foundation, while PR whitespace moves to the docs job. Candidate full-mode execution and timing are not yet verified.
+For changes: map affected checks and external rulesets, make the smallest edit,
+run ownership and selector tests, verify hosted profiles including failure and
+release conditions, record head and checkout SHAs plus timings, request an
+independent review, and document rollback. A new job is not automatically a
+required check. YAML parsing and skipped-job success do not prove execution.
 
-Only modifications to README or the existing StatCard, Icon, Disclosure and format display components receive narrower modes; all other frontend files default to full pending a proven dependency map. Everything else selects full; release PRs, pushes and manual runs always select full; Windows runs on release PRs, release pushes and manual runs, but not main pushes. PR concurrency cancels only superseded non-release PR runs. `ci-gate` must observe success for every selected job. Before requiring `ci-gate` in main protection, an authorized owner must verify it on actual PR events including selected failure and cancellation; no ruleset has been changed.
+At inspection main ruleset 22345614 did not require `ci-gate`; owner governance
+work is deferred. Release ruleset 23893800 retains the three contexts above.
+No ruleset is changed by workflow edits. No schedule or paid runner is configured.
+Preview readiness is informational and does not authorize production promotion.
 
-This is an incomplete draft: representative real PR runs, exact-head CI, Windows and real PostgreSQL validation, independent review, equal-coverage profiling, and after-change timings are outstanding. Full verification remains blocked locally by the VM heavy-runner recovery marker. No Blacksmith runner is configured; owner setup and cost verification remain prerequisites. Roll back by reverting this PR, restoring the separate hashing workflow and original CI workflow together.
-
-
-## Observed candidate run and owner action
-
-[PR #184 run 41223631136](https://github.com/egawilldoit/ega-skills/actions/runs/41223631136) at `fc07b2e09aa786c8420114334de9b27065b49a71` passed full Linux selection: foundation, web, isolation, Contract F, classifier, docs and gate. The foundation log shows named cases from both traversal files. Summed job start-to-finish time was 13.60 runner-minutes; the slowest job was 7.20 minutes, and the run took 7.53 minutes from creation to gate completion. Compared with the single PR #183 baseline's 43.80 runner-minutes and 19.40-minute slowest job, these represent 68.9% and 62.9% reductions respectively. These are different PR changes and commits, not equal-coverage benchmark samples; do not extrapolate to other profiles or infer variance from one run. This evidence predates the main-push Windows change and does not establish final-head CI.
-
-After representative PR failure/skip and release checks have been verified, an authorized repository administrator can open Settings → Rules → Rulesets → `main-protection` (22345614), edit it, add the required status checks rule if absent, add the observed exact check name `ci-gate` from GitHub Actions, and save while retaining existing rules. Verify the new ruleset on a fresh PR with a passing and failing gate. This PR does not change protection. The release ruleset (23893800) must retain its three existing contexts unless a separately approved migration is completed.
-
-The only PR in this scope contains workflow and selector changes, so its classifier necessarily selects FULL. Actual README-only, display-only and release-targeted PR event runs, as well as an intentionally failing selected job, remain unverified; local selector tests are not proof of GitHub job scheduling. Full Windows/manual validation and equal-coverage benchmarks remain outstanding.
-
-Independent review identified that a failed classifier could otherwise skip the release-required jobs. The candidate now starts foundation and Contract F for release-targeted PRs even if classification fails and explicitly fails those jobs if classification is not successful FULL. This is a static fix; real release-event verification remains required.
+To roll back this PR, revert it as a unit, restoring the original `ci.yml` and
+`hashing-traversal.yml` and original test commands. Preserve released artifacts
+and required check contexts; do not change the source-catalog repository or rulesets.

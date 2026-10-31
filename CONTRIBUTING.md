@@ -1,5 +1,8 @@
 # Contributing to EGA Skills Hub V1
 
+For agent guidance see [AGENTS.md](AGENTS.md); CI ownership and maintenance are
+documented in [CI optimization](docs/operations/ci-optimization.md).
+
 ## The specs are authoritative
 
 `docs/specs/` is the normative V1 behavioral contract. Implementation must trace

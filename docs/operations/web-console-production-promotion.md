@@ -97,9 +97,9 @@ gh run list --repo egawilldoit/ega-skills --branch release/2.0 --limit 5
 gh run view <run-id> --repo egawilldoit/ega-skills
 # Required green at that SHA: foundation (ubuntu-latest), foundation (windows-2022),
 # contract-f rls (ubuntu-latest), web console (ubuntu-latest),
-# web console (windows-2022), web isolation (real PostgreSQL 16),
-# hashing traversal (ubuntu-latest), hashing traversal (windows-2022).
-# RELEASE-2.0-RUNBOOK.md § Pre-deployment requires hashing PASS.
+# web console (windows-2022), web isolation (real PostgreSQL 16).
+# Verify both hashing traversal test files ran and passed in each foundation
+# job, as required by RELEASE-2.0-RUNBOOK.md § Pre-deployment.
 
 # Release identity (immutable artifact)
 node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
