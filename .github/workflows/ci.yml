@@ -142,6 +142,20 @@ jobs:
       - name: Web API and integration tests
         run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
 
+      - name: Check out pinned source catalog fixture
+        uses: actions/checkout@v6
+        with:
+          repository: egawilldoit/skills
+          ref: 8f264fc5fcb5691694c3653287f4d9370c5b025c
+          path: .source-skill-fixture
+          persist-credentials: false
+
+      - name: Source proposal tests
+        shell: bash
+        env:
+          EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
+        run: node --test tests/web/source-manager/*.test.mjs
+
   web-isolation:
     name: web isolation (real PostgreSQL 16)
     runs-on: ubuntu-latest

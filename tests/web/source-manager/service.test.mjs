@@ -86,3 +86,13 @@ test('routing overlap check accepts actual source routing metadata', { skip: !pr
   const result = await previewProposal(source, { baseSha: base, proposal }, { read: async () => { throw new Error('unexpected'); }, parseYaml: text => parse(text, { uniqueKeys: true, maxAliasCount: 0 }) });
   assert.deepEqual(result.errors, []);
 });
+
+test('routing updates warn about matching other skills', async () => {
+  const snapshot = { ...files, 'skills/sample-skill/SKILL.md': '---\nname: sample-skill\ndescription: Review the sample change.\n---\n\n# Sample\n\nReview the result.\n', 'skills/sample-skill/ega.yaml': JSON.stringify({ schema_version: 1, triggers: ['old'], anti_triggers: [] }), 'skills/other/ega.yaml': JSON.stringify({ schema_version: 1, triggers: ['shared wording'], anti_triggers: [] }) };
+  const source = { mainSha: async () => base, snapshot: async () => ({ sha: base, files: snapshot, selectedFiles: [] }) };
+  const proposal = { ...request.proposal, routing: { triggers: [' Shared wording '], antiTriggers: [] } };
+  const imports = { read: async () => { throw new Error('unexpected'); }, parseYaml: text => text.startsWith('{') ? JSON.parse(text) : { name: 'sample-skill', description: 'Review the sample change.' } };
+  const result = await previewProposal(source, { baseSha: base, proposal }, imports);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.warnings.some(warning => warning.includes('overlaps with: other')));
+});

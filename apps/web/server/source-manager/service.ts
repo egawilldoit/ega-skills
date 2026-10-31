@@ -46,12 +46,13 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
     } catch { throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source provenance is invalid.'); }
   }
   const warnings = [...plan.warnings];
-  if (add && imports) {
-    const wanted = new Set(add.triggers.map(value => value.trim().toLowerCase().replace(/\s+/g, ' ')));
+  const proposedTriggers = add?.triggers ?? (proposal.operation === 'update' ? proposal.routing?.triggers : undefined);
+  if (proposedTriggers && imports) {
+    const wanted = new Set(proposedTriggers.map(value => value.trim().toLowerCase().replace(/\s+/g, ' ')));
     const matches: string[] = [];
     for (const [path, content] of Object.entries(snapshot.files)) {
       const skill = /^skills\/([^/]+)\/ega\.yaml$/.exec(path)?.[1];
-      if (!skill || skill === add.name) continue;
+      if (!skill || skill === proposal.name) continue;
       let metadata: unknown;
       try { metadata = imports.parseYaml(content); } catch { throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source routing metadata is invalid.'); }
       if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source routing metadata is invalid.');

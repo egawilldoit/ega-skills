@@ -12,6 +12,9 @@ type Proposal = { number: number; url: string; head: string };
 type Status = Proposal & { state: string; headChecks: string; mergeSha: string | null; mergeChecks: string; published: false };
 type ImportResult = { location: { owner: string; repo: string; commit: string; directory: string }; license: { path: string; text: string; sha: string }; files: { path: string; mode: string; contentBase64: string }[] };
 type Mode = 'list' | 'add' | 'update' | 'remove';
+type CaseField = 'direct' | 'indirect' | 'incomplete' | 'negative' | 'collision' | 'edge';
+const caseLabels: Record<CaseField, string> = { direct: 'Direct request', indirect: 'Indirect request', incomplete: 'Incomplete request', negative: 'Request for another skill', collision: 'Similar request for another skill', edge: 'Edge case request' };
+const emptyCases = (): Record<CaseField, string> => ({ direct: '', indirect: '', incomplete: '', negative: '', collision: '', edge: '' });
 
 const message = (cause: unknown): string => cause instanceof Error ? cause.message : toApiError(cause).message;
 const decodeIndex = (value: unknown): Index => {
@@ -63,6 +66,8 @@ export function SourceSkillsPage(): ReactNode {
   const [editProvenance, setEditProvenance] = useState<Item['provenance']>('original');
   const [references, setReferences] = useState<{ path: string; content: string }[]>([]);
   const [neighbor, setNeighbor] = useState('');
+  const [collisionNeighbor, setCollisionNeighbor] = useState('');
+  const [cases, setCases] = useState<Record<CaseField, string>>(emptyCases);
   const [importOwner, setImportOwner] = useState('');
   const [importRepo, setImportRepo] = useState('');
   const [importCommit, setImportCommit] = useState('');
@@ -85,7 +90,7 @@ export function SourceSkillsPage(): ReactNode {
         if (page.sha !== data.sha || page.total !== data.total || !page.items.length) throw new Error('Source main changed while loading. Refresh and compare again.');
         data.items.push(...page.items);
       }
-      if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? ''); }
+      if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? ''); setCollisionNeighbor(data.items[0]?.name ?? ''); }
     } catch (cause) { if (!signal?.aborted) setError(message(cause)); }
     finally { if (!signal?.aborted) setLoading(false); }
   };
@@ -93,7 +98,7 @@ export function SourceSkillsPage(): ReactNode {
   if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { clear(); setName(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
+  const startAdd = (): void => { clear(); setName(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
   const startEdit = async (item: Item): Promise<void> => {
     clear(); setLoading(true);
     try {
@@ -154,7 +159,7 @@ export function SourceSkillsPage(): ReactNode {
       operation: 'add', name, description, body, triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean),
       interface: { displayName, shortDescription, prompt },
       ...(imported && acceptNormalization ? { importSource: { location: imported.location, acceptOriginalNormalization: true } } : {}),
-      cases: { direct: `Use ${name} to ${description}`, indirect: description, incomplete: `Help with ${name.replaceAll('-', ' ')}`, negative: `Use ${neighbor}`, negative_expected: neighbor, collision: `Use ${neighbor}`, collision_expected: neighbor, edge: `Use ${name} for this task` },
+      cases: { ...cases, negative_expected: neighbor, collision_expected: collisionNeighbor },
     };
     const next = { baseSha: index.sha, proposal };
     try { const result = await client.post<Preview>('/skill-proposals/preview', next, { timeoutMs: 30_000, decode: decodePreview }); setRequest(next); setPreview(result); }
@@ -212,7 +217,10 @@ export function SourceSkillsPage(): ReactNode {
           <p><label>Display title <input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label></p>
           <p><label>Short description (25–64 characters) <input value={shortDescription} onChange={event => setShortDescription(event.target.value)} /></label></p>
           <p><label>Example prompt (include ${name || 'skill-name'}) <input value={prompt} onChange={event => setPrompt(event.target.value)} /></label></p>
-          <p><label>Closest existing skill <select value={neighbor} onChange={event => setNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
+          <h4>Routing examples</h4><p>Give realistic requests for this skill and for nearby skills. The source catalog checks these examples when the PR runs.</p>
+          {(Object.keys(caseLabels) as CaseField[]).map(field => <p key={field}><label>{caseLabels[field]}<br /><textarea value={cases[field]} onChange={event => { const value = event.target.value; setCases(current => ({ ...current, [field]: value })); }} /></label></p>)}
+          <p><label>Expected skill for the other request <select value={neighbor} onChange={event => setNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
+          <p><label>Expected skill for the similar request <select value={collisionNeighbor} onChange={event => setCollisionNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
         </> : null}
       </>}
       <p><button disabled={loading || (!!imported && !acceptNormalization) || (uploaded && !acceptUpload)} onClick={() => void makePreview()}>Review changes</button>{' '}<button onClick={reset}>Cancel</button></p>
