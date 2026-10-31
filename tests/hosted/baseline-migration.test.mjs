@@ -129,7 +129,7 @@ test("a pre-check legacy deployment is accepted only with explicit absent-accept
   const absent = observation({ deployment_checks_state: "none" });
   const expect = { ...expected, legacy_deployment_checks: "absent-accepted" };
   assert.equal(assessBaselineMigration({ authorization: auth, expected: expect, observation: absent }).status, "READY");
-  for (const checks of ["failed", "pending", "succeeded"]) {
+  for (const checks of ["failed", "pending", "succeeded", "unknown"]) {
     const result = assessBaselineMigration({ authorization: auth, expected: expect, observation: observation({ deployment_checks_state: checks }) });
     assert.ok(result.blockers.some((blocker) => blocker.code === "E_BASELINE_CHECKS_NOT_PASSED"), checks);
   }

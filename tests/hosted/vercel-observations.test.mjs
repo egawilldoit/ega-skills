@@ -45,7 +45,7 @@ function mockApi({ alias, details, inventory, probe } = {}) {
     else throw Error(`Unexpected API path ${url.pathname}`);
     return new Response(JSON.stringify(body), { status: 200 });
   } });
-  return { paths, read: () => api.readProduction(expected, probe) };
+  return { paths, read: () => api.readProduction(expected, probe), readStaged: () => api.readDeploymentIdentity(deployment.id, expected) };
 }
 
 test("actual alias endpoint and full deployment identify production without a recent-deployment list", async () => {
@@ -83,4 +83,17 @@ test("alias inventory is complete and absent deployment checks never become succ
   assert.equal(observed.deployment_checks_state, "none");
   assert.deepEqual(observed.production_aliases, [expected.canonical_alias, "extra.vercel.app"]);
   assert.equal(observed.served_release_digest, undefined);
+});
+
+test("unknown and contradictory check states cannot be treated as absent or successful", async () => {
+  for (const checks of [
+    { checksConclusion: "skipped", checksState: "completed" },
+    { checksConclusion: "succeeded", checksState: "pending" },
+    { checksConclusion: null, checksState: "completed" },
+    { checksConclusion: null, checksState: "unexpected" },
+  ]) {
+    const observed = await mockApi({ details: { ...deployment, ...checks } }).read();
+    assert.equal(observed.deployment_checks_state, "unknown");
+    assert.equal((await mockApi({ details: { ...deployment, ...checks } }).readStaged()).checks_state, "unknown");
+  }
 });

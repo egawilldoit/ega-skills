@@ -95,7 +95,7 @@
  * prints the plan, contacting only read-only endpoints.
  */
 
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -547,6 +547,19 @@ export async function readBaselineSources({ repoRoot, predecessorSourceDir, migr
   };
 }
 
+function classifyDeploymentChecks(deployment) {
+  const conclusion = deployment.checksConclusion;
+  const state = deployment.checksState;
+  if (conclusion == null && state == null) return "none";
+  if (state != null && !["completed", "pending", "in_progress"].includes(state)) return "unknown";
+  if (conclusion != null && !["succeeded", "failed", "canceled"].includes(conclusion)) return "unknown";
+  if (conclusion != null && state != null && state !== "completed") return "unknown";
+  if (conclusion === "succeeded") return "succeeded";
+  if (conclusion === "failed" || conclusion === "canceled") return "failed";
+  if (state === "pending" || state === "in_progress") return "pending";
+  return "unknown";
+}
+
 /**
  * Build the observation the gate consumes from Vercel API documents. Kept pure
  * so the platform mapping is unit-tested without network access.
@@ -599,12 +612,7 @@ export function observationFromVercel({ user, project, deployments, served, expe
     !Array.isArray(enabled) && Object.hasOwn(enabled, productionBranch) && enabled[productionBranch] === false &&
     Object.values(enabled).every((value) => value === false));
   const autoDeploy = !gitDisabled;
-  const conclusion = String(canonical.checksConclusion ?? "");
-  const state = String(canonical.checksState ?? "");
-  const checks = conclusion === "succeeded" ? "succeeded"
-    : conclusion === "failed" || conclusion === "canceled" ? "failed"
-    : state === "pending" || state === "in_progress" ? "pending"
-    : "none";
+  const checks = classifyDeploymentChecks(canonical);
   return {
     alias_target_deployment_id: String(canonical.id),
     canonical_alias: expected.canonical_alias,
@@ -733,13 +741,8 @@ export class VercelApi {
     if (deployment?.id !== deploymentId || deployment.projectId !== expected.project_id || deployment.target !== "production") {
       refuse("E_BASELINE_SOURCE_MISMATCH", "the staged deployment identity, project or target does not match");
     }
-    const conclusion = String(deployment.checksConclusion ?? "");
-    const state = String(deployment.checksState ?? "");
     return {
-      checks_state: conclusion === "succeeded" ? "succeeded"
-        : conclusion === "failed" || conclusion === "canceled" ? "failed"
-        : state === "pending" || state === "in_progress" ? "pending"
-        : "none",
+      checks_state: classifyDeploymentChecks(deployment),
       deployment_id: String(deployment.id),
       project_id: String(deployment.projectId),
       ready_state: String(deployment.readyState ?? ""),
@@ -754,10 +757,25 @@ export class VercelApi {
 /* Vercel mutation runner                                                      */
 /* -------------------------------------------------------------------------- */
 
-function vercelToken() {
-  const file = process.env.EGA_VERCEL_TOKEN_FILE;
+export function vercelToken(file = process.env.EGA_VERCEL_TOKEN_FILE) {
+  assertPublicationPlatform();
   if (!file) refuse("E_VERCEL_TOKEN", "EGA_VERCEL_TOKEN_FILE must name a 0600 Vercel token file");
-  return readFileSync(file, "utf8").trim();
+  let fd;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || (stat.mode & 0o7777) !== 0o600 || typeof process.getuid !== "function" || stat.uid !== process.getuid()) {
+      refuse("E_VERCEL_TOKEN", "publisher token must be an owner-only 0600 regular file owned by the current user");
+    }
+    const token = readFileSync(fd, "utf8").trim();
+    if (!token) refuse("E_VERCEL_TOKEN", "publisher token file is empty");
+    return token;
+  } catch (error) {
+    if (error?.code === "E_VERCEL_TOKEN") throw error;
+    refuse("E_VERCEL_TOKEN", "cannot securely open publisher token file");
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 export function assertPublicationPlatform(platform = process.platform) {
