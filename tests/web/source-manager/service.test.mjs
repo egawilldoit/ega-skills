@@ -97,6 +97,16 @@ test('routing updates warn about matching other skills', async () => {
   assert.ok(result.warnings.some(warning => warning.includes('overlaps with: other')));
 });
 
+test('description overlap is a warning with shared wording', async () => {
+  const snapshot = { ...files, 'skills/sample-skill/SKILL.md': '---\nname: sample-skill\ndescription: Review deployment readiness and release evidence.\n---\n\n# Sample\n', 'skills/other/SKILL.md': '---\nname: other\ndescription: Check release evidence for deployment readiness.\n---\n\n# Other\n' };
+  const source = { mainSha: async () => base, snapshot: async () => ({ sha: base, files: snapshot, selectedFiles: [] }) };
+  const proposal = { ...request.proposal, description: 'Review deployment readiness and release evidence.' };
+  const imports = { read: async () => { throw new Error('unexpected'); }, parseYaml: text => ({ description: text.includes('other') ? 'Check release evidence for deployment readiness.' : proposal.description }) };
+  const result = await previewProposal(source, { baseSha: base, proposal }, imports);
+  assert.ok(result.warnings.some(warning => warning.includes('other (deployment, evidence, readiness, release)')));
+  assert.ok(!result.errors.some(error => error.includes('overlap')));
+});
+
 test('alias conflicts block a routing update before any write', async () => {
   let writes = 0;
   const snapshot = { ...files, 'skills/sample-skill/SKILL.md': '---\nname: sample-skill\ndescription: Review the sample change.\n---\n\n# Sample\n\nReview the result.\n', 'skills/sample-skill/ega.yaml': JSON.stringify({ schema_version: 1, triggers: ['old'], anti_triggers: [] }), 'skills/other/ega.yaml': JSON.stringify({ schema_version: 1, aliases: ['shared-alias'] }) };

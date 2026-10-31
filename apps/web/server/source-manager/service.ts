@@ -5,6 +5,7 @@ import { SourceGuardError } from './guard.ts';
 import type { PinnedSourceSnapshot, SourcePullRequest, SourceSubmission } from './github.ts';
 import { createHash } from 'node:crypto';
 import { normalizeGithubImport } from './normalize-import.ts';
+import { descriptionOverlap } from './description-overlap.ts';
 import type { ImportLocation, ImportedSource } from './import-github.ts';
 
 export interface PreviewSource {
@@ -47,6 +48,21 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
   }
   const warnings = [...plan.warnings];
   const errors = [...plan.errors];
+  if (proposal.operation !== 'remove' && imports) {
+    const description = add?.description ?? (proposal.operation === 'update' ? proposal.description : '');
+    const overlaps: string[] = [];
+    for (const [path, content] of Object.entries(snapshot.files)) {
+      const skill = /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
+      if (!skill || skill === proposal.name) continue;
+      const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+      let metadata: unknown;
+      try { metadata = frontmatter && imports.parseYaml(frontmatter); } catch { throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'A source skill has invalid frontmatter.'); }
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || typeof (metadata as Record<string, unknown>).description !== 'string') throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'A source skill has invalid frontmatter.');
+      const shared = descriptionOverlap(description, (metadata as { description: string }).description);
+      if (shared.length) overlaps.push(`${skill} (${shared.join(', ')})`);
+    }
+    if (overlaps.length) warnings.push(`Description wording overlaps with: ${overlaps.sort().slice(0, 10).join('; ')}${overlaps.length > 10 ? `; and ${overlaps.length - 10} more` : ''}. Review whether these skills overlap.`);
+  }
   const proposedTriggers = add?.triggers ?? (proposal.operation === 'update' ? proposal.routing?.triggers : undefined);
   const proposedAliases = add?.routingTags?.aliases ?? (proposal.operation === 'update' ? proposal.routing?.tags?.aliases : undefined);
   if ((proposedTriggers || proposedAliases?.length) && imports) {
