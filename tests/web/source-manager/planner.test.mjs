@@ -45,6 +45,7 @@ test('source update preserves provenance and copied bodies are protected', { ski
   const updated = planSkillUpdate(snapshot, { operation: 'update', name: 'ship-one-outcome', description: 'Use this skill to deliver a bounded outcome.', body: '# Ship One Outcome\n\nCheck the evidence.' });
   assert.deepEqual(updated.errors, []);
   assert.deepEqual(Object.keys(updated.changes), [originalPath]);
+  if (process.env.EGA_UPDATE_PLAN_OUTPUT) writeFileSync(process.env.EGA_UPDATE_PLAN_OUTPUT, JSON.stringify(updated.changes));
   assert.ok(planSkillUpdate(snapshot, { operation: 'update', name: 'blast-radius', description: 'Find risks.', body: '# Changed' }).errors.some(e => e.includes('Copied')));
 });
 

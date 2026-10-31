@@ -156,6 +156,36 @@ jobs:
           EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
         run: node --test tests/web/source-manager/*.test.mjs
 
+      - name: Validate proposed source fixture trees
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
+          EGA_PLAN_OUTPUT: ${{ runner.temp }}/source-add.json
+          EGA_UPDATE_PLAN_OUTPUT: ${{ runner.temp }}/source-update.json
+          EGA_REMOVE_PLAN_OUTPUT: ${{ runner.temp }}/source-remove.json
+        run: |
+          set -euo pipefail
+          node --test tests/web/source-manager/planner.test.mjs
+          python3 -m pip install --disable-pip-version-check -r "$EGA_SOURCE_FIXTURE/requirements-ci.txt"
+          for operation in add update remove; do
+            candidate="$RUNNER_TEMP/source-candidate-$operation"
+            cp -a "$EGA_SOURCE_FIXTURE" "$candidate"
+            python3 tests/web/source-manager/apply-fixture-plan.py "$candidate" "$RUNNER_TEMP/source-$operation.json"
+            (
+              cd "$candidate"
+              python3 scripts/validate_plugin_manifest.py
+              python3 scripts/validate_catalog.py
+              python3 scripts/sync_openai_yaml.py --check
+              python3 scripts/sync_operating_contract.py --check
+              python3 scripts/routing_audit.py
+              python3 scripts/trigger_audit.py
+              python3 scripts/validate_ega_metadata.py
+              python3 -m unittest discover -s tests -p 'test_*.py' -v
+              git diff --check
+            )
+          done
+
   web-isolation:
     name: web isolation (real PostgreSQL 16)
     runs-on: ubuntu-latest
