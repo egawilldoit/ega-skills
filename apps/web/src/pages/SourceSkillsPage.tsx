@@ -258,6 +258,6 @@ export function SourceSkillsPage(): ReactNode {
       {preview.operation === 'remove' ? <p>Removal proposals are unavailable until complete source validation is available.</p> : null}
       <button disabled={loading || preview.operation === 'remove' || !!preview.errors.length || !preview.changes.length} onClick={() => void submit()}>Create source PR</button>
     </section> : null}
-    {pr ? <section><h3>Source PR</h3><p><a href={pr.url} target="_blank" rel="noreferrer">Open source pull request #{pr.number}</a> · head <code>{pr.head}</code> · not published</p><button disabled={loading} onClick={() => void refreshStatus()}>Refresh GitHub CI status</button>{status ? <p>PR {status.state}; head checks {status.headChecks}; test merge {status.mergeSha ?? 'not available'}: {status.mergeChecks}. Observed checks do not by themselves prove required gates.</p> : <p>GitHub CI status not yet checked.</p>}</section> : null}
+    {pr ? <section><h3>Source PR</h3><p><a href={pr.url} target="_blank" rel="noreferrer">Open source pull request #{pr.number}</a> · head <code>{pr.head}</code> · not published</p><button disabled={loading} onClick={() => void refreshStatus()}>Refresh GitHub CI status</button>{status ? <p>PR {status.state}; observed head checks {status.headChecks}; test merge {status.mergeSha ?? 'not available'}, observed checks {status.mergeChecks}. Observed checks do not verify that all required checks ran or passed; inspect the GitHub PR for its required gates.</p> : <p>GitHub CI status not yet checked.</p>}</section> : null}
   </section>;
 }

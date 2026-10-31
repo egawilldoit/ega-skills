@@ -192,6 +192,12 @@ jobs:
               failed=1
             fi
           }
+          # The source unit suite contains assertions about the pinned baseline
+          # inventory. Run it against that baseline, not a proposed tree whose
+          # inventory is intentionally different.
+          pushd "$EGA_SOURCE_FIXTURE" > /dev/null
+          run_check python3 -m unittest discover -s tests -p 'test_*.py' -v
+          popd > /dev/null
           for operation in add update remove; do
             candidate="$RUNNER_TEMP/source-candidate-$operation"
             cp -a "$EGA_SOURCE_FIXTURE" "$candidate"
@@ -205,7 +211,6 @@ jobs:
             run_check python3 scripts/routing_audit.py
             run_check python3 scripts/trigger_audit.py
             run_check python3 scripts/validate_ega_metadata.py
-            run_check python3 -m unittest discover -s tests -p 'test_*.py' -v
             run_check git diff --check
             popd > /dev/null
           done
