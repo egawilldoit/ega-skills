@@ -5,6 +5,7 @@ import { toApiError } from '../api/client';
 import type { CatalogPage } from '../api/contracts';
 import { useWorkspace } from '../workspace/WorkspaceProvider';
 import { sourcePublishedLinks } from './sourcePublishedLinks';
+import { sourceInterfaceDefaults } from './sourceInterfaceDefaults';
 
 type Item = { name: string; description: string; provenance: 'copied' | 'adapted' | 'original' };
 type Index = { sha: string; total: number; items: Item[] };
@@ -173,9 +174,10 @@ export function SourceSkillsPage(): ReactNode {
     if (!index) return;
     setError(''); setLoading(true); setPreview(null); setPr(null);
     const routingTags = Object.fromEntries(tagFields.map(field => [field, tags[field].split('\n').map(value => value.trim()).filter(Boolean)]));
+    const defaults = sourceInterfaceDefaults(name, description);
     const proposal = mode === 'remove' ? { operation: 'remove', name, confirmation } : mode === 'update' ? { operation: 'update', name, description, body, routing: { triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean), tags: routingTags }, references } : {
       operation: 'add', name, description, body, triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean),
-      interface: { displayName, shortDescription, prompt },
+      interface: { displayName: displayName || defaults.displayName, shortDescription: shortDescription || defaults.shortDescription, prompt: prompt || defaults.prompt },
       routingTags,
       ...(imported && acceptNormalization ? { importSource: { location: imported.location, acceptOriginalNormalization: true } } : {}),
       cases: { ...cases, negative_expected: neighbor, collision_expected: collisionNeighbor },
@@ -236,9 +238,10 @@ export function SourceSkillsPage(): ReactNode {
         <details><summary>Optional routing identifiers</summary><p>Enter one identifier per line. Aliases must be unique across the catalog.</p>{tagFields.map(field => <p key={field}><label>{field}<br /><textarea value={tags[field]} onChange={event => { const value = event.target.value; setTags(current => ({ ...current, [field]: value })); }} /></label></p>)}</details>
         {mode === 'update' ? references.map((reference, i) => <p key={reference.path}><label>{reference.path}<br /><textarea rows={8} cols={70} readOnly={editProvenance === 'copied'} value={reference.content} onChange={event => { const content = event.target.value; setReferences(current => current.map((entry, index) => index === i ? { ...entry, content } : entry)); }} /></label></p>) : null}
         {mode === 'add' ? <>
-          <p><label>Display title <input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label></p>
-          <p><label>Short description (25–64 characters) <input value={shortDescription} onChange={event => setShortDescription(event.target.value)} /></label></p>
-          <p><label>Example prompt (include ${name || 'skill-name'}) <input value={prompt} onChange={event => setPrompt(event.target.value)} /></label></p>
+          <details><summary>Interface metadata (optional)</summary><p>Leave these blank to use the suggestions shown. Review them in the proposed changes.</p>
+          <p><label>Display title <input value={displayName} placeholder={sourceInterfaceDefaults(name, description).displayName} onChange={event => setDisplayName(event.target.value)} /></label></p>
+          <p><label>Short description (25–64 characters) <input value={shortDescription} placeholder={sourceInterfaceDefaults(name, description).shortDescription} onChange={event => setShortDescription(event.target.value)} /></label></p>
+          <p><label>Example prompt (include ${name || 'skill-name'}) <input value={prompt} placeholder={sourceInterfaceDefaults(name, description).prompt} onChange={event => setPrompt(event.target.value)} /></label></p></details>
           <h4>Routing examples</h4><p>Give realistic requests for this skill and for nearby skills. The source catalog checks these examples when the PR runs.</p>
           {(Object.keys(caseLabels) as CaseField[]).map(field => <p key={field}><label>{caseLabels[field]}<br /><textarea value={cases[field]} onChange={event => { const value = event.target.value; setCases(current => ({ ...current, [field]: value })); }} /></label></p>)}
           <p><label>Expected skill for the other request <select value={neighbor} onChange={event => setNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
