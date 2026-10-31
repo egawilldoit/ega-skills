@@ -144,6 +144,10 @@ jobs:
 
       - name: Check out pinned source catalog fixture
         uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
         with:
           repository: egawilldoit/skills
           ref: 8f264fc5fcb5691694c3653287f4d9370c5b025c
@@ -154,7 +158,17 @@ jobs:
         shell: bash
         env:
           EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
-        run: node --test tests/web/source-manager/*.test.mjs
+        run: |
+          set -euo pipefail
+          for path in scripts/sync_openai_yaml.py scripts/build_upstream_sources.py; do
+            actual=$(git -C "$EGA_SOURCE_FIXTURE" hash-object --no-filters "$path")
+            expected=$(git -C "$EGA_SOURCE_FIXTURE" rev-parse "HEAD:$path")
+            if [[ "$actual" != "$expected" ]]; then
+              printf 'Fixture bytes differ from the pinned blob: %s\n' "$path" >&2
+              exit 1
+            fi
+          done
+          node --test tests/web/source-manager/*.test.mjs
 
       - name: Validate proposed source fixture trees
         if: runner.os == 'Linux'
