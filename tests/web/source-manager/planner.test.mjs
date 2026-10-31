@@ -84,6 +84,13 @@ test('source removal updates generators and refuses dangling trigger references'
   assert.ok(!result.changes['scripts/build_upstream_sources.py'].includes('    "ship-one-outcome",'));
   assert.ok(planSkillRemoval(snapshot, { operation: 'remove', name: 'certify-release', confirmation: 'certify-release' }).errors.some(e => e.includes('Trigger cases reference')));
   assert.ok(planSkillRemoval(snapshot, { operation: 'remove', name: 'ship-one-outcome', confirmation: 'wrong' }).errors.some(e => e.includes('confirm')));
+  for (const [path, content] of [
+    ['skills/example/references/guide.txt', 'See ../../ship-one-outcome/SKILL.md'],
+    ['skills/example/SKILL.md', 'See ../ship-one-outcome/SKILL.md'],
+  ]) {
+    const withReference = { ...snapshot, [path]: content };
+    assert.ok(planSkillRemoval(withReference, { operation: 'remove', name: 'ship-one-outcome', confirmation: 'ship-one-outcome' }).errors.some(e => e.includes(path)));
+  }
   if (process.env.EGA_REMOVE_PLAN_OUTPUT) writeFileSync(process.env.EGA_REMOVE_PLAN_OUTPUT, JSON.stringify(result.changes));
 });
 

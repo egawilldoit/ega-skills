@@ -1,4 +1,5 @@
 import type { ImportLocation } from './import-github.ts';
+import { posix } from 'node:path';
 import { MAX_FILE_BYTES, validSkillName, validSkillPath, validateSourceFiles } from './paths.ts';
 
 /** A complete, pinned text snapshot of the source files needed by the planner. */
@@ -211,7 +212,14 @@ export function planSkillRemoval(snapshot: SourceSnapshot, input: SkillRemoval):
   const incoming = cases.filter(row => row.skill !== input.name && (row.negative_expected === input.name || row.collision_expected === input.name)).map(row => row.skill);
   if (incoming.length) errors.push(`Trigger cases reference this skill: ${incoming.join(', ')}.`);
   const prefix = `skills/${input.name}/`;
-  const referenced = Object.entries(snapshot).filter(([path, value]) => path.startsWith('skills/') && !path.startsWith(prefix) && /\.(?:md|ya?ml)$/i.test(path) && (value.includes(`$${input.name}`) || value.includes(`skills/${input.name}/`))).map(([path]) => path);
+  const referenced = Object.entries(snapshot).filter(([path, value]) => {
+    if (!path.startsWith('skills/') || path.startsWith(prefix) || !/\.(?:md|txt|ya?ml)$/i.test(path)) return false;
+    if (value.includes(`$${input.name}`) || value.includes(`skills/${input.name}/`)) return true;
+    return [...value.matchAll(/(?:\.\.\/)+(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+/g)].some(([relative]) => {
+      const resolved = posix.resolve('/', posix.dirname(path), relative);
+      return resolved === `/${prefix.slice(0, -1)}` || resolved.startsWith(`/${prefix}`);
+    });
+  }).map(([path]) => path);
   if (referenced.length) errors.push(`Other skills reference this skill: ${referenced.join(', ')}.`);
   const name = input.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const meta = snapshot[metadataPath];

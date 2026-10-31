@@ -130,7 +130,7 @@ export class SourceGithub {
       const path = entry.path;
       if (entry.type === 'tree') continue;
       const selected = path.startsWith(selectedPrefix);
-      const catalogText = indexOnly ? /^skills\/[^/]+\/SKILL\.md$/.test(path) : /^skills\/[^/]+\/.*\.(?:md|ya?ml)$/i.test(path);
+      const catalogText = indexOnly ? /^skills\/[^/]+\/SKILL\.md$/.test(path) : /^skills\/[^/]+\/.*\.(?:md|txt|ya?ml)$/i.test(path);
       const global = indexOnly ? path === 'upstream-sources.json' : GLOBAL_FILES.has(path);
       if ((!selected || indexOnly) && !catalogText && !global) continue;
       if (entry.type !== 'blob' || (entry.mode !== '100644' && !(selected && entry.mode === '100755' && path.slice(selectedPrefix.length).startsWith('scripts/')))) throw new SourceGithubError(422, 'Source tree contains an unsupported file mode.');
