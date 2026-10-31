@@ -142,6 +142,80 @@ jobs:
       - name: Web API and integration tests
         run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
 
+      - name: Check out pinned source catalog fixture
+        uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: egawilldoit/skills
+          ref: 8f264fc5fcb5691694c3653287f4d9370c5b025c
+          path: .source-skill-fixture
+          persist-credentials: false
+
+      - name: Source proposal tests
+        shell: bash
+        env:
+          EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
+        run: |
+          set -euo pipefail
+          for path in scripts/sync_openai_yaml.py scripts/build_upstream_sources.py; do
+            actual=$(git -C "$EGA_SOURCE_FIXTURE" hash-object --no-filters "$path")
+            expected=$(git -C "$EGA_SOURCE_FIXTURE" rev-parse "HEAD:$path")
+            if [[ "$actual" != "$expected" ]]; then
+              printf 'Fixture bytes differ from the pinned blob: %s\n' "$path" >&2
+              exit 1
+            fi
+          done
+          node --test tests/web/source-manager/*.test.mjs
+
+      - name: Validate proposed source fixture trees
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          EGA_SOURCE_FIXTURE: ${{ github.workspace }}/.source-skill-fixture
+          EGA_PLAN_OUTPUT: ${{ runner.temp }}/source-add.json
+          EGA_UPDATE_PLAN_OUTPUT: ${{ runner.temp }}/source-update.json
+          EGA_REMOVE_PLAN_OUTPUT: ${{ runner.temp }}/source-remove.json
+        run: |
+          set -euo pipefail
+          node --test tests/web/source-manager/planner.test.mjs
+          python3 -m pip install --disable-pip-version-check -r "$EGA_SOURCE_FIXTURE/requirements-ci.txt"
+          failed=0
+          run_check() {
+            if "$@"; then
+              printf 'PASS: %s\n' "$*"
+            else
+              result=$?
+              printf 'FAIL (%s): %s\n' "$result" "$*"
+              failed=1
+            fi
+          }
+          # The source unit suite contains assertions about the pinned baseline
+          # inventory. Run it against that baseline, not a proposed tree whose
+          # inventory is intentionally different.
+          pushd "$EGA_SOURCE_FIXTURE" > /dev/null
+          run_check python3 -m unittest discover -s tests -p 'test_*.py' -v
+          popd > /dev/null
+          for operation in add update remove; do
+            candidate="$RUNNER_TEMP/source-candidate-$operation"
+            cp -a "$EGA_SOURCE_FIXTURE" "$candidate"
+            python3 tests/web/source-manager/apply-fixture-plan.py "$candidate" "$RUNNER_TEMP/source-$operation.json"
+            printf '\nValidating %s proposal\n' "$operation"
+            pushd "$candidate" > /dev/null
+            run_check python3 scripts/validate_plugin_manifest.py
+            run_check python3 scripts/validate_catalog.py
+            run_check python3 scripts/sync_openai_yaml.py --check
+            run_check python3 scripts/sync_operating_contract.py --check
+            run_check python3 scripts/routing_audit.py
+            run_check python3 scripts/trigger_audit.py
+            run_check python3 scripts/validate_ega_metadata.py
+            run_check git diff --check
+            popd > /dev/null
+          done
+          exit "$failed"
+
   web-isolation:
     name: web isolation (real PostgreSQL 16)
     runs-on: ubuntu-latest

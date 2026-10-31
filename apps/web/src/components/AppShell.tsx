@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
+import { useApiClient } from "../api/useApiClient";
 import { navSectionForPath, visibleNavSections, type NavItem } from "../console-model";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { Icon, type IconName } from "./Icon";
@@ -90,12 +91,24 @@ function ownerItem(pathname: string, sections: readonly { readonly items: readon
 export function AppShell({ children }: { readonly children: ReactNode }): ReactNode {
   const { email, status, signOut, lastFailure } = useAuth();
   const { workspaceId, role, roleLabel, stateLabel, memberships, selectWorkspace } = useWorkspace();
+  const sourceClient = useApiClient();
+  const [sourceEditor, setSourceEditor] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const location = useLocation();
   const scrim = useRef<HTMLDivElement>(null);
   const drawerToggle = useRef<HTMLButtonElement>(null);
   const firstRender = useRef(true);
+  useEffect(() => {
+    setSourceEditor(false);
+    if (role !== 'owner') return;
+    const controller = new AbortController();
+    void sourceClient.get<{ enabled: boolean }>('/source-editor', { signal: controller.signal, decode: value => {
+      if (!value || typeof value !== 'object' || (value as { enabled?: unknown }).enabled !== true) throw new Error('Invalid editor capability');
+      return { enabled: true };
+    } }).then(() => { if (!controller.signal.aborted) setSourceEditor(true); }).catch(() => {});
+    return () => controller.abort();
+  }, [role, sourceClient]);
 
   // The sidebar is a drawer only below the breakpoint. Tracking the query keeps
   // `inert` (and therefore the tab order) correct when the window is resized
@@ -210,6 +223,7 @@ export function AppShell({ children }: { readonly children: ReactNode }): ReactN
             </div>
           ))
         )}
+        {sourceEditor ? <ul className="nav-group__list"><li><Link className="nav-link" to="/source-skills"><Icon name="box" />Manage source skills</Link></li></ul> : null}
       </nav>
 
       <div
