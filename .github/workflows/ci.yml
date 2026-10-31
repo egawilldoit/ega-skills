@@ -168,23 +168,34 @@ jobs:
           set -euo pipefail
           node --test tests/web/source-manager/planner.test.mjs
           python3 -m pip install --disable-pip-version-check -r "$EGA_SOURCE_FIXTURE/requirements-ci.txt"
+          failed=0
+          run_check() {
+            if "$@"; then
+              printf 'PASS: %s\n' "$*"
+            else
+              result=$?
+              printf 'FAIL (%s): %s\n' "$result" "$*"
+              failed=1
+            fi
+          }
           for operation in add update remove; do
             candidate="$RUNNER_TEMP/source-candidate-$operation"
             cp -a "$EGA_SOURCE_FIXTURE" "$candidate"
             python3 tests/web/source-manager/apply-fixture-plan.py "$candidate" "$RUNNER_TEMP/source-$operation.json"
-            (
-              cd "$candidate"
-              python3 scripts/validate_plugin_manifest.py
-              python3 scripts/validate_catalog.py
-              python3 scripts/sync_openai_yaml.py --check
-              python3 scripts/sync_operating_contract.py --check
-              python3 scripts/routing_audit.py
-              python3 scripts/trigger_audit.py
-              python3 scripts/validate_ega_metadata.py
-              python3 -m unittest discover -s tests -p 'test_*.py' -v
-              git diff --check
-            )
+            printf '\nValidating %s proposal\n' "$operation"
+            pushd "$candidate" > /dev/null
+            run_check python3 scripts/validate_plugin_manifest.py
+            run_check python3 scripts/validate_catalog.py
+            run_check python3 scripts/sync_openai_yaml.py --check
+            run_check python3 scripts/sync_operating_contract.py --check
+            run_check python3 scripts/routing_audit.py
+            run_check python3 scripts/trigger_audit.py
+            run_check python3 scripts/validate_ega_metadata.py
+            run_check python3 -m unittest discover -s tests -p 'test_*.py' -v
+            run_check git diff --check
+            popd > /dev/null
           done
+          exit "$failed"
 
   web-isolation:
     name: web isolation (real PostgreSQL 16)
