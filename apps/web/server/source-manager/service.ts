@@ -46,9 +46,12 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
     } catch { throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source provenance is invalid.'); }
   }
   const warnings = [...plan.warnings];
+  const errors = [...plan.errors];
   const proposedTriggers = add?.triggers ?? (proposal.operation === 'update' ? proposal.routing?.triggers : undefined);
-  if (proposedTriggers && imports) {
-    const wanted = new Set(proposedTriggers.map(value => value.trim().toLowerCase().replace(/\s+/g, ' ')));
+  const proposedAliases = add?.routingTags?.aliases ?? (proposal.operation === 'update' ? proposal.routing?.tags?.aliases : undefined);
+  if ((proposedTriggers || proposedAliases?.length) && imports) {
+    const wanted = new Set((proposedTriggers ?? []).map(value => value.trim().toLowerCase().replace(/\s+/g, ' ')));
+    const aliases = new Set((proposedAliases ?? []).map(value => value.trim().toLowerCase()));
     const matches: string[] = [];
     for (const [path, content] of Object.entries(snapshot.files)) {
       const skill = /^skills\/([^/]+)\/ega\.yaml$/.exec(path)?.[1];
@@ -59,6 +62,9 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
       const triggers = (metadata as Record<string, unknown>).triggers ?? [];
       if (!Array.isArray(triggers) || triggers.some(value => typeof value !== 'string')) throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source routing metadata is invalid.');
       if (triggers.some(value => wanted.has((value as string).trim().toLowerCase().replace(/\s+/g, ' ')))) matches.push(skill);
+      const existingAliases = (metadata as Record<string, unknown>).aliases ?? [];
+      if (!Array.isArray(existingAliases) || existingAliases.some(value => typeof value !== 'string')) throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source routing metadata is invalid.');
+      for (const alias of existingAliases as string[]) if (aliases.has(alias.trim().toLowerCase())) errors.push(`Alias ${alias} is already owned by ${skill}.`);
     }
     if (matches.length) warnings.push(`Exact trigger wording overlaps with: ${matches.sort().join(', ')}. Review routing boundaries.`);
   }
@@ -74,7 +80,7 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
     }
     return { path, before: snapshot.files[path] ?? null, after: displayedAfter, ...extra };
   });
-  const result = { baseSha, operation: proposal.operation, name: proposal.name, provenance, changes, errors: plan.errors, warnings };
+  const result = { baseSha, operation: proposal.operation, name: proposal.name, provenance, changes, errors, warnings };
   return { preview: { ...result, digest: createHash('sha256').update(JSON.stringify(result)).digest('hex') }, changes: plan.changes };
 }
 

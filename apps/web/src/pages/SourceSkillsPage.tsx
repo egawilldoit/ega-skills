@@ -13,6 +13,9 @@ type Status = Proposal & { state: string; headChecks: string; mergeSha: string |
 type ImportResult = { location: { owner: string; repo: string; commit: string; directory: string }; license: { path: string; text: string; sha: string }; files: { path: string; mode: string; contentBase64: string }[] };
 type Mode = 'list' | 'add' | 'update' | 'remove';
 type CaseField = 'direct' | 'indirect' | 'incomplete' | 'negative' | 'collision' | 'edge';
+type TagField = 'domains' | 'platforms' | 'frameworks' | 'aliases';
+const tagFields: TagField[] = ['domains', 'platforms', 'frameworks', 'aliases'];
+const emptyTags = (): Record<TagField, string> => ({ domains: '', platforms: '', frameworks: '', aliases: '' });
 const caseLabels: Record<CaseField, string> = { direct: 'Direct request', indirect: 'Indirect request', incomplete: 'Incomplete request', negative: 'Request for another skill', collision: 'Similar request for another skill', edge: 'Edge case request' };
 const emptyCases = (): Record<CaseField, string> => ({ direct: '', indirect: '', incomplete: '', negative: '', collision: '', edge: '' });
 
@@ -68,6 +71,7 @@ export function SourceSkillsPage(): ReactNode {
   const [neighbor, setNeighbor] = useState('');
   const [collisionNeighbor, setCollisionNeighbor] = useState('');
   const [cases, setCases] = useState<Record<CaseField, string>>(emptyCases);
+  const [tags, setTags] = useState<Record<TagField, string>>(emptyTags);
   const [importOwner, setImportOwner] = useState('');
   const [importRepo, setImportRepo] = useState('');
   const [importCommit, setImportCommit] = useState('');
@@ -98,7 +102,7 @@ export function SourceSkillsPage(): ReactNode {
   if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { clear(); setName(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
+  const startAdd = (): void => { clear(); setName(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
   const startEdit = async (item: Item): Promise<void> => {
     clear(); setLoading(true);
     try {
@@ -115,7 +119,7 @@ export function SourceSkillsPage(): ReactNode {
       const routing = parse(textFile(routingFile.contentBase64), { uniqueKeys: true, maxAliasCount: 0 }) as Record<string, unknown>;
       const routingList = (key: string): string[] => { const value = routing?.[key] ?? []; if (!Array.isArray(value) || value.some(entry => typeof entry !== 'string')) throw new Error('Source routing metadata is invalid.'); return value as string[]; };
       const editable = detail.files.filter(file => /^references\//.test(file.path) && /\.(?:md|txt)$/i.test(file.path)).map(file => ({ path: file.path, content: textFile(file.contentBase64) }));
-      setName(item.name); setDescription(meta.description); setBody(match[2]!.trim()); setTriggers(routingList('triggers').join('\n')); setAntiTriggers(routingList('anti_triggers').join('\n')); setReferences(editable); setEditProvenance(item.provenance); setMode('update');
+      setName(item.name); setDescription(meta.description); setBody(match[2]!.trim()); setTriggers(routingList('triggers').join('\n')); setAntiTriggers(routingList('anti_triggers').join('\n')); setTags({ domains: routingList('domains').join('\n'), platforms: routingList('platforms').join('\n'), frameworks: routingList('frameworks').join('\n'), aliases: routingList('aliases').join('\n') }); setReferences(editable); setEditProvenance(item.provenance); setMode('update');
     } catch (cause) { setError(message(cause)); }
     finally { setLoading(false); }
   };
@@ -155,9 +159,11 @@ export function SourceSkillsPage(): ReactNode {
   const makePreview = async (): Promise<void> => {
     if (!index) return;
     setError(''); setLoading(true); setPreview(null); setPr(null);
-    const proposal = mode === 'remove' ? { operation: 'remove', name, confirmation } : mode === 'update' ? { operation: 'update', name, description, body, routing: { triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean) }, references } : {
+    const routingTags = Object.fromEntries(tagFields.map(field => [field, tags[field].split('\n').map(value => value.trim()).filter(Boolean)]));
+    const proposal = mode === 'remove' ? { operation: 'remove', name, confirmation } : mode === 'update' ? { operation: 'update', name, description, body, routing: { triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean), tags: routingTags }, references } : {
       operation: 'add', name, description, body, triggers: triggers.split('\n').map(x => x.trim()).filter(Boolean), antiTriggers: antiTriggers.split('\n').map(x => x.trim()).filter(Boolean),
       interface: { displayName, shortDescription, prompt },
+      routingTags,
       ...(imported && acceptNormalization ? { importSource: { location: imported.location, acceptOriginalNormalization: true } } : {}),
       cases: { ...cases, negative_expected: neighbor, collision_expected: collisionNeighbor },
     };
@@ -212,6 +218,7 @@ export function SourceSkillsPage(): ReactNode {
         {mode === 'update' && editProvenance === 'copied' ? <p>Copied source instructions and references are read-only; routing can be edited.</p> : null}
         <p><label>Triggers, one per line<br /><textarea value={triggers} onChange={event => setTriggers(event.target.value)} /></label></p>
         <p><label>Anti-triggers, one per line<br /><textarea value={antiTriggers} onChange={event => setAntiTriggers(event.target.value)} /></label></p>
+        <details><summary>Optional routing identifiers</summary><p>Enter one identifier per line. Aliases must be unique across the catalog.</p>{tagFields.map(field => <p key={field}><label>{field}<br /><textarea value={tags[field]} onChange={event => { const value = event.target.value; setTags(current => ({ ...current, [field]: value })); }} /></label></p>)}</details>
         {mode === 'update' ? references.map((reference, i) => <p key={reference.path}><label>{reference.path}<br /><textarea rows={8} cols={70} readOnly={editProvenance === 'copied'} value={reference.content} onChange={event => { const content = event.target.value; setReferences(current => current.map((entry, index) => index === i ? { ...entry, content } : entry)); }} /></label></p>) : null}
         {mode === 'add' ? <>
           <p><label>Display title <input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label></p>

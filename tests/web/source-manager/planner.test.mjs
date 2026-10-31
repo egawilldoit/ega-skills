@@ -67,6 +67,10 @@ test('routing and reference edits preserve unrelated metadata and copied source'
   assert.ok(planSkillUpdate(snapshot, { ...update, references: [{ path: 'references/../SKILL.md', content: 'bad' }] }, parse).errors.length);
   assert.ok(planSkillUpdate(snapshot, { ...update, references: [{ path: 'references/guide.md', content: '😀'.repeat(100_000) }] }, parse).errors.length);
   assert.ok(planSkillUpdate(snapshot, { ...update, routing: { triggers: ['new', ' New '], antiTriggers: [] } }, parse).errors.length);
+  const tags = { domains: ['Engineering'], platforms: [], frameworks: [], aliases: ['example-alias'] };
+  const tagged = planSkillUpdate(snapshot, { ...update, routing: { ...update.routing, tags } }, parse);
+  assert.deepEqual(JSON.parse(tagged.changes[prefix + 'ega.yaml']).domains, ['engineering']);
+  assert.ok(planSkillUpdate(snapshot, { ...update, routing: { ...update.routing, tags: { ...tags, aliases: ['same', ' SAME '] } } }, parse).errors.length);
 });
 
 test('source removal updates generators and refuses dangling trigger references', { skip: !source }, async () => {

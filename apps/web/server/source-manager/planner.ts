@@ -4,6 +4,7 @@ import { MAX_FILE_BYTES, validSkillName, validSkillPath, validateSourceFiles } f
 /** A complete, pinned text snapshot of the source files needed by the planner. */
 export type SourceSnapshot = Readonly<Record<string, string>>;
 export interface InterfaceMetadata { displayName: string; shortDescription: string; prompt: string }
+export interface RoutingTags { domains: string[]; platforms: string[]; frameworks: string[]; aliases: string[] }
 export interface TriggerCase {
   direct: string; indirect: string; incomplete: string; negative: string;
   negative_expected: string; collision: string; collision_expected: string; edge: string;
@@ -11,6 +12,7 @@ export interface TriggerCase {
 export interface OriginalAdd {
   operation: 'add'; name: string; description: string; body: string;
   triggers: string[]; antiTriggers: string[]; interface: InterfaceMetadata; cases: TriggerCase;
+  routingTags?: RoutingTags;
   resources?: Array<{ path: string; mode: string; contentBase64: string }>;
   importSource?: { location: ImportLocation; acceptOriginalNormalization: true };
 }
@@ -26,6 +28,14 @@ const metadataPath = 'scripts/sync_openai_yaml.py';
 const provenancePath = 'scripts/build_upstream_sources.py';
 const casesPath = 'tests/trigger-cases.json';
 const registryPath = 'upstream-sources.json';
+function validateRoutingTags(tags: RoutingTags): string[] {
+  const errors: string[] = [];
+  for (const [field, values] of Object.entries(tags)) {
+    const normalized = values.map(value => value.trim().toLowerCase());
+    if (normalized.some(value => !/^[a-z0-9][a-z0-9._+-]{0,63}$/.test(value)) || new Set(normalized).size !== normalized.length) errors.push(`${field} must contain unique valid routing identifiers.`);
+  }
+  return errors;
+}
 
 /** Add an original skill, preserving every unrelated source file byte-for-byte. */
 export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): ProposalPlan {
@@ -45,6 +55,7 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
     const normalized = values.map(v => v.trim().toLowerCase().replace(/\s+/g, ' '));
     if (new Set(normalized).size !== normalized.length) errors.push(`${label} contain duplicate entries.`);
   }
+  if (input.routingTags) errors.push(...validateRoutingTags(input.routingTags));
   const resources = input.resources ?? [];
   const sourceFiles = resources.map(file => ({ path: file.path, mode: file.mode, bytes: Buffer.from(file.contentBase64, 'base64') }));
   if (resources.some(file => !/^(?:references|scripts|assets)\//.test(file.path) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.contentBase64) || Buffer.from(file.contentBase64, 'base64').toString('base64') !== file.contentBase64)) errors.push('Resource paths or contents are invalid.');
@@ -84,7 +95,8 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
   changes[casesPath] = JSON.stringify(cases, null, 2) + '\n';
   changes[`skills/${name}/SKILL.md`] = `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body.trim()}\n`;
   const yamlList = (values: string[]) => values.map(value => `  - ${JSON.stringify(value.trim())}\n`).join('');
-  changes[`skills/${name}/ega.yaml`] = `schema_version: 1\ntriggers:\n${yamlList(input.triggers)}anti_triggers:\n${yamlList(input.antiTriggers)}`;
+  const tagYaml = input.routingTags ? Object.entries(input.routingTags).filter(([, values]) => values.length).map(([field, values]) => `${field}:\n${yamlList(values.map(value => value.trim().toLowerCase()))}`).join('') : '';
+  changes[`skills/${name}/ega.yaml`] = `schema_version: 1\n${tagYaml}triggers:\n${yamlList(input.triggers)}anti_triggers:\n${yamlList(input.antiTriggers)}`;
   changes[`skills/${name}/agents/openai.yaml`] = `interface:\n  display_name: "${input.interface.displayName}"\n  short_description: "${input.interface.shortDescription}"\n  default_prompt: "${input.interface.prompt}"\n`;
   for (const file of resources) changes[`skills/${name}/${file.path}`] = { contentBase64: file.contentBase64, mode: file.mode };
   const generatedFiles = ['SKILL.md', 'ega.yaml', 'agents/openai.yaml'].map(path => ({ path, mode: '100644', bytes: Buffer.from(changes[`skills/${name}/${path}`] as string, 'utf8') }));
@@ -96,7 +108,7 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
 
 export interface SkillUpdate {
   operation: 'update'; name: string; description: string; body: string;
-  routing?: { triggers: string[]; antiTriggers: string[] };
+  routing?: { triggers: string[]; antiTriggers: string[]; tags?: RoutingTags };
   references?: Array<{ path: string; content: string }>;
 }
 
@@ -134,6 +146,7 @@ export function planSkillUpdate(snapshot: SourceSnapshot, input: SkillUpdate, pa
   if (entries[0]?.mode === 'copied' && !unchanged) errors.push('Copied skill bodies cannot be edited without an explicit provenance conversion.');
   if (old && !unchanged) changes[path] = `---\nname: ${input.name}\ndescription: ${JSON.stringify(input.description)}\n---\n\n${input.body.trim()}\n`;
   if (input.routing) {
+    if (input.routing.tags) errors.push(...validateRoutingTags(input.routing.tags));
     for (const [label, values] of [['triggers', input.routing.triggers], ['anti-triggers', input.routing.antiTriggers]] as const) {
       const normalized = values.map(value => value.trim().toLowerCase().replace(/\s+/g, ' '));
       if (values.some(value => !value.trim() || /[\r\n\0]/.test(value)) || new Set(normalized).size !== normalized.length) errors.push(`${label} must contain unique nonempty single-line entries.`);
@@ -148,8 +161,9 @@ export function planSkillUpdate(snapshot: SourceSnapshot, input: SkillUpdate, pa
       if (metadata.schema_version !== 1 || (metadata.triggers != null && (!Array.isArray(metadata.triggers) || metadata.triggers.some(v => typeof v !== 'string'))) || (metadata.anti_triggers != null && (!Array.isArray(metadata.anti_triggers) || metadata.anti_triggers.some(v => typeof v !== 'string')))) throw new Error();
       const triggers = input.routing.triggers.map(value => value.trim());
       const antiTriggers = input.routing.antiTriggers.map(value => value.trim());
-      if (JSON.stringify(metadata.triggers ?? []) !== JSON.stringify(triggers) || JSON.stringify(metadata.anti_triggers ?? []) !== JSON.stringify(antiTriggers)) {
-        changes[routingPath] = JSON.stringify({ ...metadata, triggers, anti_triggers: antiTriggers }, null, 2) + '\n';
+      const tags = input.routing.tags ? Object.fromEntries(Object.entries(input.routing.tags).map(([key, values]) => [key, values.map(value => value.trim().toLowerCase())])) : {};
+      if (JSON.stringify(metadata.triggers ?? []) !== JSON.stringify(triggers) || JSON.stringify(metadata.anti_triggers ?? []) !== JSON.stringify(antiTriggers) || Object.entries(tags).some(([key, values]) => JSON.stringify(metadata[key] ?? []) !== JSON.stringify(values))) {
+        changes[routingPath] = JSON.stringify({ ...metadata, ...tags, triggers, anti_triggers: antiTriggers }, null, 2) + '\n';
       }
     } catch { errors.push('Source routing metadata has an unknown format.'); }
   }

@@ -20,6 +20,10 @@ function texts(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 50) return invalid();
   return value.map(item => text(item, 1024));
 }
+function routingTags(value: unknown) {
+  const tags = record(value, ['domains', 'platforms', 'frameworks', 'aliases']);
+  return { domains: texts(tags.domains), platforms: texts(tags.platforms), frameworks: texts(tags.frameworks), aliases: texts(tags.aliases) };
+}
 
 /** Parse only fields the planner understands; no paths or GitHub targets come from the client. */
 export function parseProposalRequest(value: unknown): ProposalRequest {
@@ -42,7 +46,7 @@ export function parseProposalRequest(value: unknown): ProposalRequest {
     const name = text(p.name, 64);
     if (!validSkillName(name, 'ega-skills')) return invalid();
     let routing: SkillUpdate['routing'];
-    if (p.routing !== undefined) { const r = record(p.routing, ['triggers', 'antiTriggers']); routing = { triggers: texts(r.triggers), antiTriggers: texts(r.antiTriggers) }; }
+    if (p.routing !== undefined) { const keys = ['triggers', 'antiTriggers']; if (p.routing && typeof p.routing === 'object' && Object.hasOwn(p.routing, 'tags')) keys.push('tags'); const r = record(p.routing, keys); routing = { triggers: texts(r.triggers), antiTriggers: texts(r.antiTriggers), ...(r.tags !== undefined ? { tags: routingTags(r.tags) } : {}) }; }
     let references: SkillUpdate['references'];
     if (p.references !== undefined) {
       if (!Array.isArray(p.references) || p.references.length > 100) return invalid();
@@ -55,6 +59,7 @@ export function parseProposalRequest(value: unknown): ProposalRequest {
     const keys = ['operation', 'name', 'description', 'body', 'triggers', 'antiTriggers', 'interface', 'cases'];
     if (Object.hasOwn(root.proposal, 'resources')) keys.push('resources');
     if (Object.hasOwn(root.proposal, 'importSource')) keys.push('importSource');
+    if (Object.hasOwn(root.proposal, 'routingTags')) keys.push('routingTags');
     const p = record(root.proposal, keys);
     const name = text(p.name, 64);
     if (!validSkillName(name, 'ega-skills')) return invalid();
@@ -72,7 +77,7 @@ export function parseProposalRequest(value: unknown): ProposalRequest {
       if (origin.acceptOriginalNormalization !== true || resources) return invalid();
       importSource = { location: validateImportLocation(origin.location), acceptOriginalNormalization: true };
     }
-    return { baseSha, proposal: { operation: 'add', name, description: text(p.description, 1024), body: text(p.body, 200_000), triggers: texts(p.triggers), antiTriggers: texts(p.antiTriggers), interface: { displayName: text(display.displayName, 128), shortDescription: text(display.shortDescription, 64), prompt: text(display.prompt, 1024) }, cases: { direct: text(cases.direct, 1024), indirect: text(cases.indirect, 1024), incomplete: text(cases.incomplete, 1024), negative: text(cases.negative, 1024), negative_expected: text(cases.negative_expected, 64), collision: text(cases.collision, 1024), collision_expected: text(cases.collision_expected, 64), edge: text(cases.edge, 1024) }, ...(resources ? { resources } : {}), ...(importSource ? { importSource } : {}) } };
+    return { baseSha, proposal: { operation: 'add', name, description: text(p.description, 1024), body: text(p.body, 200_000), triggers: texts(p.triggers), antiTriggers: texts(p.antiTriggers), interface: { displayName: text(display.displayName, 128), shortDescription: text(display.shortDescription, 64), prompt: text(display.prompt, 1024) }, cases: { direct: text(cases.direct, 1024), indirect: text(cases.indirect, 1024), incomplete: text(cases.incomplete, 1024), negative: text(cases.negative, 1024), negative_expected: text(cases.negative_expected, 64), collision: text(cases.collision, 1024), collision_expected: text(cases.collision_expected, 64), edge: text(cases.edge, 1024) }, ...(resources ? { resources } : {}), ...(importSource ? { importSource } : {}), ...(p.routingTags !== undefined ? { routingTags: routingTags(p.routingTags) } : {}) } };
   }
   return invalid();
 }

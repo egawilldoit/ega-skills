@@ -96,3 +96,15 @@ test('routing updates warn about matching other skills', async () => {
   assert.deepEqual(result.errors, []);
   assert.ok(result.warnings.some(warning => warning.includes('overlaps with: other')));
 });
+
+test('alias conflicts block a routing update before any write', async () => {
+  let writes = 0;
+  const snapshot = { ...files, 'skills/sample-skill/SKILL.md': '---\nname: sample-skill\ndescription: Review the sample change.\n---\n\n# Sample\n\nReview the result.\n', 'skills/sample-skill/ega.yaml': JSON.stringify({ schema_version: 1, triggers: ['old'], anti_triggers: [] }), 'skills/other/ega.yaml': JSON.stringify({ schema_version: 1, aliases: ['shared-alias'] }) };
+  const source = { mainSha: async () => base, snapshot: async () => ({ sha: base, files: snapshot, selectedFiles: [] }), submit: async () => { writes++; } };
+  const proposal = { ...request.proposal, routing: { triggers: ['old'], antiTriggers: [], tags: { domains: [], platforms: [], frameworks: [], aliases: ['SHARED-alias'] } } };
+  const imports = { read: async () => { throw new Error('unexpected'); }, parseYaml: text => text.startsWith('{') ? JSON.parse(text) : { name: 'sample-skill', description: 'Review the sample change.' } };
+  const preview = await previewProposal(source, { baseSha: base, proposal }, imports);
+  assert.ok(preview.errors.some(error => error.includes('already owned by other')));
+  await assert.rejects(submitProposal(source, { baseSha: base, proposal, previewDigest: preview.digest }, imports), e => e.status === 422);
+  assert.equal(writes, 0);
+});
