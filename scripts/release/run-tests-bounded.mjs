@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { ownedFiles } from "../ci/ownership.mjs";
 
 const DEFAULT_PER_TEST_TIMEOUT_MS = 600_000;
 const DEFAULT_OVERALL_TIMEOUT_MS = 1_500_000;
@@ -172,7 +173,10 @@ function waitForExit(child, timeoutMs) {
 }
 
 const { forwarded, perTestTimeoutMs, overallTimeoutMs } = parseArgs(process.argv.slice(2));
-const nodeArgs = ["--test", `--test-timeout=${perTestTimeoutMs}`, ...forwarded];
+const scopes = forwarded.filter((arg) => arg.startsWith("--ci-scope="));
+if (scopes.length > 1) throw new Error("Only one CI scope may be specified");
+const selected = scopes.length ? ownedFiles(scopes[0].slice("--ci-scope=".length)) : [];
+const nodeArgs = ["--test", `--test-timeout=${perTestTimeoutMs}`, ...forwarded.filter((arg) => !arg.startsWith("--ci-scope=")), ...selected];
 
 process.stderr.write(
   `[test:bounded] node ${nodeArgs.join(" ")}\n` +

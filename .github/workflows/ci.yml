@@ -120,7 +120,7 @@ jobs:
         run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
 
       - name: Test
-        run: pnpm test:ci
+        run: ${{ runner.os == 'Windows' && 'pnpm test:ci' || 'node scripts/release/run-tests-bounded.mjs --ci-scope=core' }}
 
       - name: Check frozen specs
         run: pnpm specs:check
@@ -189,7 +189,7 @@ jobs:
         run: pnpm test:web:components
 
       - name: Web API and integration tests
-        run: node --test tests/web/api-routes.test.mjs tests/web/api-client.test.mjs tests/web/catalog.test.mjs tests/web/skills.test.mjs tests/web/releases.test.mjs tests/web/release-identity.test.mjs tests/web/console-server.test.mjs tests/web/console-model.test.mjs tests/web/console-permissions.test.mjs tests/web/stage-artifact.test.mjs tests/web/analytics-window.test.mjs
+        run: node scripts/release/run-tests-bounded.mjs --ci-scope=web
 
       - name: Check out pinned source catalog fixture
         uses: actions/checkout@v6
