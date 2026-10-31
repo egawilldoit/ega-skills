@@ -7,3 +7,8 @@ export function sourceInterfaceDefaults(name: string, description: string) {
   const prompt = `Use $${name} to help with this task.`;
   return { displayName, shortDescription, prompt };
 }
+
+/** Match the source catalog's slug and plugin identity length limits. */
+export function sourceSkillSlug(label: string): string {
+  return label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 53).replace(/-+$/g, '');
+}

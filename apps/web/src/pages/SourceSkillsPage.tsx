@@ -5,7 +5,7 @@ import { toApiError } from '../api/client';
 import type { CatalogPage } from '../api/contracts';
 import { useWorkspace } from '../workspace/WorkspaceProvider';
 import { sourcePublishedLinks } from './sourcePublishedLinks';
-import { sourceInterfaceDefaults } from './sourceInterfaceDefaults';
+import { sourceInterfaceDefaults, sourceSkillSlug } from './sourceInterfaceDefaults';
 
 type Item = { name: string; description: string; provenance: 'copied' | 'adapted' | 'original' };
 type Index = { sha: string; total: number; items: Item[] };
@@ -61,6 +61,7 @@ export function SourceSkillsPage(): ReactNode {
   const [filter, setFilter] = useState('');
   const [mode, setMode] = useState<Mode>('list');
   const [name, setName] = useState('');
+  const [nameLabel, setNameLabel] = useState('');
   const [description, setDescription] = useState('');
   const [body, setBody] = useState('');
   const [triggers, setTriggers] = useState('');
@@ -116,7 +117,7 @@ export function SourceSkillsPage(): ReactNode {
   if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { clear(); setName(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
+  const startAdd = (): void => { clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
   const startEdit = async (item: Item): Promise<void> => {
     clear(); setLoading(true);
     try {
@@ -138,7 +139,7 @@ export function SourceSkillsPage(): ReactNode {
     finally { setLoading(false); }
   };
   const loadImport = async (): Promise<void> => {
-    setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setPreview(null); setName(''); setDescription(''); setBody('');
+    setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     try {
       const location = { owner: importOwner, repo: importRepo, commit: importCommit, directory: importDirectory };
       const result = await client.post<ImportResult>('/skill-imports/github', location, { timeoutMs: 35_000, decode: value => {
@@ -152,12 +153,12 @@ export function SourceSkillsPage(): ReactNode {
       if (!match) throw new Error('Imported frontmatter is invalid.');
       const meta = parse(match[1]!, { uniqueKeys: true, maxAliasCount: 0 }) as Record<string, unknown>;
       if (!meta || typeof meta.name !== 'string' || typeof meta.description !== 'string' || Object.keys(meta).sort().join(',') !== 'description,name' || meta.name !== location.directory.split('/').at(-1)) throw new Error('Imported frontmatter must contain only name and description, and the name must match the directory.');
-      setName(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setImported(result);
+      setName(meta.name); setNameLabel(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setImported(result);
     } catch (cause) { setError(message(cause)); }
     finally { setLoading(false); }
   };
   const loadSkillFile = async (file: File | undefined): Promise<void> => {
-    setError(''); setUploaded(false); setAcceptUpload(false); setImported(null); setPreview(null); setName(''); setDescription(''); setBody('');
+    setError(''); setUploaded(false); setAcceptUpload(false); setImported(null); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     if (!file) return;
     try {
       if (file.name !== 'SKILL.md' || file.size > 200_000) throw new Error('Upload a SKILL.md file no larger than 200 KB.');
@@ -167,7 +168,7 @@ export function SourceSkillsPage(): ReactNode {
       if (!match) throw new Error('SKILL.md must have YAML frontmatter.');
       const meta = parse(match[1]!, { uniqueKeys: true, maxAliasCount: 0 }) as Record<string, unknown>;
       if (!meta || typeof meta.name !== 'string' || typeof meta.description !== 'string' || Object.keys(meta).sort().join(',') !== 'description,name') throw new Error('Frontmatter must contain only name and description.');
-      setName(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setUploaded(true);
+      setName(meta.name); setNameLabel(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setUploaded(true);
     } catch (cause) { setError(message(cause)); }
   };
   const makePreview = async (): Promise<void> => {
@@ -226,10 +227,10 @@ export function SourceSkillsPage(): ReactNode {
         <label>Commit SHA <input value={importCommit} readOnly={!!imported} onChange={event => { setImportCommit(event.target.value); setImported(null); }} /></label>{' '}
         <label>Skill directory <input value={importDirectory} readOnly={!!imported} onChange={event => { setImportDirectory(event.target.value); setImported(null); }} /></label>{' '}
         <button type="button" onClick={() => void loadImport()}>Load import</button>
-        {imported ? <><p>License: {imported.license.path}, blob {imported.license.sha}. Source attribution and the full license will be included in the proposal.</p><button type="button" onClick={() => { setImported(null); setAcceptNormalization(false); setName(''); setDescription(''); setBody(''); }}>Clear import</button><details><summary>Read license</summary><pre>{imported.license.text}</pre></details><label><input type="checkbox" checked={acceptNormalization} onChange={event => setAcceptNormalization(event.target.checked)} /> I accept classifying this import as original in the catalog and am authorized to use it under its license. This does not claim authorship.</label></> : null}
+        {imported ? <><p>License: {imported.license.path}, blob {imported.license.sha}. Source attribution and the full license will be included in the proposal.</p><button type="button" onClick={() => { setImported(null); setAcceptNormalization(false); setName(''); setNameLabel(''); setDescription(''); setBody(''); }}>Clear import</button><details><summary>Read license</summary><pre>{imported.license.text}</pre></details><label><input type="checkbox" checked={acceptNormalization} onChange={event => setAcceptNormalization(event.target.checked)} /> I accept classifying this import as original in the catalog and am authorized to use it under its license. This does not claim authorship.</label></> : null}
       </details> : null}
       {mode === 'remove' ? <><p>This proposes deleting the source directory; Git history and published immutable releases remain intact.</p><label>Type {name} to confirm <input value={confirmation} onChange={event => setConfirmation(event.target.value)} /></label></> : <>
-        {mode === 'add' ? <p><label>Skill name <input value={name} readOnly={!!imported} onChange={event => setName(event.target.value)} /></label></p> : null}
+        {mode === 'add' ? <><p><label>Skill name <input value={nameLabel} readOnly={!!imported} onChange={event => { const label = event.target.value; setNameLabel(label); setName(sourceSkillSlug(label)); }} /></label></p><p>Source slug: <code>{name || '(enter a name with letters or numbers)'}</code></p></> : null}
         <p><label>Description <input value={description} readOnly={!!imported || (mode === 'update' && editProvenance === 'copied')} onChange={event => setDescription(event.target.value)} /></label></p>
         <p><label>Markdown instructions<br /><textarea rows={12} cols={70} readOnly={!!imported || (mode === 'update' && editProvenance === 'copied')} value={body} onChange={event => setBody(event.target.value)} /></label></p>
         {mode === 'update' && editProvenance === 'copied' ? <p>Copied source instructions and references are read-only; routing can be edited.</p> : null}

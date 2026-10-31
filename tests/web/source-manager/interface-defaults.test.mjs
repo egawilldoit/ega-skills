@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sourceInterfaceDefaults } from '../../../apps/web/src/pages/sourceInterfaceDefaults.ts';
+import { sourceInterfaceDefaults, sourceSkillSlug } from '../../../apps/web/src/pages/sourceInterfaceDefaults.ts';
+
+test('readable names derive a bounded source slug', () => {
+  assert.equal(sourceSkillSlug('  Review Café changes!  '), 'review-cafe-changes');
+  assert.equal(sourceSkillSlug('---'), '');
+  assert.equal(sourceSkillSlug('a'.repeat(60)).length, 53);
+  assert.equal(sourceSkillSlug(`${'a'.repeat(52)}---b`), 'a'.repeat(52));
+});
 
 test('interface suggestions use the skill name and safe bounded description', () => {
   const result = sourceInterfaceDefaults('review-change', 'Review "changes" and record evidence for teammates.');
