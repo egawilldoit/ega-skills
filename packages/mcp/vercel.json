@@ -14,5 +14,8 @@
       "src": "/(.*)",
       "dest": "server.mts"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }

@@ -592,6 +592,9 @@ export function observationFromVercel({ user, project, deployments, served, expe
   if (typeof productionBranch !== "string" || productionBranch.length === 0) {
     refuse("E_PLATFORM_GUARD", "the Vercel production branch is not observable; refusing to infer it");
   }
+  if (expected.production_branch !== undefined && productionBranch !== expected.production_branch) {
+    refuse("E_PLATFORM_GUARD", "the observed Vercel production branch differs from the authorized branch");
+  }
   // Vercel permits minimatch branch rules and any matching true rule wins.
   // Accept only the unambiguous subset: global false, or an exact branch false
   // with exclusively false rules. Unknown patterns/values remain blocked.
@@ -652,7 +655,7 @@ export class VercelApi {
     const readAlias = async () => {
       const alias = await this.get(aliasPath);
       if (alias?.alias !== expected.canonical_alias || alias.projectId !== expected.project_id ||
-          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect) {
+          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect != null) {
         refuse("E_ALIAS_DRIFT", "canonical alias is not assigned directly to the approved project");
       }
       return alias;
@@ -664,10 +667,11 @@ export class VercelApi {
     }
     const aliases = await this.get(`/v2/deployments/${encodeURIComponent(deployment.id)}/aliases`);
     if (!Array.isArray(aliases?.aliases) || aliases.aliases.some((entry) => typeof entry?.alias !== "string" ||
-        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id)) || aliases.pagination?.next != null) {
+        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id) || entry.redirect != null) || aliases.pagination?.next != null) {
       refuse("E_PLATFORM_GUARD", "complete deployment alias inventory is unavailable");
     }
     const names = aliases.aliases.map((entry) => entry.alias);
+    if (new Set(names).size !== names.length) refuse("E_PLATFORM_GUARD", "duplicate deployment aliases prevent reliable inventory");
     if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
     // Recovery may need the authenticated immutable deployment identity while
     // /readyz is unavailable. Do not invent a served release in that case.
@@ -692,7 +696,7 @@ export class VercelApi {
     const readAlias = async () => {
       const alias = await this.get(aliasPath);
       if (alias?.alias !== expected.canonical_alias || alias.projectId !== expected.project_id ||
-          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect) {
+          typeof alias.deploymentId !== "string" || !alias.deploymentId || alias.redirect != null) {
         refuse("E_ALIAS_DRIFT", "canonical alias is not assigned directly to the approved project");
       }
       return alias;
@@ -704,10 +708,11 @@ export class VercelApi {
     }
     const aliases = await this.get(`/v2/deployments/${encodeURIComponent(deployment.id)}/aliases`);
     if (!Array.isArray(aliases?.aliases) || aliases.aliases.some((entry) => typeof entry?.alias !== "string" ||
-        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id)) || aliases.pagination?.next != null) {
+        (entry.deploymentId !== undefined && entry.deploymentId !== deployment.id) || entry.redirect != null) || aliases.pagination?.next != null) {
       refuse("E_PLATFORM_GUARD", "complete deployment alias inventory is unavailable");
     }
     const names = aliases.aliases.map((entry) => entry.alias);
+    if (new Set(names).size !== names.length) refuse("E_PLATFORM_GUARD", "duplicate deployment aliases prevent reliable inventory");
     if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
     const legacy = await probeLegacy(expected.canonical_alias);
     const after = await readAlias();
@@ -1762,7 +1767,7 @@ async function runBaselineCli(mode, values) {
           "deploy", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
           "--meta", `githubCommitSha=${source.migration_source_commit}`,
-          "--meta", "githubCommitRef=release/2.0",
+          "--meta", `githubCommitRef=${expected.production_branch}`,
         ], { cwd, scope: teamId, token });
         const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
         if (!url) refuse("E_BASELINE_STAGE", "could not read the staged baseline deployment URL");
@@ -1836,7 +1841,7 @@ async function main() {
   };
   if (!Number.isSafeInteger(expected.expected_revision) || expected.expected_revision < 0) refuse("E_ARGUMENT", "--expect-revision must be a non-negative integer");
   if (mode === "stage" || mode === "promote" || mode === "reconcile") {
-    expected.source_commit = verifyApprovedSourceCommit(required(values, "expect-source-commit"));
+    expected.source_commit = verifyApprovedSourceCommit(required(values, "expect-source-commit"), `origin/${expected.production_branch}`);
   }
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });
@@ -1852,7 +1857,7 @@ async function main() {
           "deploy", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
           "--meta", `githubCommitSha=${expected.source_commit}`,
-          "--meta", "githubCommitRef=release/2.0",
+          "--meta", `githubCommitRef=${expected.production_branch}`,
         ], { cwd, scope: teamId, token });
         const url = output.stdout.trim().split("\n").filter((line) => /^https:\/\//.test(line.trim())).at(-1)?.trim();
         if (!url) refuse("E_STAGE", "could not read the staged production deployment URL");

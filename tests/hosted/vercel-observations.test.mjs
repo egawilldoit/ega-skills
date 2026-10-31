@@ -30,7 +30,7 @@ test("branch patterns and unknown values cannot conceal an enabling rule", () =>
   assert.equal(observe({ git: { deploymentEnabled: { "release/2.0": false } } }).git_production_auto_deploy, false);
 });
 
-function mockApi({ alias, details, inventory, probe } = {}) {
+function mockApi({ alias, details, inventory, probe, projectDetails = project } = {}) {
   const paths = [];
   let aliasReads = 0;
   const api = new VercelApi({ token: "test-only", teamId: expected.team_id, fetch: async (url) => {
@@ -38,14 +38,14 @@ function mockApi({ alias, details, inventory, probe } = {}) {
     assert.equal(url.searchParams.get("teamId"), url.pathname === "/v2/user" ? null : expected.team_id);
     let body;
     if (url.pathname === "/v2/user") body = { user: { id: expected.publisher_vercel_user_id } };
-    else if (url.pathname.startsWith("/v9/projects/")) body = project;
+    else if (url.pathname.startsWith("/v9/projects/")) body = projectDetails;
     else if (url.pathname.startsWith("/v4/aliases/")) body = alias?.(++aliasReads) ?? { alias: expected.canonical_alias, projectId: expected.project_id, deploymentId: deployment.id };
     else if (url.pathname.endsWith("/aliases")) body = inventory ?? { aliases: [{ alias: expected.canonical_alias, deploymentId: deployment.id }] };
     else if (url.pathname.startsWith("/v13/deployments/")) body = details ?? deployment;
     else throw Error(`Unexpected API path ${url.pathname}`);
     return new Response(JSON.stringify(body), { status: 200 });
   } });
-  return { paths, read: () => api.readProduction(expected, probe) };
+  return { paths, read: (expectation = expected) => api.readProduction(expectation, probe) };
 }
 
 test("actual alias endpoint and full deployment identify production without a recent-deployment list", async () => {
@@ -83,4 +83,31 @@ test("alias inventory is complete and absent deployment checks never become succ
   assert.equal(observed.deployment_checks_state, "none");
   assert.deepEqual(observed.production_aliases, [expected.canonical_alias, "extra.vercel.app"]);
   assert.equal(observed.served_release_digest, undefined);
+});
+
+
+test("main production cutover requires the observed branch and a disabled Git deployment switch", async () => {
+  const mainExpected = { ...expected, production_branch: "main" };
+  const onMain = mockApi({ projectDetails: { ...project, link: { productionBranch: "main" } } });
+  assert.equal((await onMain.read(mainExpected)).production_branch, "main");
+  await assert.rejects(mockApi().read(mainExpected), { code: "E_PLATFORM_GUARD" });
+  const enabled = mockApi({ projectDetails: { ...project, link: { productionBranch: "main" }, git: { deploymentEnabled: true } } });
+  assert.equal((await enabled.read(mainExpected)).git_production_auto_deploy, true);
+});
+
+test("alias inventory refuses duplicates and redirects, including empty redirect targets", async () => {
+  for (const inventory of [
+    { aliases: [{ alias: expected.canonical_alias }, { alias: expected.canonical_alias }] },
+    { aliases: [{ alias: expected.canonical_alias, redirect: "other.example" }] },
+    { aliases: [{ alias: expected.canonical_alias, redirect: "" }] },
+  ]) await assert.rejects(mockApi({ inventory }).read(), { code: "E_PLATFORM_GUARD" });
+  await assert.rejects(mockApi({ alias: () => ({ alias: expected.canonical_alias, projectId: expected.project_id, deploymentId: deployment.id, redirect: "" }) }).read(), { code: "E_ALIAS_DRIFT" });
+});
+
+test("completed check state without a successful conclusion cannot authorize promotion", async () => {
+  for (const details of [
+    { ...deployment, checksConclusion: null, checksState: "completed" },
+    { ...deployment, checksConclusion: "skipped", checksState: "completed" },
+    { ...deployment, checksConclusion: "neutral", checksState: "completed" },
+  ]) assert.equal((await mockApi({ details }).read()).deployment_checks_state, "none");
 });
