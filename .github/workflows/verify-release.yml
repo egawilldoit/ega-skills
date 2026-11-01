@@ -1,0 +1,210 @@
+name: Verify production release
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Source commit SHA to verify (defaults to the workflow SHA)
+        required: false
+        type: string
+      deployment_url:
+        description: Deployment-specific origin (for example https://ega-skills-abc.vercel.app)
+        required: false
+        type: string
+      deployment_id:
+        description: Vercel deployment id (dpl_...)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-production-ega-skills-mcp
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify live production
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'deployment_status' &&
+       github.event.deployment_status.state == 'success' &&
+       startsWith(github.event.deployment.environment, 'Production') &&
+       contains(github.event.deployment.environment, 'ega-skills-mcp') &&
+       github.event.deployment.ref == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.event.deployment.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Resolve release context
+        id: release
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          INPUT_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          EVENT_SHA: ${{ github.event.deployment.sha }}
+          EVENT_DEPLOYMENT_URL: ${{ github.event.deployment_status.environment_url }}
+          EVENT_DEPLOYMENT_ID: ${{ github.event.deployment.payload.deployment.id }}
+        run: |
+          set -euo pipefail
+          sha="${INPUT_SHA:-${EVENT_SHA:-$GITHUB_SHA}}"
+          deployment_url="${INPUT_DEPLOYMENT_URL:-${EVENT_DEPLOYMENT_URL:-}}"
+          deployment_id="${INPUT_DEPLOYMENT_ID:-${EVENT_DEPLOYMENT_ID:-}}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Mint delegated MCP token
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.EGA_VERIFY_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.EGA_VERIFY_SUPABASE_SECRET_KEY }}
+          USER_EMAIL: ${{ secrets.EGA_VERIFY_USER_EMAIL }}
+          SUBJECT: ${{ secrets.EGA_VERIFY_SUBJECT }}
+        run: |
+          set -euo pipefail
+          for name in SUPABASE_URL SUPABASE_SECRET_KEY USER_EMAIL SUBJECT; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required verification secret $name is not configured"
+              exit 2
+            fi
+          done
+          umask 077
+          token_dir="$RUNNER_TEMP/ega-verify"
+          mkdir -p "$token_dir"
+          EGA_INTEROP_SUPABASE_URL="$SUPABASE_URL" \
+          EGA_INTEROP_ADMIN_KEY="$SUPABASE_SECRET_KEY" \
+          EGA_INTEROP_USER_EMAIL="$USER_EMAIL" \
+          EGA_INTEROP_TOKEN_OUT="$token_dir/user-token" \
+            node scripts/oauth/staging-user-token.mjs
+          origin="${EGA_VERIFY_ORIGIN:-https://ega-skills-mcp.vercel.app}"
+          EGA_INTEROP_SUPABASE_URL="$SUPABASE_URL" \
+          EGA_INTEROP_API_KEY="$SUPABASE_SECRET_KEY" \
+          EGA_INTEROP_USER_TOKEN="$(cat "$token_dir/user-token")" \
+          EGA_INTEROP_TOKEN_OUT="$token_dir/mcp-token.json" \
+          EGA_INTEROP_EXPECTED_SUBJECT="$SUBJECT" \
+          EGA_INTEROP_RESOURCE="${origin%/}/mcp" \
+            node scripts/oauth/mint-delegated-token.mjs
+          chmod 600 "$token_dir/mcp-token.json"
+          rm -f "$token_dir/user-token"
+          echo "EGA_VERIFY_TOKEN_FILE=$token_dir/mcp-token.json" >> "$GITHUB_ENV"
+
+      - name: Verify live release
+        id: verify
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_CANONICAL_ALIAS: ${{ secrets.VERCEL_CANONICAL_ALIAS }}
+          EGA_VERIFY_BYPASS: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+          EGA_VERIFY_TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.deployment_id }}
+          EGA_VERIFY_DEPLOYMENT_URL: ${{ steps.release.outputs.deployment_url }}
+          EGA_VERIFY_SOURCE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set +e
+          node scripts/release/verify-live.mjs > "$RUNNER_TEMP/verify-summary.json" 2> "$RUNNER_TEMP/verify-error.log"
+          code=$?
+          cat "$RUNNER_TEMP/verify-summary.json"
+          if [ -s "$RUNNER_TEMP/verify-error.log" ]; then cat "$RUNNER_TEMP/verify-error.log" >&2; fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Live release verification could not run: configuration or authentication failed."
+            exit 2
+          fi
+          if [ "$code" -eq 3 ]; then
+            echo "::error::Deployment was not promoted or the ci-gate deployment check did not succeed. No recovery was attempted."
+            exit 3
+          fi
+          if [ "$code" -ne 4 ]; then
+            echo "::error::Live release verification failed with unexpected exit code $code."
+            exit "$code"
+          fi
+          if [ -z "${EGA_VERIFY_TARGET_DEPLOYMENT_ID:-}" ]; then
+            EGA_VERIFY_TARGET_DEPLOYMENT_ID="$(
+              node -e 'const fs = require("node:fs"); try { const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(typeof s.canonical_alias_target === "string" ? s.canonical_alias_target : ""); } catch {}' "$RUNNER_TEMP/verify-summary.json"
+            )"
+          fi
+          if [ -z "${EGA_VERIFY_TARGET_DEPLOYMENT_ID:-}" ]; then
+            echo "::error::Live verification failed after promotion but no Vercel deployment id is available for recovery."
+            exit 4
+          fi
+
+          node scripts/release/recover-production.mjs \
+            --failed-deployment "$EGA_VERIFY_TARGET_DEPLOYMENT_ID" \
+            > "$RUNNER_TEMP/recovery-summary.json" 2> "$RUNNER_TEMP/recovery-error.log"
+          recovery_code=$?
+          cat "$RUNNER_TEMP/recovery-summary.json"
+          if [ -s "$RUNNER_TEMP/recovery-error.log" ]; then cat "$RUNNER_TEMP/recovery-error.log" >&2; fi
+          echo "recovery_exit_code=$recovery_code" >> "$GITHUB_OUTPUT"
+          if [ "$recovery_code" -eq 0 ]; then
+            echo "::warning::Live verification failed; production was recovered to the previous deployment. The release did not ship."
+            exit 1
+          fi
+          echo "::error::Live verification failed and production recovery did not complete."
+          exit 1
+
+      - name: Write release summary
+        if: always()
+        shell: bash
+        env:
+          VERIFY_SUMMARY: ${{ runner.temp }}/verify-summary.json
+          RECOVERY_SUMMARY: ${{ runner.temp }}/recovery-summary.json
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const read = (file) => {
+            try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
+          };
+          const verified = read(process.env.VERIFY_SUMMARY);
+          const recovery = read(process.env.RECOVERY_SUMMARY);
+          const lines = ["## Production release verification", ""];
+          if (verified) {
+            lines.push(`- Source SHA: \`${verified.source_sha ?? "unknown"}\``);
+            lines.push(`- Deployment id: \`${verified.deployment_id ?? "unknown"}\``);
+            lines.push(`- Canonical alias: \`${verified.canonical_alias ?? "unknown"}\``);
+            lines.push(`- Release digest: \`${verified.release_digest ?? "unknown"}\``);
+            lines.push(`- Catalog skills: ${verified.skill_count ?? "unknown"}`);
+            lines.push(`- Result: ${verified.ok ? "verified" : String(verified.reason ?? "failed")}`);
+            const tstack = Array.isArray(verified.tstack) ? verified.tstack : [];
+            if (tstack.length > 0) {
+              lines.push("", "### TStack L2 content", "");
+              for (const entry of tstack) {
+                lines.push(`- \`${entry.skill_id}\` \`${entry.version_hash}\` (${entry.content_chars} chars)`);
+              }
+            }
+          } else {
+            lines.push("- Verification summary was not produced.");
+          }
+          if (recovery) {
+            lines.push("", "## Recovery", "");
+            lines.push(`- Failed deployment: \`${recovery.failed_deployment ?? "unknown"}\``);
+            lines.push(`- Previous deployment: \`${recovery.previous_deployment ?? "none"}\``);
+            lines.push(`- Superseded: ${recovery.superseded ? "yes (no write)" : "no"}`);
+            lines.push(`- Recovered: ${recovery.recovered ? "yes" : "no"}`);
+            lines.push(`- Result: ${String(recovery.reason ?? "failed")}`);
+            const blockers = Array.isArray(recovery.blockers) ? recovery.blockers : [];
+            for (const blocker of blockers) lines.push(`- Blocker: ${blocker}`);
+          } else if (verified && verified.exit_code === 4) {
+            lines.push("", "Recovery summary was not produced.");
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE

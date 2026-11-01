@@ -84,9 +84,11 @@ node scripts/hosted/validate-artifact.mjs ./artifact
 
 The preview and export commands reject blocked approvals, stale identities,
 corrupt artifacts, and destination overlap. Export is an immutable artifact
-build step; it does not publish production traffic. Keep the candidate,
-release, approval, provenance, and transport receipts together for the
-separate deployment system.
+build step; it does not publish production traffic. Commit the exported artifact
+with the reviewed catalog change and keep the reviewed plan, approval, and
+provenance record with the PR. See
+[`operations/AUTOMATIC-RELEASE.md`](operations/AUTOMATIC-RELEASE.md) for the
+release path.
 
 After export, a local MCP smoke test can use the exported artifact as its
 read-only registry:
@@ -106,6 +108,6 @@ get_content.
 
 The repository tests prove deterministic local CLI behavior and local hosted
 serving. They do not prove a remote upstream, OAuth, deployment, or client
-workflow. Production publication requires a separately authorized deployment
-step. ZIP input, alternate clients, large-scale ingestion, and an operator UI
-are outside this workflow.
+workflow. Production release is automatic from `main` after review and CI; there
+is no local publication command. ZIP input, alternate clients, large-scale
+ingestion, and an operator UI are outside this workflow.

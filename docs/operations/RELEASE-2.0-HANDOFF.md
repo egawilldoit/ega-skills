@@ -1,5 +1,13 @@
 # EGA Skills 2.0 — production release handoff
 
+> **SUPERSEDED — historical handoff.** Production now releases automatically
+> from `main` through Vercel Git plus the `ci-gate` Deployment Check and release
+> verification. The custom publisher, baseline authorization, approval
+> envelopes, readiness waivers, and publication receipts described below are
+> retired and their scripts are deleted. Do not execute commands from this
+> document. Active procedure: [`AUTOMATIC-RELEASE.md`](AUTOMATIC-RELEASE.md).
+> The record below is preserved as the handoff state at the time of writing.
+
 Status: **ENGINEERING READY / EXTERNAL RELEASE GATES REMAINING**.
 This document is the executable handoff for the connected release operator. It
 contains no secrets and does not itself authorize a production mutation.
