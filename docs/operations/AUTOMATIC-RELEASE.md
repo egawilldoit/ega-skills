@@ -22,9 +22,10 @@ entrypoints: `.github/workflows/verify-release.yml`,
    project's Production Branch, Root Directory `packages/mcp`, and workspace
    build settings. The deployment is created but does not receive the canonical
    alias yet.
-5. **Vercel Deployment Check.** A Deployment Check named `ci-gate` gates the
-   deployment. Vercel holds the canonical alias (`ega-skills-mcp.vercel.app`)
-   until the check reports success for the same commit.
+5. **Vercel Deployment Check.** The project's Deployment Check (dashboard name
+   `GitHub CI gate`, GitHub check name `ci-gate`) gates the deployment. Vercel
+   holds the canonical alias (`ega-skills-mcp.vercel.app`) until the check
+   reports success for the same commit.
 6. **Automatic alias.** When the check succeeds, Vercel promotes the deployment
    and the canonical alias moves to it. No operator command runs here.
 7. **Release verification.** `.github/workflows/verify-release.yml` runs on the

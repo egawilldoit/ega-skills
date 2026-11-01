@@ -162,7 +162,7 @@ jobs:
           fi
           if [ -z "${EGA_VERIFY_TARGET_DEPLOYMENT_ID:-}" ]; then
             EGA_VERIFY_TARGET_DEPLOYMENT_ID="$(
-              node -e 'const fs = require("node:fs"); try { const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(typeof s.canonical_alias_target === "string" ? s.canonical_alias_target : ""); } catch {}' "$RUNNER_TEMP/verify-summary.json"
+              node -e 'const fs = require("node:fs"); try { const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const value = s.deployment_id || s.canonical_alias_target; process.stdout.write(typeof value === "string" ? value : ""); } catch {}' "$RUNNER_TEMP/verify-summary.json"
             )"
           fi
           if [ -z "${EGA_VERIFY_TARGET_DEPLOYMENT_ID:-}" ]; then

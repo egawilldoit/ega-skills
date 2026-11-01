@@ -722,6 +722,7 @@ export async function main(env = process.env, cwd = process.cwd(), fetchImpl = f
         } catch {
           // An unreadable alias is treated as not promoted: no recovery.
         }
+        summary.canonical_alias_target = aliasTarget;
         const promoted = config.targetDeploymentId ? aliasTarget === config.targetDeploymentId : false;
         if (promoted) {
           return failureSummary(summary, EXIT_LIVE_FAILED, `deployment-specific runtime is ${probe.state} after promotion`);
