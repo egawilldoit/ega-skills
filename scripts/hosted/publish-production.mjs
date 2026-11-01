@@ -1971,7 +1971,9 @@ async function runBaselineCli(mode, values) {
         expectedArtifactTreeDigest: source.artifact_tree_digest,
       });
       try {
-        const cwd = join(deploy.directory, "packages", "mcp");
+        // Deploy from the repository root so Vercel applies the project Root Directory
+        // packages/mcp exactly once; launching from packages/mcp duplicates it.
+        const cwd = deploy.directory;
         const output = runVercel([
           "deploy", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
@@ -2077,7 +2079,9 @@ async function main() {
     deployStagedProduction: () => {
       const deploy = createBaselineDeployWorktree(REPO_ROOT, expected.source_commit);
       try {
-        const cwd = join(deploy.directory, "packages", "mcp");
+        // Deploy from the repository root so Vercel applies the project Root Directory
+        // packages/mcp exactly once; launching from packages/mcp duplicates it.
+        const cwd = deploy.directory;
         const output = runVercel([
           "deploy", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
