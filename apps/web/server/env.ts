@@ -48,6 +48,7 @@ export const SERVER_ENV_KEYS = [
   "EGA_WEB_ARTIFACT_DIR",
   "EGA_WEB_RETAINED_MANIFEST",
   "EGA_WEB_EXPECTED_RELEASE_DIGEST",
+  "EGA_WEB_EXPECT_COMMITTED_ARTIFACT",
   "EGA_SUPABASE_URL",
   "EGA_SUPABASE_SECRET_KEY",
   "EGA_SUPABASE_PUBLISHABLE_KEY",
@@ -105,6 +106,8 @@ export interface ServerConfig {
   readonly retainedManifestPath: string | null;
   /** Canonical expected release digest, or `null` when unconfigured. */
   readonly expectedReleaseDigest: string | null;
+  /** Use the verified artifact committed with this deployment as the expectation. */
+  readonly expectCommittedArtifact: boolean;
   readonly supabaseUrl: string | null;
   /** Present only as a value: never rendered, never logged, never compared. */
   readonly supabaseSecretKey: string | null;
@@ -113,7 +116,7 @@ export interface ServerConfig {
    * Must never be a privileged secret key.
    */
   readonly supabasePublishableKey: string | null;
-  /** True when an authoritative expected digest is configured. */
+  /** True when an authoritative expected digest is configured or derived. */
   readonly hasExpectedReleaseDigest: boolean;
   /** True when at least one release source is configured at all. */
   readonly hasReleaseSource: boolean;
@@ -216,6 +219,8 @@ export function parseServerConfig(
     env["EGA_WEB_EXPECTED_RELEASE_DIGEST"],
     "EGA_WEB_EXPECTED_RELEASE_DIGEST",
   ) ?? null;
+  const expectCommittedArtifact = configured(env["EGA_WEB_EXPECT_COMMITTED_ARTIFACT"]) === "1"
+    || configured(env["EGA_WEB_EXPECT_COMMITTED_ARTIFACT"]) === "true";
 
   // A blank secret key is unset, not an empty credential. The value is carried
   // so later builders can authenticate without re-reading the environment, and
@@ -257,10 +262,11 @@ export function parseServerConfig(
     artifactDir,
     retainedManifestPath,
     expectedReleaseDigest,
+    expectCommittedArtifact,
     supabaseUrl,
     supabaseSecretKey,
     supabasePublishableKey,
-    hasExpectedReleaseDigest: expectedReleaseDigest !== null,
+    hasExpectedReleaseDigest: expectedReleaseDigest !== null || expectCommittedArtifact,
     hasReleaseSource: artifactDir !== null || retainedManifestPath !== null,
     isPublicPolicy,
   });
@@ -280,6 +286,7 @@ export function describeServerConfig(config: Readonly<ServerConfig>): string {
     config.artifactDir !== null ? "artifact directory configured" : "artifact directory NOT configured",
     config.retainedManifestPath !== null ? "retained manifest configured" : "retained manifest NOT configured",
     config.hasExpectedReleaseDigest ? "expected release digest configured" : "expected release digest NOT configured",
+    config.expectCommittedArtifact ? "committed artifact expectation enabled" : "committed artifact expectation disabled",
   ];
   return parts.join("; ");
 }

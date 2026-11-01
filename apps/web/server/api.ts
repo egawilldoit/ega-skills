@@ -672,7 +672,7 @@ export interface ReleaseIdentityView {
   readonly release_unavailable_reason: string | null;
   readonly actual_release_digest: string | null;
   readonly expected_release_digest: string | null;
-  readonly expected_digest_source: "env" | "retained-manifest" | null;
+  readonly expected_digest_source: "env" | "retained-manifest" | "committed-artifact" | null;
   readonly is_stable: boolean;
   readonly has_retained_manifest: boolean;
   /** `null` when no manifest is configured. Never 0 for "none configured". */

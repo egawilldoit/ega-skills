@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { ciGateState, waitForCanonical } from "../../scripts/release/verify-live.mjs";
+
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SCRIPT = join(REPO_ROOT, "scripts/release/verify-live.mjs");
 const TOOL_NAMES = ["resolve", "search", "inspect", "get_content"];
@@ -181,10 +183,14 @@ function startOrigin({ expectedDigest, versions, failSkill = null, sse = false, 
   return { server, state };
 }
 
-function startVercel({ aliasTarget, checks = {}, target = TARGET }) {
+function startVercel({ aliasTarget, checks = {}, target = TARGET, authFailure = false }) {
   const state = { aliasTarget, checks, target, aliasReads: 0 };
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (authFailure) {
+      writeJson(response, 403, { error: { code: "forbidden" } });
+      return;
+    }
     if (request.method === "GET" && url.pathname.startsWith("/v4/aliases/")) {
       state.aliasReads += 1;
       writeJson(response, 200, {
@@ -415,6 +421,115 @@ test("a failed ci-gate deployment check exits 3 immediately", async (t) => {
   }));
   assert.equal(result.code, 3, `${result.stderr}\n${result.stdout}`);
   assert.ok(Date.now() - started < 5_000);
+});
+
+
+test("ci-gate is classified as pending, success, or failed, never guessed", () => {
+  const run = (status, conclusion) => [{ name: "GitHub CI gate", source: { externalCheckName: "ci-gate" }, status, conclusion }];
+  assert.equal(ciGateState([]).state, "pending");
+  assert.equal(ciGateState(run("in_progress", null)).state, "pending");
+  assert.equal(ciGateState(run("queued", null)).state, "pending");
+  assert.equal(ciGateState(run("completed", "success")).state, "success");
+  assert.equal(ciGateState(run("completed", "failure")).state, "failed");
+  assert.equal(ciGateState(run("completed", "skipped")).state, "failed");
+});
+
+test("a still-pending ci-gate reports pending after the bounded wait, not a CI failure", async (t) => {
+  const catalog = makeCatalog();
+  const tokenPath = join(catalog.dir, "token.json");
+  writeFileSync(tokenPath, JSON.stringify({ access_token: "test-token" }), { mode: 0o600 });
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: catalog.versions });
+  const vercel = startVercel({
+    aliasTarget: OLD,
+    checks: { [TARGET]: [{ name: "GitHub CI gate", source: { externalCheckName: "ci-gate" }, status: "in_progress", conclusion: null }] },
+  });
+  t.after(async () => {
+    await close(origin.server);
+    await close(vercel.server);
+    rmSync(catalog.dir, { recursive: true, force: true });
+  });
+  const originPort = await listen(origin.server);
+  const vercelPort = await listen(vercel.server);
+  const result = await runCli(await baseEnv({
+    originPort,
+    vercelPort,
+    tokenPath,
+    catalog,
+    overrides: { EGA_VERIFY_TIMEOUT_MS: "300" },
+  }));
+  assert.equal(result.code, 3, `${result.stderr}\n${result.stdout}`);
+  const summary = parseSummary(result.stdout);
+  assert.match(String(summary.reason), /still pending/i);
+  assert.ok(summary.checks.some((check) => check.name === "ci-gate" && check.state === "pending"));
+});
+
+test("pending ci-gate can settle and promote within the bounded wait", async (t) => {
+  const catalog = makeCatalog();
+  const tokenPath = join(catalog.dir, "token.json");
+  writeFileSync(tokenPath, JSON.stringify({ access_token: "test-token" }), { mode: 0o600 });
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: catalog.versions });
+  const vercel = startVercel({
+    aliasTarget: OLD,
+    checks: { [TARGET]: [{ name: "GitHub CI gate", source: { externalCheckName: "ci-gate" }, status: "in_progress", conclusion: null }] },
+  });
+  t.after(async () => {
+    await close(origin.server);
+    await close(vercel.server);
+    rmSync(catalog.dir, { recursive: true, force: true });
+  });
+  const originPort = await listen(origin.server);
+  const vercelPort = await listen(vercel.server);
+  const settle = setTimeout(() => {
+    vercel.state.checks[TARGET] = [{ name: "GitHub CI gate", source: { externalCheckName: "ci-gate" }, status: "completed", conclusion: "success" }];
+    vercel.state.aliasTarget = TARGET;
+  }, 250);
+  try {
+    const result = await runCli(await baseEnv({
+      originPort,
+      vercelPort,
+      tokenPath,
+      catalog,
+      overrides: { EGA_VERIFY_TIMEOUT_MS: "5000", EGA_VERIFY_POLL_MS: "25" },
+    }));
+    assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
+    const summary = parseSummary(result.stdout);
+    assert.equal(summary.ok, true);
+    assert.equal(summary.canonical_alias_target, TARGET);
+  } finally {
+    clearTimeout(settle);
+  }
+});
+
+test("waitForCanonical keeps genuine CI failure blocking even when the alias is correct", async () => {
+  const result = await waitForCanonical({
+    expectedDigest: digest("a"),
+    targetDeploymentId: TARGET,
+    timeoutMs: 1000,
+    pollMs: 1,
+    readAlias: async () => TARGET,
+    readReady: async () => ({ healthStatus: 200, readyStatus: 200, digest: digest("a") }),
+    readCiGate: async () => ({ name: "ci-gate", state: "failed", detail: "failure", url: null }),
+  });
+  assert.equal(result.state, "ci_failed");
+});
+
+test("a Vercel API 403 exits 2 as a credential failure, not a release failure", async (t) => {
+  const catalog = makeCatalog();
+  const tokenPath = join(catalog.dir, "token.json");
+  writeFileSync(tokenPath, JSON.stringify({ access_token: "test-token" }), { mode: 0o600 });
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: catalog.versions });
+  const vercel = startVercel({ aliasTarget: TARGET, authFailure: true });
+  t.after(async () => {
+    await close(origin.server);
+    await close(vercel.server);
+    rmSync(catalog.dir, { recursive: true, force: true });
+  });
+  const originPort = await listen(origin.server);
+  const vercelPort = await listen(vercel.server);
+  const result = await runCli(await baseEnv({ originPort, vercelPort, tokenPath, catalog }));
+  assert.equal(result.code, 2, result.stderr);
+  const summary = parseSummary(result.stdout);
+  assert.match(String(summary.reason), /authentication failed with status 403/);
 });
 
 test("MCP authentication failure exits 2, not a skip", async (t) => {

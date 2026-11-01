@@ -16,8 +16,8 @@
  *   EGA_VERIFY_TSTACK_PREFIX        default t3dotgg/
  *   EGA_VERIFY_TOKEN_FILE           required 0600 JSON file with {"access_token": "..."}
  *   EGA_VERIFY_BYPASS               optional Vercel protection-bypass header value
- *   EGA_VERIFY_TIMEOUT_MS           overall promotion wait (default 300000)
- *   EGA_VERIFY_POLL_MS              polling interval (default 5000)
+ *   EGA_VERIFY_TIMEOUT_MS           overall promotion wait (default 900000)
+ *   EGA_VERIFY_POLL_MS              polling interval (default 10000)
  *   EGA_VERIFY_SOURCE_SHA           optional source commit for the summary
  *   VERCEL_TOKEN                    required Vercel API token
  *   VERCEL_TEAM_ID                  optional Vercel team id
@@ -28,7 +28,7 @@
  * Exit codes:
  *   0 verified
  *   2 configuration or authentication failure
- *   3 not promoted / CI check not successful (no recovery)
+ *   3 not promoted / CI check failed or still pending at the bounded deadline
  *   4 live verification failed after promotion (recovery required)
  *
  * Never prints the bearer token or the protection-bypass value.
@@ -48,8 +48,11 @@ const DEFAULT_ORIGIN = "https://ega-skills-mcp.vercel.app";
 const DEFAULT_MANIFEST = "packages/mcp/artifact/hub-release.json";
 const DEFAULT_PACKAGE = "packages/mcp/artifact/release-package.json";
 const DEFAULT_TSTACK_PREFIX = "t3dotgg/";
-const DEFAULT_TIMEOUT_MS = 300_000;
-const DEFAULT_POLL_MS = 5_000;
+// The production deployment check waits for the full main-branch CI run.
+// Fifteen minutes covers a full Linux + Windows-capable run without turning a
+// genuine failure into an early timeout.
+const DEFAULT_TIMEOUT_MS = 900_000;
+const DEFAULT_POLL_MS = 10_000;
 const REQUIRED_TOOLS = ["get_content", "inspect", "resolve", "search"];
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const FAILED_CHECK_STATES = new Set(["failed", "failure", "canceled", "cancelled", "skipped"]);
@@ -405,32 +408,40 @@ export function createVercelClient({ token, teamId, baseUrl, fetchImpl = fetch, 
  * carries the reusable external name in `source.externalCheckName`. Matching
  * only the external name is what keeps this correct on the real platform.
  */
-export function ciGateFailure(checks, externalCheckName = "ci-gate") {
-  if (!Array.isArray(checks)) return null;
+export function ciGateState(checks, externalCheckName = "ci-gate") {
+  if (!Array.isArray(checks)) return { name: externalCheckName, state: "pending", url: null };
   const runs = checks.filter((entry) =>
     entry?.source?.externalCheckName === externalCheckName ||
     entry?.name === externalCheckName ||
     entry?.name === "GitHub CI gate");
+  if (runs.length === 0) return { name: externalCheckName, state: "pending", url: null };
+  let pending = false;
   for (const check of runs) {
     const state = String(check.conclusion ?? check.status ?? "").toLowerCase();
-    if (FAILED_CHECK_STATES.has(state)) {
-      return { name: externalCheckName, state, url: check.url ?? check.details_url ?? check.externalUrl ?? null };
-    }
+    const url = check.url ?? check.details_url ?? check.externalUrl ?? null;
+    if (FAILED_CHECK_STATES.has(state)) return { name: externalCheckName, state: "failed", detail: state, url };
+    if (state !== "success" && state !== "neutral") pending = true;
   }
-  return null;
+  return { name: externalCheckName, state: pending ? "pending" : "success", url: runs[0]?.url ?? null };
 }
 
-async function readCiGateFailure(vercel, deploymentId) {
-  if (!deploymentId) return null;
+/** Compatibility helper: a failed gate, or null for pending/success. */
+export function ciGateFailure(checks, externalCheckName = "ci-gate") {
+  const state = ciGateState(checks, externalCheckName);
+  return state.state === "failed" ? state : null;
+}
+
+async function readCiGateState(vercel, deploymentId) {
+  if (!deploymentId) return { name: "ci-gate", state: "pending", url: null };
   try {
     const body = await vercel.readDeploymentChecks(deploymentId);
-    return ciGateFailure(Array.isArray(body) ? body : body?.runs ?? body?.checks);
+    return ciGateState(Array.isArray(body) ? body : body?.runs ?? body?.checks);
   } catch (error) {
-    if (error?.status === 404) return null;
+    if (error?.status === 404) return { name: "ci-gate", state: "pending", url: null };
     // A transient checks API outage must not be confused with a live release
     // failure: alias/digest verification still decides the outcome.
     if (error instanceof AuthError) throw error;
-    return null;
+    return { name: "ci-gate", state: "pending", url: null };
   }
 }
 
@@ -502,9 +513,11 @@ export async function waitForCanonical({
   let aliasTarget = null;
   let ready = { healthStatus: null, readyStatus: null, digest: null };
   let lastError = null;
+  let lastCi = null;
   for (;;) {
     const ci = await readCiGate();
-    if (ci) return { state: "ci_failed", aliasTarget, ready, ci };
+    lastCi = ci;
+    if (ci?.state === "failed") return { state: "ci_failed", aliasTarget, ready, ci };
     try {
       aliasTarget = await readAlias();
       lastError = null;
@@ -518,11 +531,15 @@ export async function waitForCanonical({
     }
     const targetReached = targetDeploymentId ? aliasTarget === targetDeploymentId : typeof aliasTarget === "string" && aliasTarget.length > 0;
     if (targetReached && ready.readyStatus === 200 && ready.digest === expectedDigest) {
-      return { state: "ready", aliasTarget, ready, ci: null };
+      return { state: "ready", aliasTarget, ready, ci: lastCi };
     }
     if (now() >= deadline) {
-      if (!targetReached) return { state: "not_promoted", aliasTarget, ready, ci: null, error: lastError };
-      return { state: "digest_mismatch", aliasTarget, ready, ci: null, error: lastError };
+      if (!targetReached) {
+        // Pending is not a failure. Report that the bounded wait expired while
+        // the gate was still pending, rather than inventing a CI failure.
+        return { state: lastCi?.state === "pending" ? "ci_pending" : "not_promoted", aliasTarget, ready, ci: lastCi, error: lastError };
+      }
+      return { state: "digest_mismatch", aliasTarget, ready, ci: lastCi, error: lastError };
     }
     await sleep(pollMs);
   }
@@ -692,10 +709,10 @@ export async function main(env = process.env, cwd = process.cwd(), fetchImpl = f
       }
     }
 
-    const gate = await readCiGateFailure(vercel, config.targetDeploymentId);
-    if (gate) {
+    const gate = await readCiGateState(vercel, config.targetDeploymentId);
+    if (gate.state === "failed") {
       summary.checks.push({ name: "ci-gate", ok: false, state: gate.state });
-      return failureSummary(summary, EXIT_NOT_PROMOTED, `Vercel deployment check ci-gate is ${gate.state}`, { ci_gate: gate });
+      return failureSummary(summary, EXIT_NOT_PROMOTED, `Vercel deployment check ci-gate is ${gate.detail ?? gate.state}`, { ci_gate: gate });
     }
 
     if (config.deploymentUrl) {
@@ -738,7 +755,7 @@ export async function main(env = process.env, cwd = process.cwd(), fetchImpl = f
       pollMs: config.pollMs,
       readAlias: async () => (await vercel.readAlias(config.vercel.canonicalAlias)).deploymentId,
       readReady: () => probeReadyOnce({ origin: config.origin, bypass: config.bypass, timeoutMs: Math.min(20_000, config.timeoutMs), fetchImpl }),
-      readCiGate: () => readCiGateFailure(vercel, config.targetDeploymentId),
+      readCiGate: () => readCiGateState(vercel, config.targetDeploymentId),
     });
     summary.canonical_alias_target = wait.aliasTarget;
     summary.checks.push({
@@ -750,7 +767,11 @@ export async function main(env = process.env, cwd = process.cwd(), fetchImpl = f
       digest: wait.ready.digest,
     });
     if (wait.state === "ci_failed") {
-      return failureSummary(summary, EXIT_NOT_PROMOTED, `Vercel deployment check ci-gate is ${wait.ci.state}`, { ci_gate: wait.ci });
+      return failureSummary(summary, EXIT_NOT_PROMOTED, `Vercel deployment check ci-gate is ${wait.ci.detail ?? wait.ci.state}`, { ci_gate: wait.ci });
+    }
+    if (wait.state === "ci_pending") {
+      summary.checks.push({ name: "ci-gate", ok: false, state: "pending", url: wait.ci?.url ?? null });
+      return failureSummary(summary, EXIT_NOT_PROMOTED, "Vercel deployment check ci-gate was still pending when the bounded wait expired", { ci_gate: wait.ci });
     }
     if (wait.state === "not_promoted") {
       return failureSummary(summary, EXIT_NOT_PROMOTED, "canonical alias was not promoted to the target deployment");

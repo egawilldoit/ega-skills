@@ -137,6 +137,24 @@ describe("stable requires an authoritative expectation", () => {
     assert.equal(binding.is_stable, true);
   });
 
+  test("the committed artifact can supply the expectation without a digest update", () => {
+    const binding = evaluateDir(ARTIFACT, { EGA_WEB_EXPECT_COMMITTED_ARTIFACT: "1" });
+    assert.equal(binding.identity?.status, "stable");
+    assert.equal(binding.identity?.mismatch_reason, null);
+    assert.equal(binding.expected_digest_source, "committed-artifact");
+    assert.equal(binding.expected_release_digest, COMMITTED_DIGEST);
+    assert.equal(binding.is_stable, true);
+  });
+
+  test("an explicit environment expectation still overrides the committed artifact", () => {
+    const binding = evaluateDir(ARTIFACT, {
+      EGA_WEB_EXPECT_COMMITTED_ARTIFACT: "1",
+      EGA_WEB_EXPECTED_RELEASE_DIGEST: OTHER_DIGEST,
+    });
+    assert.equal(binding.identity?.status, "mismatch");
+    assert.equal(binding.expected_digest_source, "env");
+  });
+
   test("stable is reachable through the assert path too", () => {
     const config = configFor({
       EGA_WEB_ARTIFACT_DIR: ARTIFACT,
