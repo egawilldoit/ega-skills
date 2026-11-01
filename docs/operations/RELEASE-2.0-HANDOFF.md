@@ -359,8 +359,9 @@ The command:
 2. creates a fresh detached worktree at the exact main-reachable runtime commit,
    requires no untracked or ignored files, replaces only
    `packages/mcp/artifact` with the retained 117 artifact from the predecessor
-   worktree, re-verifies the assembled tree, and stages it with `vercel deploy
-   --prod --skip-domain --project <id> --meta githubCommitSha=<runtime commit>
+   worktree, re-verifies the assembled tree, builds it with `vercel build --prod`,
+   and stages the verified output with `vercel deploy --prebuilt --prod
+   --skip-domain --project <id> --meta githubCommitSha=<runtime commit>
    --meta githubCommitRef=main`;
 3. requires the staged deployment to be `READY` with a successful check
    conclusion, report the exact runtime source commit, and serve the exact 117

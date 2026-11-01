@@ -1974,8 +1974,12 @@ async function runBaselineCli(mode, values) {
         // Deploy from the repository root so Vercel applies the project Root Directory
         // packages/mcp exactly once; launching from packages/mcp duplicates it.
         const cwd = deploy.directory;
+        // Build in the detached worktree and deploy the verified prebuilt
+        // output. This preserves the project Root Directory and avoids the
+        // CLI's nested-root install path.
+        runVercel(["build", "--prod", "--yes", "--project", expected.project_id], { cwd, scope: teamId, token });
         const output = runVercel([
-          "deploy", "--prod", "--skip-domain", "--yes",
+          "deploy", "--prebuilt", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
           "--meta", `githubCommitSha=${source.migration_source_commit}`,
           "--meta", `githubCommitRef=${expected.production_branch}`,
@@ -2082,8 +2086,12 @@ async function main() {
         // Deploy from the repository root so Vercel applies the project Root Directory
         // packages/mcp exactly once; launching from packages/mcp duplicates it.
         const cwd = deploy.directory;
+        // Build in the detached worktree and deploy the verified prebuilt
+        // output. This preserves the project Root Directory and avoids the
+        // CLI's nested-root install path.
+        runVercel(["build", "--prod", "--yes", "--project", expected.project_id], { cwd, scope: teamId, token });
         const output = runVercel([
-          "deploy", "--prod", "--skip-domain", "--yes",
+          "deploy", "--prebuilt", "--prod", "--skip-domain", "--yes",
           "--project", expected.project_id,
           "--meta", `githubCommitSha=${expected.source_commit}`,
           "--meta", `githubCommitRef=${expected.production_branch}`,
