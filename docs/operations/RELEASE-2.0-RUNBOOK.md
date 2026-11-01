@@ -233,7 +233,7 @@ node scripts/hosted/publish-production.mjs baseline-authorize \
   --out /secure/outside-repo/baseline-authorization.json
 ```
 
-The authorization envelope is `schema_version: 2`. The payload fields are
+The authorization envelope is `schema_version: 3`. The payload fields are
 exactly:
 
 ```json
@@ -247,6 +247,7 @@ exactly:
   "canonical_alias": "ega-skills-mcp.vercel.app",
   "candidate_artifact_tree_digest": "sha256:08e0…",
   "candidate_release_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
+  "runtime_vercel_config_digest": "sha256:<digest of packages/mcp/vercel.json at the runtime commit>",
   "hub_id": "personal",
   "legacy_deployment_checks": "absent-accepted",
   "migration_source_commit": "<exact main-reachable runtime commit>",
@@ -364,10 +365,14 @@ notifications; disabling it does **not** disable Vercel Git builds. See the
 [Vercel provider's authoritative field documentation](https://github.com/vercel/terraform-provider-vercel/blob/main/vercel/resource_project.go)
 and [Git configuration](https://vercel.com/docs/project-configuration/git-configuration).
 An ignored build command is also not a production publication ACL. The
-publisher accepts only an observable `git.deploymentEnabled: false` or an
-exact production-branch false rule with exclusively false rules. Other shapes,
-including deployment-policy allowlists, remain blocked pending a separately
-reviewed adapter; missing fields are never interpreted as disabled.
+publisher accepts an observable `git.deploymentEnabled: false` or an exact
+production-branch false rule with exclusively false rules. When the project API
+omits that field, it may instead verify the exact reviewed runtime commit's
+`packages/mcp/vercel.json`: the file is read from Git objects, must contain
+`git.deploymentEnabled: false` (or the exact-branch all-false rule), and its
+SHA-256 digest and source commit are bound by the authorization and observation.
+Other shapes, including deployment-policy allowlists, remain blocked; missing
+fields are never interpreted as disabled.
 
 The publisher resolves the canonical alias with `GET /v4/aliases/{alias}`,
 retrieves its full immutable deployment and complete deployment alias inventory,

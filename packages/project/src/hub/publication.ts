@@ -46,7 +46,7 @@ export const PUBLICATION_RECEIPT_SCHEMA_VERSION = 1 as const;
  * not a publication receipt and never enters the publication revision chain.
  */
 export const BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE = "ega.baseline-runtime-migration-authorization" as const;
-export const BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION = 2 as const;
+export const BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION = 3 as const;
 export const BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE = "ega.baseline-runtime-migration-receipt" as const;
 export const BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION = 1 as const;
 export const BASELINE_MIGRATION_SCOPE = "runtime-readiness-only" as const;
@@ -153,6 +153,30 @@ function observedAliasContext(observed: { readonly project_name?: string; readon
   };
 }
 
+export interface GitAutoDeployControl {
+  readonly kind: "runtime-config";
+  readonly deployment_enabled: false;
+  readonly source_commit: string;
+  readonly config_digest: string;
+}
+
+/**
+ * A project-api `git.deploymentEnabled: false` is direct evidence. Vercel does
+ * not expose that field on every project read, so the publisher may instead
+ * verify the exact reviewed runtime's `packages/mcp/vercel.json` and bind its
+ * digest and source commit. Anything else stays blocked.
+ */
+export function gitAutoDeployIsDisabled(
+  observed: { readonly git_production_auto_deploy: boolean; readonly git_auto_deploy_control?: GitAutoDeployControl },
+  expected: { readonly runtime_source_commit?: string; readonly runtime_vercel_config_digest?: string },
+): boolean {
+  if (observed.git_production_auto_deploy === false) return true;
+  const control = observed.git_auto_deploy_control;
+  return control?.kind === "runtime-config" && control.deployment_enabled === false &&
+    typeof expected.runtime_source_commit === "string" && control.source_commit === expected.runtime_source_commit &&
+    typeof expected.runtime_vercel_config_digest === "string" && control.config_digest === expected.runtime_vercel_config_digest;
+}
+
 export interface PublicationObservation {
   readonly team_id: string;
   readonly project_id: string;
@@ -164,6 +188,8 @@ export interface PublicationObservation {
   readonly canonical_alias: string;
   /** True when Vercel Git integration can deploy the production branch. */
   readonly git_production_auto_deploy: boolean;
+  /** Exact runtime-config evidence when the project API omits the field. */
+  readonly git_auto_deploy_control?: GitAutoDeployControl;
   /** Aliases that can reach a production deployment (canonical + custom). */
   readonly production_aliases: readonly string[];
   readonly alias_target_deployment_id: string;
@@ -178,6 +204,8 @@ export interface PublicationExpectation {
   readonly project_id: string;
   readonly production_branch: string;
   readonly canonical_alias: string;
+  readonly runtime_source_commit?: string;
+  readonly runtime_vercel_config_digest?: string;
   readonly predecessor_release_digest: string;
   readonly predecessor_deployment_id: string;
   readonly expected_revision: number;
@@ -407,7 +435,7 @@ export function assessProductionPublication(input: {
   if (observed.project_id !== expected.project_id) block("E_PLATFORM_GUARD", "Vercel project identity mismatch");
   if (observed.production_branch !== expected.production_branch) block("E_PLATFORM_GUARD", "Vercel production branch mismatch");
   if (observed.canonical_alias !== expected.canonical_alias) block("E_ALIAS_DRIFT", "canonical production alias mismatch");
-  if (observed.git_production_auto_deploy !== false) block("E_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch; staging would assign the public domain automatically");
+  if (!gitAutoDeployIsDisabled(observed, expected)) block("E_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch; staging would assign the public domain automatically");
   if (!productionAliasesAreRecognized(observed.production_aliases, observedAliasContext(observed, expected.canonical_alias), expected.canonical_alias)) {
     block("E_PLATFORM_GUARD", "a production alias is unknown, redirected, duplicated or outside the recognized Vercel-managed set");
   }
@@ -554,6 +582,8 @@ export interface BaselineMigrationAuthorizationPayload {
   readonly candidate_artifact_tree_digest: string;
   /** Exact approved 126-skill release digest at the runtime source. */
   readonly candidate_release_digest: string;
+  /** Digest of `packages/mcp/vercel.json` at the runtime source commit. */
+  readonly runtime_vercel_config_digest: string;
   /** Commit that produced the currently serving legacy deployment. */
   readonly predecessor_source_commit: string;
   /** Reviewed runtime commit; must equal `migration_source_commit`. */
@@ -610,6 +640,7 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
     "predecessor_source_commit",
     "production_branch",
     "reviewed_runtime_commit",
+    "runtime_vercel_config_digest",
     "publisher",
     "scope",
   ], "baseline migration authorization payload");
@@ -639,6 +670,7 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
       production_branch: text(p["production_branch"], "production_branch"),
       publisher: publisher(p["publisher"]),
       reviewed_runtime_commit: commitSha(p["reviewed_runtime_commit"], "reviewed_runtime_commit"),
+      runtime_vercel_config_digest: digest(p["runtime_vercel_config_digest"], "runtime_vercel_config_digest"),
       scope: BASELINE_MIGRATION_SCOPE,
     },
     schema_version: BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION,
@@ -664,6 +696,8 @@ export interface BaselineMigrationObservation {
   readonly deployment_source_ref?: string;
   readonly canonical_alias: string;
   readonly git_production_auto_deploy: boolean;
+  /** Exact runtime-config evidence when the project API omits the field. */
+  readonly git_auto_deploy_control?: GitAutoDeployControl;
   readonly production_aliases: readonly string[];
   readonly alias_target_deployment_id: string;
   readonly served_deployment_id: string;
@@ -690,6 +724,9 @@ export interface BaselineMigrationExpectation {
   readonly predecessor_source_commit: string;
   readonly reviewed_runtime_commit: string;
   readonly migration_source_commit: string;
+  /** Same as migration_source_commit; used for config-control binding. */
+  readonly runtime_source_commit?: string;
+  readonly runtime_vercel_config_digest: string;
   readonly legacy_deployment_checks: "succeeded" | "absent-accepted";
   readonly publisher_vercel_user_id: string;
   readonly now: string;
@@ -759,6 +796,7 @@ export function assessBaselineMigration(input: {
     if (p.baseline_artifact_tree_digest !== expected.baseline_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization artifact tree does not match the retained artifact");
     if (p.candidate_artifact_tree_digest !== expected.candidate_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization runtime artifact tree does not match the untouched main candidate");
     if (p.candidate_release_digest !== expected.candidate_release_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization runtime release does not match the approved main candidate");
+    if (p.runtime_vercel_config_digest !== expected.runtime_vercel_config_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization runtime Vercel config digest does not match");
     if (p.predecessor_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization predecessor source commit does not match");
     if (p.reviewed_runtime_commit !== expected.reviewed_runtime_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization reviewed runtime commit does not match");
     if (p.migration_source_commit !== expected.migration_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source commit does not match");
@@ -790,7 +828,9 @@ export function assessBaselineMigration(input: {
       : "the live runtime is not the exact legacy readiness shape; 200 alone is not predecessor proof");
   }
   if (observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
-  if (observed.git_production_auto_deploy !== false) block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch");
+  if (!gitAutoDeployIsDisabled(observed, { runtime_source_commit: expected.runtime_source_commit ?? expected.migration_source_commit, runtime_vercel_config_digest: expected.runtime_vercel_config_digest })) {
+    block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch");
+  }
   if (!productionAliasesAreRecognized(observed.production_aliases, observedAliasContext(observed, expected.canonical_alias), expected.canonical_alias)) {
     block("E_BASELINE_PLATFORM_GUARD", "a production alias is unknown, redirected, duplicated or outside the recognized Vercel-managed set");
   }

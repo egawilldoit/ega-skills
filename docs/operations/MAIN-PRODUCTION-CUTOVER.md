@@ -21,10 +21,12 @@ does not make `release/2.0` a production branch again.
 - `/readyz` still returns the legacy `{"status":"ready"}` shape without a
   release digest until the migration succeeds.
 - `git.deploymentEnabled` in the live project readback has been absent or
-  `null`. Repository config is not live evidence: `packages/mcp/vercel.json`
-  sets `git.deploymentEnabled: false`, but that only applies when the live
-  project consumes that configuration. A missing or unreadable live setting is
-  a blocker, not success.
+  `null`. Repository config is not live evidence by itself: `packages/mcp/vercel.json`
+  sets `git.deploymentEnabled: false`, but that only applies to the exact
+  reviewed deployment. The publisher accepts it only when the project API omits
+  the field and the file at the authorized runtime commit is read from Git
+  objects, matches the authorized digest, and contains the exact false rule.
+  A missing or different file is a blocker.
 - The last live readback did not expose a successful `checksConclusion` for the
   retained deployment. Missing is not success. The legacy predecessor may only
   use the explicit `absent-accepted` owner path when it is `READY`, serves the

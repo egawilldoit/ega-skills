@@ -20,6 +20,7 @@ import {
   persistFailedReceipt,
   probeLegacyReady,
   readBaselineSources,
+  readRuntimeGitConfig,
   removeBaselineDeployWorktree,
   VercelApi,
   verifyBaselineArtifactBindings,
@@ -36,6 +37,7 @@ const BASELINE_CANDIDATE = "sha256:5c441c3f0d7f5acf0cbdf005e6b4db8d05105783c38f3
 const BASELINE_TREE = "sha256:ad9f0cfa1c68a1531c964d921dfc4e6acf94357447517138aa7d69187f88276a";
 const CANDIDATE_RELEASE = "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266";
 const CURRENT_TREE = "sha256:08e086198728b8eeb2dd4dfa8284c0b08ec109f16f4702c724d773a34b3fc13a";
+const CONFIG_DIGEST = "sha256:" + "9".repeat(64);
 const PREDECESSOR = "dpl_MGiFbFtwcibpc9wY7BiK7gXkH3zH";
 const STAGED = "dpl_baseline12345678";
 const OTHER = "dpl_other12345678";
@@ -58,6 +60,7 @@ function authorizationPayload(overrides = {}) {
     baseline_release_digest: BASELINE,
     candidate_artifact_tree_digest: CURRENT_TREE,
     candidate_release_digest: CANDIDATE_RELEASE,
+    runtime_vercel_config_digest: CONFIG_DIGEST,
     canonical_alias: ALIAS,
     hub_id: "personal",
     legacy_deployment_checks: "succeeded",
@@ -81,6 +84,8 @@ const expected = {
   baseline_artifact_tree_digest: BASELINE_TREE,
   candidate_artifact_tree_digest: CURRENT_TREE,
   candidate_release_digest: CANDIDATE_RELEASE,
+  runtime_source_commit: MIGRATION_COMMIT,
+  runtime_vercel_config_digest: CONFIG_DIGEST,
   canonical_alias: ALIAS,
   legacy_deployment_checks: "succeeded",
   max_approval_age_ms: 24 * 60 * 60 * 1000,
@@ -145,6 +150,22 @@ test("a pre-check legacy deployment is accepted only with explicit absent-accept
   }
   const strict = assessBaselineMigration({ authorization: authorization(), expected, observation: absent });
   assert.ok(strict.blockers.some((blocker) => blocker.code === "E_BASELINE_CHECKS_NOT_PASSED"));
+});
+
+test("runtime config evidence disables auto-deploy only when commit and digest match", () => {
+  const config = { config_digest: CONFIG_DIGEST, deployment_enabled: false, kind: "runtime-config", source_commit: MIGRATION_COMMIT };
+  const disabled = observation({ git_auto_deploy_control: config, git_production_auto_deploy: true });
+  assert.equal(assessBaselineMigration({ authorization: authorization(), expected, observation: disabled }).status, "READY");
+  for (const control of [
+    { ...config, config_digest: "sha256:" + "8".repeat(64) },
+    { ...config, source_commit: "c".repeat(40) },
+    { ...config, deployment_enabled: true },
+    { ...config, kind: "ignored-build-step" },
+  ]) {
+    const result = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: control, git_production_auto_deploy: true }) });
+    assert.equal(result.status, "BLOCKED");
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
+  }
 });
 
 test("missing, substituted and stale predecessor evidence is refused", () => {
@@ -495,6 +516,7 @@ test("readBaselineSources composes the main runtime with the retained artifact",
     writeFileSync(join(repo, relativePath), content);
   }
   mkdirSync(join(repo, "packages/mcp/artifact"), { recursive: true });
+  writeFileSync(join(repo, "packages/mcp/vercel.json"), JSON.stringify({ git: { deploymentEnabled: false } }) + "\n");
   writeFileSync(join(repo, "packages/mcp/artifact/retained.txt"), "117\n");
   git(["add", "-A"]);
   git(["commit", "-m", "predecessor 117"]);
@@ -517,6 +539,7 @@ test("readBaselineSources composes the main runtime with the retained artifact",
   });
   const predecessorTree = artifactTreeDigest(predecessorDir, "packages/mcp/artifact");
   const runtimeTree = artifactTreeDigest(runtimeDir, "packages/mcp/artifact");
+  const runtimeConfig = readRuntimeGitConfig({ commit: runtimeCommit, productionBranch: "main", repoRoot: repo });
   const readCandidateImpl = async (directory) => directory.includes("-predecessor")
     ? { candidate_digest: BASELINE_CANDIDATE, hub_id: "personal", release_digest: BASELINE }
     : { candidate_digest: "sha256:" + "9".repeat(64), hub_id: "personal", release_digest: CANDIDATE_RELEASE };
@@ -528,6 +551,7 @@ test("readBaselineSources composes the main runtime with the retained artifact",
       migration_source_commit: runtimeCommit,
       predecessor_source_commit: predecessorCommit,
       reviewed_runtime_commit: runtimeCommit,
+      runtime_vercel_config_digest: runtimeConfig.config_digest,
     },
     migrationSourceDir: runtimeDir,
     predecessorSourceDir: predecessorDir,
@@ -556,6 +580,7 @@ test("readBaselineSources composes the main runtime with the retained artifact",
           migration_source_commit: unmerged,
           predecessor_source_commit: predecessorCommit,
           reviewed_runtime_commit: unmerged,
+          runtime_vercel_config_digest: runtimeConfig.config_digest,
         },
         migrationSourceDir: unmergedDir,
         predecessorSourceDir: predecessorDir,
@@ -567,6 +592,35 @@ test("readBaselineSources composes the main runtime with the retained artifact",
   } finally {
     git(["worktree", "remove", "-f", unmergedDir]);
   }
+});
+
+test("the runtime git config control accepts only exact false or all-false branch rules", () => {
+  const repo = mkdtempSync(join(tmpdir(), "ega-config-control-"));
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "test"]);
+  mkdirSync(join(repo, "packages/mcp"), { recursive: true });
+  for (const [config, accepted] of [
+    [{ git: { deploymentEnabled: false } }, true],
+    [{ git: { deploymentEnabled: { main: false } } }, true],
+    [{ git: { deploymentEnabled: { main: false, "*": true } } }, false],
+    [{ git: { deploymentEnabled: true } }, false],
+    [{}, false],
+  ]) {
+    writeFileSync(join(repo, "packages/mcp/vercel.json"), JSON.stringify(config) + "\n");
+    git(["add", "-A"]);
+    git(["commit", "-m", "config"]);
+    const commit = git(["rev-parse", "HEAD"]);
+    const result = readRuntimeGitConfig({ commit, productionBranch: "main", repoRoot: repo });
+    assert.equal(result.control !== undefined, accepted, JSON.stringify(config));
+    assert.match(result.config_digest, /^sha256:[0-9a-f]{64}$/);
+  }
+  rmSync(repo, { recursive: true, force: true });
 });
 
 test("the migration runtime source must be reachable from origin/main", () => {
