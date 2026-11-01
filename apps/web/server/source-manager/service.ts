@@ -1,6 +1,7 @@
 import { parseProposalRequest } from './input.ts';
 import { planOriginalAdd, planSkillRemoval, planSkillUpdate } from './planner.ts';
 import type { SourceChange } from './planner.ts';
+import { applySourceChanges, validateCatalog } from './catalog-validation.ts';
 import { SourceGuardError } from './guard.ts';
 import type { PinnedSourceSnapshot, SourcePullRequest, SourceSubmission } from './github.ts';
 import { createHash } from 'node:crypto';
@@ -48,6 +49,13 @@ async function buildPreview(source: PreviewSource, raw: unknown, imports?: Impor
   }
   const warnings = [...plan.warnings];
   const errors = [...plan.errors];
+  if (proposal.operation === 'remove') {
+    if (!imports) {
+      errors.push('Full source catalog validation is unavailable; removal cannot be proposed.');
+    } else {
+      errors.push(...validateCatalog(applySourceChanges(snapshot.files, plan.changes), imports.parseYaml));
+    }
+  }
   if (proposal.operation !== 'remove' && imports) {
     const description = add?.description ?? (proposal.operation === 'update' ? proposal.description : '');
     const overlaps: string[] = [];
@@ -116,8 +124,10 @@ export async function submitProposal(source: SubmissionSource, raw: unknown, imp
   const { preview, changes } = await buildPreview(source, { baseSha: value.baseSha, proposal: value.proposal }, imports);
   if (preview.digest !== value.previewDigest) throw new SourceGuardError(409, 'E_SOURCE_PREVIEW_CHANGED', 'The proposal changed. Review the new preview before submitting.');
   if (preview.errors.length || !preview.changes.length) throw new SourceGuardError(422, 'E_SOURCE_VALIDATION', 'The proposal has errors or no changes.');
-  if (preview.operation === 'remove') throw new SourceGuardError(503, 'E_SOURCE_VALIDATION_UNAVAILABLE', 'Full source validation is required before a removal can be proposed.');
-  if (preview.operation !== 'add' && preview.operation !== 'update') throw new SourceGuardError(400, 'E_SOURCE_INPUT_INVALID', 'Proposal input is invalid.');
+  if (preview.operation !== 'add' && preview.operation !== 'update' && preview.operation !== 'remove') throw new SourceGuardError(400, 'E_SOURCE_INPUT_INVALID', 'Proposal input is invalid.');
   if (preview.provenance !== 'copied' && preview.provenance !== 'adapted' && preview.provenance !== 'original') throw new SourceGuardError(502, 'E_SOURCE_INVALID', 'Source provenance is invalid.');
-  return source.submit({ operation: preview.operation, name: preview.name, baseSha: preview.baseSha, provenance: preview.provenance, changes, validationSummary: 'Provisional preview only; full source validation requires PR CI.' });
+  const validationSummary = preview.operation === 'remove'
+    ? 'Full candidate catalog validation passed locally. Source PR CI and review remain authoritative.'
+    : 'Provisional preview only; full source validation requires PR CI.';
+  return source.submit({ operation: preview.operation, name: preview.name, baseSha: preview.baseSha, provenance: preview.provenance, changes, validationSummary });
 }
