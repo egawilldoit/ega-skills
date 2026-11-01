@@ -82,6 +82,9 @@ const expected = {
   production_branch: "release/2.0",
   project_id: PROJECT,
   publisher_vercel_user_id: PUBLISHER,
+  runtime_source_commit: "f".repeat(40),
+  runtime_vercel_config_digest: DIGEST("9"),
+  runtime_config_root_directory: "packages/mcp",
   source_commit: "f".repeat(40),
   staged_deployment_id: STAGED_DEPLOYMENT,
   team_id: TEAM,
@@ -113,6 +116,29 @@ test("the exact approved candidate is READY", () => {
   assert.equal(result.status, "READY");
   assert.deepEqual(result.blockers, []);
   assert.equal(result.release_digest, NEXT);
+});
+
+test("runtime config evidence can disable auto-deploy only when exact", () => {
+  const control = { config_digest: expected.runtime_vercel_config_digest, deployment_enabled: false, kind: "runtime-config", source_commit: expected.runtime_source_commit };
+  assert.equal(assess({ obs: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) }).status, "READY");
+  for (const bad of [
+    { ...control, config_digest: DIGEST("8") },
+    { ...control, source_commit: "e".repeat(40) },
+    { ...control, deployment_enabled: true },
+    { ...control, kind: "ignored-build-step" },
+  ]) {
+    const result = assess({ obs: observation({ git_auto_deploy_control: bad, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
+    assert.equal(result.status, "BLOCKED");
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  }
+  const present = assess({ obs: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: true, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
+  assert.equal(present.status, "BLOCKED");
+  assert.ok(present.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  for (const root of ["", "packages/mcp/", undefined]) {
+    const result = assess({ obs: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: root }) });
+    assert.equal(result.status, "BLOCKED");
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  }
 });
 
 test("stale predecessor release or deployment is refused", () => {

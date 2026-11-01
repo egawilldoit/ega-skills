@@ -233,7 +233,7 @@ node scripts/hosted/publish-production.mjs baseline-authorize \
   --out /secure/outside-repo/baseline-authorization.json
 ```
 
-The authorization envelope is `schema_version: 2`. The payload fields are
+The authorization envelope is `schema_version: 3`. The payload fields are
 exactly:
 
 ```json
@@ -247,6 +247,7 @@ exactly:
   "canonical_alias": "ega-skills-mcp.vercel.app",
   "candidate_artifact_tree_digest": "sha256:08e0…",
   "candidate_release_digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
+  "runtime_vercel_config_digest": "sha256:<digest of packages/mcp/vercel.json at the runtime commit>",
   "hub_id": "personal",
   "legacy_deployment_checks": "absent-accepted",
   "migration_source_commit": "<exact main-reachable runtime commit>",
@@ -364,10 +365,17 @@ notifications; disabling it does **not** disable Vercel Git builds. See the
 [Vercel provider's authoritative field documentation](https://github.com/vercel/terraform-provider-vercel/blob/main/vercel/resource_project.go)
 and [Git configuration](https://vercel.com/docs/project-configuration/git-configuration).
 An ignored build command is also not a production publication ACL. The
-publisher accepts only an observable `git.deploymentEnabled: false` or an
-exact production-branch false rule with exclusively false rules. Other shapes,
-including deployment-policy allowlists, remain blocked pending a separately
-reviewed adapter; missing fields are never interpreted as disabled.
+publisher accepts an observable `git.deploymentEnabled: false` or an exact
+production-branch false rule with exclusively false rules. If the project API
+reports the field, that value is authoritative. Only when it omits the field
+(absent or `null`) may the publisher verify the exact reviewed runtime commit's
+`packages/mcp/vercel.json` with a matching Root Directory of `packages/mcp`: the file is read from Git objects, must contain
+`git.deploymentEnabled: false` (or the exact-branch all-false rule), and its
+SHA-256 digest and source commit are bound by the baseline authorization, or by
+the exact `--expect-source-commit` and staging source commit for a normal
+release. Other shapes, including deployment-policy allowlists, remain blocked. A missing
+field is never interpreted as disabled; only the exact runtime-config fallback
+above may supply the control.
 
 The publisher resolves the canonical alias with `GET /v4/aliases/{alias}`,
 retrieves its full immutable deployment and complete deployment alias inventory,
@@ -569,12 +577,18 @@ Preview proof and the immutable-deployment transcript:
      --team team_e2x4kf12yL43qmBIs2t2YaD2 \
      --project prj_… --publisher <vercel-user-id> \
      --production-branch main \
+     --runtime-source-commit <clean reviewed commit for the runtime-config control> \
      --alias ega-skills-mcp.vercel.app \
      --expect-revision 3 --expect-deployment <current-dpl-id> \
      --expect-release <current-release-digest> \
      --receipt /secure/receipt-4.json \
      --readiness /secure/outside-repo/readiness.json --apply
    ```
+
+   `--runtime-source-commit` is optional. When the project API omits
+   `git.deploymentEnabled`, a rollback must supply a clean, reviewed commit whose
+   `packages/mcp/vercel.json` contains the exact false rule; otherwise the
+   publisher refuses rather than guessing.
 
    A bare `vercel rollback`/`vercel promote` is an emergency containment
    action only. Record it, re-run the boundary verification immediately, and

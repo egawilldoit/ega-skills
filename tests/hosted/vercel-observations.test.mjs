@@ -51,6 +51,17 @@ function mockApi({ alias, details, inventory, probe, projectDetails = project } 
   return { paths, read: (expectation = expected) => api.readProduction(expectation, probe) };
 }
 
+test("explicit project auto-deploy values remain authoritative", () => {
+  for (const enabled of [true, { main: true }, "unknown", []]) {
+    const observed = observe({ git: { deploymentEnabled: enabled } });
+    assert.equal(observed.git_deployment_enabled_present, true, JSON.stringify(enabled));
+    assert.equal(observed.git_production_auto_deploy, true, JSON.stringify(enabled));
+  }
+  assert.equal(observe({ git: {} }).git_deployment_enabled_present, false);
+  assert.equal(observe({ git: { deploymentEnabled: null } }).git_deployment_enabled_present, false);
+  assert.equal(observe({ git: { deploymentEnabled: false } }).git_deployment_enabled_present, true);
+});
+
 test("actual alias endpoint and full deployment identify production without a recent-deployment list", async () => {
   const api = mockApi({ probe: async () => ({ release_digest: "live" }) });
   const observed = await api.read();

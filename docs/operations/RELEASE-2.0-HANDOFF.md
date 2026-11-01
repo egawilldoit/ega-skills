@@ -106,22 +106,32 @@ production MCP availability. Do not claim LIVE until section 11 succeeds.
 ## 4. External gates before any applying command
 
 All five must be true and read back from the live APIs immediately before the
-migration or promotion. Missing fields block; absence is never success.
+migration or promotion. A missing field only permits the exact runtime-config
+fallback described in 4.1; it is never a general success signal.
 
 ### 4.1 Git production auto-deploy is disabled
 
 Read `GET /v9/projects/prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG?teamId=team_e2x4kf12yL43qmBIs2t2YaD2`.
 
-Accept only one of:
+Accept one of:
 
 - `git.deploymentEnabled === false`; or
 - `git.deploymentEnabled` is an object with the exact live production branch
-  (`"main"`) mapped to `false` and **every** value in the object is `false`.
+  (`"main"`) mapped to `false` and **every** value in the object is `false`; or
+- the project API omits `git.deploymentEnabled` (absent or `null`), the live
+  project Root Directory is exactly `packages/mcp`, and that commit's
+  `packages/mcp/vercel.json` contains `git.deploymentEnabled: false` (or the
+  exact-branch all-false rule). The publisher reads that file from Git objects.
+  The baseline binds its SHA-256 digest and source commit in the authorization;
+  a normal release binds them to the exact `--expect-source-commit` and staging
+  source commit. If the API reports any value, the API remains authoritative
+  and this fallback is not used. This is the only fallback; a missing or
+  different file, a mutable working tree, a Root Directory mismatch, or any
+  enabling rule blocks.
 
-`gitProviderOptions.createDeployments` is a GitHub deployment_status
-notification switch, not a build switch. `commandForIgnoringBuildStep` is not a
-publisher ACL. `deploymentPolicy.gitSources` is an allowlist with different
-semantics. None of these are accepted as proof.
+`gitProviderOptions.createDeployments` only controls GitHub `deployment_status`
+events, not Vercel builds. `commandForIgnoringBuildStep` is not accepted by
+itself. Neither is a substitute for the above.
 
 Required read-back evidence: the exact response body (redact nothing except
 credentials) showing the accepted shape, the timestamp, and the authenticated
@@ -284,7 +294,7 @@ node scripts/hosted/publish-production.mjs baseline-authorize \
   --out /secure/outside-repo/baseline-authorization.json
 ```
 
-The authorization envelope is `schema_version: 2`. The payload is exactly the
+The authorization envelope is `schema_version: 3`. The payload is exactly the
 schema in the runbook section "Baseline runtime migration". It must bind:
 
 - `baseline_release_digest = sha256:3c08…`
@@ -293,6 +303,7 @@ schema in the runbook section "Baseline runtime migration". It must bind:
 - `candidate_artifact_tree_digest = sha256:08e0…` (the untouched 126 tree)
 - `candidate_release_digest = sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`
   (the approved 126 release; it is verified, not deployed)
+- `runtime_vercel_config_digest = <digest of packages/mcp/vercel.json at the runtime commit>`
 - `predecessor_deployment_id = <live alias target>`
 - `predecessor_source_commit = <live deployment meta.githubCommitSha>`
 - `reviewed_runtime_commit = <exact main-reachable reviewed commit>`
@@ -522,6 +533,7 @@ node scripts/hosted/publish-production.mjs rollback \
   --project prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG \
   --publisher Dc0U1Ov3Zh5zeFKeic10bVWj \
   --production-branch main \
+  --runtime-source-commit <clean reviewed commit for the runtime-config control> \
   --alias ega-skills-mcp.vercel.app \
   --expect-revision 1 \
   --expect-deployment <126 deployment> \
