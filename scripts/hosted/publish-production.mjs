@@ -21,9 +21,10 @@
  *            serves the exact candidate digest.
  *   promote  re-verify everything, re-read the live alias and served digest
  *            immediately before the write, require Git production auto-deploy
- *            to be disabled and the canonical alias to be the only production
- *            alias, promote WITHOUT --force, then poll the alias and the served
- *            digest. A mismatch triggers an automatic restore of the recorded
+ *            to be disabled and every production alias to be the canonical
+ *            alias or a narrowly recognized direct Vercel-managed alias on the
+ *            same deployment, promote WITHOUT --force, then poll the alias and
+ *            the served digest. A mismatch triggers an automatic restore of the recorded
  *            predecessor when, and only when, this promotion is still the
  *            current one.
  *   reconcile record an already-live staged promotion after the process died.
@@ -50,7 +51,7 @@
  *   node scripts/hosted/publish-production.mjs stage \
  *     --candidate <dir> --approval <approval.json> \
  *     --team <team_id> --project <project_id> --publisher <user_id> \
- *     --production-branch release/2.0 \
+ *     --production-branch main \
  *     --alias ega-skills-mcp.vercel.app \
  *     --expect-release <sha256:...> --expect-deployment <dpl_...> \
  *     --expect-revision <n> --expect-source-commit <sha> \
@@ -95,7 +96,7 @@
  * prints the plan, contacting only read-only endpoints.
  */
 
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -360,7 +361,7 @@ export function currentSourceCommit(repoRoot = REPO_ROOT) {
  * that exact clean checkout. The commit must be reachable from the release
  * branch; a clean but unmerged local commit is not a release source.
  */
-export function verifyApprovedSourceCommit(expectedCommit, releaseRef = process.env.EGA_RELEASE_REF ?? "origin/release/2.0", repoRoot = REPO_ROOT) {
+export function verifyApprovedSourceCommit(expectedCommit, releaseRef = process.env.EGA_RELEASE_REF ?? "origin/main", repoRoot = REPO_ROOT) {
   if (typeof expectedCommit !== "string" || !/^[0-9a-f]{40}$/.test(expectedCommit)) {
     refuse("E_SOURCE_COMMIT", "--expect-source-commit must be a full lowercase 40-hex commit");
   }
@@ -373,6 +374,58 @@ export function verifyApprovedSourceCommit(expectedCommit, releaseRef = process.
     refuse("E_SOURCE_COMMIT", `the approved source commit is not reachable from ${releaseRef}`);
   }
   return head;
+}
+
+/**
+ * The migration runtime source must be reachable from the configured
+ * production branch. This is the main-branch binding: a reviewed local commit
+ * that is not merged into `origin/main` is not a release source. The artifact
+ * source is bound separately (it is the live predecessor commit) and is
+ * therefore intentionally not required to be reachable from `main`.
+ */
+export function verifyBaselineSourceReachability({ directory, expectedCommit, productionBranch, repoRoot }) {
+  if (typeof productionBranch !== "string" || productionBranch.length === 0) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the production branch must be named to verify runtime-source ancestry");
+  }
+  if (typeof repoRoot !== "string" || repoRoot.length === 0) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the publication repository root is required to verify runtime-source ancestry");
+  }
+  // Resolve the branch in the publisher's repository, not in a possibly
+  // separate operator-supplied worktree whose remote refs could be rewritten.
+  const refRoot = resolve(repoRoot);
+  const ref = `origin/${productionBranch}`;
+  const tip = spawnSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { cwd: refRoot, encoding: "utf8" });
+  if (tip.status !== 0) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", `the publication repository cannot resolve ${ref}`);
+  }
+  if (gitValue(["rev-parse", "HEAD"], resolve(directory)) !== expectedCommit) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the migration source worktree is not at the authorized commit");
+  }
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", expectedCommit, ref], { cwd: refRoot, encoding: "utf8" });
+  if (ancestor.status !== 0) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", `the migration runtime source is not reachable from ${ref}`);
+  }
+  return expectedCommit;
+}
+
+/**
+ * The deployment has two independent identities: the reviewed runtime tree
+ * from the main-reachable migration source, and the exact retained 117 artifact
+ * supplied by the live predecessor. Requiring both prevents either substituting
+ * the main branch's 126-skill artifact into the migration or publishing a
+ * changed 117 artifact behind the reviewed runtime.
+ */
+export function verifyBaselineArtifactBindings({ predecessorTree, migrationTree, expected }) {
+  if (predecessorTree !== expected.baseline_artifact_tree_digest) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the retained predecessor artifact tree is not the authorized 117 baseline");
+  }
+  if (migrationTree !== expected.candidate_artifact_tree_digest) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the migration runtime worktree does not contain the untouched main candidate artifact");
+  }
+  return {
+    baseline_artifact_tree_digest: predecessorTree,
+    candidate_artifact_tree_digest: migrationTree,
+  };
 }
 
 /** Verify that a directory is a clean checkout at the exact reviewed commit. */
@@ -416,9 +469,12 @@ const BASELINE_READINESS_FILE_DIGESTS = Object.freeze({
 });
 
 /**
- * The migration commit must be the legacy deployment commit plus exactly the
- * reviewed readiness diff. This is what prevents an unreviewed runtime change
- * from riding along while `/readyz` still reports the retained 117 digest.
+ * Legacy same-branch predicate: the migration commit descends from the live
+ * predecessor and changes only the reviewed readiness paths. It remains
+ * exported for the historical regression tests, but the main-bound baseline
+ * migration does not use it: `main` cannot descend from the retained
+ * `release/2.0` deployment. The replacement is the separate runtime/artifact
+ * binding in `verifyBaselineArtifactBindings` plus pinned runtime files.
  */
 export function verifyBaselineDelta({ sourceDir, predecessorCommit, migrationCommit }) {
   const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", predecessorCommit, migrationCommit], { cwd: sourceDir });
@@ -466,13 +522,15 @@ export function verifyBaselineRuntimeFiles({ repoRoot, sourceDir, migrationCommi
 }
 
 /**
- * Create a fresh, detached worktree at the exact migration commit. This keeps
- * the Vercel CLI's monorepo detection intact (a bare archive loses the Git
- * root) while ensuring the upload tree has no untracked or ignored files. The
- * caller removes it after the deploy; the commit and staged deployment identity
- * are checked again by the migration gate.
+ * Create a fresh, detached worktree at the exact migration runtime commit, then
+ * replace ONLY `packages/mcp/artifact` with the retained 117 artifact from the
+ * live predecessor commit. This keeps the Vercel CLI's monorepo detection
+ * intact while ensuring the upload tree has no untracked or ignored files
+ * outside the explicitly bound artifact substitution. The caller removes it
+ * after the deploy; the commit and staged deployment identity are checked again
+ * by the migration gate.
  */
-export function createBaselineDeployWorktree(sourceDir, commit) {
+export function createBaselineDeployWorktree(sourceDir, commit, options = {}) {
   assertPublicationPlatform();
   const parent = mkdtempSync(join(tmpdir(), "ega-baseline-deploy-"));
   const directory = join(parent, "worktree");
@@ -488,7 +546,33 @@ export function createBaselineDeployWorktree(sourceDir, commit) {
     if (gitValue(["status", "--porcelain", "--ignored"], directory) !== "") {
       refuse("E_BASELINE_SOURCE_MISMATCH", "the deployment worktree contains untracked or ignored files");
     }
-    return { directory, parent };
+    let artifactDigest;
+    if (options.artifactSourceDir !== undefined) {
+      if (options.artifactSourceCommit !== undefined) {
+        verifyBaselineWorktree({
+          directory: options.artifactSourceDir,
+          expectedCommit: options.artifactSourceCommit,
+          role: "deployment artifact source",
+        });
+      }
+      const artifact = join("packages", "mcp", "artifact");
+      const target = join(directory, artifact);
+      rmSync(target, { recursive: true, force: true });
+      cpSync(join(resolve(options.artifactSourceDir), artifact), target, { recursive: true, force: false, errorOnExist: true, dereference: false });
+      const digest = artifactTreeDigest(directory, artifact);
+      if (digest !== options.expectedArtifactTreeDigest) {
+        refuse("E_BASELINE_SOURCE_MISMATCH", "the assembled deployment does not contain the authorized retained artifact");
+      }
+      artifactDigest = digest;
+      const unexpected = gitValue(["status", "--porcelain", "--ignored"], directory)
+        .split("\n")
+        .filter(Boolean)
+        .filter((line) => !line.includes(` ${artifact}/`) && !line.endsWith(` ${artifact}`));
+      if (unexpected.length !== 0) {
+        refuse("E_BASELINE_SOURCE_MISMATCH", "the deployment worktree changed paths outside the retained artifact");
+      }
+    }
+    return { artifact_tree_digest: artifactDigest, directory, parent };
   } catch (error) {
     spawnSync("git", ["-C", sourceDir, "worktree", "remove", "-f", directory], { encoding: "utf8" });
     rmSync(parent, { recursive: true, force: true });
@@ -504,31 +588,38 @@ export function removeBaselineDeployWorktree({ sourceDir, directory, parent }) {
 /**
  * Verify the retained baseline candidate and both source worktrees. The
  * predecessor worktree binds the live deployment's immutable source commit to
- * the artifact tree; the migration worktree binds the deployment we will stage.
+ * the 117 artifact tree; the migration worktree supplies only the reviewed
+ * runtime and must contain the untouched main-branch 126 candidate. The two
+ * trees are bound separately on purpose: the deployment is assembled from the
+ * reviewed runtime plus the retained 117 artifact, never from the 126 candidate.
  */
-export async function readBaselineSources({ repoRoot, predecessorSourceDir, migrationSourceDir, expected }) {
+export async function readBaselineSources({ repoRoot, predecessorSourceDir, migrationSourceDir, expected, readCandidateImpl = readCandidate }) {
   const predecessor = verifyBaselineWorktree({ directory: predecessorSourceDir, expectedCommit: expected.predecessor_source_commit, role: "predecessor source" });
   const migration = verifyBaselineWorktree({ directory: migrationSourceDir, expectedCommit: expected.migration_source_commit, role: "migration source" });
   const predecessorArtifact = join(predecessor, "packages/mcp/artifact");
   const migrationArtifact = join(migration, "packages/mcp/artifact");
   const predecessorTree = artifactTreeDigest(predecessor, "packages/mcp/artifact");
   const migrationTree = artifactTreeDigest(migration, "packages/mcp/artifact");
-  if (predecessorTree !== expected.baseline_artifact_tree_digest || migrationTree !== expected.baseline_artifact_tree_digest) {
-    refuse("E_BASELINE_SOURCE_MISMATCH", "the retained artifact tree digest does not match the authorized baseline");
+  verifyBaselineArtifactBindings({ expected, migrationTree, predecessorTree });
+  if (expected.migration_source_commit !== expected.reviewed_runtime_commit) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the deployed runtime source is not the exact reviewed runtime commit");
   }
-  const predecessorCandidate = await readCandidate(predecessorArtifact);
-  const migrationCandidate = await readCandidate(migrationArtifact);
-  for (const [role, read] of [["predecessor", predecessorCandidate], ["migration", migrationCandidate]]) {
-    if (read.release_digest !== expected.predecessor_release_digest || read.candidate_digest !== expected.baseline_candidate_digest) {
-      refuse("E_BASELINE_SOURCE_MISMATCH", `${role} source artifact is not the authorized baseline release and candidate`);
-    }
-    if (read.hub_id !== "personal") refuse("E_BASELINE_SOURCE_MISMATCH", `${role} source artifact is not the personal Hub baseline`);
-  }
-  verifyBaselineDelta({
-    migrationCommit: expected.migration_source_commit,
-    predecessorCommit: expected.predecessor_source_commit,
-    sourceDir: migration,
+  verifyBaselineSourceReachability({
+    directory: migration,
+    expectedCommit: expected.migration_source_commit,
+    productionBranch: expected.production_branch,
+    repoRoot,
   });
+  const predecessorCandidate = await readCandidateImpl(predecessorArtifact);
+  const migrationCandidate = await readCandidateImpl(migrationArtifact);
+  if (predecessorCandidate.release_digest !== expected.predecessor_release_digest ||
+      predecessorCandidate.candidate_digest !== expected.baseline_candidate_digest ||
+      predecessorCandidate.hub_id !== "personal") {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "predecessor source artifact is not the authorized retained 117 release and candidate");
+  }
+  if (migrationCandidate.release_digest !== expected.candidate_release_digest || migrationCandidate.hub_id !== "personal") {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "migration runtime artifact is not the approved main candidate release");
+  }
   verifyBaselineRuntimeFiles({
     migrationCommit: expected.migration_source_commit,
     repoRoot,
@@ -536,8 +627,12 @@ export async function readBaselineSources({ repoRoot, predecessorSourceDir, migr
     sourceDir: migration,
   });
   return {
+    artifact_source_commit: expected.predecessor_source_commit,
+    artifact_source_dir: predecessor,
     artifact_tree_digest: expected.baseline_artifact_tree_digest,
+    candidate_artifact_tree_digest: expected.candidate_artifact_tree_digest,
     candidate_digest: expected.baseline_candidate_digest,
+    candidate_release_digest: expected.candidate_release_digest,
     migration_source_commit: expected.migration_source_commit,
     migration_source_dir: migration,
     predecessor_source_commit: expected.predecessor_source_commit,
@@ -563,7 +658,7 @@ export function observationFromVercel({ user, project, deployments, served, expe
   // Project aliases name custom production domains; deployment aliases name the
   // assigned automatic aliases (including *.vercel.app). Use both: neither view
   // alone is complete, and an unseen production alias is a bypass path.
-  const projectAliases = (project?.alias ?? []).filter((entry) => entry?.target === "PRODUCTION");
+  const projectAliases = (project?.alias ?? []).filter((entry) => typeof entry?.target === "string" && entry.target.toUpperCase() === "PRODUCTION");
   const aliases = new Set();
   for (const deployment of production) for (const alias of deployment.alias ?? []) aliases.add(alias);
   for (const entry of projectAliases) if (typeof entry.domain === "string") aliases.add(entry.domain);
@@ -617,6 +712,8 @@ export function observationFromVercel({ user, project, deployments, served, expe
     production_aliases: [...aliases].sort(),
     production_branch: productionBranch,
     project_id: String(project.id),
+    project_name: typeof project.name === "string" ? project.name : "",
+    deployment_source_ref: typeof canonical.meta?.githubCommitRef === "string" ? canonical.meta.githubCommitRef : "",
     served_deployment_id: served.served_deployment_id ?? String(canonical.id),
     served_release_digest: served.release_digest,
     team_id: String(project.accountId ?? project.teamId ?? ""),
@@ -626,6 +723,48 @@ export function observationFromVercel({ user, project, deployments, served, expe
 /* -------------------------------------------------------------------------- */
 /* Vercel HTTP API                                                             */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Resolve every non-canonical production alias back to the exact project and
+ * deployment. The inventory endpoint already scopes aliases to the deployment,
+ * but project-level aliases are a second view that can name another deployment
+ * or a redirect. Combine both views, reject a mismatched project-alias entry,
+ * then re-read every name so "same expected project/deployment" is observed.
+ */
+function verifyProjectAliasEntries(project, deployment) {
+  const entries = (project?.alias ?? []).filter((entry) => typeof entry?.target === "string" && entry.target.toUpperCase() === "PRODUCTION");
+  const domains = entries.map((entry) => entry.domain);
+  if (new Set(domains).size !== domains.length) refuse("E_PLATFORM_GUARD", "duplicate project production aliases prevent reliable inventory");
+  for (const entry of entries) {
+    if (typeof entry.domain !== "string" || entry.domain.length === 0 || entry.redirect != null ||
+        (entry.deployment != null && entry.deployment?.id !== deployment.id)) {
+      refuse("E_ALIAS_DRIFT", "a project production alias is redirected or targets another deployment");
+    }
+  }
+  return domains;
+}
+
+async function verifyProductionAliasInventory({ expected, get, project, deployment, names }) {
+  const domain = await projectModule();
+  const branches = [expected.production_branch, deployment.meta?.githubCommitRef]
+    .filter((value) => typeof value === "string" && value.length > 0);
+  const context = {
+    branches,
+    canonical_alias: expected.canonical_alias,
+    project_name: typeof project.name === "string" ? project.name : "",
+  };
+  for (const name of names) {
+    if (!domain.isRecognizedProductionAlias(name, context)) {
+      refuse("E_PLATFORM_GUARD", "a production alias is not a recognized Vercel-managed alias for this project");
+    }
+    if (name === expected.canonical_alias) continue;
+    const alias = await get(`/v4/aliases/${encodeURIComponent(name)}`);
+    if (alias?.alias !== name || alias.projectId !== expected.project_id ||
+        alias.deploymentId !== deployment.id || alias.redirect != null) {
+      refuse("E_ALIAS_DRIFT", "a generated production alias does not resolve directly to the exact deployment");
+    }
+  }
+}
 
 export class VercelApi {
   constructor({ token, teamId, fetch: fetcher = fetch, baseUrl = "https://api.vercel.com" }) {
@@ -673,6 +812,9 @@ export class VercelApi {
     const names = aliases.aliases.map((entry) => entry.alias);
     if (new Set(names).size !== names.length) refuse("E_PLATFORM_GUARD", "duplicate deployment aliases prevent reliable inventory");
     if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
+    const projectNames = verifyProjectAliasEntries(project, deployment);
+    const allNames = [...new Set([...names, ...projectNames])];
+    await verifyProductionAliasInventory({ deployment, expected, get: (path) => this.get(path), names: allNames, project });
     // Recovery may need the authenticated immutable deployment identity while
     // /readyz is unavailable. Do not invent a served release in that case.
     const served = probe ? await probe(expected.canonical_alias) : {};
@@ -714,6 +856,9 @@ export class VercelApi {
     const names = aliases.aliases.map((entry) => entry.alias);
     if (new Set(names).size !== names.length) refuse("E_PLATFORM_GUARD", "duplicate deployment aliases prevent reliable inventory");
     if (!names.includes(expected.canonical_alias)) refuse("E_ALIAS_DRIFT", "canonical alias is absent from deployment alias inventory");
+    const projectNames = verifyProjectAliasEntries(project, deployment);
+    const allNames = [...new Set([...names, ...projectNames])];
+    await verifyProductionAliasInventory({ deployment, expected, get: (path) => this.get(path), names: allNames, project });
     const legacy = await probeLegacy(expected.canonical_alias);
     const after = await readAlias();
     if (before.deploymentId !== after.deploymentId) refuse("E_ALIAS_DRIFT", "canonical alias moved during the live observation");
@@ -859,20 +1004,27 @@ async function finishPublication(result, deps, apply) {
 
 /** Checks shared by recovery and normal publication. These are observable
  * settings, not proof that other Vercel principals lack alias-write rights. */
-function verifyTargetControls(observed, expected, deployment) {
+async function verifyTargetControls(observed, expected, deployment) {
+  const domain = await projectModule();
+  const branches = [expected.production_branch, observed.deployment_source_ref]
+    .filter((value) => typeof value === "string" && value.length > 0);
   if (observed.alias_target_deployment_id !== deployment || observed.served_deployment_id !== deployment) {
     refuse("E_PREDECESSOR_MISMATCH", "live alias deployment differs from the expected publication");
   }
   if (observed.team_id !== expected.team_id || observed.project_id !== expected.project_id ||
       observed.production_branch !== expected.production_branch || observed.canonical_alias !== expected.canonical_alias ||
-      observed.git_production_auto_deploy !== false || observed.production_aliases?.length !== 1 ||
-      observed.production_aliases[0] !== expected.canonical_alias) {
+      observed.git_production_auto_deploy !== false ||
+      !domain.productionAliasesAreRecognized(observed.production_aliases, {
+        branches,
+        canonical_alias: expected.canonical_alias,
+        project_name: observed.project_name ?? "",
+      }, expected.canonical_alias)) {
     refuse("E_PLATFORM_GUARD", "live publication target or production controls differ from the verified target");
   }
 }
 
-function verifyLiveTarget(observed, expected, deployment, release) {
-  verifyTargetControls(observed, expected, deployment);
+async function verifyLiveTarget(observed, expected, deployment, release) {
+  await verifyTargetControls(observed, expected, deployment);
   if (observed.served_release_digest !== release) refuse("E_PREDECESSOR_MISMATCH", "served release differs from the expected publication");
   if (observed.deployment_ready_state !== "READY") refuse("E_DEPLOYMENT_NOT_READY", "retained deployment is not READY");
   if (observed.deployment_checks_state !== "succeeded") refuse("E_CHECKS_NOT_PASSED", "retained deployment checks have not succeeded");
@@ -896,7 +1048,7 @@ async function restoreAfterFailure({ approval, candidate, deps, expected, lease 
     refuse("E_PUBLICATION_SUPERSEDED", "promotion was superseded by another publication; refusing to restore over it");
   }
   // A failed current deployment may be restored; the restored predecessor must be healthy.
-  verifyTargetControls(observed, expected, expected.staged_deployment_id);
+  await verifyTargetControls(observed, expected, expected.staged_deployment_id);
   checkReadiness(true, deps, expected);
   lease.assertHeld(deps.now?.() ?? Date.now());
   await deps.rollback(expected.predecessor_deployment_id);
@@ -905,7 +1057,7 @@ async function restoreAfterFailure({ approval, candidate, deps, expected, lease 
     refuse("E_ROLLBACK_UNVERIFIED", "automatic restore did not return the predecessor release digest");
   }
   const restoredObservation = await deps.readObservation(expected, restored);
-  verifyLiveTarget(restoredObservation, expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
+  await verifyLiveTarget(restoredObservation, expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
   const domain = await projectModule();
   return domain.createPublicationReceipt({
     action: "PROMOTE",
@@ -980,7 +1132,7 @@ export async function executePromotion({ approval, candidate, expected, deps, ap
         const served = await deps.probe(expected.canonical_alias);
         observed = await deps.readObservation(expected, served);
         if (observed.alias_target_deployment_id === expected.staged_deployment_id && served.release_digest === candidate.release_digest) {
-          verifyLiveTarget(observed, expected, expected.staged_deployment_id, candidate.release_digest);
+          await verifyLiveTarget(observed, expected, expected.staged_deployment_id, candidate.release_digest);
           break;
         }
         attempts += 1;
@@ -1072,7 +1224,7 @@ export async function executeStage({ approval, candidate, expected, deps, apply 
     }
     if (identity.url !== stagedHost) refuse("E_STAGE", "the staged URL does not belong to the reported deployment");
     const current = await deps.probe(expected.canonical_alias);
-    verifyLiveTarget(await deps.readObservation(expected, current), expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
+    await verifyLiveTarget(await deps.readObservation(expected, current), expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
 
     return {
       observation,
@@ -1147,7 +1299,7 @@ export async function executeRollback({ chain, current, target, previousCandidat
   try {
     const observe = async (deployment, release) => {
       const observed = await recoveryObservation(deps, expected);
-      verifyTargetControls(observed, expected, deployment);
+      await verifyTargetControls(observed, expected, deployment);
       // The receipt binds the exact immutable current deployment. An unavailable
       // health endpoint must not prevent escape, but conflicting evidence must.
       if (observed.served_release_digest !== undefined && observed.served_release_digest !== release) {
@@ -1171,7 +1323,7 @@ export async function executeRollback({ chain, current, target, previousCandidat
       const observed = await deps.readObservation(expected, served);
       // Never certify an unrelated deployment just because it serves the same bytes.
       if (observed.alias_target_deployment_id === retained.deployment_id && served.release_digest === retained.release_digest) {
-        verifyLiveTarget(observed, expected, retained.deployment_id, retained.release_digest);
+        await verifyLiveTarget(observed, expected, retained.deployment_id, retained.release_digest);
         break;
       }
       if (++attempts >= (deps.maxAttempts ?? 120) || (deps.now?.() ?? Date.now()) >= deadline) refuse("E_ROLLBACK_UNVERIFIED", "alias did not return the retained deployment and release");
@@ -1372,7 +1524,7 @@ async function restoreBaselineAfterFailure({ expected, deps, lease, stagedDeploy
   if (current.alias_target_deployment_id !== stagedDeploymentId) {
     refuse("E_PUBLICATION_SUPERSEDED", "baseline migration was superseded by another publication; refusing to restore over it");
   }
-  verifyTargetControls(current, expected, stagedDeploymentId);
+  await verifyTargetControls(current, expected, stagedDeploymentId);
   checkReadiness(true, deps, expected);
   lease.assertHeld(deps.now?.() ?? Date.now());
   // Re-read immediately before the rollback. There is still no CAS: this
@@ -1388,7 +1540,7 @@ async function restoreBaselineAfterFailure({ expected, deps, lease, stagedDeploy
   for (;;) {
     restored = await deps.readObservation(expected);
     if (restored.alias_target_deployment_id === expected.predecessor_deployment_id && restored.legacy_readyz === "legacy") {
-      verifyTargetControls(restored, expected, expected.predecessor_deployment_id);
+      await verifyTargetControls(restored, expected, expected.predecessor_deployment_id);
       if (restored.deployment_ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the restored legacy deployment is not READY");
       const restoredChecks = expected.legacy_deployment_checks === "absent-accepted" ? "none" : "succeeded";
       if (restored.deployment_checks_state !== restoredChecks) {
@@ -1486,6 +1638,9 @@ export async function executeBaselineMigration({ authorization, expected, source
         refuse("E_BASELINE_SOURCE_MISMATCH", "the probed staged URL does not belong to the reported deployment");
       }
       if (stagedIdentity.ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the staged deployment is not READY");
+      if (stagedIdentity.checks_state !== "succeeded") {
+        refuse("E_BASELINE_CHECKS_NOT_PASSED", "the staged baseline deployment checks have not concluded successfully");
+      }
       await assess();
       if (typeof deps.writeStaging !== "function") refuse("E_BASELINE_STAGE", "a durable staging record is required before promotion");
       await deps.writeStaging({
@@ -1516,7 +1671,7 @@ export async function executeBaselineMigration({ authorization, expected, source
         }
         observed = await deps.readObservation(expected);
         if (observed.alias_target_deployment_id === staged.deployment_id && served?.release_digest === expected.predecessor_release_digest) {
-          verifyLiveTarget(observed, expected, staged.deployment_id, expected.predecessor_release_digest);
+          await verifyLiveTarget(observed, expected, staged.deployment_id, expected.predecessor_release_digest);
           if (observed.deployment_source_commit !== expected.migration_source_commit) {
             refuse("E_BASELINE_SOURCE_MISMATCH", "the promoted deployment does not report the authorized migration source commit");
           }
@@ -1598,7 +1753,7 @@ export async function executeBaselineReconcile({ authorization, expected, stagin
     if (observed.deployment_source_commit !== expected.migration_source_commit) {
       refuse("E_BASELINE_SOURCE_MISMATCH", "the live migration deployment does not report the authorized migration source commit");
     }
-    verifyTargetControls(observed, expected, expected.staged_deployment_id);
+    await verifyTargetControls(observed, expected, expected.staged_deployment_id);
     if (observed.deployment_ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the staged baseline deployment is not READY");
     if (observed.deployment_checks_state !== "succeeded") refuse("E_BASELINE_CHECKS_NOT_PASSED", "the staged baseline deployment checks did not succeed");
     const assessment = domain.assessBaselineMigration({
@@ -1715,6 +1870,8 @@ async function runBaselineCli(mode, values) {
     baseline_artifact_tree_digest: authorization.payload.baseline_artifact_tree_digest,
     baseline_candidate_digest: authorization.payload.baseline_candidate_digest,
     canonical_alias: required(values, "alias"),
+    candidate_artifact_tree_digest: authorization.payload.candidate_artifact_tree_digest,
+    candidate_release_digest: authorization.payload.candidate_release_digest,
     legacy_deployment_checks: authorization.payload.legacy_deployment_checks,
     migration_source_commit: authorization.payload.migration_source_commit,
     predecessor_deployment_id: required(values, "expect-deployment"),
@@ -1760,7 +1917,11 @@ async function runBaselineCli(mode, values) {
     probeReady: (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, { ...options, bypass }),
     readDeploymentIdentity: (deploymentId, expectation) => api.readDeploymentIdentity(deploymentId, expectation),
     deployStagedProduction: (source) => {
-      const deploy = createBaselineDeployWorktree(source.migration_source_dir, source.migration_source_commit);
+      const deploy = createBaselineDeployWorktree(source.migration_source_dir, source.migration_source_commit, {
+        artifactSourceCommit: source.artifact_source_commit,
+        artifactSourceDir: source.artifact_source_dir,
+        expectedArtifactTreeDigest: source.artifact_tree_digest,
+      });
       try {
         const cwd = join(deploy.directory, "packages", "mcp");
         const output = runVercel([
