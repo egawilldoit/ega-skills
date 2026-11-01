@@ -9,7 +9,9 @@
   [docs/specs/](docs/specs/). The actual CI is [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [CI ownership and maintenance](docs/operations/ci-optimization.md) explains
   selection, coverage, measurements, and rollback. Release procedures remain
-  authoritative in the [release runbook](docs/operations/RELEASE-2.0-RUNBOOK.md),
+  authoritative in the
+  [automatic release runbook](docs/operations/AUTOMATIC-RELEASE.md),
+  [release runbook](docs/operations/RELEASE-2.0-RUNBOOK.md),
   [web promotion runbook](docs/operations/web-console-production-promotion.md),
   and [MCP Vercel guide](packages/mcp/VERCEL.md).
 
@@ -50,9 +52,41 @@ replace real PostgreSQL, source fixture validation or React tests.
 ## CI, delivery and changes
 
 GitHub Actions tests code and builds artifacts. A Vercel preview is not production
-acceptance; ignored MCP/auth preview deployments need no action. Production
-publication and aliases follow the owner-approved runbooks above. Do not deploy,
-promote, change secrets or auto-merge without separate authorization.
+acceptance; ignored MCP/auth preview deployments need no action. Do not change
+secrets, manually promote, or auto-merge without separate authorization.
+
+### Production release
+
+The only supported production release path is the
+[automatic release runbook](docs/operations/AUTOMATIC-RELEASE.md). In short:
+
+- Reviewed code and the skill catalog ship together from the same `main` commit.
+- Merging `main` triggers a native Vercel Git production build.
+- The required `ci-gate` check must succeed before Vercel assigns the production
+  domain automatically.
+- `.github/workflows/verify-release.yml` verifies the expected release and
+  authenticated skill retrieval after promotion.
+- Recovery restores the previous working deployment when appropriate and must
+  not overwrite a newer release.
+- Never treat a `READY` build as live until the canonical endpoint is verified.
+- Do not restore the retired custom publisher, approval envelopes, baseline
+  cutover, or manual promotion process. Catalog counts and digests change with
+  releases; never hard-code a current count or digest as a permanent requirement.
+
+Useful checks:
+
+```sh
+gh pr checks <pr> --repo egawilldoit/ega-skills
+gh run list --repo egawilldoit/ega-skills --branch main --limit 5
+vercel ls ega-skills-mcp --scope <team>
+vercel inspect <deployment-url> --scope <team>
+curl -fsS https://ega-skills-mcp.vercel.app/readyz
+gh run list --repo egawilldoit/ega-skills --workflow verify-release.yml --limit 5
+```
+
+Destructive recovery on the real canonical service still requires a
+disposable-project demonstration; focused tests do not substitute for live
+platform evidence.
 
 For CI changes, map affected tests and required contexts, make the smallest
 change, verify default and fixture behavior, measure wall time and summed runner
