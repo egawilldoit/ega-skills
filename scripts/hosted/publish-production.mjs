@@ -1984,7 +1984,7 @@ async function runBaselineCli(mode, values) {
           "--meta", `githubCommitSha=${source.migration_source_commit}`,
           "--meta", `githubCommitRef=${expected.production_branch}`,
         ], { cwd, scope: teamId, token });
-        const url = (output.stdout.match(/https:\/\/[^\s]+/g) ?? []).at(-1)?.replace(/[),.]+$/, "");
+        const url = (output.stdout.match(/https:\/\/[^\s]+/g) ?? []).at(-1)?.replace(/[\"\'`),.]+$/, "");
         if (!url) refuse("E_BASELINE_STAGE", "could not read the staged baseline deployment URL");
         const deployment = runVercel(["inspect", url, "--json"], { cwd, scope: teamId, token });
         const parsed = JSON.parse(deployment.stdout);
@@ -2096,7 +2096,7 @@ async function main() {
           "--meta", `githubCommitSha=${expected.source_commit}`,
           "--meta", `githubCommitRef=${expected.production_branch}`,
         ], { cwd, scope: teamId, token });
-        const url = (output.stdout.match(/https:\/\/[^\s]+/g) ?? []).at(-1)?.replace(/[),.]+$/, "");
+        const url = (output.stdout.match(/https:\/\/[^\s]+/g) ?? []).at(-1)?.replace(/[\"\'`),.]+$/, "");
         if (!url) refuse("E_STAGE", "could not read the staged production deployment URL");
         const deployment = runVercel(["inspect", url, "--json"], { cwd, scope: teamId, token });
         const parsed = JSON.parse(deployment.stdout);
