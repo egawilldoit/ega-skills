@@ -137,6 +137,11 @@ jobs:
           EGA_VERIFY_TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.deployment_id }}
           EGA_VERIFY_DEPLOYMENT_URL: ${{ steps.release.outputs.deployment_url }}
           EGA_VERIFY_SOURCE_SHA: ${{ steps.release.outputs.sha }}
+          # Production domain assignment waits for the full main-branch CI run.
+          # Wait longer than the previous five minutes; pending checks are
+          # reported as pending, never as a CI failure.
+          EGA_VERIFY_TIMEOUT_MS: "900000"
+          EGA_VERIFY_POLL_MS: "10000"
         run: |
           set +e
           node scripts/release/verify-live.mjs > "$RUNNER_TEMP/verify-summary.json" 2> "$RUNNER_TEMP/verify-error.log"

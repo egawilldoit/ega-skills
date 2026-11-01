@@ -20,7 +20,10 @@
  *
  * ```
  * expected_release_digest   EGA_WEB_EXPECTED_RELEASE_DIGEST, else the retained
- *                           manifest's default_release_digest, else absent
+ *                           manifest's default_release_digest, else the verified
+ *                           artifact's own digest when
+ *                           EGA_WEB_EXPECT_COMMITTED_ARTIFACT is enabled,
+ *                           else absent
  *            |
  *            v
  * verified artifact          loadHostedReleaseSnapshot(...).release.digest,
@@ -77,7 +80,7 @@ import type { ReleaseIdentity } from "../src/api/contracts.ts";
 import { loadServerConfig, type ServerConfig } from "./env.ts";
 
 /** Where an authoritative expected digest came from. */
-export type ExpectedDigestSource = "env" | "retained-manifest";
+export type ExpectedDigestSource = "env" | "retained-manifest" | "committed-artifact";
 
 /**
  * The evaluated binding. A superset of the shared `ReleaseIdentity` DTO: it
@@ -255,7 +258,9 @@ function buildIdentity(
     const where =
       expectedDigestSource === "retained-manifest"
         ? "the retained release manifest's default_release_digest"
-        : "EGA_WEB_EXPECTED_RELEASE_DIGEST";
+        : expectedDigestSource === "committed-artifact"
+          ? "the committed release artifact"
+          : "EGA_WEB_EXPECTED_RELEASE_DIGEST";
     return `The configured expected release digest ${expectedReleaseDigest} (from ${where}) does not match the verified web artifact digest ${actual}.`;
   })();
 
@@ -372,13 +377,15 @@ export function evaluateReleaseIdentity(
 
   // 3. Two configured sources that disagree is a mismatch. Naming the
   //    expectation a "source of truth" would just be picking the convenient one.
-  const expected = config.expectedReleaseDigest ?? retainedDefault;
+  const expected = config.expectedReleaseDigest ?? retainedDefault ?? (config.expectCommittedArtifact ? actual : null);
   const expectedSource: ExpectedDigestSource | null =
     config.expectedReleaseDigest !== null
       ? "env"
       : retainedDefault !== null
         ? "retained-manifest"
-        : null;
+        : config.expectCommittedArtifact
+          ? "committed-artifact"
+          : null;
 
   if (
     config.expectedReleaseDigest !== null &&

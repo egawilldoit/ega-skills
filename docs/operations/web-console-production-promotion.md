@@ -161,7 +161,8 @@ Browser-visible (bundled; safe to expose, never prefix a server secret with `VIT
 Server-side (`apps/web/server.mts`; never exposed to the browser):
 
 - `EGA_WEB_ARTIFACT_DIR` — set to `artifact` (the staged immutable release).
-- `EGA_WEB_EXPECTED_RELEASE_DIGEST` — `sha256:3de9177a9b14794a12a794904dbada4522d76b833d77c9732566981761a1b1a3`.
+- `EGA_WEB_EXPECT_COMMITTED_ARTIFACT` — `1` so readiness follows the release artifact staged from the deployed commit. Do not store a per-release digest here.
+- `EGA_WEB_EXPECTED_RELEASE_DIGEST` — optional explicit pin only; leave unset when using the committed artifact.
 - `EGA_SUPABASE_URL`
 - `EGA_SUPABASE_PUBLISHABLE_KEY` (fallback `EGA_SUPABASE_ANON_KEY`)
 - `EGA_SUPABASE_SECRET_KEY` — server-side secret only; the BFF never uses it to

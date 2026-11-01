@@ -38,7 +38,9 @@ entrypoints: `.github/workflows/verify-release.yml`,
    deployment-specific origin. It reports a failure as a failed workflow run.
 
 CI and the Vercel build can run in parallel; production domain assignment waits
-for both the build and the required check to succeed.
+for both the build and the required check to succeed. Verification waits up to
+15 minutes for that promotion and reports a still-pending `ci-gate` as pending,
+not as a CI failure. A failed, cancelled or skipped gate remains blocking.
 
 `READY` is not live. A deployment can be `READY` while the canonical alias still
 points at an older deployment, including while `ci-gate` is pending or after a
@@ -53,9 +55,10 @@ project. Never print or commit them.
 
 Workflow secrets consumed by `verify-release.yml`:
 
-- `VERCEL_TOKEN`
-- `VERCEL_TEAM_ID`
-- `VERCEL_PROJECT_ID`
+- `VERCEL_TOKEN` — a team-scoped token that can read the project, its aliases and
+  deployment checks; rotate it through the Vercel account token UI.
+- `VERCEL_TEAM_ID` — the team id (`team_...`), not the team slug.
+- `VERCEL_PROJECT_ID` — `prj_...` for `ega-skills-mcp`.
 - `VERCEL_CANONICAL_ALIAS`
 - `VERCEL_BYPASS_TOKEN` (optional Vercel protection bypass; mapped to
   `EGA_VERIFY_BYPASS`)
