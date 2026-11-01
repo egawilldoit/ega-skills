@@ -170,9 +170,12 @@ are live and exact:
   with no untracked or ignored files outside the deliberately replaced artifact
   directory, not the operator's mutable worktree, and the staged deployment must
   report the exact runtime source commit in `meta.githubCommitSha`;
-- the staged deployment is `READY` with a successful check conclusion. The
-  legacy predecessor may use `absent-accepted` only under its separate rule;
-  the new migration deployment always requires `succeeded`.
+- the staged deployment is `READY` with successful check evidence. The legacy
+  predecessor may use `absent-accepted` only under its separate rule; the new
+  migration deployment requires successful attached Vercel checks. If Vercel
+  attaches none to a CLI deployment, the trusted GitHub Actions `ci-gate` check
+  and its `CI` workflow run at the exact source SHA may supply the evidence.
+  Missing, pending, failed or unverifiable evidence blocks.
 
 Prepare the two clean worktrees after the main-branch publication PR is merged.
 The readiness files are already present on `main`; the exact reviewed runtime

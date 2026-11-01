@@ -21,6 +21,7 @@ import {
   probeLegacyReady,
   readBaselineSources,
   readRuntimeGitConfig,
+  selectGitHubCIEvidence,
   removeBaselineDeployWorktree,
   VercelApi,
   verifyBaselineArtifactBindings,
@@ -651,6 +652,33 @@ test("the runtime git config control accepts only exact false or all-false branc
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("GitHub CI evidence requires the trusted workflow, exact SHA and success", () => {
+  const commit = "b".repeat(40);
+  const run = { conclusion: "success", head_sha: commit, name: "CI", path: ".github/workflows/ci.yml", status: "completed" };
+  const check = {
+    app: { slug: "github-actions" }, conclusion: "success", details_url: "https://github.com/egawilldoit/ega-skills/actions/runs/123/job/456",
+    head_sha: commit, html_url: "https://github.com/egawilldoit/ega-skills/actions/runs/123/job/456", id: 456, name: "ci-gate", status: "completed",
+  };
+  const good = selectGitHubCIEvidence({ checkRuns: [check], commit, workflowRuns: { 123: run } });
+  assert.equal(good.provider, "github-actions");
+  assert.equal(good.run_id, 123);
+  assert.equal(good.check_id, 456);
+  assert.equal(good.workflow, ".github/workflows/ci.yml");
+  for (const candidate of [
+    { check: { ...check, name: "other" }, run },
+    { check: { ...check, conclusion: "failure" }, run },
+    { check: { ...check, status: "in_progress" }, run },
+    { check: { ...check, head_sha: "c".repeat(40) }, run },
+    { check: { ...check, app: { slug: "other" } }, run },
+    { check, run: { ...run, path: ".github/workflows/other.yml" } },
+    { check, run: { ...run, head_sha: "c".repeat(40) } },
+    { check, run: { ...run, conclusion: "failure" } },
+    { check, run: undefined },
+  ]) {
+    assert.equal(selectGitHubCIEvidence({ checkRuns: [candidate.check], commit, workflowRuns: { 123: candidate.run } }), undefined);
+  }
+});
+
 test("the migration runtime source must be reachable from origin/main", () => {
   const repo = mkdtempSync(join(tmpdir(), "ega-baseline-main-"));
   const git = (args) => {
@@ -857,6 +885,7 @@ function staging(state, overrides = {}) {
     artifact_tree_digest: BASELINE_TREE,
     authorization_digest: authorization().digest,
     candidate_digest: BASELINE_CANDIDATE,
+    checks_evidence: null,
     deployment_id: STAGED,
     migration_source_commit: MIGRATION_COMMIT,
     predecessor_deployment_id: PREDECESSOR,

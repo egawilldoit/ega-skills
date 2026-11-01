@@ -336,6 +336,66 @@ export function artifactTreeDigest(rootDirectory, artifactRelativePath) {
   return `sha256:${createHash("sha256").update(`${lines.join("\n")}\n`).digest("hex")}`;
 }
 
+const TRUSTED_GITHUB_REPO = "egawilldoit/ega-skills";
+const TRUSTED_GITHUB_WORKFLOW = ".github/workflows/ci.yml";
+const TRUSTED_GITHUB_CHECK = "ci-gate";
+
+/**
+ * Pure evidence selector. A check name alone is insufficient: the check must
+ * come from GitHub Actions, be completed successfully for the exact commit,
+ * and its workflow run must be the trusted CI workflow at the exact SHA.
+ */
+export function selectGitHubCIEvidence({ checkRuns, workflowRuns, commit, workflowPath = TRUSTED_GITHUB_WORKFLOW }) {
+  for (const check of checkRuns ?? []) {
+    if (check?.name !== TRUSTED_GITHUB_CHECK || check?.head_sha !== commit ||
+        check?.status !== "completed" || check?.conclusion !== "success" ||
+        check?.app?.slug !== "github-actions" || typeof check?.details_url !== "string") continue;
+    const match = check.details_url.match(/\/actions\/runs\/(\d+)\/job\/\d+/);
+    if (!match) continue;
+    const run = workflowRuns?.[match[1]];
+    if (run?.head_sha !== commit || run?.path !== workflowPath || run?.name !== "CI" ||
+        run?.status !== "completed" || run?.conclusion !== "success") continue;
+    return {
+      check_id: check.id,
+      commit,
+      conclusion: check.conclusion,
+      name: check.name,
+      provider: "github-actions",
+      run_id: Number(match[1]),
+      url: check.html_url,
+      workflow: run.path,
+    };
+  }
+  return undefined;
+}
+
+/** Verify GitHub CI only for a commit that is part of origin/main. */
+export function verifyGitHubCI({ commit, repoRoot = REPO_ROOT, repo = TRUSTED_GITHUB_REPO, workflowPath = TRUSTED_GITHUB_WORKFLOW }) {
+  if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+    refuse("E_CI_EVIDENCE", "GitHub CI evidence requires a full lowercase commit");
+  }
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", commit, "origin/main"], { cwd: repoRoot, encoding: "utf8" });
+  if (ancestor.status !== 0) return undefined;
+  const checks = spawnSync("gh", ["api", `repos/${repo}/commits/${commit}/check-runs?per_page=100`], { cwd: repoRoot, encoding: "utf8" });
+  if (checks.status !== 0) refuse("E_CI_EVIDENCE", "GitHub check-run read failed");
+  let body;
+  try { body = JSON.parse(checks.stdout); } catch { refuse("E_CI_EVIDENCE", "GitHub check-run response was not JSON"); }
+  const runIds = new Set();
+  for (const check of body?.check_runs ?? []) {
+    const match = typeof check?.details_url === "string" ? check.details_url.match(/\/actions\/runs\/(\d+)\/job\/\d+/) : undefined;
+    if (match) runIds.add(match[1]);
+  }
+  const workflowRuns = {};
+  for (const runId of runIds) {
+    const run = spawnSync("gh", ["api", `repos/${repo}/actions/runs/${runId}`], { cwd: repoRoot, encoding: "utf8" });
+    if (run.status !== 0) continue;
+    try { workflowRuns[runId] = JSON.parse(run.stdout); } catch { /* unverifiable */ }
+  }
+  const evidence = selectGitHubCIEvidence({ checkRuns: body?.check_runs, commit, workflowPath, workflowRuns });
+  if (!evidence) refuse("E_CI_EVIDENCE", `no completed successful ${TRUSTED_GITHUB_CHECK} check from ${workflowPath} for ${commit}`);
+  return evidence;
+}
+
 function gitValue(args, cwd) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (result.status !== 0) refuse("E_BASELINE_SOURCE_MISMATCH", `git ${args.at(-1)} failed in the baseline source worktree`);
@@ -938,6 +998,13 @@ export class VercelApi {
       url: typeof deployment.url === "string" ? deployment.url.replace(/^https?:\/\//, "").replace(/\/$/, "") : "",
     };
   }
+
+  /** Read the attached Vercel deployment checks for a deployment. */
+  async readDeploymentChecks(deploymentId) {
+    const body = await this.get(`/v2/deployments/${encodeURIComponent(deploymentId)}/checks`);
+    if (!Array.isArray(body?.checks)) refuse("E_PLATFORM_GUARD", "deployment checks are unreadable");
+    return body.checks;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1263,6 +1330,10 @@ export async function executeStage({ approval, candidate, expected, deps, apply 
       refuse("E_STAGE", "the staged deployment URL is malformed");
     }
     if (identity.url !== stagedHost) refuse("E_STAGE", "the staged URL does not belong to the reported deployment");
+    let checksEvidence = null;
+    if (identity.checks_state === "none") {
+      checksEvidence = await externalChecks(deployed.deployment_id, identity.source_commit) ?? null;
+    }
     const current = await deps.probe(expected.canonical_alias);
     await verifyLiveTarget(await deps.readObservation(expected, current), expected, expected.predecessor_deployment_id, expected.predecessor_release_digest);
 
@@ -1271,6 +1342,7 @@ export async function executeStage({ approval, candidate, expected, deps, apply 
       staging: {
         approval_digest: approval.digest,
         candidate_digest: candidate.candidate_digest,
+        checks_evidence: checksEvidence,
         deployment_id: deployed.deployment_id,
         previous_deployment_id: expected.predecessor_deployment_id,
         previous_release_digest: expected.predecessor_release_digest,
@@ -1499,7 +1571,7 @@ export async function executeReconcile({ approval, candidate, expected, deps, ap
  */
 export function verifyBaselineStaging(staging, expected, authorizationDigest, now = Date.now()) {
   const keys = [
-    "artifact_tree_digest", "authorization_digest", "candidate_digest", "deployment_id",
+    "artifact_tree_digest", "authorization_digest", "candidate_digest", "checks_evidence", "deployment_id",
     "migration_source_commit", "predecessor_deployment_id", "predecessor_release_digest",
     "release_digest", "staged_at", "url",
   ].sort();
@@ -1679,7 +1751,11 @@ export async function executeBaselineMigration({ authorization, expected, source
       }
       if (stagedIdentity.ready_state !== "READY") refuse("E_BASELINE_DEPLOYMENT_NOT_READY", "the staged deployment is not READY");
       if (stagedIdentity.checks_state !== "succeeded") {
-        refuse("E_BASELINE_CHECKS_NOT_PASSED", "the staged baseline deployment checks have not concluded successfully");
+        if (stagedIdentity.checks_state !== "none") refuse("E_BASELINE_CHECKS_NOT_PASSED", "the staged baseline deployment checks have not concluded successfully");
+        const evidence = await externalChecks(staged.deployment_id, stagedIdentity.source_commit);
+        if (!evidence) refuse("E_BASELINE_CHECKS_NOT_PASSED", "no successful attached Vercel checks or trusted GitHub ci-gate evidence for the staged deployment");
+        stagedIdentity.checks_state = "succeeded";
+        stagedIdentity.checks_evidence = evidence;
       }
       await assess();
       if (typeof deps.writeStaging !== "function") refuse("E_BASELINE_STAGE", "a durable staging record is required before promotion");
@@ -1687,6 +1763,7 @@ export async function executeBaselineMigration({ authorization, expected, source
         artifact_tree_digest: expected.baseline_artifact_tree_digest,
         authorization_digest: auth.digest,
         candidate_digest: expected.baseline_candidate_digest,
+        checks_evidence: stagedIdentity.checks_evidence ?? null,
         deployment_id: staged.deployment_id,
         migration_source_commit: expected.migration_source_commit,
         predecessor_deployment_id: expected.predecessor_deployment_id,
@@ -1950,17 +2027,27 @@ async function runBaselineCli(mode, values) {
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });
   const bypass = process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined;
+  const externalChecks = async (deploymentId, sourceCommit) => {
+    const attached = await api.readDeploymentChecks(deploymentId);
+    if (attached.length !== 0) return undefined;
+    return verifyGitHubCI({ commit: sourceCommit, repoRoot: REPO_ROOT });
+  };
   const cwd = join(source.migration_source_dir, "packages", "mcp");
   const deps = {
     bypass,
     readiness: values.readiness === undefined ? undefined : JSON.parse(readFileSync(resolve(values.readiness), "utf8")),
     now: () => Date.now(),
     readObservation: async (expectation) => {
-      const observed = await api.readBaseline(expectation, (alias) =>
+      let observed = await api.readBaseline(expectation, (alias) =>
         probeLegacyReady(alias.startsWith("http") ? alias : `https://${alias}`, { bypass }));
-      return observed.git_production_auto_deploy === false || observed.git_deployment_enabled_present === true || source.git_auto_deploy_control === undefined
-        ? observed
-        : { ...observed, git_auto_deploy_control: source.git_auto_deploy_control };
+      if (observed.git_production_auto_deploy !== false && observed.git_deployment_enabled_present !== true && source.git_auto_deploy_control !== undefined) {
+        observed = { ...observed, git_auto_deploy_control: source.git_auto_deploy_control };
+      }
+      if (observed.deployment_checks_state === "none") {
+        const evidence = await externalChecks(observed.served_deployment_id, observed.deployment_source_commit);
+        if (evidence) observed = { ...observed, checks_evidence: evidence, deployment_checks_state: "succeeded" };
+      }
+      return observed;
     },
     probeReady: (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, { ...options, bypass }),
     readDeploymentIdentity: (deploymentId, expectation) => api.readDeploymentIdentity(deploymentId, expectation),
@@ -2074,9 +2161,21 @@ async function main() {
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });
   const probe = (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, options);
-  const withConfigControl = (observed) => observed.git_production_auto_deploy === false || observed.git_deployment_enabled_present === true || expected.git_auto_deploy_control === undefined
-    ? observed
-    : { ...observed, git_auto_deploy_control: expected.git_auto_deploy_control };
+  const externalChecks = async (deploymentId, sourceCommit) => {
+    const attached = await api.readDeploymentChecks(deploymentId);
+    if (attached.length !== 0) return undefined;
+    return verifyGitHubCI({ commit: sourceCommit, repoRoot: REPO_ROOT });
+  };
+  const enrichObservation = async (observed) => {
+    let value = observed.git_production_auto_deploy === false || observed.git_deployment_enabled_present === true || expected.git_auto_deploy_control === undefined
+      ? observed
+      : { ...observed, git_auto_deploy_control: expected.git_auto_deploy_control };
+    if (value.deployment_checks_state === "none") {
+      const evidence = await externalChecks(value.served_deployment_id, value.deployment_source_commit);
+      if (evidence) value = { ...value, checks_evidence: evidence, deployment_checks_state: "succeeded" };
+    }
+    return value;
+  };
   const deps = {
     readiness: values.readiness === undefined ? undefined : JSON.parse(readFileSync(resolve(values.readiness), "utf8")),
     bypass: process.env.EGA_VERCEL_BYPASS_FILE ? readFileSync(process.env.EGA_VERCEL_BYPASS_FILE, "utf8").trim() : undefined,
@@ -2113,8 +2212,8 @@ async function main() {
       // Never pass --force: deployment checks must be allowed to block.
       runVercel(["promote", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
     },
-    readObservation: async (expectation) => withConfigControl(await api.readProduction(expectation, (alias) => probe(alias))),
-    readRecoveryObservation: async (expectation) => withConfigControl(await api.readProduction(expectation)),
+    readObservation: async (expectation) => enrichObservation(await api.readProduction(expectation, (alias) => probe(alias))),
+    readRecoveryObservation: async (expectation) => enrichObservation(await api.readProduction(expectation)),
     rollback: (deployment) => {
       runVercel(["rollback", deployment, "--yes"], { cwd: join(REPO_ROOT, "packages", "mcp"), scope: teamId, token });
     },
