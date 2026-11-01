@@ -39,8 +39,9 @@ Before any alias mutation the gate requires, from live reads:
 4. the executing Vercel user, team and project equal the approved publisher; and
 5. the owner approval is no older than 24 hours.
 
-Staging uses `vercel deploy --prod --skip-domain` to build with the production
-environment without assigning the public domain. It proves the staged `/readyz`
+Staging builds the detached worktree with `vercel build --prod`, then uses
+`vercel deploy --prebuilt --prod --skip-domain` to publish that verified output
+with the production environment without assigning the public domain. It proves the staged `/readyz`
 release digest and rechecks the live predecessor before returning. Retained
 deployments are restored using `vercel rollback`, not a second promotion. See
 [Vercel staged production deployment](https://vercel.com/docs/cli/deploying-from-cli)
@@ -289,8 +290,9 @@ Apply the same command with `--readiness /secure/outside-repo/readiness.json
 --apply`. The command creates a fresh detached worktree at the exact runtime
 commit, requires it to contain no untracked or ignored files, replaces only
 `packages/mcp/artifact` with the retained 117 artifact from the predecessor
-worktree, re-verifies the assembled tree, and stages it with `vercel deploy
---prod --skip-domain --project <id> --meta githubCommitSha=<runtime commit>
+worktree, re-verifies the assembled tree, builds it with `vercel build --prod`,
+and stages the verified output with `vercel deploy --prebuilt --prod
+--skip-domain --project <id> --meta githubCommitSha=<runtime commit>
 --meta githubCommitRef=main`. It requires the staged deployment to be `READY`
 with a successful check conclusion, to report the exact runtime source commit,
 and to serve the exact 117 digest. It then fsyncs the immutable staging record,
