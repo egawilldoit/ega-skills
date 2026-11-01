@@ -177,10 +177,14 @@ always block. If the legacy deployment already has a successful conclusion, use
 `"succeeded"` instead.
 
 For the **migration deployment and the 126 predecessor**, accept only
-`readyState === "READY"` and `checksConclusion === "succeeded"`. If the project
-does not attach checks to CLI deployments, configure a real deployment check
-before the migration; do not force-promote. The migration will restore the
-predecessor if the promoted deployment has no successful check.
+`readyState === "READY"` and successful check evidence. Vercel attached checks
+win when present; failed/pending checks still block. When Vercel attached no
+checks to a CLI deployment, the publisher may verify the trusted GitHub Actions
+CI check `ci-gate` for the exact source SHA: the check must be completed with
+conclusion `success`, from `github-actions`, and its workflow run must be
+`.github/workflows/ci.yml` named `CI` at the same SHA. Missing, pending, failed,
+or unverifiable evidence blocks. The evidence (provider, commit, check ID, run
+ID, URL) is recorded in the staging evidence. Do not force-promote.
 
 ### 4.4 Genuine external single-writer / access-control certification
 
