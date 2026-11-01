@@ -29,7 +29,8 @@ There is no manual publisher. Do not stage, promote, roll back, or move the
 canonical alias by hand as part of a normal release, and do not recreate the
 retired approval-envelope, readiness-waiver, or receipt machinery. A `READY`
 deployment is not live until Vercel assigns the canonical alias after `ci-gate`
-succeeds; a CLI build never moves the alias.
+succeeds. CLI production deployment and manual promotion can change production
+and are not part of a normal release.
 
 Residual risk is explicit: a Vercel principal that can independently promote or
 assign the production alias can still move it. Keep production promotion rights
@@ -45,11 +46,15 @@ Authenticated MCP verification is still required after a release.
 1. Verify the exact release SHA is green in CI:
    `gh run list --repo egawilldoit/ega-skills --branch main --limit 5`
    `gh run view <run-id> --repo egawilldoit/ega-skills`
-   Require `foundation (ubuntu-latest)`, `foundation (windows-2022)`, and
-   `contract-f rls (ubuntu-latest)` to pass. Inspect both foundation logs to
-   confirm `tests/hashing-traversal.test.mjs` and
-   `tests/hashing-traversal-toctou.test.mjs` executed and passed. Hashing is
-   part of foundation; no separate hashing workflow check is emitted.
+   Require the jobs selected by `.github/workflows/ci.yml` and its aggregate
+   `ci-gate` to pass for the exact SHA. Normal full CI on `main` runs Linux
+   foundation, web console, PostgreSQL isolation and RLS; Windows runs are
+   selected for manual full runs and the legacy `release/2.0` contexts, not
+   every `main` release. For foundation changes, confirm
+   `tests/hashing-traversal.test.mjs` and
+   `tests/hashing-traversal-toctou.test.mjs` executed and passed. No separate
+   hashing workflow check is emitted. PR checks precede merge; merge-commit CI
+   is what Vercel waits for before assigning production domains.
 2. Verify the candidate artifact and release digest:
    `node scripts/hosted/validate-artifact.mjs <artifact-dir>`
    `cat <artifact-dir>/hub-release.json | jq -r '.digest'`
@@ -58,9 +63,10 @@ Authenticated MCP verification is still required after a release.
    Do NOT use `.release_digest` or `.payload.release_digest`: neither exists
    here — `release_digest` is a field of the release *candidate* envelope
    (`candidate.json` / `release-diff.json`), not of the exported release.
-   The digest must equal the digest recorded for the active catalog in
-   `docs/evidence/catalog/<CATALOG_ID>/` and the value production selects
-   (the served `effective_release_digest` reported by the `search` tool).
+   Validate the candidate against the artifact and reviewed evidence committed
+   at that SHA. Before release, production may correctly serve the previous
+   digest. After release, require canonical `/readyz` and authenticated MCP
+   `effective_release_digest` to equal the candidate's committed digest.
 3. Verify the artifact matches the tested commit:
    `git rev-parse HEAD` equals the CI-verified SHA; the artifact was built
    from this tree with no uncommitted changes (`git status --short` empty).
@@ -103,7 +109,7 @@ environment values and must never change the production alias.
 
 ```
 EGA_SMOKE_URL=<origin> \
-EGA_SMOKE_BYPASS=<protection-bypass> \        # preview only, never printed
+EGA_SMOKE_BYPASS=<protection-bypass> \
 EGA_SMOKE_TOKEN_FILE=<0600 token file> \
 node scripts/oauth/hosted-smoke.mjs
 ```
@@ -130,8 +136,10 @@ observe the same identity.
 Normal rollback is the verification workflow's automatic recovery: when
 `scripts/release/verify-live.mjs` fails after promotion,
 `.github/workflows/verify-release.yml` promotes the previous healthy deployment,
-confirms the canonical alias serves it, and confirms Git auto-publication for
-`main` is still enabled. See `AUTOMATIC-RELEASE.md`. Do not race that recovery
+confirms the canonical alias serves it, and restores automatic domain assignment
+and GitHub deployment-event delivery. Branch and Deployment Check configuration
+still require inspection after emergency recovery. See `AUTOMATIC-RELEASE.md`.
+Do not race that recovery
 with a manual promote of the same failure.
 
 For a failure the workflow cannot recover (or an incident outside a verification
@@ -140,17 +148,25 @@ run):
 1. Identify the current canonical deployment and the previous known-good
    deployment with its release digest. Use the digest recorded before the merge
    and the verification/recovery summary.
-2. Promote the previous healthy deployment with `vercel promote <deployment>`
-   (or `vercel rollback` when Vercel requires it for a deployment that has
-   previously served production). Then confirm the canonical alias and the
-   exact `/readyz` `release_digest`.
-3. Treat a newer deployment that already owns the alias as superseded: do not
-   move the alias backwards over it. Record it and stop.
+2. Re-read the canonical alias immediately before any write. If it no longer
+   points at the failed deployment, treat that failure as superseded: record
+   the current target and stop without changing the alias. Vercel has no atomic
+   compare-and-swap for alias assignment; this check reduces the race but cannot
+   eliminate it.
+3. Prefer `scripts/release/recover-production.mjs --failed-deployment <id>`
+   with the verification workflow's configured environment; it checks the alias
+   again before promoting a healthy predecessor. Emergency manual promotion is
+   an operator action, not a normal release. After any emergency action, confirm
+   the canonical deployment ID and exact `/readyz` `release_digest`.
 4. Re-run `scripts/release/verify-live.mjs` against the canonical origin and
    repeat the post-deployment smoke.
-5. Confirm the project still has Git auto-deployment enabled for `main` and the
-   `ci-gate` Deployment Check still required. Restore either control if recovery
-   changed it, then re-read the project.
+5. Confirm Production Branch `main`, Root Directory `packages/mcp`, the
+   required `ci-gate` Deployment Check, an empty Ignored Build Step,
+   `autoAssignCustomDomains: true`, and
+   `gitProviderOptions.createDeployments: "enabled"` (GitHub event delivery).
+   Keep the committed Git deployment configuration enabled. Restore affected
+   controls and read them back; `vercel rollback` can disable automatic domain
+   assignment, so a restored alias alone does not prove future releases work.
 
 Preview proof and the immutable-deployment transcript remain in
 `docs/evidence/2.0-C-STAGING.md` (gate C15); deployment mechanics are in

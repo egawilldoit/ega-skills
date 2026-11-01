@@ -1,5 +1,12 @@
 # Web Console production promotion, rollback and acceptance plan (EGA-731)
 
+> Historical preparation plan for the separate Web Console application. Its
+> candidate SHAs, digests, branch names and project observations are snapshots,
+> not current release settings. Do not use it to release the MCP or restore
+> `release/2.0` as the MCP production branch. The active MCP procedure is
+> [AUTOMATIC-RELEASE.md](./AUTOMATIC-RELEASE.md). Revalidate this plan against
+> the current Web Console project before using its operator commands.
+
 Status: **PREPARATION ONLY — not executed.** This document is an
 owner-executable plan. No deployment, promotion, alias change, secret change,
 database change, or production action was performed while preparing it.
