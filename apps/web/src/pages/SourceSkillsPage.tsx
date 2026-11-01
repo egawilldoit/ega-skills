@@ -14,6 +14,7 @@ type Preview = { baseSha: string; operation: string; name: string; provenance: s
 type Proposal = { number: number; url: string; head: string };
 type Status = Proposal & { state: string; headChecks: string; mergeSha: string | null; mergeChecks: string; published: false };
 type ImportResult = { location: { owner: string; repo: string; commit: string; directory: string }; license: { path: string; text: string; sha: string }; files: { path: string; mode: string; contentBase64: string }[] };
+type UploadResult = { name: string; description: string; body: string; resources: { path: string; mode: string; contentBase64: string }[] };
 type Mode = 'list' | 'add' | 'update' | 'remove';
 type CaseField = 'direct' | 'indirect' | 'incomplete' | 'negative' | 'collision' | 'edge';
 type TagField = 'domains' | 'platforms' | 'frameworks' | 'aliases';
@@ -47,6 +48,11 @@ const decodeStatus = (value: unknown): Status => {
   decodeProposal(value);
   const v = value as Status;
   if (!['open', 'draft', 'closed', 'merged'].includes(v.state) || !['pending', 'passed', 'failed'].includes(v.headChecks) || !['pending', 'passed', 'failed'].includes(v.mergeChecks) || (v.mergeSha !== null && !/^[0-9a-f]{40}$/.test(v.mergeSha)) || v.published !== false) throw new Error('Invalid source proposal status');
+  return v;
+};
+const decodeUpload = (value: unknown): UploadResult => {
+  const v = value as UploadResult;
+  if (!v || typeof v.name !== 'string' || typeof v.description !== 'string' || typeof v.body !== 'string' || !Array.isArray(v.resources) || v.resources.some(file => !file || typeof file.path !== 'string' || !['100644', '100755'].includes(file.mode) || typeof file.contentBase64 !== 'string')) throw new Error('Invalid source archive response');
   return v;
 };
 const textFile = (base64: string): string => new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
@@ -83,6 +89,8 @@ export function SourceSkillsPage(): ReactNode {
   const [imported, setImported] = useState<ImportResult | null>(null);
   const [acceptNormalization, setAcceptNormalization] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [uploadKind, setUploadKind] = useState<'skill' | 'zip' | null>(null);
+  const [uploadResources, setUploadResources] = useState<UploadResult['resources']>([]);
   const [acceptUpload, setAcceptUpload] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [request, setRequest] = useState<unknown>(null);
@@ -117,7 +125,7 @@ export function SourceSkillsPage(): ReactNode {
   if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setMode('add'); };
+  const startAdd = (): void => { clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
   const startEdit = async (item: Item): Promise<void> => {
     clear(); setLoading(true);
     try {
@@ -139,7 +147,7 @@ export function SourceSkillsPage(): ReactNode {
     finally { setLoading(false); }
   };
   const loadImport = async (): Promise<void> => {
-    setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setAcceptUpload(false); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
+    setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     try {
       const location = { owner: importOwner, repo: importRepo, commit: importCommit, directory: importDirectory };
       const result = await client.post<ImportResult>('/skill-imports/github', location, { timeoutMs: 35_000, decode: value => {
@@ -158,7 +166,7 @@ export function SourceSkillsPage(): ReactNode {
     finally { setLoading(false); }
   };
   const loadSkillFile = async (file: File | undefined): Promise<void> => {
-    setError(''); setUploaded(false); setAcceptUpload(false); setImported(null); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
+    setError(''); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setImported(null); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     if (!file) return;
     try {
       if (file.name !== 'SKILL.md' || file.size > 200_000) throw new Error('Upload a SKILL.md file no larger than 200 KB.');
@@ -168,8 +176,19 @@ export function SourceSkillsPage(): ReactNode {
       if (!match) throw new Error('SKILL.md must have YAML frontmatter.');
       const meta = parse(match[1]!, { uniqueKeys: true, maxAliasCount: 0 }) as Record<string, unknown>;
       if (!meta || typeof meta.name !== 'string' || typeof meta.description !== 'string' || Object.keys(meta).sort().join(',') !== 'description,name') throw new Error('Frontmatter must contain only name and description.');
-      setName(meta.name); setNameLabel(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setUploaded(true);
+      setName(meta.name); setNameLabel(meta.name); setDescription(meta.description); setBody(match[2]!.trim()); setUploaded(true); setUploadKind('skill');
     } catch (cause) { setError(message(cause)); }
+  };
+  const loadSkillArchive = async (file: File | undefined): Promise<void> => {
+    setError(''); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setImported(null); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
+    if (!file) return;
+    setLoading(true);
+    try {
+      if (file.size > 2_500_000) throw new Error('Upload a ZIP archive no larger than 2.5 MB.');
+      const result = await client.upload<UploadResult>('/skill-uploads/zip', file, { contentType: 'application/zip', timeoutMs: 35_000, decode: decodeUpload });
+      setName(result.name); setNameLabel(result.name); setDescription(result.description); setBody(result.body); setUploadResources(result.resources); setUploaded(true); setUploadKind('zip');
+    } catch (cause) { setError(message(cause)); }
+    finally { setLoading(false); }
   };
   const makePreview = async (): Promise<void> => {
     if (!index) return;
@@ -181,6 +200,7 @@ export function SourceSkillsPage(): ReactNode {
       interface: { displayName: displayName || defaults.displayName, shortDescription: shortDescription || defaults.shortDescription, prompt: prompt || defaults.prompt },
       routingTags,
       ...(imported && acceptNormalization ? { importSource: { location: imported.location, acceptOriginalNormalization: true } } : {}),
+      ...(uploadResources.length ? { resources: uploadResources } : {}),
       cases: { ...cases, negative_expected: neighbor, collision_expected: collisionNeighbor },
     };
     const next = { baseSha: index.sha, proposal };
@@ -220,7 +240,7 @@ export function SourceSkillsPage(): ReactNode {
     </> : null}
     {mode !== 'list' ? <fieldset disabled={loading} onChange={() => { setPreview(null); setRequest(null); setPr(null); }}>
       <h3>{mode === 'add' ? 'Add skill' : mode === 'update' ? `Edit ${name}` : `Remove ${name} from next catalog`}</h3>
-      {mode === 'add' ? <details><summary>Upload SKILL.md</summary><p>The uploaded skill will be classified as original. Review its contents and retain any required attribution.</p><input aria-label="Upload SKILL.md" type="file" accept=".md,text/markdown" onChange={event => void loadSkillFile(event.target.files?.[0])} />{uploaded ? <label><input type="checkbox" checked={acceptUpload} onChange={event => setAcceptUpload(event.target.checked)} /> I am authorized to use this content and classify it as original.</label> : null}<p>ZIP upload is not yet available.</p></details> : null}
+      {mode === 'add' ? <details><summary>Upload SKILL.md or ZIP</summary><p>The uploaded skill will be classified as original. Review its contents and retain any required attribution.</p><p><label>SKILL.md <input aria-label="Upload SKILL.md" type="file" accept=".md,text/markdown" onChange={event => void loadSkillFile(event.target.files?.[0])} /></label></p><p><label>Skill ZIP <input aria-label="Upload skill ZIP" type="file" accept=".zip,application/zip" onChange={event => void loadSkillArchive(event.target.files?.[0])} /></label> A ZIP must contain one valid skill directory with SKILL.md and optional references, scripts, or assets within the size limits.</p>{uploaded ? <label><input type="checkbox" checked={acceptUpload} onChange={event => setAcceptUpload(event.target.checked)} /> I am authorized to use this content and classify it as original.</label> : null}{uploadKind === 'zip' ? <p>Archive validated: {name} with {uploadResources.length} resource file(s).</p> : null}</details> : null}
       {mode === 'add' ? <details><summary>Import from pinned GitHub source</summary><p>Use a full commit SHA and skill directory. Only supported skill files can be imported.</p>
         <label>Owner <input value={importOwner} readOnly={!!imported} onChange={event => { setImportOwner(event.target.value); setImported(null); }} /></label>{' '}
         <label>Repository <input value={importRepo} readOnly={!!imported} onChange={event => { setImportRepo(event.target.value); setImported(null); }} /></label>{' '}
@@ -255,8 +275,8 @@ export function SourceSkillsPage(): ReactNode {
       {preview.errors.map((item, i) => <p role="alert" key={i}>Error: {item}</p>)}{preview.warnings.map((item, i) => <p key={i}>Warning: {item}</p>)}
       {preview.changes.map(change => <details key={change.path}><summary>{change.path}{change.binary ? ' (binary)' : ''}{change.mode ? ` · mode ${change.mode}` : ''}</summary><p>Before</p><pre>{change.before ?? '(absent)'}</pre><p>After</p><pre>{change.after ?? '(deleted)'}</pre></details>)}
       <p>No release is published by creating this source PR. Full source CI and review are still required.</p>
-      {preview.operation === 'remove' ? <p>Removal proposals are unavailable until complete source validation is available.</p> : null}
-      <button disabled={loading || preview.operation === 'remove' || !!preview.errors.length || !preview.changes.length} onClick={() => void submit()}>Create source PR</button>
+      {preview.operation === 'remove' ? <p>A removal can be submitted only when the complete candidate catalog passes local validation. Source PR CI and human review remain authoritative.</p> : null}
+      <button disabled={loading || !!preview.errors.length || !preview.changes.length} onClick={() => void submit()}>Create source PR</button>
     </section> : null}
     {pr ? <section><h3>Source PR</h3><p><a href={pr.url} target="_blank" rel="noreferrer">Open source pull request #{pr.number}</a> · head <code>{pr.head}</code> · not published</p><button disabled={loading} onClick={() => void refreshStatus()}>Refresh GitHub CI status</button>{status ? <p>PR {status.state}; observed head checks {status.headChecks}; test merge {status.mergeSha ?? 'not available'}, observed checks {status.mergeChecks}. Observed checks do not verify that all required checks ran or passed; inspect the GitHub PR for its required gates.</p> : <p>GitHub CI status not yet checked.</p>}</section> : null}
   </section>;

@@ -167,6 +167,8 @@ export interface ApiClient {
   readonly basePath: string;
   get<T>(path: string, options?: RequestOptions<T>): Promise<T>;
   post<T>(path: string, body: unknown, options?: RequestOptions<T>): Promise<T>;
+  /** Send an already-encoded body (for example a ZIP upload) with an explicit content type. */
+  upload<T>(path: string, body: BodyInit, options: RequestOptions<T> & { contentType: string }): Promise<T>;
 }
 
 /** Map an HTTP status onto an `ApiError` discriminant. */
@@ -281,7 +283,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const defaultHeaders = options.defaultHeaders ?? {};
   const defaultTimeoutMs = options.defaultTimeoutMs;
 
-  async function request<T>(method: 'GET' | 'POST', path: string, body: unknown, requestOptions: RequestOptions<T> = {}): Promise<T> {
+  async function request<T>(method: 'GET' | 'POST', path: string, body: unknown, requestOptions: RequestOptions<T> = {}, raw?: { body: BodyInit; contentType: string }): Promise<T> {
     if (typeof fetchImpl !== "function") {
       throw error(
         "not_configured",
@@ -293,7 +295,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     const headers: Record<string, string> = {
       accept: "application/json",
       ...defaultHeaders,
-      ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
+      ...(method === 'POST' ? { 'content-type': raw?.contentType ?? 'application/json' } : {}),
     };
     if (options.getAccessToken !== undefined) {
       const token = await options.getAccessToken();
@@ -309,7 +311,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       response = await fetchImpl(url, {
         method,
         headers,
-        ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
+        ...(method === 'POST' ? { body: raw?.body ?? JSON.stringify(body) } : {}),
         // Same-origin only, so this sends cookies the BFF may need and never
         // crosses an origin boundary.
         credentials: "same-origin",
@@ -369,5 +371,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     return payload as T;
   }
 
-  return { basePath, get: <T>(path: string, options?: RequestOptions<T>) => request<T>('GET', path, undefined, options), post: <T>(path: string, body: unknown, options?: RequestOptions<T>) => request<T>('POST', path, body, options) };
+  return {
+    basePath,
+    get: <T>(path: string, options?: RequestOptions<T>) => request<T>('GET', path, undefined, options),
+    post: <T>(path: string, body: unknown, options?: RequestOptions<T>) => request<T>('POST', path, body, options),
+    upload: <T>(path: string, body: BodyInit, options: RequestOptions<T> & { contentType: string }) =>
+      request<T>('POST', path, undefined, options, { body, contentType: options.contentType }),
+  };
 }

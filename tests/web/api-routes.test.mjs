@@ -1079,11 +1079,12 @@ describe("response size, deadline and concurrency are bounded", () => {
       "source-proposal-submit",
       "source-skill-detail",
       "source-skill-index",
+      "source-skill-upload",
       "workspace",
       "workspace-members",
       "workspace-quotas",
     ]);
-    const writes = new Set(["source-github-import", "source-proposal-preview", "source-proposal-submit"]);
+    const writes = new Set(["source-github-import", "source-proposal-preview", "source-proposal-submit", "source-skill-upload"]);
     for (const route of REGISTERED_ROUTES) {
       assert.deepEqual(route.methods, writes.has(route.id) ? ["POST"] : ["GET"], `${route.id} has unexpected methods`);
       assert.equal(typeof route.handle, "function");

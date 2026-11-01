@@ -441,3 +441,15 @@ test("the client sends a source proposal as same-origin JSON with the verified s
   assert.equal(sent.init.headers['content-type'], 'application/json');
   assert.deepEqual(JSON.parse(sent.init.body), { proposal: 'example' });
 });
+test("the client uploads a bounded ZIP as a same-origin binary request", async () => {
+  const { createApiClient } = await import('../../apps/web/src/api/client.ts');
+  let sent;
+  const client = createApiClient({ getAccessToken: async () => 'session', fetchImpl: async (url, init) => { sent = { url, init }; return new Response(JSON.stringify({ name: 'sample' })); } });
+  const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+  await client.upload('/skill-uploads/zip', zip, { contentType: 'application/zip' });
+  assert.equal(sent.url, '/api/skill-uploads/zip');
+  assert.equal(sent.init.method, 'POST');
+  assert.equal(sent.init.headers['content-type'], 'application/zip');
+  assert.equal(sent.init.headers.authorization, 'Bearer session');
+  assert.equal(sent.init.body, zip);
+});

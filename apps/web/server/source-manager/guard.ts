@@ -7,6 +7,9 @@ interface SessionReader {
 // Resource bytes are base64 encoded in proposal JSON, alongside the editable
 // skill body and metadata. Keep the transport limit above the skill byte cap.
 const MAX_BODY_BYTES = 2_500_000;
+/** Compressed ZIPs stay bounded even though the validator expands them next. */
+export const MAX_UPLOAD_BYTES = 2_500_000;
+const JSON_CONTENT_TYPE = 'application/json';
 const SUBJECT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class SourceGuardError extends Error {
   readonly status: number;
@@ -29,17 +32,27 @@ export function loadEditorConfig(env: Readonly<Record<string, string | undefined
   return { token, subjects: new Set(subjects), origin: url.origin };
 }
 
+export interface EditorRequestPolicy {
+  /** Exact media types accepted for a POST body. Defaults to JSON only. */
+  readonly contentTypes?: readonly string[];
+  /** Maximum accepted Content-Length and streamed body size. */
+  readonly maxBodyBytes?: number;
+}
+
 /** Verify the Supabase session server-side and require a separately configured subject. */
-export async function authorizeEditor(request: IncomingMessage, method: 'GET' | 'POST', config: EditorConfig, reader: SessionReader, signal?: AbortSignal): Promise<string> {
+export async function authorizeEditor(request: IncomingMessage, method: 'GET' | 'POST', config: EditorConfig, reader: SessionReader, signal?: AbortSignal, policy: EditorRequestPolicy = {}): Promise<string> {
   if (request.method !== method) throw new SourceGuardError(405, 'E_METHOD_NOT_ALLOWED', 'Method not allowed.');
   const origin = request.headers.origin;
   if (method === 'POST' && (typeof origin !== 'string' || origin !== config.origin)) throw new SourceGuardError(403, 'E_SOURCE_ORIGIN', 'Request origin is not allowed.');
   if (origin !== undefined && origin !== config.origin) throw new SourceGuardError(403, 'E_SOURCE_ORIGIN', 'Request origin is not allowed.');
   if (method === 'POST') {
     const type = request.headers['content-type'];
-    if (typeof type !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(type.trim())) throw new SourceGuardError(415, 'E_SOURCE_CONTENT_TYPE', 'Expected JSON content.');
+    const mediaType = typeof type === 'string' ? type.split(';', 1)[0]!.trim().toLowerCase() : '';
+    const accepted = policy.contentTypes ?? [JSON_CONTENT_TYPE];
+    if (!type || !accepted.includes(mediaType)) throw new SourceGuardError(415, 'E_SOURCE_CONTENT_TYPE', 'Expected an accepted content type.');
     const length = request.headers['content-length'];
-    if (length !== undefined && (typeof length !== 'string' || !/^\d+$/.test(length) || Number(length) > MAX_BODY_BYTES)) throw new SourceGuardError(413, 'E_SOURCE_BODY_TOO_LARGE', 'Request body is too large.');
+    const max = policy.maxBodyBytes ?? MAX_BODY_BYTES;
+    if (length !== undefined && (typeof length !== 'string' || !/^\d+$/.test(length) || Number(length) > max)) throw new SourceGuardError(413, 'E_SOURCE_BODY_TOO_LARGE', 'Request body is too large.');
   }
   // resolveCaller probes Supabase's verified /auth/v1/user endpoint. The probe is
   // a read even when the guarded manager operation is POST.
@@ -48,23 +61,29 @@ export async function authorizeEditor(request: IncomingMessage, method: 'GET' | 
   return caller.subject;
 }
 
-/** Consume a bounded JSON request only after origin and caller authorization. */
-export async function readEditorJson(request: IncomingMessage): Promise<unknown> {
+/** Consume a bounded request body only after origin and caller authorization. */
+export async function readEditorBody(request: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   try {
     for await (const chunk of request) {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
       size += bytes.length;
-      if (size > MAX_BODY_BYTES) throw new SourceGuardError(413, 'E_SOURCE_BODY_TOO_LARGE', 'Request body is too large.');
+      if (size > maxBytes) throw new SourceGuardError(413, 'E_SOURCE_BODY_TOO_LARGE', 'Request body is too large.');
       chunks.push(bytes);
     }
   } catch (error) {
     if (error instanceof SourceGuardError) throw error;
     throw new SourceGuardError(400, 'E_SOURCE_BODY_INVALID', 'Request body could not be read.');
   }
+  return Buffer.concat(chunks);
+}
+
+/** Parse a bounded JSON request after the caller has been authorized. */
+export async function readEditorJson(request: IncomingMessage): Promise<unknown> {
+  const body = await readEditorBody(request);
   try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(body);
     return JSON.parse(text) as unknown;
   } catch { throw new SourceGuardError(400, 'E_SOURCE_BODY_INVALID', 'Request body must be valid UTF-8 JSON.'); }
 }

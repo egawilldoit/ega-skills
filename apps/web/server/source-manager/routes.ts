@@ -1,16 +1,19 @@
 import type { ApiRoute, ApiRouteContext } from '../../server.mts';
 import type { ControlPlaneReader } from '../supabase-read.ts';
-import { authorizeEditor, loadEditorConfig, readEditorJson, SourceGuardError } from './guard.ts';
+import { authorizeEditor, loadEditorConfig, MAX_UPLOAD_BYTES, readEditorBody, readEditorJson, SourceGuardError } from './guard.ts';
+import type { EditorRequestPolicy } from './guard.ts';
 import { SourceGithub } from './github.ts';
 import { validSkillName } from './paths.ts';
 import { previewProposal, submitProposal } from './service.ts';
 import { buildSourceIndex } from './index.ts';
 import { readGithubImport } from './import-github.ts';
+import { prepareSkillArchive } from './archive.ts';
+import { readZipEntries } from './zip.ts';
 
 export function sourceManagerRoutes(reader: ControlPlaneReader, bound: (handler: (context: ApiRouteContext) => Promise<unknown>) => (context: ApiRouteContext) => Promise<unknown>): ApiRoute[] {
-  const authenticated = async (context: ApiRouteContext, method: 'GET' | 'POST') => {
+  const authenticated = async (context: ApiRouteContext, method: 'GET' | 'POST', policy?: EditorRequestPolicy) => {
     const config = loadEditorConfig(process.env);
-    await authorizeEditor(context.request, method, config, reader, context.signal);
+    await authorizeEditor(context.request, method, config, reader, context.signal, policy);
     return new SourceGithub(config.token, fetch, context.signal);
   };
   return [
@@ -64,6 +67,15 @@ export function sourceManagerRoutes(reader: ControlPlaneReader, bound: (handler:
         await authenticated(context, 'POST');
         const imported = await readGithubImport(await readEditorJson(context.request), fetch, context.signal);
         return { location: imported.location, license: imported.license, files: imported.files.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.bytes).toString('base64') })) };
+      }),
+    },
+    {
+      id: 'source-skill-upload', path: '/skill-uploads/zip', methods: ['POST'],
+      handle: bound(async context => {
+        await authenticated(context, 'POST', { contentTypes: ['application/zip', 'application/x-zip-compressed'], maxBodyBytes: MAX_UPLOAD_BYTES });
+        const archive = await readEditorBody(context.request, MAX_UPLOAD_BYTES);
+        const yaml = await import('yaml');
+        return await prepareSkillArchive(readZipEntries(archive), text => yaml.parse(text, { uniqueKeys: true, maxAliasCount: 0 }) as unknown);
       }),
     },
     {

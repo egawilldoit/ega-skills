@@ -129,12 +129,13 @@ export class SourceGithub {
       if (typeof entry.path !== 'string' || typeof entry.type !== 'string' || typeof entry.mode !== 'string') throw new SourceGithubError(502, 'GitHub returned an invalid source tree.');
       const path = entry.path;
       if (entry.type === 'tree') continue;
-      const selected = path.startsWith(selectedPrefix);
-      const catalogText = indexOnly ? /^skills\/[^/]+\/SKILL\.md$/.test(path) : /^skills\/[^/]+\/.*\.(?:md|txt|ya?ml)$/i.test(path);
+      const skillFile = path.startsWith('skills/') && /^skills\/[^/]+\/.+/.test(path);
+      const catalogText = /^skills\/[^/]+\/SKILL\.md$/.test(path);
       const global = indexOnly ? path === 'upstream-sources.json' : GLOBAL_FILES.has(path);
-      if ((!selected || indexOnly) && !catalogText && !global) continue;
-      if (entry.type !== 'blob' || (entry.mode !== '100644' && !(selected && entry.mode === '100755' && path.slice(selectedPrefix.length).startsWith('scripts/')))) throw new SourceGithubError(422, 'Source tree contains an unsupported file mode.');
-      if (selected && !validSkillPath(path.slice(selectedPrefix.length))) throw new SourceGithubError(422, 'Selected skill contains an unsupported path.');
+      if (indexOnly ? !catalogText && !global : !skillFile && !global) continue;
+      const relative = skillFile ? path.slice(path.indexOf('/', 'skills/'.length) + 1) : '';
+      if (entry.type !== 'blob' || (entry.mode !== '100644' && !(entry.mode === '100755' && relative.startsWith('scripts/')))) throw new SourceGithubError(422, 'Source tree contains an unsupported file mode.');
+      if (skillFile && !validSkillPath(relative)) throw new SourceGithubError(422, 'Source skill contains an unsupported path.');
       const key = path.normalize('NFC').toLowerCase();
       if (seen.has(key)) throw new SourceGithubError(422, 'Source tree contains colliding paths.');
       seen.add(key);
