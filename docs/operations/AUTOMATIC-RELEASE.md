@@ -3,7 +3,9 @@
 Status: **ACTIVE**. This is the only supported production release path for
 `ega-skills-mcp`. There is no manual publisher, staging/promote command,
 approval envelope, owner attestation, readiness waiver, or publication receipt.
-Do not reintroduce a local release script or move the canonical alias by hand.
+Do not reintroduce a custom publisher or move the canonical alias by hand as
+part of a normal release. Emergency recovery is described below and in the
+operator runbook.
 
 Architecture reference: `packages/mcp/VERCEL.md`. Verification and recovery
 entrypoints: `.github/workflows/verify-release.yml`,
@@ -31,14 +33,18 @@ entrypoints: `.github/workflows/verify-release.yml`,
 7. **Release verification.** `.github/workflows/verify-release.yml` runs on the
    Vercel GitHub `deployment_status` event with `state: success` (and on
    demand). It verifies the canonical alias: readiness, the exact release
-   digest, 126-skill membership, the 9 TStack skills, and the
+   digest, all skill/version bindings from the committed manifest, L2 content
+   for every committed skill matching the configured TStack prefix, and the
    deployment-specific origin. It reports a failure as a failed workflow run.
+
+CI and the Vercel build can run in parallel; production domain assignment waits
+for both the build and the required check to succeed.
 
 `READY` is not live. A deployment can be `READY` while the canonical alias still
 points at an older deployment, including while `ci-gate` is pending or after a
-failed check. CLI builds (`vercel build` / `vercel deploy`) do not move the
-canonical alias; only a Vercel Git production deployment that passes its
-Deployment Check does.
+failed check. CLI production deployment and manual promotion are not part of
+our normal release process. CLI commands can change production; do not use them
+to bypass the native Git build and Deployment Check.
 
 ## Verification configuration
 
@@ -79,13 +85,18 @@ The verifier also reads `EGA_VERIFY_ORIGIN`,
 | Exit | Meaning |
 | ---: | --- |
 | `0` | Canonical alias serves the expected release and all invariants passed. |
-| `2` | Configuration or authentication problem; nothing was promoted. |
+| `2` | Verification could not complete because of configuration or authentication. This does not establish whether promotion already occurred; inspect the canonical alias before acting. |
 | `3` | The target is not the canonical deployment, or `ci-gate` is not successful. No recovery is attempted. |
 | `4` | Live verification failed after promotion; recovery is required. |
 
 On exit `4`, the verify workflow promotes the previous healthy deployment back
-to the canonical alias and then re-reads the project to confirm Git
-auto-publication is still enabled for `main` with `ci-gate` still required. The
+to the canonical alias, verifies its readiness/digest, and re-reads the project
+to restore `autoAssignCustomDomains: true` and
+`gitProviderOptions.createDeployments: "enabled"`. The latter enables GitHub
+`deployment_status` events; it is not a deployment permission. Recovery reports
+a non-empty Ignored Build Step as a blocker. These checks do not independently
+revalidate the production branch or the Deployment Check configuration; inspect
+those separately after emergency recovery. The
 recovery summary records the failed deployment, the restored deployment, and the
 observed alias. If recovery cannot certify the previous deployment as healthy,
 the run fails and the incident is treated as a production outage.
