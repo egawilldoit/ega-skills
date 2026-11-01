@@ -363,16 +363,31 @@ Production promotion is the native Git flow: a `main` commit whose `ci-gate`
 check succeeds is promoted automatically. There is no publisher command and no
 receipt chain to reconcile.
 
-1. Identify the last known-good production deployment:
+Normal recovery is the automatic verification workflow described in
+[`AUTOMATIC-RELEASE.md`](../../docs/operations/AUTOMATIC-RELEASE.md).
+Do not race it with a manual action. For emergency operator recovery:
+
+1. Identify the failed canonical deployment and the last known-good production deployment:
    `vercel ls ega-skills-mcp --scope <team>` (or the Vercel dashboard
    Deployments view), preferring one whose `ci-gate` check succeeded.
-2. Move the production alias to it with Instant Rollback in the dashboard, or
-   `vercel rollback <deployment-url> --scope <team>`. The selected deployment is
-   not rebuilt or modified.
+2. Immediately before any write, re-read the canonical alias. If it no longer
+   targets the failed deployment, stop without mutation. Prefer
+   `scripts/release/recover-production.mjs --failed-deployment <id>` with the
+   verification environment configured; it rechecks the alias before promoting
+   a healthy predecessor. There is still a residual alias race because Vercel
+   provides no atomic compare-and-swap. Manual promotion/Instant Rollback is an
+   emergency operator action; the selected deployment is not rebuilt.
 3. Re-run `scripts/oauth/hosted-smoke.mjs` against
    `https://ega-skills-mcp.vercel.app` and confirm `/readyz` is 200 with the
    `release_digest` from that deployment's committed `hub-release.json`.
-4. Roll forward by reverting the offending commit on `main` (or restoring a
+4. Read back Production Branch `main`, Root Directory `packages/mcp`, the
+   required `ci-gate` Deployment Check, an empty Ignored Build Step,
+   `autoAssignCustomDomains: true`, and
+   `gitProviderOptions.createDeployments: "enabled"` (GitHub deployment events).
+   Restore affected controls and read them back. Instant Rollback can disable
+   automatic domain assignment; the recovery helper restores domain assignment
+   and event delivery, but branch/check configuration still needs inspection.
+5. Roll forward by reverting the offending commit on `main` (or restoring a
    known-good tree); the resulting Git deployment must pass `ci-gate` like any
    other production build.
 
