@@ -19,6 +19,7 @@ import {
   executeBaselineReconcile,
   persistFailedReceipt,
   probeLegacyReady,
+  readBaselineSources,
   removeBaselineDeployWorktree,
   VercelApi,
   verifyBaselineArtifactBindings,
@@ -44,7 +45,7 @@ const PUBLISHER = "Dc0U1Ov3Zh5zeFKeic10bVWj";
 const ALIAS = "ega-skills-mcp.vercel.app";
 const PRE_COMMIT = "a".repeat(40);
 const MIGRATION_COMMIT = "b".repeat(40);
-const REVIEWED_COMMIT = "d".repeat(40);
+const REVIEWED_COMMIT = MIGRATION_COMMIT;
 const NOW = Date.parse("2026-10-27T13:00:00.000Z");
 
 function authorizationPayload(overrides = {}) {
@@ -474,6 +475,45 @@ test("the deployment worktree is a fresh clean checkout at the exact commit", { 
   }
 });
 
+test("readBaselineSources composes a real main runtime with the retained 117 artifact", async (t) => {
+  const repo = fileURLToPath(new URL("../..", import.meta.url));
+  const git = (args, cwd = repo) => spawnSync("git", args, { cwd, encoding: "utf8" });
+  const main = git(["rev-parse", "--verify", "origin/main^{commit}"]);
+  const predecessor = git(["cat-file", "-e", "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4^{commit}"]);
+  if (main.status !== 0 || predecessor.status !== 0) {
+    t.skip("origin/main or the retained 117 commit is not present in this checkout");
+    return;
+  }
+  const runtimeCommit = main.stdout.trim();
+  const predecessorDir = mkdtempSync(join(tmpdir(), "ega-real-117-"));
+  const runtimeDir = mkdtempSync(join(tmpdir(), "ega-real-main-"));
+  rmSync(predecessorDir, { recursive: true, force: true });
+  rmSync(runtimeDir, { recursive: true, force: true });
+  assert.equal(git(["worktree", "add", "--detach", predecessorDir, "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4"]).status, 0);
+  assert.equal(git(["worktree", "add", "--detach", runtimeDir, runtimeCommit]).status, 0);
+  t.after(() => {
+    git(["worktree", "remove", "-f", predecessorDir]);
+    git(["worktree", "remove", "-f", runtimeDir]);
+    rmSync(predecessorDir, { recursive: true, force: true });
+    rmSync(runtimeDir, { recursive: true, force: true });
+  });
+  const source = await readBaselineSources({
+    expected: {
+      ...expected,
+      migration_source_commit: runtimeCommit,
+      predecessor_source_commit: "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4",
+      reviewed_runtime_commit: runtimeCommit,
+    },
+    migrationSourceDir: runtimeDir,
+    predecessorSourceDir: predecessorDir,
+    repoRoot: repo,
+  });
+  assert.equal(source.artifact_tree_digest, BASELINE_TREE);
+  assert.equal(source.candidate_artifact_tree_digest, CURRENT_TREE);
+  assert.equal(source.artifact_source_dir, predecessorDir);
+  assert.equal(source.migration_source_dir, runtimeDir);
+});
+
 test("the migration runtime source must be reachable from origin/main", () => {
   const repo = mkdtempSync(join(tmpdir(), "ega-baseline-main-"));
   const git = (args) => {
@@ -489,20 +529,44 @@ test("the migration runtime source must be reachable from origin/main", () => {
   git(["commit", "-m", "main"]);
   const main = git(["rev-parse", "HEAD"]);
   git(["update-ref", "refs/remotes/origin/main", main]);
+  assert.equal(verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "main" }), main);
   writeFileSync(join(repo, "a.txt"), "unmerged\n");
   git(["add", "a.txt"]);
   git(["commit", "-m", "unmerged"]);
   const unmerged = git(["rev-parse", "HEAD"]);
 
-  assert.equal(verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "main" }), main);
   assert.throws(
     () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: unmerged, productionBranch: "main" }),
     { code: "E_BASELINE_SOURCE_MISMATCH" },
   );
+  git(["checkout", main]);
   assert.throws(
     () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "release/2.0" }),
     { code: "E_BASELINE_SOURCE_MISMATCH" },
   );
+
+  const fake = mkdtempSync(join(tmpdir(), "ega-baseline-fake-"));
+  const fakeGit = (args) => {
+    const result = spawnSync("git", args, { cwd: fake, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  fakeGit(["init"]);
+  fakeGit(["config", "user.email", "test@example.com"]);
+  fakeGit(["config", "user.name", "test"]);
+  writeFileSync(join(fake, "a.txt"), "fake main\n");
+  fakeGit(["add", "a.txt"]);
+  fakeGit(["commit", "-m", "fake main"]);
+  fakeGit(["update-ref", "refs/remotes/origin/main", fakeGit(["rev-parse", "HEAD"])]);
+  writeFileSync(join(fake, "a.txt"), "fake unmerged\n");
+  fakeGit(["add", "a.txt"]);
+  fakeGit(["commit", "-m", "fake unmerged"]);
+  const fakeUnmerged = fakeGit(["rev-parse", "HEAD"]);
+  assert.throws(
+    () => verifyBaselineSourceReachability({ directory: fake, expectedCommit: fakeUnmerged, productionBranch: "main", repoRoot: repo }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
+  rmSync(fake, { recursive: true, force: true });
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -944,6 +1008,25 @@ test("an interrupted baseline migration reconciles only the exact live result", 
     () => executeBaselineReconcile({ apply: true, authorization: authorization(), deps, expected, source: source(), staging: staging({}, { authorization_digest: "sha256:" + "9".repeat(64) }) }),
     { code: "E_BASELINE_STAGE" },
   );
+});
+
+test("reconcile refuses a staged deployment without successful checks", async (t) => {
+  const { deps, stateDir } = migrationDeps();
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  for (const checks of ["none", "pending"]) {
+    deps.readObservation = async () => observation({
+      alias_target_deployment_id: STAGED,
+      deployment_checks_state: checks,
+      deployment_source_commit: MIGRATION_COMMIT,
+      legacy_readyz: "digest",
+      served_deployment_id: STAGED,
+      served_release_digest: BASELINE,
+    });
+    await assert.rejects(
+      () => executeBaselineReconcile({ apply: true, authorization: authorization(), deps, expected, source: source(), staging: staging({}) }),
+      { code: "E_BASELINE_CHECKS_NOT_PASSED" },
+    );
+  }
 });
 
 test("an existing lease blocks a second baseline migration", async (t) => {

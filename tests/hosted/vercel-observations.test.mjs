@@ -134,6 +134,20 @@ test("direct Vercel-managed aliases are accepted while unknown or redirected one
       { code: "E_ALIAS_DRIFT" },
     );
   }
+
+  for (const entry of [
+    { domain: projectAlias, target: "PRODUCTION", deployment: { id: "dpl_other" } },
+    { domain: projectAlias, target: "PRODUCTION", redirect: "other.example" },
+  ]) {
+    await assert.rejects(
+      mockApi({ projectDetails: { ...project, alias: [entry] } }).read(),
+      { code: "E_ALIAS_DRIFT" },
+    );
+  }
+  await assert.rejects(
+    mockApi({ projectDetails: { ...project, alias: [{ domain: "ega-skills-mcp-unknown.vercel.app", target: "PRODUCTION" }] } }).read(),
+    { code: "E_PLATFORM_GUARD" },
+  );
 });
 
 test("completed check state without a successful conclusion cannot authorize promotion", async () => {

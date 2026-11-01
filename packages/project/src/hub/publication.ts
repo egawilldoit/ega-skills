@@ -46,7 +46,7 @@ export const PUBLICATION_RECEIPT_SCHEMA_VERSION = 1 as const;
  * not a publication receipt and never enters the publication revision chain.
  */
 export const BASELINE_MIGRATION_AUTHORIZATION_OBJECT_TYPE = "ega.baseline-runtime-migration-authorization" as const;
-export const BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION = 1 as const;
+export const BASELINE_MIGRATION_AUTHORIZATION_SCHEMA_VERSION = 2 as const;
 export const BASELINE_MIGRATION_RECEIPT_OBJECT_TYPE = "ega.baseline-runtime-migration-receipt" as const;
 export const BASELINE_MIGRATION_RECEIPT_SCHEMA_VERSION = 1 as const;
 export const BASELINE_MIGRATION_SCOPE = "runtime-readiness-only" as const;
@@ -762,6 +762,7 @@ export function assessBaselineMigration(input: {
     if (p.predecessor_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization predecessor source commit does not match");
     if (p.reviewed_runtime_commit !== expected.reviewed_runtime_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization reviewed runtime commit does not match");
     if (p.migration_source_commit !== expected.migration_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source commit does not match");
+    if (p.migration_source_commit !== p.reviewed_runtime_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source is not the exact reviewed runtime commit");
     if (p.legacy_deployment_checks !== expected.legacy_deployment_checks) block("E_BASELINE_CHECKS_NOT_PASSED", "authorization legacy check policy does not match the target");
     if (p.predecessor_deployment_id !== expected.predecessor_deployment_id) block("E_BASELINE_PREDECESSOR_MISMATCH", "authorization predecessor deployment does not match");
     if (p.canonical_alias !== expected.canonical_alias) block("E_BASELINE_IDENTITY_MISMATCH", "authorization canonical alias does not match");

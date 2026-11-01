@@ -133,14 +133,19 @@ Read `GET /v4/aliases/ega-skills-mcp.vercel.app?teamId=…`, then
 `GET /v2/deployments/<deploymentId>/aliases?teamId=…`.
 
 Accept only when the canonical alias resolves directly to the approved
-project's production deployment, every inventory entry is direct (`redirect`
-absent), the inventory is complete (`pagination.next` absent), duplicate names
-are absent, and every name is either the canonical alias or a narrowly
-recognized Vercel-managed automatic alias for this project:
+project's production deployment, every deployment-inventory and project-level
+production alias is direct (`redirect` absent) and points at that deployment,
+the inventory is complete (`pagination.next` absent), duplicate names are
+absent, and every name is either the canonical alias or a narrowly recognized
+Vercel-managed automatic alias for this project:
 
-- `<project>-<team>-<8hex>.vercel.app`
-- `<project>-git-<branch>-<team>-<8hex>.vercel.app`, where `<branch>` is the
-  authorized production branch or the deployment's own immutable Git ref
+- `<project>-<vercel-team-slug>-<8hex>.vercel.app`
+- `<project>-git-<branch>-<vercel-team-slug>-<8hex>.vercel.app`, where `<branch>`
+  is the authorized production branch or the deployment's own immutable Git ref
+
+Each non-canonical name is re-read from `/v4/aliases/{alias}` and must report
+the same project and deployment. Project-level alias entries that name another
+deployment or carry a redirect are refused.
 
 The observed 2026-11-01 live inventory had the canonical alias plus
 `ega-skills-mcp-git-release-20-egas-projects-4fb87621.vercel.app` and

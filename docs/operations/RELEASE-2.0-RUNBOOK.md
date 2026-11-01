@@ -258,7 +258,7 @@ The payload fields are exactly:
     "team_id": "team_e2x4kf12yL43qmBIs2t2YaD2",
     "vercel_user_id": "Dc0U1Ov3Zh5zeFKeic10bVWj"
   },
-  "reviewed_runtime_commit": "<exact implementation merge commit>",
+  "reviewed_runtime_commit": "<same exact main-reachable runtime commit>",
   "scope": "runtime-readiness-only"
 }
 ```
