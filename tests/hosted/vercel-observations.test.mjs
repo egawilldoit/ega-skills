@@ -138,6 +138,7 @@ test("direct Vercel-managed aliases are accepted while unknown or redirected one
   for (const entry of [
     { domain: projectAlias, target: "PRODUCTION", deployment: { id: "dpl_other" } },
     { domain: projectAlias, target: "PRODUCTION", redirect: "other.example" },
+    { domain: projectAlias, target: "production", deployment: { id: "dpl_other" } },
   ]) {
     await assert.rejects(
       mockApi({ projectDetails: { ...project, alias: [entry] } }).read(),
@@ -148,6 +149,17 @@ test("direct Vercel-managed aliases are accepted while unknown or redirected one
     mockApi({ projectDetails: { ...project, alias: [{ domain: "ega-skills-mcp-unknown.vercel.app", target: "PRODUCTION" }] } }).read(),
     { code: "E_PLATFORM_GUARD" },
   );
+  await assert.rejects(
+    mockApi({
+      alias: (read, name) => name === expected.canonical_alias ? undefined : { alias: name, projectId: expected.project_id, deploymentId: "dpl_other" },
+      projectDetails: { ...project, alias: [{ domain: projectAlias, target: "PRODUCTION" }] },
+    }).read(),
+    { code: "E_ALIAS_DRIFT" },
+  );
+  const projectView = await mockApi({
+    projectDetails: { ...project, alias: [{ domain: projectAlias, target: "PRODUCTION", deployment: { id: deployment.id } }] },
+  }).read();
+  assert.deepEqual(projectView.production_aliases, [expected.canonical_alias, projectAlias].sort());
 });
 
 test("completed check state without a successful conclusion cannot authorize promotion", async () => {

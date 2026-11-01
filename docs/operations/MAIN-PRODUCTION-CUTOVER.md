@@ -54,18 +54,21 @@ release branch.
 
 Authorization binds `production_branch: main`, the exact runtime commit, the
 exact predecessor commit, the 117 release/candidate/tree digests, and the
-approved 126 release plus its untouched tree digest. The staging record and
-receipt bind the two source commits, the 117 release/candidate/tree and the
-authorization digest; the 126 approval/tree bindings travel with that digest.
+approved 126 release plus its untouched tree digest. The staging record binds
+the runtime commit, the 117 release/candidate/tree and the authorization
+digest; the receipt additionally binds the predecessor commit and both
+deployments. The 126 approval/tree bindings travel with that digest.
 
 Production aliases are fail-closed but no longer pretend only one exists. The
 gate accepts the canonical alias and narrowly recognized direct Vercel-managed
-automatic aliases (`<project>-<team>-<8hex>.vercel.app` and
-`<project>-git-<branch>-<team>-<8hex>.vercel.app`, where `<branch>` is the
-authorized production branch or the deployment's own Git ref). It re-reads each
-non-canonical alias and requires the same project and deployment. It rejects
-unknown names, custom domains, redirects, duplicates, incomplete pages, and
-aliases targeting another deployment. It never deletes an alias.
+automatic aliases (`<project>-<vercel-team-slug>-<8hex>.vercel.app` and
+`<project>-git-<branch>-<vercel-team-slug>-<8hex>.vercel.app`, where `<branch>`
+is the authorized production branch or the deployment's own Git ref). It
+combines the deployment inventory with project-level production aliases,
+re-reads every non-canonical name, and requires the same project and
+deployment. It rejects unknown names, custom domains, redirects, duplicate
+names in either view, incomplete pages, and aliases targeting another
+deployment. It never deletes an alias.
 
 ## Required execution order
 

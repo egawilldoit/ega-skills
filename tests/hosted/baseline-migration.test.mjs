@@ -211,6 +211,7 @@ test("a tampered or extended authorization envelope is refused", () => {
   for (const candidate of [
     { ...auth, digest: "sha256:" + "0".repeat(64) },
     { ...auth, extra: true },
+    { ...auth, schema_version: 1 },
     { ...auth, payload: { ...auth.payload, scope: "release-change" } },
     { ...auth, payload: { ...auth.payload, approval_record: "https://example.com/approval" } },
   ]) {
@@ -475,43 +476,97 @@ test("the deployment worktree is a fresh clean checkout at the exact commit", { 
   }
 });
 
-test("readBaselineSources composes a real main runtime with the retained 117 artifact", async (t) => {
-  const repo = fileURLToPath(new URL("../..", import.meta.url));
-  const git = (args, cwd = repo) => spawnSync("git", args, { cwd, encoding: "utf8" });
-  const main = git(["rev-parse", "--verify", "origin/main^{commit}"]);
-  const predecessor = git(["cat-file", "-e", "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4^{commit}"]);
-  if (main.status !== 0 || predecessor.status !== 0) {
-    t.skip("origin/main or the retained 117 commit is not present in this checkout");
-    return;
+test("readBaselineSources composes the main runtime with the retained artifact", async (t) => {
+  const repo = mkdtempSync(join(tmpdir(), "ega-compose-"));
+  const git = (args, cwd = repo) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "test"]);
+  writeFileSync(join(repo, "runtime.txt"), "runtime\n");
+  for (const [relativePath, content] of Object.entries({
+    "packages/mcp/server.mts": readFileSync(new URL("../../packages/mcp/server.mts", import.meta.url)),
+    "packages/mcp/src/vercel-adapter.ts": readFileSync(new URL("../../packages/mcp/src/vercel-adapter.ts", import.meta.url)),
+  })) {
+    mkdirSync(dirname(join(repo, relativePath)), { recursive: true });
+    writeFileSync(join(repo, relativePath), content);
   }
-  const runtimeCommit = main.stdout.trim();
-  const predecessorDir = mkdtempSync(join(tmpdir(), "ega-real-117-"));
-  const runtimeDir = mkdtempSync(join(tmpdir(), "ega-real-main-"));
-  rmSync(predecessorDir, { recursive: true, force: true });
-  rmSync(runtimeDir, { recursive: true, force: true });
-  assert.equal(git(["worktree", "add", "--detach", predecessorDir, "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4"]).status, 0);
-  assert.equal(git(["worktree", "add", "--detach", runtimeDir, runtimeCommit]).status, 0);
+  mkdirSync(join(repo, "packages/mcp/artifact"), { recursive: true });
+  writeFileSync(join(repo, "packages/mcp/artifact/retained.txt"), "117\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "predecessor 117"]);
+  const predecessorCommit = git(["rev-parse", "HEAD"]);
+  rmSync(join(repo, "packages/mcp/artifact/retained.txt"));
+  writeFileSync(join(repo, "packages/mcp/artifact/candidate.txt"), "126\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "main candidate 126"]);
+  const runtimeCommit = git(["rev-parse", "HEAD"]);
+  git(["update-ref", "refs/remotes/origin/main", runtimeCommit]);
+
+  const predecessorDir = join(repo, "..", `${basename(repo)}-predecessor`);
+  const runtimeDir = join(repo, "..", `${basename(repo)}-runtime`);
+  git(["worktree", "add", "--detach", predecessorDir, predecessorCommit]);
+  git(["worktree", "add", "--detach", runtimeDir, runtimeCommit]);
   t.after(() => {
     git(["worktree", "remove", "-f", predecessorDir]);
     git(["worktree", "remove", "-f", runtimeDir]);
-    rmSync(predecessorDir, { recursive: true, force: true });
-    rmSync(runtimeDir, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
   });
+  const predecessorTree = artifactTreeDigest(predecessorDir, "packages/mcp/artifact");
+  const runtimeTree = artifactTreeDigest(runtimeDir, "packages/mcp/artifact");
+  const readCandidateImpl = async (directory) => directory.includes("-predecessor")
+    ? { candidate_digest: BASELINE_CANDIDATE, hub_id: "personal", release_digest: BASELINE }
+    : { candidate_digest: "sha256:" + "9".repeat(64), hub_id: "personal", release_digest: CANDIDATE_RELEASE };
   const source = await readBaselineSources({
     expected: {
       ...expected,
+      baseline_artifact_tree_digest: predecessorTree,
+      candidate_artifact_tree_digest: runtimeTree,
       migration_source_commit: runtimeCommit,
-      predecessor_source_commit: "3b3cc96804747e7a5abf11aa15436b8e41ccfbb4",
+      predecessor_source_commit: predecessorCommit,
       reviewed_runtime_commit: runtimeCommit,
     },
     migrationSourceDir: runtimeDir,
     predecessorSourceDir: predecessorDir,
+    readCandidateImpl,
     repoRoot: repo,
   });
-  assert.equal(source.artifact_tree_digest, BASELINE_TREE);
-  assert.equal(source.candidate_artifact_tree_digest, CURRENT_TREE);
+  assert.equal(source.artifact_tree_digest, predecessorTree);
+  assert.equal(source.candidate_artifact_tree_digest, runtimeTree);
+  assert.notEqual(predecessorTree, runtimeTree);
   assert.equal(source.artifact_source_dir, predecessorDir);
   assert.equal(source.migration_source_dir, runtimeDir);
+
+  writeFileSync(join(repo, "packages/mcp/artifact/candidate.txt"), "unreviewed\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "unmerged runtime"]);
+  const unmerged = git(["rev-parse", "HEAD"]);
+  const unmergedDir = join(repo, "..", `${basename(repo)}-unmerged`);
+  git(["worktree", "add", "--detach", unmergedDir, unmerged]);
+  try {
+    await assert.rejects(
+      () => readBaselineSources({
+        expected: {
+          ...expected,
+          baseline_artifact_tree_digest: predecessorTree,
+          candidate_artifact_tree_digest: runtimeTree,
+          migration_source_commit: unmerged,
+          predecessor_source_commit: predecessorCommit,
+          reviewed_runtime_commit: unmerged,
+        },
+        migrationSourceDir: unmergedDir,
+        predecessorSourceDir: predecessorDir,
+        readCandidateImpl,
+        repoRoot: repo,
+      }),
+      { code: "E_BASELINE_SOURCE_MISMATCH" },
+    );
+  } finally {
+    git(["worktree", "remove", "-f", unmergedDir]);
+  }
 });
 
 test("the migration runtime source must be reachable from origin/main", () => {
@@ -529,19 +584,19 @@ test("the migration runtime source must be reachable from origin/main", () => {
   git(["commit", "-m", "main"]);
   const main = git(["rev-parse", "HEAD"]);
   git(["update-ref", "refs/remotes/origin/main", main]);
-  assert.equal(verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "main" }), main);
+  assert.equal(verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "main", repoRoot: repo }), main);
   writeFileSync(join(repo, "a.txt"), "unmerged\n");
   git(["add", "a.txt"]);
   git(["commit", "-m", "unmerged"]);
   const unmerged = git(["rev-parse", "HEAD"]);
 
   assert.throws(
-    () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: unmerged, productionBranch: "main" }),
+    () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: unmerged, productionBranch: "main", repoRoot: repo }),
     { code: "E_BASELINE_SOURCE_MISMATCH" },
   );
   git(["checkout", main]);
   assert.throws(
-    () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "release/2.0" }),
+    () => verifyBaselineSourceReachability({ directory: repo, expectedCommit: main, productionBranch: "release/2.0", repoRoot: repo }),
     { code: "E_BASELINE_SOURCE_MISMATCH" },
   );
 
@@ -557,11 +612,15 @@ test("the migration runtime source must be reachable from origin/main", () => {
   writeFileSync(join(fake, "a.txt"), "fake main\n");
   fakeGit(["add", "a.txt"]);
   fakeGit(["commit", "-m", "fake main"]);
-  fakeGit(["update-ref", "refs/remotes/origin/main", fakeGit(["rev-parse", "HEAD"])]);
   writeFileSync(join(fake, "a.txt"), "fake unmerged\n");
   fakeGit(["add", "a.txt"]);
   fakeGit(["commit", "-m", "fake unmerged"]);
   const fakeUnmerged = fakeGit(["rev-parse", "HEAD"]);
+  fakeGit(["update-ref", "refs/remotes/origin/main", fakeUnmerged]);
+  assert.throws(
+    () => verifyBaselineSourceReachability({ directory: fake, expectedCommit: fakeUnmerged, productionBranch: "main" }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
   assert.throws(
     () => verifyBaselineSourceReachability({ directory: fake, expectedCommit: fakeUnmerged, productionBranch: "main", repoRoot: repo }),
     { code: "E_BASELINE_SOURCE_MISMATCH" },

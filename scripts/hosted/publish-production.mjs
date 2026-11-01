@@ -383,9 +383,12 @@ export function verifyApprovedSourceCommit(expectedCommit, releaseRef = process.
  * source is bound separately (it is the live predecessor commit) and is
  * therefore intentionally not required to be reachable from `main`.
  */
-export function verifyBaselineSourceReachability({ directory, expectedCommit, productionBranch, repoRoot = directory }) {
+export function verifyBaselineSourceReachability({ directory, expectedCommit, productionBranch, repoRoot }) {
   if (typeof productionBranch !== "string" || productionBranch.length === 0) {
     refuse("E_BASELINE_SOURCE_MISMATCH", "the production branch must be named to verify runtime-source ancestry");
+  }
+  if (typeof repoRoot !== "string" || repoRoot.length === 0) {
+    refuse("E_BASELINE_SOURCE_MISMATCH", "the publication repository root is required to verify runtime-source ancestry");
   }
   // Resolve the branch in the publisher's repository, not in a possibly
   // separate operator-supplied worktree whose remote refs could be rewritten.
@@ -590,7 +593,7 @@ export function removeBaselineDeployWorktree({ sourceDir, directory, parent }) {
  * trees are bound separately on purpose: the deployment is assembled from the
  * reviewed runtime plus the retained 117 artifact, never from the 126 candidate.
  */
-export async function readBaselineSources({ repoRoot, predecessorSourceDir, migrationSourceDir, expected }) {
+export async function readBaselineSources({ repoRoot, predecessorSourceDir, migrationSourceDir, expected, readCandidateImpl = readCandidate }) {
   const predecessor = verifyBaselineWorktree({ directory: predecessorSourceDir, expectedCommit: expected.predecessor_source_commit, role: "predecessor source" });
   const migration = verifyBaselineWorktree({ directory: migrationSourceDir, expectedCommit: expected.migration_source_commit, role: "migration source" });
   const predecessorArtifact = join(predecessor, "packages/mcp/artifact");
@@ -607,8 +610,8 @@ export async function readBaselineSources({ repoRoot, predecessorSourceDir, migr
     productionBranch: expected.production_branch,
     repoRoot,
   });
-  const predecessorCandidate = await readCandidate(predecessorArtifact);
-  const migrationCandidate = await readCandidate(migrationArtifact);
+  const predecessorCandidate = await readCandidateImpl(predecessorArtifact);
+  const migrationCandidate = await readCandidateImpl(migrationArtifact);
   if (predecessorCandidate.release_digest !== expected.predecessor_release_digest ||
       predecessorCandidate.candidate_digest !== expected.baseline_candidate_digest ||
       predecessorCandidate.hub_id !== "personal") {
@@ -655,7 +658,7 @@ export function observationFromVercel({ user, project, deployments, served, expe
   // Project aliases name custom production domains; deployment aliases name the
   // assigned automatic aliases (including *.vercel.app). Use both: neither view
   // alone is complete, and an unseen production alias is a bypass path.
-  const projectAliases = (project?.alias ?? []).filter((entry) => entry?.target === "PRODUCTION");
+  const projectAliases = (project?.alias ?? []).filter((entry) => typeof entry?.target === "string" && entry.target.toUpperCase() === "PRODUCTION");
   const aliases = new Set();
   for (const deployment of production) for (const alias of deployment.alias ?? []) aliases.add(alias);
   for (const entry of projectAliases) if (typeof entry.domain === "string") aliases.add(entry.domain);
@@ -729,14 +732,16 @@ export function observationFromVercel({ user, project, deployments, served, expe
  * then re-read every name so "same expected project/deployment" is observed.
  */
 function verifyProjectAliasEntries(project, deployment) {
-  const entries = (project?.alias ?? []).filter((entry) => entry?.target === "PRODUCTION");
+  const entries = (project?.alias ?? []).filter((entry) => typeof entry?.target === "string" && entry.target.toUpperCase() === "PRODUCTION");
+  const domains = entries.map((entry) => entry.domain);
+  if (new Set(domains).size !== domains.length) refuse("E_PLATFORM_GUARD", "duplicate project production aliases prevent reliable inventory");
   for (const entry of entries) {
     if (typeof entry.domain !== "string" || entry.domain.length === 0 || entry.redirect != null ||
         (entry.deployment != null && entry.deployment?.id !== deployment.id)) {
       refuse("E_ALIAS_DRIFT", "a project production alias is redirected or targets another deployment");
     }
   }
-  return entries.map((entry) => entry.domain);
+  return domains;
 }
 
 async function verifyProductionAliasInventory({ expected, get, project, deployment, names }) {

@@ -556,9 +556,9 @@ export interface BaselineMigrationAuthorizationPayload {
   readonly candidate_release_digest: string;
   /** Commit that produced the currently serving legacy deployment. */
   readonly predecessor_source_commit: string;
-  /** Reviewed implementation commit whose readiness files must match. */
+  /** Reviewed runtime commit; must equal `migration_source_commit`. */
   readonly reviewed_runtime_commit: string;
-  /** Reviewed commit that adds only the readiness identity to that runtime. */
+  /** Reviewed main-reachable runtime commit that is deployed. */
   readonly migration_source_commit: string;
   /**
    * The legacy deployment predates deployment checks. "succeeded" requires a

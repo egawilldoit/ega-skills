@@ -233,7 +233,8 @@ node scripts/hosted/publish-production.mjs baseline-authorize \
   --out /secure/outside-repo/baseline-authorization.json
 ```
 
-The payload fields are exactly:
+The authorization envelope is `schema_version: 2`. The payload fields are
+exactly:
 
 ```json
 {

@@ -284,8 +284,8 @@ node scripts/hosted/publish-production.mjs baseline-authorize \
   --out /secure/outside-repo/baseline-authorization.json
 ```
 
-The payload is exactly the schema in the runbook section
-"Baseline runtime migration". It must bind:
+The authorization envelope is `schema_version: 2`. The payload is exactly the
+schema in the runbook section "Baseline runtime migration". It must bind:
 
 - `baseline_release_digest = sha256:3c08…`
 - `baseline_candidate_digest = sha256:5c44…`
