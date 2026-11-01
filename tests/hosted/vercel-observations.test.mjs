@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { observationFromVercel, VercelApi } from "../../scripts/hosted/publish-production.mjs";
 
-const expected = { canonical_alias: "ega-skills-mcp.vercel.app", project_id: "prj_test", team_id: "team_test", publisher_vercel_user_id: "user_test" };
-const deployment = { id: "dpl_current", projectId: expected.project_id, target: "production", readyState: "READY", checksConclusion: "succeeded", alias: [expected.canonical_alias] };
-const project = { id: expected.project_id, accountId: expected.team_id, link: { productionBranch: "release/2.0" }, git: { deploymentEnabled: false } };
+const expected = { canonical_alias: "ega-skills-mcp.vercel.app", production_branch: "main", project_id: "prj_test", team_id: "team_test", publisher_vercel_user_id: "user_test" };
+const deployment = { id: "dpl_current", projectId: expected.project_id, target: "production", readyState: "READY", checksConclusion: "succeeded", alias: [expected.canonical_alias], meta: { githubCommitRef: "main" } };
+const project = { id: expected.project_id, name: "ega-skills-mcp", accountId: expected.team_id, link: { productionBranch: "main" }, git: { deploymentEnabled: false } };
 const observe = (changes) => observationFromVercel({ user: { id: expected.publisher_vercel_user_id }, project: { ...project, ...changes }, deployments: [deployment], expected, served: { release_digest: "sha256:" + "a".repeat(64) } });
 
 test("GitHub deployment notifications and build cancellation are not auto-deploy controls", () => {
@@ -24,10 +24,10 @@ test("deployment policy allowlists are not misread as auto-deploy switches", () 
 });
 
 test("branch patterns and unknown values cannot conceal an enabling rule", () => {
-  for (const enabled of [undefined, true, [], { "release/2.0": false, "release/*": true }, { "release/2.0": false, "*": true }, { "release/*": false }, { "release/2.0": false, "*": null }]) {
+  for (const enabled of [undefined, true, [], { main: false, "release/*": true }, { main: false, "*": true }, { "release/*": false }, { main: false, "*": null }]) {
     assert.equal(observe({ git: { deploymentEnabled: enabled } }).git_production_auto_deploy, true);
   }
-  assert.equal(observe({ git: { deploymentEnabled: { "release/2.0": false } } }).git_production_auto_deploy, false);
+  assert.equal(observe({ git: { deploymentEnabled: { main: false } } }).git_production_auto_deploy, false);
 });
 
 function mockApi({ alias, details, inventory, probe, projectDetails = project } = {}) {
@@ -39,7 +39,10 @@ function mockApi({ alias, details, inventory, probe, projectDetails = project } 
     let body;
     if (url.pathname === "/v2/user") body = { user: { id: expected.publisher_vercel_user_id } };
     else if (url.pathname.startsWith("/v9/projects/")) body = projectDetails;
-    else if (url.pathname.startsWith("/v4/aliases/")) body = alias?.(++aliasReads) ?? { alias: expected.canonical_alias, projectId: expected.project_id, deploymentId: deployment.id };
+    else if (url.pathname.startsWith("/v4/aliases/")) {
+      const name = decodeURIComponent(url.pathname.slice("/v4/aliases/".length));
+      body = alias?.(++aliasReads, name) ?? { alias: name, projectId: expected.project_id, deploymentId: deployment.id };
+    }
     else if (url.pathname.endsWith("/aliases")) body = inventory ?? { aliases: [{ alias: expected.canonical_alias, deploymentId: deployment.id }] };
     else if (url.pathname.startsWith("/v13/deployments/")) body = details ?? deployment;
     else throw Error(`Unexpected API path ${url.pathname}`);
@@ -79,9 +82,10 @@ test("alias inventory is complete and absent deployment checks never become succ
     await assert.rejects(mockApi({ inventory }).read(), { code: "E_PLATFORM_GUARD" });
   }
   await assert.rejects(mockApi({ inventory: { aliases: [] } }).read(), { code: "E_ALIAS_DRIFT" });
-  const observed = await mockApi({ details: { ...deployment, checksConclusion: null, checksState: null }, inventory: { aliases: [{ alias: expected.canonical_alias }, { alias: "extra.vercel.app" }] } }).read();
+  await assert.rejects(mockApi({ inventory: { aliases: [{ alias: expected.canonical_alias }, { alias: "extra.vercel.app" }] } }).read(), { code: "E_PLATFORM_GUARD" });
+  const observed = await mockApi({ details: { ...deployment, checksConclusion: null, checksState: null } }).read();
   assert.equal(observed.deployment_checks_state, "none");
-  assert.deepEqual(observed.production_aliases, [expected.canonical_alias, "extra.vercel.app"]);
+  assert.deepEqual(observed.production_aliases, [expected.canonical_alias]);
   assert.equal(observed.served_release_digest, undefined);
 });
 
@@ -90,7 +94,7 @@ test("main production cutover requires the observed branch and a disabled Git de
   const mainExpected = { ...expected, production_branch: "main" };
   const onMain = mockApi({ projectDetails: { ...project, link: { productionBranch: "main" } } });
   assert.equal((await onMain.read(mainExpected)).production_branch, "main");
-  await assert.rejects(mockApi().read(mainExpected), { code: "E_PLATFORM_GUARD" });
+  await assert.rejects(mockApi({ projectDetails: { ...project, link: { productionBranch: "release/2.0" } } }).read(mainExpected), { code: "E_PLATFORM_GUARD" });
   const enabled = mockApi({ projectDetails: { ...project, link: { productionBranch: "main" }, git: { deploymentEnabled: true } } });
   assert.equal((await enabled.read(mainExpected)).git_production_auto_deploy, true);
 });
@@ -102,6 +106,34 @@ test("alias inventory refuses duplicates and redirects, including empty redirect
     { aliases: [{ alias: expected.canonical_alias, redirect: "" }] },
   ]) await assert.rejects(mockApi({ inventory }).read(), { code: "E_PLATFORM_GUARD" });
   await assert.rejects(mockApi({ alias: () => ({ alias: expected.canonical_alias, projectId: expected.project_id, deploymentId: deployment.id, redirect: "" }) }).read(), { code: "E_ALIAS_DRIFT" });
+});
+
+test("direct Vercel-managed aliases are accepted while unknown or redirected ones are refused", async () => {
+  const generated = "ega-skills-mcp-git-main-egas-projects-4fb87621.vercel.app";
+  const projectAlias = "ega-skills-mcp-egas-projects-4fb87621.vercel.app";
+  const inventory = { aliases: [expected.canonical_alias, generated, projectAlias].map((alias) => ({ alias, deploymentId: deployment.id })) };
+  const observed = await mockApi({ inventory }).read();
+  assert.deepEqual(observed.production_aliases, [expected.canonical_alias, generated, projectAlias].sort());
+  assert.equal(observed.project_name, project.name);
+
+  for (const inventory of [
+    { aliases: [expected.canonical_alias, "ega-skills-mcp-unknown.vercel.app"].map((alias) => ({ alias, deploymentId: deployment.id })) },
+    { aliases: [expected.canonical_alias, "ega-skills-mcp-git-release-2-0-egas-projects-4fb87621.vercel.app"].map((alias) => ({ alias, deploymentId: deployment.id })) },
+    { aliases: [expected.canonical_alias, generated].map((alias) => ({ alias, deploymentId: deployment.id })), pagination: { next: 1 } },
+  ]) await assert.rejects(mockApi({ inventory }).read(), { code: "E_PLATFORM_GUARD" });
+
+  for (const alias of [
+    { alias: generated, deploymentId: "dpl_other" },
+    { alias: projectAlias, redirect: "other.example" },
+  ]) {
+    await assert.rejects(
+      mockApi({
+        alias: (read, name) => name === expected.canonical_alias ? undefined : { ...alias, alias: name },
+        inventory: { aliases: [expected.canonical_alias, alias.alias].map((name) => ({ alias: name, deploymentId: deployment.id })) },
+      }).read(),
+      { code: "E_ALIAS_DRIFT" },
+    );
+  }
 });
 
 test("completed check state without a successful conclusion cannot authorize promotion", async () => {

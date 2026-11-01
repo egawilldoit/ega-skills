@@ -88,10 +88,79 @@ export type PublicationApproval = {
   readonly digest: string;
 };
 
+/**
+ * Vercel assigns automatic deployment aliases in addition to the canonical
+ * production alias. They are production-reachable, so the gate must account
+ * for them instead of pretending only one alias exists. Recognition is
+ * deliberately narrow: the canonical alias, or a generated alias whose label
+ * is derived from the exact project name and either the authorized production
+ * branch or the deployment's immutable Git ref, ending in Vercel's eight-hex
+ * assignment suffix. Unknown names, custom domains and redirects stay blocked.
+ */
+const VERCEL_MANAGED_SUFFIX = ".vercel.app";
+const VERCEL_ALIAS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function aliasSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** Vercel's branch segment: `release/2.0` becomes `release-20`. */
+function branchSlug(value: string): string {
+  return value.toLowerCase().replace(/\./g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export interface ProductionAliasContext {
+  readonly canonical_alias: string;
+  readonly project_name: string;
+  /** The authorized production branch plus the observed deployment Git ref. */
+  readonly branches: readonly string[];
+}
+
+export function isRecognizedProductionAlias(alias: string, context: ProductionAliasContext): boolean {
+  if (alias === context.canonical_alias) return true;
+  if (typeof alias !== "string" || !alias.endsWith(VERCEL_MANAGED_SUFFIX)) return false;
+  const label = alias.slice(0, -VERCEL_MANAGED_SUFFIX.length);
+  if (!VERCEL_ALIAS_LABEL.test(label)) return false;
+  const project = aliasSlug(context.project_name);
+  if (!project) return false;
+  const suffixed = "[a-z0-9-]+-[0-9a-f]{8}";
+  if (new RegExp(`^${escapeRegExp(project)}-(?!git-)${suffixed}$`).test(label)) return true;
+  return context.branches.map(branchSlug).filter(Boolean).some((branch) =>
+    new RegExp(`^${escapeRegExp(project)}-git-${escapeRegExp(branch)}-${suffixed}$`).test(label));
+}
+
+/** Every observed production alias must be canonical or narrowly recognized. */
+export function productionAliasesAreRecognized(
+  aliases: readonly string[] | undefined,
+  context: ProductionAliasContext,
+  canonicalAlias: string,
+): boolean {
+  if (!Array.isArray(aliases) || aliases.length === 0) return false;
+  if (new Set(aliases).size !== aliases.length) return false;
+  if (!aliases.includes(canonicalAlias)) return false;
+  return aliases.every((alias) => isRecognizedProductionAlias(alias, context));
+}
+
+function observedAliasContext(observed: { readonly project_name?: string; readonly production_branch: string; readonly deployment_source_ref?: string }, canonicalAlias: string): ProductionAliasContext {
+  return {
+    branches: [observed.production_branch, observed.deployment_source_ref].filter((value): value is string => typeof value === "string" && value.length > 0),
+    canonical_alias: canonicalAlias,
+    project_name: observed.project_name ?? "",
+  };
+}
+
 export interface PublicationObservation {
   readonly team_id: string;
   readonly project_id: string;
   readonly production_branch: string;
+  /** Vercel project name, used only to recognize generated aliases. */
+  readonly project_name?: string;
+  /** Immutable Git ref of the production deployment, when Vercel reports it. */
+  readonly deployment_source_ref?: string;
   readonly canonical_alias: string;
   /** True when Vercel Git integration can deploy the production branch. */
   readonly git_production_auto_deploy: boolean;
@@ -339,8 +408,8 @@ export function assessProductionPublication(input: {
   if (observed.production_branch !== expected.production_branch) block("E_PLATFORM_GUARD", "Vercel production branch mismatch");
   if (observed.canonical_alias !== expected.canonical_alias) block("E_ALIAS_DRIFT", "canonical production alias mismatch");
   if (observed.git_production_auto_deploy !== false) block("E_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch; staging would assign the public domain automatically");
-  if (!Array.isArray(observed.production_aliases) || observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) {
-    block("E_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  if (!productionAliasesAreRecognized(observed.production_aliases, observedAliasContext(observed, expected.canonical_alias), expected.canonical_alias)) {
+    block("E_PLATFORM_GUARD", "a production alias is unknown, redirected, duplicated or outside the recognized Vercel-managed set");
   }
   if (observed.deployment_ready_state !== "READY") block("E_DEPLOYMENT_NOT_READY", "the predecessor deployment is not READY");
   if (observed.deployment_checks_state !== "succeeded") block("E_CHECKS_NOT_PASSED", "deployment checks have not concluded successfully; force-promotion is forbidden");
@@ -477,6 +546,14 @@ export interface BaselineMigrationAuthorizationPayload {
   readonly baseline_candidate_digest: string;
   /** Physical artifact-tree digest of the retained artifact directory. */
   readonly baseline_artifact_tree_digest: string;
+  /**
+   * Physical artifact-tree digest of the main-branch candidate that supplies
+   * the runtime source. It is verified and never deployed; only the retained
+   * baseline artifact above is placed in the deployment.
+   */
+  readonly candidate_artifact_tree_digest: string;
+  /** Exact approved 126-skill release digest at the runtime source. */
+  readonly candidate_release_digest: string;
   /** Commit that produced the currently serving legacy deployment. */
   readonly predecessor_source_commit: string;
   /** Reviewed implementation commit whose readiness files must match. */
@@ -524,6 +601,8 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
     "baseline_candidate_digest",
     "baseline_release_digest",
     "canonical_alias",
+    "candidate_artifact_tree_digest",
+    "candidate_release_digest",
     "hub_id",
     "legacy_deployment_checks",
     "migration_source_commit",
@@ -550,6 +629,8 @@ export function verifyBaselineMigrationAuthorization(value: unknown): BaselineMi
       baseline_candidate_digest: digest(p["baseline_candidate_digest"], "baseline_candidate_digest"),
       baseline_release_digest: digest(p["baseline_release_digest"], "baseline_release_digest"),
       canonical_alias: alias(p["canonical_alias"], "canonical_alias"),
+      candidate_artifact_tree_digest: digest(p["candidate_artifact_tree_digest"], "candidate_artifact_tree_digest"),
+      candidate_release_digest: digest(p["candidate_release_digest"], "candidate_release_digest"),
       hub_id: text(p["hub_id"], "hub_id"),
       legacy_deployment_checks: p["legacy_deployment_checks"],
       migration_source_commit: commitSha(p["migration_source_commit"], "migration_source_commit"),
@@ -577,6 +658,10 @@ export interface BaselineMigrationObservation {
   readonly team_id: string;
   readonly project_id: string;
   readonly production_branch: string;
+  /** Vercel project name, used only to recognize generated aliases. */
+  readonly project_name?: string;
+  /** Immutable Git ref of the live deployment, when Vercel reports it. */
+  readonly deployment_source_ref?: string;
   readonly canonical_alias: string;
   readonly git_production_auto_deploy: boolean;
   readonly production_aliases: readonly string[];
@@ -600,6 +685,8 @@ export interface BaselineMigrationExpectation {
   readonly predecessor_release_digest: string;
   readonly baseline_candidate_digest: string;
   readonly baseline_artifact_tree_digest: string;
+  readonly candidate_artifact_tree_digest: string;
+  readonly candidate_release_digest: string;
   readonly predecessor_source_commit: string;
   readonly reviewed_runtime_commit: string;
   readonly migration_source_commit: string;
@@ -641,8 +728,9 @@ export interface BaselineMigrationAssessment {
  *   * the live `/readyz` is the legacy shape. A runtime that already reports a
  *     digest must use the normal publisher, and an unavailable probe is not
  *     evidence;
- *   * Git production auto-deploy is disabled and the canonical alias is the
- *     only production alias.
+ *   * Git production auto-deploy is disabled and every production alias is
+ *     either the canonical alias or a narrowly recognized, direct Vercel
+ *     automatic alias on the same deployment.
  *
  * A missing or substituted fact blocks; no optional field is inferred.
  */
@@ -669,6 +757,8 @@ export function assessBaselineMigration(input: {
     if (p.baseline_release_digest !== expected.predecessor_release_digest) block("E_BASELINE_PREDECESSOR_MISMATCH", "authorization baseline release is not the expected predecessor release");
     if (p.baseline_candidate_digest !== expected.baseline_candidate_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization candidate does not match the retained candidate");
     if (p.baseline_artifact_tree_digest !== expected.baseline_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization artifact tree does not match the retained artifact");
+    if (p.candidate_artifact_tree_digest !== expected.candidate_artifact_tree_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization runtime artifact tree does not match the untouched main candidate");
+    if (p.candidate_release_digest !== expected.candidate_release_digest) block("E_BASELINE_SOURCE_MISMATCH", "authorization runtime release does not match the approved main candidate");
     if (p.predecessor_source_commit !== expected.predecessor_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization predecessor source commit does not match");
     if (p.reviewed_runtime_commit !== expected.reviewed_runtime_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization reviewed runtime commit does not match");
     if (p.migration_source_commit !== expected.migration_source_commit) block("E_BASELINE_SOURCE_MISMATCH", "authorization migration source commit does not match");
@@ -700,8 +790,8 @@ export function assessBaselineMigration(input: {
   }
   if (observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
   if (observed.git_production_auto_deploy !== false) block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch");
-  if (!Array.isArray(observed.production_aliases) || observed.production_aliases.length !== 1 || observed.production_aliases[0] !== expected.canonical_alias) {
-    block("E_BASELINE_PLATFORM_GUARD", "additional production aliases can reach the deployment outside this gate");
+  if (!productionAliasesAreRecognized(observed.production_aliases, observedAliasContext(observed, expected.canonical_alias), expected.canonical_alias)) {
+    block("E_BASELINE_PLATFORM_GUARD", "a production alias is unknown, redirected, duplicated or outside the recognized Vercel-managed set");
   }
   if (observed.deployment_ready_state !== "READY") block("E_BASELINE_DEPLOYMENT_NOT_READY", "the legacy deployment is not READY");
   if (expected.legacy_deployment_checks === "succeeded") {

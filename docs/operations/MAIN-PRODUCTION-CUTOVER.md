@@ -1,35 +1,120 @@
-# MCP production branch cutover: release/2.0 to main
+# MCP production branch cutover: `release/2.0` to `main`
 
-Status: **NOT AUTHORIZED FOR PRODUCTION**. This checklist is a proposed migration; existing `docs/operations/RELEASE-2.0-HANDOFF.md` remains authoritative for the 117-skill baseline until the owner approves a replacement flow.
+Status: **IMPLEMENTATION READY / EXECUTION GATED ON LIVE READBACK**. The live
+Vercel project already tracks `main`; the retained 117-skill deployment was
+built from `release/2.0`. This document describes the supported migration of
+that retained 117 runtime. It does not authorize the 126-skill promotion and it
+does not make `release/2.0` a production branch again.
 
-## Verified starting facts (2026-10-31)
+## Live facts to re-read before acting
 
-- Project `ega-skills-mcp`: `prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG`, team `team_e2x4kf12yL43qmBIs2t2YaD2`.
-- Canonical production alias `ega-skills-mcp.vercel.app` still targets READY 117-skill deployment `dpl_MGiFbFtwcibpc9wY7BiK7gXkH3zH`, sourced from `release/2.0` at `3b3cc96804747e7a5abf11aa15436b8e41ccfbb4`. Re-read all live values at execution time.
-- The deployment has **three** live aliases. Additional automatic names: `ega-skills-mcp-git-release-20-egas-projects-4fb87621.vercel.app` and `ega-skills-mcp-egas-projects-4fb87621.vercel.app`.
-- The authenticated project read through the available connector omits `git.deploymentEnabled` and linked production-branch details. No valid read-back of Git auto-deploy suppression has been obtained.
-- The current deployment inspection does not expose a successful `checksConclusion`. Missing is **not** proof of success.
-- Release PR #176 is draft and **must not be merged** to the old release branch.
+- Project `ega-skills-mcp`: `prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG`, team
+  `team_e2x4kf12yL43qmBIs2t2YaD2`.
+- Canonical production alias `ega-skills-mcp.vercel.app` targets the READY
+  117-skill deployment. Re-read the deployment id; the last observed id was
+  `dpl_MGiFbFtwcibpc9wY7BiK7gXkH3zH`, built from `release/2.0` at
+  `3b3cc96804747e7a5abf11aa15436b8e41ccfbb4`.
+- The live alias inventory has three direct aliases: the canonical alias,
+  `ega-skills-mcp-git-release-20-egas-projects-4fb87621.vercel.app`, and
+  `ega-skills-mcp-egas-projects-4fb87621.vercel.app`. Each must resolve directly
+  to the same project and deployment. Do not delete aliases.
+- `/readyz` still returns the legacy `{"status":"ready"}` shape without a
+  release digest until the migration succeeds.
+- `git.deploymentEnabled` in the live project readback has been absent or
+  `null`. Repository config is not live evidence: `packages/mcp/vercel.json`
+  sets `git.deploymentEnabled: false`, but that only applies when the live
+  project consumes that configuration. A missing or unreadable live setting is
+  a blocker, not success.
+- The last live readback did not expose a successful `checksConclusion` for the
+  retained deployment. Missing is not success. The legacy predecessor may only
+  use the explicit `absent-accepted` owner path when it is `READY`, serves the
+  exact 117 artifact, and `/readyz` is the legacy shape. The new migration
+  deployment always requires `checksConclusion: "succeeded"`.
+- PR #176 is a draft from `main` to `release/2.0`. Do not merge, update, or use
+  it as authority for the `main` production branch.
 
-## Code changes in this PR
+## What the code now binds
 
-- `packages/mcp/vercel.json` explicitly sets `git.deploymentEnabled: false`, per Vercel's documented configuration. This controls Git auto-builds **when the project consumes this configuration**; merging this PR into `main` does not prove that the existing `release/2.0` live project already applied it.
-- The publisher binds the approved source commit ancestry and CLI `githubCommitRef` to the explicitly supplied `--production-branch`, allowing `main` without silently accepting a branch mismatch.
-- The live Vercel observer rejects branch mismatches, redirected canonical/assigned aliases, duplicate/incomplete alias inventories, and missing successful check conclusions. It **never ignores** the two extra existing aliases.
+The publisher and its domain gate implement two independent source bindings:
 
-## Required execution order — no shortcuts
+1. **Runtime source** — `migration_source_commit` must be the clean checkout
+   HEAD, must be reachable from `origin/main` (`origin/<production branch>`),
+   and must contain the untouched 126-skill candidate artifact tree. Its
+   readiness files must match the pinned reviewed implementation.
+2. **Artifact source** — the live predecessor deployment's immutable commit
+   supplies only `packages/mcp/artifact`. Its tree must reproduce the exact 117
+   tree `sha256:ad9f0cfa1c68a1531c964d921dfc4e6acf94357447517138aa7d69187f88276a`.
 
-1. **Lock down automatic deployment and read it back.** Before any merge into a currently tracked production branch, use a verified Vercel control that disables production Git deployments. Read back `git.deploymentEnabled === false` for the actual project, or the exact production branch mapped to `false` with no enabling rules. An ignored build step, `autoAssignCustomDomains: false`, GitHub deployment status notifications, and the planned `vercel.json` commit are not sufficient read-back proof. Preserve current deployment and aliases.
-2. **Review the code PR and run exact-head CI** including `tests/hosted/vercel-observations.test.mjs`, `tests/hosted/baseline-migration.test.mjs`, `tests/hosted/production-publication.test.mjs`. The PR must not cause an automatic production deployment.
-3. **Resolve alias and check blockers, not silence them.** Determine whether Vercel's two additional automatic aliases can be removed without an automatic re-creation or bypass. Validate complete deployment alias inventory after every change. Arrange genuine successful Vercel deployment checks for the staged baseline and 126-skill deployment; no fabricated `succeeded` state. If impossible on current plan/configuration, stop and revisit the single-alias/check policy with an independent security review.
-4. **Certify single writer and owner authorization.** Independently confirm only the intended publisher has production write ability, preserve an outside-repo review record and unexpired authorizations, and record residual last-write-wins alias risk. Never create attestations on the owner's behalf.
-5. **Migrate the retained 117-skill runtime first** using the exact reviewed `M1` commit from `release/2.0`, the existing handoff baseline authorization and immutable source/artifact verification. Run dry-run, then stage with `--prod --skip-domain`, verify exact retained 117 digest, successful deployment checks, then promote via the governed publisher. Keep receipt and a tested rollback. If the live runtime is already migrated, reconcile; do not rerun baseline.
-6. **Cut over only after retaining the baseline:** set the Vercel Production environment's Branch Tracking to `main` while Git auto-deploy remains disabled. Read back the new branch and auto-deploy switch from the live project. The repository already defaults to `main`. Do not merge draft PR #176 into `release/2.0`.
-7. **Publish 126 from an approved exact `main` SHA.** Re-approve the candidate after branch transition with `--production-branch main` and `--expect-source-commit <exact-main-sha>`. Run tests, stage only, inspect source metadata, verify 126 artifact, all 117 existing versions unchanged and nine `t3dotgg/*` pinned versions, successful checks and real four-tool OAuth smoke. Promote only with a valid approval and receipt.
-8. **Post-release:** confirm canonical alias exact deployment and `/readyz` digest; verify all nine TStack skills through the hosted interface, observe errors, and retain an explicit rollback command and receipt. Leave `release/2.0` unmerged/archived until owner policy decides its disposition.
+The deployment is assembled from the reviewed runtime plus the retained 117
+artifact. The runtime worktree's 126 artifact is verified and then replaced in
+the staged copy; it is never deployed. This is why the old
+`predecessor → migration` "three-file delta" rule no longer applies: it was
+valid only while the live deployment and the migration commit were on the same
+release branch.
+
+Authorization, staging, and receipts bind `production_branch: main`, the exact
+runtime commit, the exact predecessor commit, the 117 release/candidate/tree
+digests, and the approved 126 release plus its untouched tree digest.
+
+Production aliases are fail-closed but no longer pretend only one exists. The
+gate accepts the canonical alias and narrowly recognized direct Vercel-managed
+automatic aliases (`<project>-<team>-<8hex>.vercel.app` and
+`<project>-git-<branch>-<team>-<8hex>.vercel.app`, where `<branch>` is the
+authorized production branch or the deployment's own Git ref). It re-reads each
+non-canonical alias and requires the same project and deployment. It rejects
+unknown names, custom domains, redirects, duplicates, incomplete pages, and
+aliases targeting another deployment. It never deletes an alias.
+
+## Required execution order
+
+1. **Read the live gates.** Canonical alias target, complete alias inventory,
+   deployment state, source commit/ref, effective Git auto-deploy setting,
+   publisher identity, and deployment checks. A 403, missing field, `git: null`,
+   or absent check conclusion is a stop condition.
+2. **Review and merge the implementation PR into `main`.** Run exact-head CI,
+   including `tests/hosted/baseline-migration.test.mjs`,
+   `tests/hosted/vercel-observations.test.mjs`, and
+   `tests/hosted/production-publication.test.mjs`. Record the merge SHA; that
+   exact commit is the candidate runtime source. Disable live automatic Git
+   deployments through a verified Vercel control and read it back.
+3. **Certify the retained predecessor.** Verify the live deployment is READY,
+   serves the legacy `/readyz` shape, its immutable source commit is the
+   authorized predecessor, and its artifact tree is the exact 117 tree. Use
+   `absent-accepted` only under the documented owner acceptance; otherwise
+   require a real successful check.
+4. **Prepare both clean worktrees.** Predecessor at the live source commit;
+   runtime at the exact main-reachable reviewed commit. Verify the 117 tree and
+   the untouched 126 tree separately. Do not install dependencies in either.
+5. **Authorize and dry-run.** Bind `production_branch: main`, both commits,
+   both trees, the candidate, publisher, alias, and predecessor. Run `baseline`
+   without `--apply`; it must report READY and perform no mutation.
+6. **Apply the baseline migration only.** Stage with `--prod --skip-domain`,
+   verify the staged deployment is READY with successful checks, source
+   metadata equals the runtime commit, and `/readyz` serves the exact 117
+   digest. Promote without `--force`; keep the staging record and write-once
+   receipt outside the repository. Preserve the original deployment and all
+   aliases.
+7. **Verify production.** Canonical `/readyz` reports the exact 117 digest; the
+   alias inventory is complete and direct; authenticated MCP still reports 117
+   skills and no `t3dotgg/*` skills; the 126 candidate was not deployed.
+8. **Rollback path.** Restore the retained 117 deployment from the recorded
+   predecessor/receipt using the governed rollback path, or use
+   `baseline-reconcile` for an interrupted migration. A bare `vercel rollback`
+   to the original legacy deployment is containment only and must be recorded
+   as an audit gap.
 
 ## Stop conditions
 
-Do not proceed if the Git auto-deploy switch cannot be read back, the live alias is not exact, there is more than one production alias, deployment checks are absent/failed/pending for a newly staged build, source metadata mismatches, the reviewed host is not Linux, the publisher/owner approval is missing, or a rollback cannot restore the retained 117 deployment.
+Do not proceed if the canonical alias is not exact, any alias is unknown or
+redirected, the inventory is incomplete, Git auto-deploy is not observably
+disabled for `main`, the publisher token is not the approved user, the legacy
+check policy is not explicitly satisfied, the reviewed runtime is not reachable
+from `origin/main`, either artifact tree mismatches, the staged deployment is
+not READY with successful checks, or a verified rollback is unavailable.
 
-**Vercel official references:** https://vercel.com/docs/project-configuration/git-configuration , https://vercel.com/docs/git , https://vercel.com/docs/deployment-checks , https://vercel.com/docs/deployments/promoting-a-deployment .
+## Vercel references
+
+- https://vercel.com/docs/project-configuration/git-configuration
+- https://vercel.com/docs/git
+- https://vercel.com/docs/deployment-checks
+- https://vercel.com/docs/deployments/promoting-a-deployment
