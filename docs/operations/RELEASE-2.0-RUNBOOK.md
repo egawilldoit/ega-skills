@@ -577,12 +577,18 @@ Preview proof and the immutable-deployment transcript:
      --team team_e2x4kf12yL43qmBIs2t2YaD2 \
      --project prj_… --publisher <vercel-user-id> \
      --production-branch main \
+     --runtime-source-commit <clean reviewed commit for the runtime-config control> \
      --alias ega-skills-mcp.vercel.app \
      --expect-revision 3 --expect-deployment <current-dpl-id> \
      --expect-release <current-release-digest> \
      --receipt /secure/receipt-4.json \
      --readiness /secure/outside-repo/readiness.json --apply
    ```
+
+   `--runtime-source-commit` is optional. When the project API omits
+   `git.deploymentEnabled`, a rollback must supply a clean, reviewed commit whose
+   `packages/mcp/vercel.json` contains the exact false rule; otherwise the
+   publisher refuses rather than guessing.
 
    A bare `vercel rollback`/`vercel promote` is an emergency containment
    action only. Record it, re-run the boundary verification immediately, and

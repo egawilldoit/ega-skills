@@ -134,6 +134,11 @@ test("runtime config evidence can disable auto-deploy only when exact", () => {
   const present = assess({ obs: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: true, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
   assert.equal(present.status, "BLOCKED");
   assert.ok(present.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  for (const root of ["", "packages/mcp/", undefined]) {
+    const result = assess({ obs: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: root }) });
+    assert.equal(result.status, "BLOCKED");
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_PLATFORM_GUARD"));
+  }
 });
 
 test("stale predecessor release or deployment is refused", () => {

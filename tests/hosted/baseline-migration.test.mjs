@@ -170,6 +170,11 @@ test("runtime config evidence disables auto-deploy only when commit and digest m
   const present = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: config, git_deployment_enabled_present: true, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
   assert.equal(present.status, "BLOCKED");
   assert.ok(present.blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
+  for (const root of ["", "packages/mcp/", undefined]) {
+    const result = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: config, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: root }) });
+    assert.equal(result.status, "BLOCKED");
+    assert.ok(result.blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
+  }
 });
 
 test("missing, substituted and stale predecessor evidence is refused", () => {

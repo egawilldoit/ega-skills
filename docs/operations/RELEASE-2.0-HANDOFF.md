@@ -121,12 +121,13 @@ Accept one of:
 - the project API omits `git.deploymentEnabled` (absent or `null`), the live
   project Root Directory is exactly `packages/mcp`, and that commit's
   `packages/mcp/vercel.json` contains `git.deploymentEnabled: false` (or the
-  exact-branch all-false rule). The publisher reads that file from Git objects,
-  binds its SHA-256 digest and source commit through the authorization, and
-  records it in the observation. If the API reports any value, the API remains
-  authoritative and this fallback is not used. This is the only fallback; a
-  missing or different file, a mutable working tree, a Root Directory mismatch,
-  or any enabling rule blocks.
+  exact-branch all-false rule). The publisher reads that file from Git objects.
+  The baseline binds its SHA-256 digest and source commit in the authorization;
+  a normal release binds them to the exact `--expect-source-commit` and staging
+  source commit. If the API reports any value, the API remains authoritative
+  and this fallback is not used. This is the only fallback; a missing or
+  different file, a mutable working tree, a Root Directory mismatch, or any
+  enabling rule blocks.
 
 `gitProviderOptions.createDeployments` only controls GitHub `deployment_status`
 events, not Vercel builds. `commandForIgnoringBuildStep` is not accepted by

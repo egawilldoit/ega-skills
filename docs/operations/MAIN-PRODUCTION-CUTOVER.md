@@ -24,9 +24,11 @@ does not make `release/2.0` a production branch again.
   `null`. Repository config is not live evidence by itself: `packages/mcp/vercel.json`
   sets `git.deploymentEnabled: false`, but that only applies to the exact
   reviewed deployment. The publisher accepts it only when the project API omits
-  the field and the file at the authorized runtime commit is read from Git
-  objects, matches the authorized digest, and contains the exact false rule.
-  A missing or different file is a blocker.
+  the field, the live Root Directory is exactly `packages/mcp`, and the file at
+  the authorized runtime commit is read from Git objects with the expected
+  digest (authorization-bound for baseline, source-commit-bound for a normal
+  release) and contains the exact false rule. A missing or different file,
+  Root Directory drift, or any present API value is a blocker.
 - The last live readback did not expose a successful `checksConclusion` for the
   retained deployment. Missing is not success. The legacy predecessor may only
   use the explicit `absent-accepted` owner path when it is `READY`, serves the

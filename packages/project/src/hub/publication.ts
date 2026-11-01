@@ -171,7 +171,7 @@ export function gitAutoDeployIsDisabled(
   expected: { readonly runtime_source_commit?: string; readonly runtime_vercel_config_digest?: string; readonly runtime_config_root_directory?: string | undefined },
 ): boolean {
   if (observed.git_production_auto_deploy === false) return true;
-  if (observed.git_deployment_enabled_present === true) return false;
+  if (observed.git_deployment_enabled_present !== false) return false;
   const control = observed.git_auto_deploy_control;
   return control?.kind === "runtime-config" && control.deployment_enabled === false &&
     typeof expected.runtime_source_commit === "string" && control.source_commit === expected.runtime_source_commit &&
