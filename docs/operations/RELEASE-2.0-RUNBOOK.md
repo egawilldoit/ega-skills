@@ -366,13 +366,16 @@ notifications; disabling it does **not** disable Vercel Git builds. See the
 and [Git configuration](https://vercel.com/docs/project-configuration/git-configuration).
 An ignored build command is also not a production publication ACL. The
 publisher accepts an observable `git.deploymentEnabled: false` or an exact
-production-branch false rule with exclusively false rules. When the project API
-omits that field, it may instead verify the exact reviewed runtime commit's
-`packages/mcp/vercel.json`: the file is read from Git objects, must contain
+production-branch false rule with exclusively false rules. If the project API
+reports the field, that value is authoritative. Only when it omits the field
+(absent or `null`) may the publisher verify the exact reviewed runtime commit's
+`packages/mcp/vercel.json` with a matching Root Directory of `packages/mcp`: the file is read from Git objects, must contain
 `git.deploymentEnabled: false` (or the exact-branch all-false rule), and its
-SHA-256 digest and source commit are bound by the authorization and observation.
-Other shapes, including deployment-policy allowlists, remain blocked; missing
-fields are never interpreted as disabled.
+SHA-256 digest and source commit are bound by the baseline authorization, or by
+the exact `--expect-source-commit` and staging source commit for a normal
+release. Other shapes, including deployment-policy allowlists, remain blocked. A missing
+field is never interpreted as disabled; only the exact runtime-config fallback
+above may supply the control.
 
 The publisher resolves the canonical alias with `GET /v4/aliases/{alias}`,
 retrieves its full immutable deployment and complete deployment alias inventory,

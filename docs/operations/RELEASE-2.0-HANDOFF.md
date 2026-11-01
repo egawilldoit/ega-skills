@@ -106,7 +106,8 @@ production MCP availability. Do not claim LIVE until section 11 succeeds.
 ## 4. External gates before any applying command
 
 All five must be true and read back from the live APIs immediately before the
-migration or promotion. Missing fields block; absence is never success.
+migration or promotion. A missing field only permits the exact runtime-config
+fallback described in 4.1; it is never a general success signal.
 
 ### 4.1 Git production auto-deploy is disabled
 
@@ -117,12 +118,15 @@ Accept one of:
 - `git.deploymentEnabled === false`; or
 - `git.deploymentEnabled` is an object with the exact live production branch
   (`"main"`) mapped to `false` and **every** value in the object is `false`; or
-- the project API omits `git.deploymentEnabled`, and the exact reviewed runtime
-  commit's `packages/mcp/vercel.json` contains `git.deploymentEnabled: false`
-  (or the exact-branch all-false rule). The publisher reads that file from Git
-  objects, binds its SHA-256 digest and source commit through the authorization,
-  and records it in the observation. This is the only fallback; a missing or
-  different file, a mutable working tree, or any enabling rule blocks.
+- the project API omits `git.deploymentEnabled` (absent or `null`), the live
+  project Root Directory is exactly `packages/mcp`, and that commit's
+  `packages/mcp/vercel.json` contains `git.deploymentEnabled: false` (or the
+  exact-branch all-false rule). The publisher reads that file from Git objects,
+  binds its SHA-256 digest and source commit through the authorization, and
+  records it in the observation. If the API reports any value, the API remains
+  authoritative and this fallback is not used. This is the only fallback; a
+  missing or different file, a mutable working tree, a Root Directory mismatch,
+  or any enabling rule blocks.
 
 `gitProviderOptions.createDeployments` only controls GitHub `deployment_status`
 events, not Vercel builds. `commandForIgnoringBuildStep` is not accepted by
@@ -528,6 +532,7 @@ node scripts/hosted/publish-production.mjs rollback \
   --project prj_64LVYA9KOYL9sA2ONRNBzJmt9WAG \
   --publisher Dc0U1Ov3Zh5zeFKeic10bVWj \
   --production-branch main \
+  --runtime-source-commit <clean reviewed commit for the runtime-config control> \
   --alias ega-skills-mcp.vercel.app \
   --expect-revision 1 \
   --expect-deployment <126 deployment> \

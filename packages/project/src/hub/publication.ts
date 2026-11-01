@@ -167,14 +167,16 @@ export interface GitAutoDeployControl {
  * digest and source commit. Anything else stays blocked.
  */
 export function gitAutoDeployIsDisabled(
-  observed: { readonly git_production_auto_deploy: boolean; readonly git_auto_deploy_control?: GitAutoDeployControl },
-  expected: { readonly runtime_source_commit?: string; readonly runtime_vercel_config_digest?: string },
+  observed: { readonly git_production_auto_deploy: boolean; readonly git_auto_deploy_control?: GitAutoDeployControl; readonly git_deployment_enabled_present?: boolean; readonly project_root_directory?: string },
+  expected: { readonly runtime_source_commit?: string; readonly runtime_vercel_config_digest?: string; readonly runtime_config_root_directory?: string | undefined },
 ): boolean {
   if (observed.git_production_auto_deploy === false) return true;
+  if (observed.git_deployment_enabled_present === true) return false;
   const control = observed.git_auto_deploy_control;
   return control?.kind === "runtime-config" && control.deployment_enabled === false &&
     typeof expected.runtime_source_commit === "string" && control.source_commit === expected.runtime_source_commit &&
-    typeof expected.runtime_vercel_config_digest === "string" && control.config_digest === expected.runtime_vercel_config_digest;
+    typeof expected.runtime_vercel_config_digest === "string" && control.config_digest === expected.runtime_vercel_config_digest &&
+    typeof expected.runtime_config_root_directory === "string" && observed.project_root_directory === expected.runtime_config_root_directory;
 }
 
 export interface PublicationObservation {
@@ -190,6 +192,10 @@ export interface PublicationObservation {
   readonly git_production_auto_deploy: boolean;
   /** Exact runtime-config evidence when the project API omits the field. */
   readonly git_auto_deploy_control?: GitAutoDeployControl;
+  /** True when the project API actually returned git.deploymentEnabled. */
+  readonly git_deployment_enabled_present?: boolean;
+  /** Vercel project Root Directory, used to bind the config file location. */
+  readonly project_root_directory?: string;
   /** Aliases that can reach a production deployment (canonical + custom). */
   readonly production_aliases: readonly string[];
   readonly alias_target_deployment_id: string;
@@ -206,6 +212,7 @@ export interface PublicationExpectation {
   readonly canonical_alias: string;
   readonly runtime_source_commit?: string;
   readonly runtime_vercel_config_digest?: string;
+  readonly runtime_config_root_directory?: string;
   readonly predecessor_release_digest: string;
   readonly predecessor_deployment_id: string;
   readonly expected_revision: number;
@@ -698,6 +705,10 @@ export interface BaselineMigrationObservation {
   readonly git_production_auto_deploy: boolean;
   /** Exact runtime-config evidence when the project API omits the field. */
   readonly git_auto_deploy_control?: GitAutoDeployControl;
+  /** True when the project API actually returned git.deploymentEnabled. */
+  readonly git_deployment_enabled_present?: boolean;
+  /** Vercel project Root Directory, used to bind the config file location. */
+  readonly project_root_directory?: string;
   readonly production_aliases: readonly string[];
   readonly alias_target_deployment_id: string;
   readonly served_deployment_id: string;
@@ -727,6 +738,7 @@ export interface BaselineMigrationExpectation {
   /** Same as migration_source_commit; used for config-control binding. */
   readonly runtime_source_commit?: string;
   readonly runtime_vercel_config_digest: string;
+  readonly runtime_config_root_directory?: string;
   readonly legacy_deployment_checks: "succeeded" | "absent-accepted";
   readonly publisher_vercel_user_id: string;
   readonly now: string;
@@ -828,7 +840,7 @@ export function assessBaselineMigration(input: {
       : "the live runtime is not the exact legacy readiness shape; 200 alone is not predecessor proof");
   }
   if (observed.served_release_digest !== undefined) block("E_BASELINE_LEGACY_STATE", "legacy readiness must not carry a release digest");
-  if (!gitAutoDeployIsDisabled(observed, { runtime_source_commit: expected.runtime_source_commit ?? expected.migration_source_commit, runtime_vercel_config_digest: expected.runtime_vercel_config_digest })) {
+  if (!gitAutoDeployIsDisabled(observed, { runtime_config_root_directory: expected.runtime_config_root_directory, runtime_source_commit: expected.runtime_source_commit ?? expected.migration_source_commit, runtime_vercel_config_digest: expected.runtime_vercel_config_digest })) {
     block("E_BASELINE_PLATFORM_GUARD", "Vercel Git auto-deploy is not observably disabled for the production branch");
   }
   if (!productionAliasesAreRecognized(observed.production_aliases, observedAliasContext(observed, expected.canonical_alias), expected.canonical_alias)) {

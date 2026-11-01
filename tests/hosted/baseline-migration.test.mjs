@@ -86,6 +86,7 @@ const expected = {
   candidate_release_digest: CANDIDATE_RELEASE,
   runtime_source_commit: MIGRATION_COMMIT,
   runtime_vercel_config_digest: CONFIG_DIGEST,
+  runtime_config_root_directory: "packages/mcp",
   canonical_alias: ALIAS,
   legacy_deployment_checks: "succeeded",
   max_approval_age_ms: 24 * 60 * 60 * 1000,
@@ -154,18 +155,21 @@ test("a pre-check legacy deployment is accepted only with explicit absent-accept
 
 test("runtime config evidence disables auto-deploy only when commit and digest match", () => {
   const config = { config_digest: CONFIG_DIGEST, deployment_enabled: false, kind: "runtime-config", source_commit: MIGRATION_COMMIT };
-  const disabled = observation({ git_auto_deploy_control: config, git_production_auto_deploy: true });
-  assert.equal(assessBaselineMigration({ authorization: authorization(), expected, observation: disabled }).status, "READY");
+  const disabled = observation({ git_auto_deploy_control: config, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: "packages/mcp" });
+  const ready = assessBaselineMigration({ authorization: authorization(), expected, observation: disabled }); assert.equal(ready.status, "READY", JSON.stringify(ready.blockers));
   for (const control of [
     { ...config, config_digest: "sha256:" + "8".repeat(64) },
     { ...config, source_commit: "c".repeat(40) },
     { ...config, deployment_enabled: true },
     { ...config, kind: "ignored-build-step" },
   ]) {
-    const result = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: control, git_production_auto_deploy: true }) });
+    const result = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: control, git_deployment_enabled_present: false, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
     assert.equal(result.status, "BLOCKED");
     assert.ok(result.blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
   }
+  const present = assessBaselineMigration({ authorization: authorization(), expected, observation: observation({ git_auto_deploy_control: config, git_deployment_enabled_present: true, git_production_auto_deploy: true, project_root_directory: "packages/mcp" }) });
+  assert.equal(present.status, "BLOCKED");
+  assert.ok(present.blockers.some((blocker) => blocker.code === "E_BASELINE_PLATFORM_GUARD"));
 });
 
 test("missing, substituted and stale predecessor evidence is refused", () => {
@@ -563,6 +567,25 @@ test("readBaselineSources composes the main runtime with the retained artifact",
   assert.notEqual(predecessorTree, runtimeTree);
   assert.equal(source.artifact_source_dir, predecessorDir);
   assert.equal(source.migration_source_dir, runtimeDir);
+
+  await assert.rejects(
+    () => readBaselineSources({
+      expected: {
+        ...expected,
+        baseline_artifact_tree_digest: predecessorTree,
+        candidate_artifact_tree_digest: runtimeTree,
+        migration_source_commit: runtimeCommit,
+        predecessor_source_commit: predecessorCommit,
+        reviewed_runtime_commit: runtimeCommit,
+        runtime_vercel_config_digest: "sha256:" + "8".repeat(64),
+      },
+      migrationSourceDir: runtimeDir,
+      predecessorSourceDir: predecessorDir,
+      readCandidateImpl,
+      repoRoot: repo,
+    }),
+    { code: "E_BASELINE_SOURCE_MISMATCH" },
+  );
 
   writeFileSync(join(repo, "packages/mcp/artifact/candidate.txt"), "unreviewed\n");
   git(["add", "-A"]);

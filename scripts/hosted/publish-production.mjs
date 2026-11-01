@@ -747,10 +747,12 @@ export function observationFromVercel({ user, project, deployments, served, expe
     deployment_checks_state: checks,
     deployment_ready_state: String(canonical.readyState ?? ""),
     git_production_auto_deploy: autoDeploy,
+    git_deployment_enabled_present: Object.hasOwn(git, "deploymentEnabled") && git.deploymentEnabled !== null && git.deploymentEnabled !== undefined,
     production_aliases: [...aliases].sort(),
     production_branch: productionBranch,
     project_id: String(project.id),
     project_name: typeof project.name === "string" ? project.name : "",
+    project_root_directory: typeof project.rootDirectory === "string" ? project.rootDirectory : "",
     deployment_source_ref: typeof canonical.meta?.githubCommitRef === "string" ? canonical.meta.githubCommitRef : "",
     served_deployment_id: served.served_deployment_id ?? String(canonical.id),
     served_release_digest: served.release_digest,
@@ -1921,6 +1923,7 @@ async function runBaselineCli(mode, values) {
     reviewed_runtime_commit: authorization.payload.reviewed_runtime_commit,
     runtime_source_commit: authorization.payload.migration_source_commit,
     runtime_vercel_config_digest: authorization.payload.runtime_vercel_config_digest,
+    runtime_config_root_directory: "packages/mcp",
     staged_deployment_id: values["staged-deployment"],
     team_id: teamId,
   };
@@ -1955,7 +1958,7 @@ async function runBaselineCli(mode, values) {
     readObservation: async (expectation) => {
       const observed = await api.readBaseline(expectation, (alias) =>
         probeLegacyReady(alias.startsWith("http") ? alias : `https://${alias}`, { bypass }));
-      return observed.git_production_auto_deploy === false || source.git_auto_deploy_control === undefined
+      return observed.git_production_auto_deploy === false || observed.git_deployment_enabled_present === true || source.git_auto_deploy_control === undefined
         ? observed
         : { ...observed, git_auto_deploy_control: source.git_auto_deploy_control };
     },
@@ -2049,6 +2052,15 @@ async function main() {
   if (mode === "stage" || mode === "promote" || mode === "reconcile") {
     expected.source_commit = verifyApprovedSourceCommit(required(values, "expect-source-commit"), `origin/${expected.production_branch}`);
     expected.runtime_source_commit = expected.source_commit;
+    expected.runtime_config_root_directory = "packages/mcp";
+    const runtimeGitConfig = readRuntimeGitConfig({ commit: expected.source_commit, productionBranch: expected.production_branch, repoRoot: REPO_ROOT });
+    expected.runtime_vercel_config_digest = runtimeGitConfig.config_digest;
+    expected.git_auto_deploy_control = runtimeGitConfig.control;
+  }
+  if (mode === "rollback" && values["runtime-source-commit"] !== undefined) {
+    expected.source_commit = verifyApprovedSourceCommit(values["runtime-source-commit"], `origin/${expected.production_branch}`);
+    expected.runtime_source_commit = expected.source_commit;
+    expected.runtime_config_root_directory = "packages/mcp";
     const runtimeGitConfig = readRuntimeGitConfig({ commit: expected.source_commit, productionBranch: expected.production_branch, repoRoot: REPO_ROOT });
     expected.runtime_vercel_config_digest = runtimeGitConfig.config_digest;
     expected.git_auto_deploy_control = runtimeGitConfig.control;
@@ -2056,7 +2068,7 @@ async function main() {
   const token = vercelToken();
   const api = new VercelApi({ teamId, token });
   const probe = (url, options = {}) => probeReady(url.startsWith("http") ? url : `https://${url}`, options);
-  const withConfigControl = (observed) => observed.git_production_auto_deploy === false || expected.git_auto_deploy_control === undefined
+  const withConfigControl = (observed) => observed.git_production_auto_deploy === false || observed.git_deployment_enabled_present === true || expected.git_auto_deploy_control === undefined
     ? observed
     : { ...observed, git_auto_deploy_control: expected.git_auto_deploy_control };
   const deps = {
