@@ -12,7 +12,8 @@
   authoritative in the
   [automatic release runbook](docs/operations/AUTOMATIC-RELEASE.md),
   [release runbook](docs/operations/RELEASE-2.0-RUNBOOK.md),
-  [web promotion runbook](docs/operations/web-console-production-promotion.md),
+  [historical Web Console preparation plan](docs/operations/web-console-production-promotion.md)
+  (separate application; not the MCP release procedure),
   and [MCP Vercel guide](packages/mcp/VERCEL.md).
 
 ## CI profiles and ownership
@@ -57,7 +58,7 @@ secrets, manually promote, or auto-merge without separate authorization.
 
 ### Production release
 
-The only supported production release path is the
+The only supported MCP production release path is the
 [automatic release runbook](docs/operations/AUTOMATIC-RELEASE.md). In short:
 
 - Reviewed code and the skill catalog ship together from the same `main` commit.
@@ -84,9 +85,10 @@ curl -fsS https://ega-skills-mcp.vercel.app/readyz
 gh run list --repo egawilldoit/ega-skills --workflow verify-release.yml --limit 5
 ```
 
-Destructive recovery on the real canonical service still requires a
-disposable-project demonstration; focused tests do not substitute for live
-platform evidence.
+Destructive recovery has not been demonstrated on a disposable live Vercel
+project. Keep that validation gap explicit; focused tests do not substitute for
+live platform evidence. Do not deliberately break the canonical service to
+close it.
 
 For CI changes, map affected tests and required contexts, make the smallest
 change, verify default and fixture behavior, measure wall time and summed runner
