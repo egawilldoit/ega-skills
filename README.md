@@ -346,6 +346,8 @@ silently become the new contract.
 - 2.0 candidate: [`docs/RELEASE-NOTES-2.0.0.md`](docs/RELEASE-NOTES-2.0.0.md),
   operator runbook
   [`docs/operations/RELEASE-2.0-RUNBOOK.md`](docs/operations/RELEASE-2.0-RUNBOOK.md),
+  automatic release path
+  [`docs/operations/AUTOMATIC-RELEASE.md`](docs/operations/AUTOMATIC-RELEASE.md),
   and the aggregate evidence ledger
   [`docs/evidence/RELEASE-2.0-FINAL.md`](docs/evidence/RELEASE-2.0-FINAL.md).
 

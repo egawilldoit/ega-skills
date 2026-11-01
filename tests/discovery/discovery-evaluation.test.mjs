@@ -260,7 +260,7 @@ test("the eval script's direct-invocation guard is cross-platform", async () => 
   }
   // The shipped scripts must use the correct idiom (ignoring comments, which
   // legitimately quote the broken form to explain why it is wrong).
-  for (const script of ["scripts/eval/discovery.mjs", "scripts/eval/routing.mjs", "scripts/hosted/publish-production.mjs"]) {
+  for (const script of ["scripts/eval/discovery.mjs", "scripts/eval/routing.mjs"]) {
     const text = await readFile(join(process.cwd(), script), "utf8");
     const code = text
       .split("\n")

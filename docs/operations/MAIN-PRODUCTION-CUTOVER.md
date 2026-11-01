@@ -1,5 +1,11 @@
 # MCP production branch cutover: `release/2.0` to `main`
 
+> **SUPERSEDED — historical cutover plan.** The baseline-runtime migration and
+> the custom publisher described here are retired. Production releases
+> automatically from `main`; see [`AUTOMATIC-RELEASE.md`](AUTOMATIC-RELEASE.md).
+> Do not execute the baseline/stage/promote/reconcile commands below. The plan is
+> preserved as the cutover state at the time of writing.
+
 Status: **IMPLEMENTATION READY / EXECUTION GATED ON LIVE READBACK**. The live
 Vercel project already tracks `main`; the retained 117-skill deployment was
 built from `release/2.0`. This document describes the supported migration of

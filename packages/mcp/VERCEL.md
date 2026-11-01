@@ -41,9 +41,9 @@ HTTP routing/bridging lives in `packages/mcp/src/vercel-adapter.ts`:
 - unknown paths → controlled `404 {"error":{"code":"E_NOT_FOUND"}}`
 - no debugging/configuration endpoints
 
-## Vercel UI configuration (enter AFTER the deployment PR is merged)
+## Vercel project configuration (active)
 
-Production Branch: `release/2.0`
+Production Branch: `main`
 
 Root Directory: `packages/mcp`
 
@@ -57,8 +57,42 @@ Build Command: `pnpm -w build`
 Node version: 24 (repo pins `engines.node = 24`, `.nvmrc = 24`,
 `packageManager = pnpm@10.0.0`; Vercel 24.x default)
 
-Tick "Include source files outside of the Root Directory in the Build
-Step" so workspace dependencies resolve.
+"Include source files outside of the Root Directory in the Build Step":
+enabled (`sourceFilesOutsideRootDirectory: true`) so workspace dependencies
+resolve.
+
+Git deployment is enabled by the **absence** of `git.deploymentEnabled` in
+`packages/mcp/vercel.json`. A push to `main` produces a production deployment
+for that exact commit. There is no publish CLI, receipt chain, baseline
+authorization, or local candidate directory in the path.
+
+Deployment Check: `ci-gate` is required for production. Vercel builds the
+commit, then holds the production deployment (and therefore the production
+alias) until the GitHub `ci-gate` check for the same commit succeeds. A failed
+or missing check leaves the previous production deployment serving; it does not
+promote a partial build.
+
+`release/2.0`, the `scripts/hosted/publish-production.mjs` publisher, and the
+baseline/receipt procedure are obsolete. So is `git.deploymentEnabled: false`:
+that key is what blocked native Git deployments and forced the old manual path.
+
+### Workspace install and build context
+
+Vercel runs the build with `packages/mcp` as the Root Directory, but pnpm
+resolves the workspace from the repository root:
+
+- root `pnpm-workspace.yaml` includes `packages/*` and `apps/*`;
+- root `pnpm-lock.yaml` is the lockfile, installed with
+  `pnpm install --frozen-lockfile` (the build log reports
+  `Scope: all 12 workspace projects` from `../..`);
+- root `package.json` pins `packageManager: pnpm@10.0.0` and
+  `engines.node: 24`, so corepack selects that pnpm version.
+
+Vercel warns that `builds` in `packages/mcp/vercel.json` overrides the project
+Build settings. The effective native build installs from the workspace root and
+runs the package's `vercel-build` script — exactly `pnpm -w build` — which
+compiles the workspace (`tsc -b`) before `server.mts` is bundled. The committed
+`artifact/` tree from the same commit is included in that bundle.
 
 Bundle contract (the actual committed `packages/mcp/vercel.json`):
 
@@ -257,6 +291,9 @@ Headless/CI use (supported, stable contract):
 
 - Node server detection: `server.mts` at Root Directory + `server.listen()`
   during module startup; the passed port is local-only.
+- Native Git builds: Vercel checks out the pushed `main` commit, installs and
+  builds from the workspace root, bundles `server.mts` with the committed
+  artifact, and promotes only after the `ci-gate` Deployment Check succeeds.
 - Node 24 is GA for Vercel builds and functions; `engines.node` selects it.
 - pnpm is detected via repo-root `pnpm-lock.yaml`; `packageManager`
   `pnpm@10.0.0` is honored via corepack; the frozen lockfile is kept.
@@ -287,21 +324,28 @@ Headless/CI use (supported, stable contract):
 
 ## Artifact provisioning
 
-Provisioned and verified in this branch (`sha256:70a37c28…eb3f66`, hub
-`personal`, 5 real reviewed upstream skills — no fixtures, no examples):
+The deployable release is committed under `packages/mcp/artifact/` and is
+therefore part of the same Git commit that Vercel builds. Vercel never
+downloads, regenerates, or promotes the release separately:
 
-1. Built out-of-band with the existing Contract C build:
-   `node scripts/hosted/build-deployment-artifact.mjs`
-   (pins reviewed commits, cross-checks evidence digests, gates on the
-   runtime loader; see `packages/mcp/artifact/PROVENANCE.md`).
-2. Files live under `packages/mcp/artifact/` (`hub-release.json`,
-   `release-package.json`, `registry.sqlite`, `cache/sha256/`), committed
-   explicitly (`git add -f`; binary-pinned in `.gitattributes`).
-3. Validated: `node scripts/hosted/validate-artifact.mjs
-   packages/mcp/artifact` exits 0.
+1. `hub-release.json` is the immutable semantic release (digest plus the exact
+   `payload.skill_versions` map).
+2. `release-package.json` binds that digest to the SQLite snapshot
+   (`hub_release_digest`, `sqlite_artifact_digest`, `snapshot_rows`).
+3. `registry.sqlite` is the query snapshot and `cache/sha256/` holds the
+   content-addressed skill bodies.
+
+The artifact is built out-of-band with the Contract C build:
+`node scripts/hosted/build-deployment-artifact.mjs` (pins reviewed commits,
+cross-checks evidence digests, gates on the runtime loader; see
+`packages/mcp/artifact/PROVENANCE.md`). Files are committed explicitly
+(`git add -f`; binary-pinned in `.gitattributes`) and validated by
+`node scripts/hosted/validate-artifact.mjs packages/mcp/artifact`, which must
+exit 0.
 
 `/readyz` returns `200` only after this exact verification passes at
-instance startup.
+instance startup, and its `release_digest` is the digest from the committed
+`hub-release.json`.
 
 ## Rollback (immutable deployments)
 
@@ -315,22 +359,27 @@ candidate B → `vercel redeploy <A-url>` → `vercel redeploy <B-url>`; each st
 passed the hosted smoke and the four-tool identity probe, and the original A/B
 URLs kept serving afterwards.
 
-Production promotion and rollback are release-owner actions and go through
-`scripts/hosted/publish-production.mjs`; see
-`docs/operations/RELEASE-2.0-RUNBOOK.md` ("Production publication boundary").
+Production promotion is the native Git flow: a `main` commit whose `ci-gate`
+check succeeds is promoted automatically. There is no publisher command and no
+receipt chain to reconcile.
 
-1. Identify the last known-good production deployment and its receipt:
-   `vercel ls ega-skills-mcp --scope <team>` plus the append-only receipt chain.
-2. Roll back only to an earlier receipt in a contiguous chain. The boundary
-   verifies the exact current release digest before moving the alias and verifies
-   the retained target digest afterwards.
+1. Identify the last known-good production deployment:
+   `vercel ls ega-skills-mcp --scope <team>` (or the Vercel dashboard
+   Deployments view), preferring one whose `ci-gate` check succeeded.
+2. Move the production alias to it with Instant Rollback in the dashboard, or
+   `vercel rollback <deployment-url> --scope <team>`. The selected deployment is
+   not rebuilt or modified.
 3. Re-run `scripts/oauth/hosted-smoke.mjs` against
-   `https://ega-skills-mcp.vercel.app` and confirm `/readyz` is 200 and the
-   `release_digest` is the expected one before restoring traffic.
+   `https://ega-skills-mcp.vercel.app` and confirm `/readyz` is 200 with the
+   `release_digest` from that deployment's committed `hub-release.json`.
+4. Roll forward by reverting the offending commit on `main` (or restoring a
+   known-good tree); the resulting Git deployment must pass `ci-gate` like any
+   other production build.
 
-A bare `vercel rollback`/`vercel promote` bypasses the predecessor and approval
-checks. Use it only for emergency containment, record the action, and treat the
-missing receipt as an audit gap.
+An out-of-band `vercel rollback`/`vercel promote` bypasses the Git build and
+Deployment Check path. Use it only for emergency containment, record the
+deployment ID and the action, and note that the alias is no longer tied to a
+new commit or a `ci-gate` run.
 
 Preview/staging deployments can be exercised the same way without touching the
 production alias; they additionally require the project's automation

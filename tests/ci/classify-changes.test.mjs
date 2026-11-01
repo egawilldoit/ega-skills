@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, gate } from '../../scripts/ci/classify-changes.mjs';
+import { classify, gate, isReleaseSensitive, MODES, REQUIRED_JOBS } from '../../scripts/ci/classify-changes.mjs';
 
 test('README modifications select docs', () => {
   assert.equal(classify([{ status: 'M', path: 'README.md' }]).mode, 'docs');
@@ -13,17 +13,75 @@ test('uncertain, security, and global changes select full', () => {
     assert.equal(classify(entries).mode, 'full');
   }
 });
+
+test('release-sensitive paths are explicitly full', () => {
+  const paths = [
+    '.github/workflows/ci.yml',
+    '.github/workflows/verify-release.yml',
+    '.github/workflows/new-release.yml',
+    'scripts/release/verify-live.mjs',
+    'scripts/release/recover-production.mjs',
+    'scripts/release/verify-release.mjs',
+    'scripts/ci/classify-changes.mjs',
+    'scripts/ci/check-gate.mjs',
+    'scripts/ci/test-ownership.json',
+    'scripts/hosted/validate-artifact.mjs',
+    'packages/mcp/artifact/hub-release.json',
+    'packages/mcp/artifact/release-package.json',
+    'packages/mcp/vercel.json',
+    'packages/mcp/package.json',
+    'pnpm-lock.yaml',
+    'pnpm-workspace.yaml',
+    'supabase/migrations/0001_init.sql',
+  ];
+  for (const path of paths) {
+    assert.equal(isReleaseSensitive(path), true, path);
+    assert.equal(classify([{ status: 'M', path }]).mode, 'full', path);
+    // A release path must stay full even when mixed with an otherwise docs-only change.
+    assert.equal(classify([{ status: 'M', path: 'README.md' }, { status: 'M', path }]).mode, 'full', path);
+  }
+});
+
+test('release-sensitive lookalikes and unrelated paths are not broadened', () => {
+  for (const path of ['README.md', 'apps/web/src/components/StatCard.tsx', 'packages/mcp/README.md', 'scripts/release-notes.md', '.github/CODEOWNERS']) {
+    assert.equal(isReleaseSensitive(path), false, path);
+  }
+  assert.equal(classify([{ status: 'M', path: '.github/CODEOWNERS' }]).mode, 'full');
+});
+
 test('mixed docs and web selects web, shared security mutation selects full', () => {
   assert.equal(classify([{status:'M',path:'README.md'},{status:'M',path:'apps/web/src/components/StatCard.tsx'}]).mode, 'web');
   assert.equal(classify([{status:'M',path:'apps/web/src/components/StatCard.tsx'},{status:'M',path:'packages/control-plane/security.ts'}]).mode, 'full');
 });
+
 test('gate rejects failed, missing, cancelled or skipped selected jobs', () => {
   const ok = {classify:'success', docs:'success', foundation:'success', web:'success', isolation:'success', rls:'success'};
   assert.equal(gate('full', ok), true);
-  for (const job of Object.keys(ok)) for (const value of ['failure','cancelled','skipped','']) assert.equal(gate('full', {...ok,[job]:value}), false);
+  for (const job of Object.keys(ok)) for (const value of ['failure','cancelled','skipped','', null, undefined]) assert.equal(gate('full', {...ok,[job]:value}), false);
   assert.equal(gate('docs', {...ok,foundation:'skipped',web:'skipped',isolation:'skipped',rls:'skipped'}), true);
   assert.equal(gate('web', {...ok,isolation:'skipped',rls:'skipped'}), true);
-  assert.equal(gate('bogus', ok), false);
+});
+
+test('gate is fail-closed for unknown modes and malformed results', () => {
+  const ok = {classify:'success', docs:'success', foundation:'success', web:'success', isolation:'success', rls:'success'};
+  for (const mode of ['bogus', '', 'FULL', 'full ', undefined, null, 0, ['full']]) assert.equal(gate(mode, ok), false);
+  for (const results of [undefined, null, {}, [], 'success']) assert.equal(gate('full', results), false);
+  // A required job absent from `needs` must fail even when every present job passed.
+  for (const job of REQUIRED_JOBS) {
+    const missing = {...ok}; delete missing[job];
+    assert.equal(gate('full', missing), false, job);
+    assert.equal(gate('docs', missing), false, job);
+    assert.equal(gate('web', missing), false, job);
+  }
+  // An extra, ungated job in `needs` also fails closed.
+  assert.equal(gate('full', {...ok, extra:'failure'}), false);
+  assert.equal(gate('docs', {...ok, extra:'failure'}), false);
+});
+
+test('mode table only exposes the known modes', () => {
+  assert.deepEqual(Object.keys(MODES).sort(), ['docs', 'full', 'web']);
+  assert.deepEqual(REQUIRED_JOBS, ['classify', 'docs', 'foundation', 'web', 'isolation', 'rls']);
+  assert.deepEqual(MODES.full, REQUIRED_JOBS);
 });
 
 test('CLI defaults to full when git refs are missing and gate exits nonzero for skipped required job', async () => {
@@ -54,8 +112,10 @@ test('CLI reads real git history and fails closed on deletions, renames and shal
   try {
     git('init'); git('config','user.email','ci@example.invalid'); git('config','user.name','CI test');
     mkdirSync(join(dir,'apps/web/src/components'),{recursive:true});
+    mkdirSync(join(dir,'scripts/release'),{recursive:true});
     writeFileSync(join(dir,'README.md'),'base\n');
     writeFileSync(join(dir,'apps/web/src/components/StatCard.tsx'),'base\n');
+    writeFileSync(join(dir,'scripts/release/verify-live.mjs'),'base\n');
     git('add','.'); git('commit','-m','base'); const base = git('rev-parse','HEAD');
     const select = head => {
       const output = join(dir,'out');
@@ -66,6 +126,8 @@ test('CLI reads real git history and fails closed on deletions, renames and shal
     };
     writeFileSync(join(dir,'README.md'),'changed\n'); git('add','.'); git('commit','-m','docs');
     assert.equal(select(git('rev-parse','HEAD')),'docs');
+    writeFileSync(join(dir,'scripts/release/verify-live.mjs'),'changed\n'); git('add','.'); git('commit','-m','release');
+    assert.equal(select(git('rev-parse','HEAD')),'full');
     renameSync(join(dir,'README.md'),join(dir,'RENAMED.md')); git('add','-A'); git('commit','-m','rename');
     assert.equal(select(git('rev-parse','HEAD')),'full');
     writeFileSync(join(dir,'.git/shallow'),`${base}\n`);
