@@ -117,7 +117,11 @@ test('verify-release.yml filters the production ega-skills-mcp deployment on mai
     /environment:\s*production\b/.test(verify);
   assert.ok(requiresProduction, 'verify-release.yml does not require the production environment');
   assert.match(verify, /contains\(\s*github\.event\.deployment\.environment\s*,\s*['"]ega-skills-mcp['"]\s*\)/);
-  assert.match(verify, /github\.event\.deployment\.ref\s*==\s*['"]main['"]/);
+  // Vercel's GitHub deployment ref is the commit SHA, not `main`. The workflow
+  // must prove the deployed SHA is contained in main instead of matching the
+  // ref string.
+  assert.match(verify, /compare\/\$SOURCE_SHA\.\.\.main|compare\/[^\s"']+\.\.\.main/);
+  assert.match(verify, /ahead\|identical/);
   const allowsPreview =
     /(?:deployment_status\.environment|github\.event\.deployment\.environment)[^\n]*==[^\n]*['"]preview['"]/.test(verify) ||
     /environment:\s*preview\b/.test(verify);

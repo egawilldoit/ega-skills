@@ -32,8 +32,7 @@ jobs:
       (github.event_name == 'deployment_status' &&
        github.event.deployment_status.state == 'success' &&
        startsWith(github.event.deployment.environment, 'Production') &&
-       contains(github.event.deployment.environment, 'ega-skills-mcp') &&
-       github.event.deployment.ref == 'main')
+       contains(github.event.deployment.environment, 'ega-skills-mcp'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -67,6 +66,29 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      # Vercel's GitHub deployment `ref` is the commit SHA, not the branch name.
+      # Prove the deployed SHA is contained in main instead of trusting a ref.
+      - name: Confirm the source commit is on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Source SHA is missing or invalid: $SOURCE_SHA"
+            exit 1
+          fi
+          status="$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPOSITORY/compare/$SOURCE_SHA...main" | jq -r .status)"
+          case "$status" in
+            ahead|identical) echo "source $SOURCE_SHA is contained in main ($status)" ;;
+            *) echo "::error::Deployed source $SOURCE_SHA is not on main (compare status: $status)"; exit 1 ;;
+          esac
 
       - name: Mint delegated MCP token
         shell: bash
