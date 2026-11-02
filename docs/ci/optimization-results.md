@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization results
 
-Status: Batch 0 baseline record. No post-change speedup has been measured. This document records the corrected baseline, the measurement method, the available evidence, and the gaps that later batches must close. It must not be cited as evidence that any proposed optimization has landed.
+Status: Batch 0 baseline record plus local Batch 1 measurement. This document records the corrected baseline, the measurement method, and local evidence. Batch 1 has no hosted evidence yet: Linux and Windows CI results remain pending, and its expected hosted effect must not be cited until those runs exist.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md).
 
@@ -239,12 +239,12 @@ The attempt archive also works: `gh api repos/egawilldoit/ega-skills/actions/run
 4. The 30-day total is a lower bound from latest attempts and omits earlier failed attempts.
 5. Cancelled and failed attempts are reported separately, but their exact job-level records are incomplete for older runs.
 6. The 503 investigation has a proximate cause (unreachable local HTTPS mock) but no confirmed deep cause.
-7. No post-change measurement exists for Batch 1 or later. All expected effects remain unmeasured.
+7. Batch 1 local measurements are in section 11; hosted effects and later batches remain unmeasured.
 8. Blacksmith eligibility, quota, and Windows image parity were not readable with the current token. No decision depends on them.
 
 ## 10. What this baseline does not claim
 
-- It does not claim that any optimization has been implemented.
+- The baseline sections describe pre-change CI; section 11 separately records the local Batch 1 implementation.
 - It does not claim a new median, p90, or runner-minute reduction.
 - It does not claim Windows runs at concurrency 1. The effective value is unverified.
 - It does not claim the local OOM kill proves a retained-handle root cause.
@@ -252,16 +252,86 @@ The attempt archive also works: `gh api repos/egawilldoit/ega-skills/actions/run
 - It does not claim a population-wide Windows share from the Windows-enabled sample.
 - It does not claim Blacksmith equivalence or a paid-runner benefit.
 
-## 11. Next measurement
+## 11. Batch 1 local measurement: one default config per file
 
-Batch 1 will record, for each of the four test files:
+This is local Linux evidence only, not hosted CI evidence. It was measured in the isolated worktree at `1e6fee8` plus the four test-file edits, on host `openclaw` with Node `v24.18.0` and 2 visible CPUs. The hosted runners advertise 4 CPUs, so absolute local times are not hosted forecasts.
 
-- Discovered file count, test count, and assertion set before and after.
-- Per-file process wall time.
-- Config construction count and reader open/close count where observable.
-- Peak RSS.
-- Committed-artifact digest before and after.
-- Hosted Linux and Windows run IDs with attempt-aware timestamps and job-minutes.
+### 11.1 Method
+
+Each file ran alone through the existing bounded runner, with GNU time around it and the spec reporter for exact test names:
+
+```sh
+/home/ubuntu/.local/bin/heavy --label <label> --timeout 1800 --memory-mib 3072 -- \
+  /usr/bin/time -v node scripts/release/run-tests-bounded.mjs \
+    --test-reporter=spec tests/web/<file>
+```
+
+Setup was `pnpm install --frozen-lockfile` and `pnpm build` under the same wrapper. The first skills baseline attempt used `--memory-mib 1400` and was OOM-killed at the cap (`oom_kill=1`, peak equal to the cap). That attempt is discarded; the successful baseline below used 3072 MiB. No test timeout was raised.
+
+Exact setup and post-change checks:
+
+```sh
+/home/ubuntu/.local/bin/heavy --label project:ega-skills:b1-install --timeout 1200 --memory-mib 1536 -- pnpm install --frozen-lockfile
+/home/ubuntu/.local/bin/heavy --label project:ega-skills:b1-build --timeout 900 --memory-mib 1536 -- pnpm build
+node --test tests/ci/classify-changes.test.mjs tests/ci/test-ownership.test.mjs
+node -e "import('./scripts/ci/ownership.mjs').then(m => { const d = m.discover(); m.validateOwnership(d, m.manifest); })"
+git diff --check
+```
+
+The ownership tests passed 13/13 and discovery validated 189 files (151 core, 38 web, 189 unique), with all four edited files present in the web group.
+
+The host pool initially had no admission headroom because `memory.high` minus `memory.current` was below the wrapper's own reserve. Reclaiming inactive page cache through the delegated `memory.reclaim` interface restored headroom; nothing in the repository or another job's processes was changed.
+
+### 11.2 Wall time, RSS, and counts
+
+`tests`, `suites`, `pass`, `fail`, `skip` are the Node reporter counts. Wall and RSS are GNU time around the bounded runner; RSS is the largest single descendant, not a sum across concurrent processes.
+
+| File | Tests / suites (before = after) | Pass / fail / skip (before = after) | Wall before | Wall after | Change | Max RSS before | Max RSS after |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `tests/web/skills.test.mjs` | 61 / 11 | 61 / 0 / 0 | 389.64 s | 146.26 s | −62.5% | 2,410 MiB | 1,155 MiB |
+| `tests/web/catalog.test.mjs` | 68 / 14 | 68 / 0 / 0 | 107.95 s | 15.26 s | −85.9% | 1,364 MiB | 689 MiB |
+| `tests/web/releases.test.mjs` | 44 / 8 | 44 / 0 / 0 | 13.62 s | 7.69 s | −43.5% | 422 MiB | 390 MiB |
+| `tests/web/category-browse.test.mjs` | 11 / 4 | 11 / 0 / 0 | 10.74 s | 4.89 s | −54.5% | 329 MiB | 247 MiB |
+| **Total** | **184 / 37** | **184 / 0 / 0** | **521.95 s** | **174.10 s** | **−66.6%** | 2,410 MiB peak | 1,155 MiB peak |
+
+The spec-reporter name set was byte-identical before and after for every file (83, 96, 60 and 19 name/suite lines respectively). Static assertion call sites are unchanged at 156, 207, 212 and 64 (639 total across the four files). No test, assertion, timeout, or expected value was removed or changed.
+
+### 11.3 Config reuse and handle evidence
+
+Before the change, there were 126 statically counted default call sites (`committedConfig()` and default `fullCatalog()`); each execution built a fresh config, and several sites run inside 114-skill loops. After the change those sites share four file-scoped constants, one per file.
+
+A local-only probe (removed before handoff) opened one config, called `getRegistry` 20 times, then closed and reopened:
+
+```json
+{"before":0,"afterTwenty":1,"afterClose":0,"afterReopen":1}
+```
+
+That confirms the registry still reuses one handle per config identity, `closeRegistry()` really closes it, and the same frozen default config reopens exactly one handle afterwards. Explicit overrides still construct fresh configs because any own enumerable key short-circuits the shared constant.
+
+### 11.4 Cleanup and artifact integrity
+
+A temporary copy of `releases.test.mjs` (untracked, removed before handoff) added one intentional failure after `copyArtifact()`. The run exited 1 with 44 pass and the one injected failure; the suite exited in 8.08 s, so no handle kept the process alive, the injected temp directory was removed, and the committed artifact digest was unchanged.
+
+The committed artifact corpus is 872 files. Its sorted-file SHA-256 was identical before any baseline run, after the baselines, after the four post-change runs, and after the failure injection:
+
+```text
+08e086198728b8eeb2dd4dfa8284c0b08ec109f16f4702c724d773a34b3fc13a
+```
+
+### 11.5 Limitations
+
+- This is one local 2-CPU host in sequential order. The after runs followed the baselines, so warm OS/file cache may favor the after column. The reuse mechanism, the handle count, and the unchanged coverage are stronger evidence than the wall delta alone; hosted same-source runs are still required.
+- GNU time RSS does not see resources of processes outside its waited-for tree; it is a per-process peak, not an aggregate.
+- The local 1400 MiB OOM was an artifact of the test-run cap, not a defect in the patched tests.
+- No hosted Linux or Windows run ID exists for Batch 1 yet. The expected hosted improvement in the plan remains a forecast, not a measurement.
+
+## 12. Next measurement
+
+Batch 1 local evidence is recorded in section 11. Still outstanding for Batch 1 acceptance:
+
+- Hosted Linux and Windows run IDs for the same source SHA, with attempt-aware timestamps and job-minutes.
+- Hosted per-file process timing if the job log exposes it.
+- Windows parity confirmation that the four files pass unchanged.
 
 Batch 2 will record runtime CPU, memory, `os.availableParallelism()`, isolation mode, effective concurrency, per-file process time, wall time, RSS, flakes, and runner-minutes for 3 versus 4. No value is adopted without repeatable evidence.
 

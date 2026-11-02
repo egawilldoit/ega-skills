@@ -79,8 +79,23 @@ const COMMITTED_SKILL_IDS = Object.keys(COMMITTED_RELEASE.payload.skill_versions
 /** A different but syntactically valid digest, for the mismatch scenario. */
 const OTHER_DIGEST = `sha256:${"0".repeat(64)}`;
 
-/** Config for the committed artifact, read-only. */
+/**
+ * The default committed-artifact config, built once for this test-file process.
+ *
+ * `parseServerConfig` returns a frozen object, and the registry keys its readers
+ * on config identity. `closeRegistry()` clears that map and closes every
+ * retained handle, so a later default call reopens a reader for this same config.
+ * Only the semantically default call shares it; any explicit override is fresh,
+ * even when its value equals the default.
+ */
+const DEFAULT_COMMITTED_CONFIG = parseServerConfig({ EGA_WEB_ARTIFACT_DIR: ARTIFACT });
+
 function committedConfig(extraEnv = {}) {
+  // Spread copies own enumerable keys only, so those are the only overrides.
+  const hasOverride = Reflect.ownKeys(extraEnv).some((key) =>
+    Object.prototype.propertyIsEnumerable.call(extraEnv, key),
+  );
+  if (!hasOverride) return DEFAULT_COMMITTED_CONFIG;
   return parseServerConfig({ EGA_WEB_ARTIFACT_DIR: ARTIFACT, ...extraEnv });
 }
 
@@ -892,7 +907,7 @@ describe("MCP search is not the source", () => {
     // bearer token, no authz policy, no MCP endpoint. MCP search additionally
     // cannot enumerate: it needs a non-empty query and caps at 20 results, so
     // it could not have produced 114 rows.
-    const config = parseServerConfig({ EGA_WEB_ARTIFACT_DIR: ARTIFACT });
+    const config = committedConfig();
     assert.equal(config.artifactDir, ARTIFACT);
     const page = getCatalog(config, { limit: CATALOG_MAX_LIMIT });
     assert.equal(page.skills.length, COMMITTED_SKILL_COUNT);
