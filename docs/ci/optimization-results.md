@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization results
 
-Status: Batch 0 baseline record plus local Batch 1 measurement. This document records the corrected baseline, the measurement method, and local evidence. Batch 1 has no hosted evidence yet: Linux and Windows CI results remain pending, and its expected hosted effect must not be cited until those runs exist.
+Status: Batch 0 COMPLETE; Batch 1 VALIDATED locally and on hosted Linux/Windows at `2c1fb6c`; Batch 2 PENDING; Batches 3–5 CONDITIONAL / NOT STARTED. This document separates the historical baseline, local measurements, and successful individual hosted runs. The full optimization program is not complete.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md).
 
@@ -14,7 +14,8 @@ Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](op
 | Recent sample | 24 `CI` runs, 2026-11-01T14:24Z to 22:17Z | `/tmp/opencode/ci-runs.json` (not committed) |
 | Monthly sample | 282 run records, 2026-10-04T10:52:51Z to 2026-11-01T22:11:34Z | `/tmp/opencode/ci-30d.json` (not committed); API reported 283 runs |
 | Rulesets | Read live 2026-11-02 | `gh api repos/egawilldoit/ega-skills/rulesets` |
-| Repository source | `e5a3ae7` | Current worktree |
+| Baseline repository source | `e5a3ae7` | Historical audited revision |
+| Validated Batch 1 source | `2c1fb6c` | Hosted runs in section 12 |
 
 Raw API responses are not committed. Only the derived summaries below are recorded.
 
@@ -239,12 +240,12 @@ The attempt archive also works: `gh api repos/egawilldoit/ega-skills/actions/run
 4. The 30-day total is a lower bound from latest attempts and omits earlier failed attempts.
 5. Cancelled and failed attempts are reported separately, but their exact job-level records are incomplete for older runs.
 6. The 503 investigation has a proximate cause (unreachable local HTTPS mock) but no confirmed deep cause.
-7. Batch 1 local measurements are in section 11; hosted effects and later batches remain unmeasured.
+7. Batch 1 local measurements are in section 11 and successful hosted runs in section 12. Controlled hosted before/after attribution and later batches remain unmeasured.
 8. Blacksmith eligibility, quota, and Windows image parity were not readable with the current token. No decision depends on them.
 
 ## 10. What this baseline does not claim
 
-- The baseline sections describe pre-change CI; section 11 separately records the local Batch 1 implementation.
+- The baseline sections describe pre-change CI; section 11 records local Batch 1 measurements and section 12 records hosted validation.
 - It does not claim a new median, p90, or runner-minute reduction.
 - It does not claim Windows runs at concurrency 1. The effective value is unverified.
 - It does not claim the local OOM kill proves a retained-handle root cause.
@@ -320,20 +321,99 @@ The committed artifact corpus is 872 files. Its sorted-file SHA-256 was identica
 
 ### 11.5 Limitations
 
-- This is one local 2-CPU host in sequential order. The after runs followed the baselines, so warm OS/file cache may favor the after column. The reuse mechanism, the handle count, and the unchanged coverage are stronger evidence than the wall delta alone; hosted same-source runs are still required.
+- This is one local 2-CPU host in sequential order. The after runs followed the baselines, so warm OS/file cache may favor the after column. The reuse mechanism, the handle count, and the unchanged coverage are stronger evidence than the wall delta alone; hosted validation is recorded separately in section 12.
 - GNU time RSS does not see resources of processes outside its waited-for tree; it is a per-process peak, not an aggregate.
 - The local 1400 MiB OOM was an artifact of the test-run cap, not a defect in the patched tests.
-- No hosted Linux or Windows run ID exists for Batch 1 yet. The expected hosted improvement in the plan remains a forecast, not a measurement.
+- Hosted validation is now available in section 12. Historical before/after comparisons remain descriptive because the baseline is not a controlled same-runner experiment.
 
-## 12. Next measurement
+## 12. Hosted Batch 1 validation — 2026-11-02
 
-Batch 1 local evidence is recorded in section 11. Still outstanding for Batch 1 acceptance:
+**Verdict: Batch 1 passes hosted Linux and Windows validation. The full implementation program is not complete.**
 
-- Hosted Linux and Windows run IDs for the same source SHA, with attempt-aware timestamps and job-minutes.
-- Hosted per-file process timing if the job log exposes it.
-- Windows parity confirmation that the four files pass unchanged.
+Validated source: `2c1fb6cc3e004b007d064740cdcd839fd802879b`.
+Workflow blob: `ffb5071889ab047fecf3156886b56a86b8806154` (`.github/workflows/ci.yml`).
+Both runs used attempt 1, branch `perf/ci-speed-reliability`, Node v24.22.1, and the existing workflow. No workflow, application, artifact, gate, ruleset, or runner-provider changes were needed for Batch 1.
 
-Batch 2 will record runtime CPU, memory, `os.availableParallelism()`, isolation mode, effective concurrency, per-file process time, wall time, RSS, flakes, and runner-minutes for 3 versus 4. No value is adopted without repeatable evidence.
+| Run | Event | Created → ci-gate complete | Summed executed job time | Conclusion |
+|---|---|---:|---:|---|
+| [41503801407](https://github.com/egawilldoit/ega-skills/actions/runs/41503801407) | pull_request | 4m49s | 9.867 job-min | success |
+| [41503824320](https://github.com/egawilldoit/ega-skills/actions/runs/41503824320) | workflow_dispatch, full Linux + Windows | 14m52s | 30.433 job-min | success |
+
+PR run timestamps: created/started `18:46:57Z`, gate complete `18:51:46Z`, workflow updated `18:51:47Z`.
+Manual full timestamps: created/started `18:47:06Z`, gate complete `19:01:58Z`, workflow updated `19:01:59Z`.
+No rerun or cancellation occurred in these runs. API run start equals creation; first job start was 3s/4s later. These are startup observations, not a measured runner-queue decomposition. Job time below includes each job's setup and teardown, calculated from GitHub job start/completion timestamps. It is physical elapsed runner time, not a billing invoice or monthly forecast. The two distinct runs consumed 40.300 summed job-minutes in total; no job execution is counted twice.
+
+### 12.1 Job and step timings
+
+| Run | Job | Job wall | Test step wall | Frozen install |
+|---|---|---:|---:|---:|
+| pr | classify | 0m11s | — | — |
+| pr | docs | 0m10s | — | — |
+| pr | foundation (ubuntu-latest) | 4m24s | 4m05s | 0m04s |
+| pr | contract-f rls (ubuntu-latest) | 0m57s | — | 0m04s |
+| pr | web console (ubuntu-latest) | 2m59s | 2m21s | 0m05s |
+| pr | web isolation (real PostgreSQL 16) | 1m03s | — | 0m05s |
+| pr | ci-gate | 0m08s | — | — |
+| full | classify | 0m08s | — | — |
+| full | docs | 0m07s | — | — |
+| full | contract-f rls (ubuntu-latest) | 0m53s | — | 0m04s |
+| full | foundation (windows-2022) | 14m27s | 12m29s | 1m13s |
+| full | web console (windows-2022) | 6m19s | 4m23s | 1m16s |
+| full | foundation (ubuntu-latest) | 4m25s | 4m07s | 0m04s |
+| full | web isolation (real PostgreSQL 16) | 1m07s | — | 0m04s |
+| full | web console (ubuntu-latest) | 2m53s | 2m19s | 0m05s |
+| full | ci-gate | 0m07s | — | — |
+
+The PR critical path is Linux foundation, followed by gate startup/execution. The manual full critical path is Windows foundation: its Test step lasted 12m29s, while Windows web integration finished earlier. Dedicated web and PostgreSQL jobs remain concurrent. Windows install took 73s in foundation and 76s in web, compared with 4–5s for Linux; installation is a remaining setup cost, not the dominant full-run cost.
+
+### 12.2 Executed coverage readback
+
+From the completed manual run logs (main Node test invocation summaries; overlapping scopes must not be added as unique coverage):
+
+| Invocation | Tests | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|
+| Linux foundation core | 1,433 | 1,426 | 0 | 7 |
+| Windows foundation full discovery | 2,225 | 2,208 | 0 | 17 |
+| Linux web integration | 792 | 783 | 0 | 9 |
+| Windows web integration | 792 | 783 | 0 | 9 |
+
+Windows full discovery deliberately includes web coverage; Linux core plus web also totals 2,225 tests. Platform-specific skips differ by one: this report records the actual counts and does not call skipped tests passes. No test-skipping code changed in Batch 1. The local four-file check passed all 184 tests with identical names and assertion call sites; hosted scope summaries establish execution of the larger workloads, not an independent per-file name-set comparison.
+
+Additional checks succeeded: React behavior, frozen specs, artifact verification/staging, catalog freshness, typechecks, registry cold-import performance, token vectors, pinned source fixture checks, real PostgreSQL isolation/telemetry/retention and RLS. RLS summaries were 15, 27, 4 and 5 passing tests; isolation summaries were 38, 52, 1 and 1 passing tests. Both ci-gate jobs succeeded. No release protection context was renamed or weakened.
+
+### 12.3 Interpretation and limits
+
+| Measurement | Historical or local before | Observed after | Descriptive reduction |
+|---|---:|---:|---:|
+| Linux creation → gate | historical median ~360s | individual PR run 289s | ~19.7% |
+| Full Linux/Windows creation → gate | historical median ~1056s | individual full run 892s | ~15.5% |
+| Linux web integration step | historical sample 316s | individual runs 139–141s | ~55.4–56.0% |
+| Four targeted files, local sequential sum | 521.95s (~522s) | 174.10s (~174s) | ~66.6% |
+| Local peak process RSS | 2,410 MiB | 1,155 MiB | ~52.1% |
+
+The percentages compare the stated observations; they are not estimates of a controlled causal effect. The hosted rows compare historical medians/samples with individual runs. The local rows use the same 2-CPU VM, with sequential-order warm-cache limitations. Job-minutes are 9.867 for the PR and 30.433 for full Linux/Windows; no matched pre-change job-minute reduction is claimed.
+
+- Hosted Linux web step was 141s in the PR run and 139s in the manual run. The historical sample was about 316s, but workflow/environment differences and the small sample prevent attributing the entire difference to Batch 1.
+- Full Windows foundation Test is still the dominant release-mode cost. Historical 967s versus this 749s is descriptive, not a controlled speedup estimate.
+- Historical Linux median about 6m and Windows-enabled median about 17.6m are version-mixed baselines, not paired controls for these successful runs.
+- No stable new p90, per-file process timings, aggregate RSS, CPU visibility, effective concurrency, or cache-hit attribution can be established from these two runs. Batch 2 must instrument those values.
+- The earlier 503 authorization-test failure remains a separate, unresolved root-cause investigation. These successful runs do not prove it cannot recur.
+- Vercel MCP and web-console previews were ready; auth was intentionally ignored. Preview status is not production acceptance. Nothing was merged or deployed by this work.
+
+## 13. Program status and next batch
+
+| Batch | Status | Evidence / remaining condition |
+|---|---|---|
+| 0: corrected audit and plan | COMPLETE | Full 43-technique assessment and baseline documentation committed in `1e6fee8` |
+| 1: four-file default config reuse | VALIDATED | Implementation `2c1fb6c`; local parity/cleanup plus both successful hosted runs above |
+| 2: concurrency 3 vs 4 | PENDING | Must measure Linux core and Windows full with runtime resource logs; retain default unless repeatable benefit |
+| 3: Windows sharding | CONDITIONAL / NOT STARTED | Requires Batch 2 evidence, complete partition accounting and strict gate proofs |
+| 4: Linux sharding | CONDITIONAL / NOT STARTED | Only if still critical and justified by measurements |
+| 5: further small improvements | CONDITIONAL / NOT STARTED | Evidence-backed scope only; conservative classifier retained |
+
+PR [#197](https://github.com/egawilldoit/ega-skills/pull/197) is open, with no review decision recorded at report time. Batch 1 is ready for independent review; the overall program must not be reported complete. Rollback for Batch 1 is to revert its four test-file changes. No application data or artifact rollback is involved.
+
+This report update is documentation only and refers to the validated implementation SHA above. It is not a new hosted validation. After committing this correction, the new PR head must receive fresh PR CI and a manual full Linux/Windows run before merge; those are verification runs, separate from the Batch 1 performance measurements above.
 
 ## Source references
 
