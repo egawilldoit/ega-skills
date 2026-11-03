@@ -2,7 +2,7 @@
  * Contract tests for the console BFF entrypoint.
  *
  * `server.mts` starts an HTTP server on import, so it is exercised the way it
- * actually runs: boot it on an ephemeral port with `dist/` present, then assert
+ * actually runs: boot it on a dedicated test port with `dist/` present, then assert
  * the real HTTP responses. This covers the routes Builder 2 will extend without
  * rewriting the file — /healthz, /readyz, the /api 404 boundary, the SPA
  * fallback, and the read-only method rejection.
@@ -10,6 +10,8 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,6 +25,15 @@ const SERVER = join(REPO_ROOT, "apps", "web", "server.mts");
 const COMMITTED_ARTIFACT_DIR = join(REPO_ROOT, "packages", "mcp", "artifact");
 const PORT = 34117;
 const BASE = `http://127.0.0.1:${PORT}`;
+
+/** Test-owned child state: drain both pipes and retain only the last 8 KiB. */
+const childStates = new WeakMap();
+const STDERR_LIMIT = 8192;
+const SAFE_CODES = new Set([
+  "ENOENT", "EACCES", "EPERM", "EINVAL", "EADDRINUSE", "EADDRNOTAVAIL",
+  "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ERR_MODULE_NOT_FOUND",
+  "ERR_UNKNOWN_FILE_EXTENSION", "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING",
+]);
 
 let child;
 let workdir;
@@ -41,13 +52,11 @@ before(async () => {
 
   // `--experimental-strip-types` is a no-op on Node 24, which strips natively;
   // the flag is kept off so this test asserts the real runtime behavior.
-  child = spawn(process.execPath, [SERVER], {
+  child = startChild(process.execPath, [SERVER], {
     cwd: workdir,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(PORT), EGA_WEB_ARTIFACT_DIR: "", EGA_WEB_RETAINED_MANIFEST: "" },
   });
-  child.stderr.setEncoding("utf8");
-  child.stderr.resume();
   await waitForReady();
 });
 
@@ -56,41 +65,114 @@ after(async () => {
   if (workdir) removeTreeWithRetries(workdir);
 });
 
-/**
- * Terminate a spawned server and wait for it to actually be gone.
- *
- * `kill("SIGKILL")` only *requests* termination. On Windows the process, and any
- * handle it still holds on the working directory, outlives the call, so removing
- * that directory immediately after it raises:
- *
- *   Error: EPERM, Permission denied: ...\ega-web-server-558EkI
- *
- * `exit` is the only reliable signal that the handle is released, so this awaits
- * it. The `error` listener absorbs a spawn failure, and `unref` keeps a
- * long-running child from holding the test process open on the success path.
- *
- * A child that was never spawned, or already reaped, resolves immediately rather
- * than waiting out the timeout — teardown must never become the reason a suite
- * hangs.
- */
-function stopChild(process, timeoutMs = 10_000) {
-  if (!process || process.exitCode !== null || process.signalCode !== null) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      process.off("exit", done);
-      resolve();
-    };
-    // SIGKILL is not implemented on Windows; Node maps it to TerminateProcess.
-    process.once("exit", done);
-    process.once("error", done);
-    const timer = setTimeout(done, timeoutMs);
-    // Do not let a stuck child keep the event loop alive past teardown.
-    timer.unref?.();
-    process.kill("SIGKILL");
+function safeError(error) {
+  // Never include message, stack, path, argv, env, or nested error text.
+  const name = ["Error", "TypeError", "SyntaxError", "ReferenceError", "AbortError", "TimeoutError"].includes(error?.name)
+    ? error.name : "Error";
+  const code = SAFE_CODES.has(error?.code) ? error.code : "unreported";
+  return `${name}/${code}`;
+}
+function safeStderr(state) {
+  // An allowlisted projection is safer than trying to blacklist every secret
+  // syntax in arbitrary exception text. Unknown lines (including URLs, headers,
+  // env values and source excerpts) are entirely redacted.
+  return state.stderr.toString("utf8").split(/\r?\n/).filter(Boolean).slice(-12).map((line) => {
+    if (/^ega-web-console listening on \d{1,5}$/.test(line)) return line;
+    const codes = [...SAFE_CODES].filter((code) => new RegExp(`\\b${code}\\b`).test(line));
+    const kind = line.match(/\b(Error|TypeError|SyntaxError|ReferenceError|RangeError):/)?.[1];
+    return `${kind ?? "stderr"}${codes.length ? ` ${codes.join(",")}` : ""}: [redacted]`;
+  }).join(" | ") || "(empty)";
+}
+function startChild(...args) {
+  const proc = spawn(...args);
+  let failed;
+  let closed;
+  const state = {
+    stderr: Buffer.alloc(0), truncated: false, error: null,
+    exited: false, closed: false, code: null, signal: null,
+    failed: new Promise((resolve) => { failed = resolve; }),
+    done: new Promise((resolve) => { closed = resolve; }),
+  };
+  childStates.set(proc, state);
+  proc.stdout?.resume();
+  proc.stderr?.on("data", (chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    state.truncated ||= state.stderr.length + bytes.length > STDERR_LIMIT;
+    state.stderr = Buffer.from(Buffer.concat([state.stderr, bytes]).subarray(-STDERR_LIMIT));
   });
+  proc.on("error", (error) => { state.error = safeError(error); failed("child error before response"); });
+  proc.once("exit", (code, signal) => {
+    Object.assign(state, { exited: true, code, signal });
+    failed("child exit before response");
+  });
+  proc.once("close", (code, signal) => {
+    Object.assign(state, { closed: true, code, signal });
+    failed("child close before response");
+    closed();
+  });
+  return proc;
+}
+function childDiagnostics(proc) {
+  const state = childStates.get(proc);
+  return `error=${state.error ?? "none"}; exit=${state.exited}; close=${state.closed}; ` +
+    `code=${state.code}; signal=${state.signal}; stderr_tail_truncated=${state.truncated}; ` +
+    `stderr=${safeStderr(state)}`;
+}
+
+/** Reap through close (including stdio); never silently accept a cleanup timeout. */
+async function stopChild(proc, timeoutMs = 10_000) {
+  if (!proc) return;
+  const state = childStates.get(proc);
+  if (state.closed) return;
+  let timer;
+  try {
+    if (proc.pid !== undefined && !state.exited) proc.kill("SIGKILL");
+    await Promise.race([
+      state.done,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`child cleanup deadline exceeded; ${childDiagnostics(proc)}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The existing poll interval and 20s bound, now covering fetch AND body reads. */
+async function waitForResponse(proc, url, { timeoutMs = 20_000, healthy = false } = {}) {
+  const controller = new AbortController();
+  const state = childStates.get(proc);
+  let timer;
+  let transport = "none";
+  try {
+    return await Promise.race([
+      (async () => {
+        while (!controller.signal.aborted) {
+          try {
+            const response = await fetch(url, { signal: controller.signal });
+            const body = await response.json();
+            if (!healthy || response.ok) return { status: response.status, body };
+          } catch (error) {
+            transport = safeError(error?.cause ?? error);
+            if (controller.signal.aborted) throw error;
+          }
+          await delay(100, undefined, { signal: controller.signal });
+        }
+      })(),
+      state.failed.then((reason) => { throw new Error(reason); }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`startup deadline exceeded (${timeoutMs} ms)`)), timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    // Close drains the final stderr bytes and releases Windows cwd handles.
+    controller.abort();
+    await stopChild(proc);
+    throw new Error(`${error.message}; port=${new URL(url).port}; transport=${transport}; ${childDiagnostics(proc)}`);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
 }
 
 /**
@@ -130,17 +212,7 @@ async function readFileText(path) {
 }
 
 async function waitForReady() {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${BASE}/healthz`);
-      if (response.ok) return;
-    } catch {
-      // Not listening yet.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("server.mts did not become healthy in time");
+  await waitForResponse(child, `${BASE}/healthz`, { healthy: true });
 }
 
 test("GET /healthz reports a live process", async () => {
@@ -214,27 +286,14 @@ test("/readyz stays 503 when only a retained manifest is configured", async () =
  */
 async function awaitReadyzFor(env) {
   const port = PORT + 100 + readyzCounter++;
-  const proc = spawn(process.execPath, [SERVER], {
+  const proc = startChild(process.execPath, [SERVER], {
     cwd: workdir,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(port), EGA_WEB_ARTIFACT_DIR: "", EGA_WEB_RETAINED_MANIFEST: "", ...env },
   });
-  proc.stderr.resume();
   try {
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      try {
-        const response = await fetch(`http://127.0.0.1:${port}/readyz`);
-        return { status: response.status, body: await response.json() };
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
-    throw new Error(`readiness server on port ${port} never answered`);
+    return await waitForResponse(proc, `http://127.0.0.1:${port}/readyz`);
   } finally {
-    // Awaited for the same reason as the suite fixture: a `kill()` that has not
-    // yet been reaped still holds `workdir`, and the next test — or teardown —
-    // would race it and fail with EPERM on Windows.
     await stopChild(proc);
   }
 }
@@ -369,7 +428,7 @@ mod.API_ROUTES.push({
 `,
   );
 
-  const proc = spawn(process.execPath, [harness], {
+  const proc = startChild(process.execPath, [harness], {
     cwd: workdir,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(port), EGA_WEB_ARTIFACT_DIR: "", EGA_WEB_RETAINED_MANIFEST: "" },
@@ -437,5 +496,94 @@ mod.API_ROUTES.push({
     assert.deepEqual(await healthy.json(), { status: "ok" });
   } finally {
     await stopChild(proc);
+  }
+});
+
+// Exercise the lifecycle with real children, without adding discovered files.
+test("startup diagnostics reap an early exit, drain stdout, and redact bounded stderr", async () => {
+  const proc = startChild(process.execPath, ["-e", `
+    process.stdout.write("x".repeat(2 * 1024 * 1024));
+    process.stderr.write("x".repeat(16000) + "\\nReferenceError: SYNTHETIC_SECRET_CANARY\\nAuthorization: Bearer SYNTHETIC_SECRET_CANARY\\nhttps://user:password@example.invalid/?token=SYNTHETIC_SECRET_CANARY\\n");
+    process.exitCode = 23;
+  `], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    // No probe connection can mask a child failure in this regression.
+    await assert.rejects(waitForResponse(proc, "http://127.0.0.1:0/readyz"), (error) => {
+      assert.match(error.message, /child (exit|close) before response/);
+      assert.match(error.message, /exit=true; close=true; code=23; signal=null/);
+      assert.match(error.message, /stderr_tail_truncated=true/);
+      assert.match(error.message, /ReferenceError: \[redacted\]/);
+      assert.doesNotMatch(error.message, /SYNTHETIC_SECRET_CANARY|Authorization|password|https:/);
+      assert.ok(childStates.get(proc).stderr.length <= STDERR_LIMIT);
+      return true;
+    });
+  } finally {
+    await stopChild(proc);
+  }
+});
+
+test("startup diagnostics report and reap spawn failure without waiting for readiness", async () => {
+  const proc = startChild(join(workdir, "nonexistent-child-executable"), [], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await assert.rejects(waitForResponse(proc, "http://127.0.0.1:0/readyz"), (error) => {
+      assert.match(error.message, /child error before response/);
+      assert.match(error.message, /error=Error\/ENOENT/);
+      assert.match(error.message, /close=true; code=-\d+; signal=null/);
+      assert.ok(!error.message.includes(workdir), "spawn error paths must be redacted");
+      return true;
+    });
+  } finally {
+    await stopChild(proc);
+  }
+});
+
+test("startup deadline aborts a stalled response body and reaps the child", async () => {
+  let requested = false;
+  const server = createServer((_request, response) => {
+    requested = true;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.write('{"status":'); // Deliberately never completes the response.
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const proc = startChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await assert.rejects(waitForResponse(proc, `http://127.0.0.1:${server.address().port}/readyz`, {
+      timeoutMs: 1000,
+    }), /startup deadline exceeded \(1000 ms\).*close=true/);
+    assert.equal(childStates.get(proc).closed, true);
+    assert.equal(requested, true, "the deadline must cover a pending body read");
+  } finally {
+    await stopChild(proc);
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("startup diagnostics identify a controlled address-in-use failure", async () => {
+  const owner = createServer();
+  await new Promise((resolve, reject) => {
+    owner.once("error", reject);
+    owner.listen(0, "127.0.0.1", resolve);
+  });
+  const proc = startChild(process.execPath, ["-e",
+    `require("node:http").createServer().listen(${owner.address().port}, "127.0.0.1")`,
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    await assert.rejects(waitForResponse(proc, "http://127.0.0.1:0/readyz"), (error) => {
+      assert.match(error.message, /child (exit|close) before response/);
+      assert.match(error.message, /code=1; signal=null/);
+      assert.match(error.message, /stderr=.*EADDRINUSE/);
+      return true;
+    });
+  } finally {
+    await stopChild(proc);
+    await new Promise((resolve, reject) => owner.close((error) => error ? reject(error) : resolve()));
   }
 });
