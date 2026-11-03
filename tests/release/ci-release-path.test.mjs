@@ -74,9 +74,22 @@ test('ci.yml declares exactly one ci-gate job with the stable check name', () =>
 
 test('ci-gate always runs and needs every gated job', () => {
   assert.match(gateJob, /^\s*if:\s*\$\{\{\s*always\(\)\s*\}\}\s*$/m);
-  assert.deepEqual(needs(gateJob).sort(), ['classify', 'docs', 'foundation', 'rls', 'web', 'web-isolation']);
+  assert.deepEqual(needs(gateJob).sort(), [
+    'classify',
+    'docs',
+    'foundation',
+    'foundation-windows',
+    'foundation-windows-shard-1',
+    'foundation-windows-shard-2',
+    'rls',
+    'web',
+    'web-isolation',
+  ]);
   for (const dependency of needs(gateJob)) assert.ok(ciJobs.has(dependency), `missing dependency job ${dependency}`);
   assert.match(gateJob, /run:\s*node scripts\/ci\/check-gate\.mjs/);
+  // The gate must derive the Windows expectation itself, not read it from classify.
+  assert.match(gateJob, /CI_WINDOWS:/);
+  assert.doesNotMatch(gateJob, /CI_WINDOWS:\s*\$\{\{\s*needs\.classify/);
 });
 
 test('ci.yml has no production URL, preview dependency, or verification workflow call', () => {
@@ -156,6 +169,12 @@ test('release-sensitive paths always classify as full', () => {
   for (const path of paths) assert.equal(classify([{ status: 'M', path }]).mode, 'full', path);
 });
 
+const windowsSkipped = {
+  'foundation-windows-shard-1': { result: 'skipped' },
+  'foundation-windows-shard-2': { result: 'skipped' },
+  'foundation-windows': { result: 'skipped' },
+};
+
 const okNeeds = {
   classify: { result: 'success' },
   docs: { result: 'success' },
@@ -163,10 +182,11 @@ const okNeeds = {
   web: { result: 'success' },
   'web-isolation': { result: 'success' },
   rls: { result: 'success' },
+  ...windowsSkipped,
 };
 
-function runGate(mode, needsJson) {
-  const env = { ...process.env, CI_MODE: mode };
+function runGate(mode, needsJson, { windows = false } = {}) {
+  const env = { ...process.env, CI_MODE: mode, CI_WINDOWS: String(windows) };
   if (needsJson === undefined) delete env.CI_NEEDS;
   else env.CI_NEEDS = needsJson;
   return spawnSync(process.execPath, [gatePath], { cwd: root, env, encoding: 'utf8' });
@@ -212,4 +232,30 @@ test('docs and web modes gate their own subset but still require the full job se
   const webNeeds = { ...okNeeds, 'web-isolation': { result: 'skipped' }, rls: { result: 'skipped' } };
   assert.equal(runGate('web', JSON.stringify(webNeeds)).status, 0);
   assert.notEqual(runGate('web', JSON.stringify({ ...webNeeds, web: { result: 'failure' } })).status, 0);
+});
+
+test('windows runs need both shards and the aggregator, and a skipped shard fails the gate', () => {
+  const windowsNeeds = {
+    ...okNeeds,
+    'foundation-windows-shard-1': { result: 'success' },
+    'foundation-windows-shard-2': { result: 'success' },
+    'foundation-windows': { result: 'success' },
+  };
+  assert.equal(runGate('full', JSON.stringify(windowsNeeds), { windows: true }).status, 0);
+
+  // Unexpected skip of a shard while Windows is selected.
+  const skippedShard = { ...windowsNeeds, 'foundation-windows-shard-2': { result: 'skipped' } };
+  assert.notEqual(runGate('full', JSON.stringify(skippedShard), { windows: true }).status, 0);
+
+  // Cancelled shard, failed aggregator and missing aggregator all fail closed.
+  const cancelled = { ...windowsNeeds, 'foundation-windows-shard-1': { result: 'cancelled' } };
+  assert.notEqual(runGate('full', JSON.stringify(cancelled), { windows: true }).status, 0);
+  const failedAggregator = { ...windowsNeeds, 'foundation-windows': { result: 'failure' } };
+  assert.notEqual(runGate('full', JSON.stringify(failedAggregator), { windows: true }).status, 0);
+  const missingAggregator = { ...windowsNeeds };
+  delete missingAggregator['foundation-windows'];
+  assert.notEqual(runGate('full', JSON.stringify(missingAggregator), { windows: true }).status, 0);
+
+  // The same green Windows evidence is not accepted when Windows was not selected.
+  assert.notEqual(runGate('full', JSON.stringify(windowsNeeds)).status, 0);
 });
