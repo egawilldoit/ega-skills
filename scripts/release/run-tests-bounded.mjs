@@ -1,11 +1,66 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
-import { ownedFiles } from "../ci/ownership.mjs";
+import os from "node:os";
+import { ownedFiles, discover } from "../ci/ownership.mjs";
 
 const DEFAULT_PER_TEST_TIMEOUT_MS = 600_000;
 const DEFAULT_OVERALL_TIMEOUT_MS = 1_500_000;
 const TERM_GRACE_MS = 10_000;
+const MAX_TEST_CONCURRENCY = 32;
+
+// Node's documented default for `--test-concurrency` under process isolation is
+// `availableParallelism() - 1`. The workflow does not set the flag unless an
+// explicit benchmark value is requested, so this is what actually runs today.
+// Logging it never changes the value; it only records what the runner resolved.
+function documentedDefaultConcurrency() {
+  const available = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  return Math.max(1, available - 1);
+}
+
+function parseConcurrency(raw, source) {
+  if (raw === undefined || raw === null) return null;
+  const text = String(raw);
+  if (text === "") return null;
+  // Strict: no surrounding whitespace, no sign, no decimal. The workflow input
+  // validator uses the same shape, so a value that passes one passes both.
+  if (!/^\d+$/.test(text)) {
+    throw new Error(`${source} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  const value = Number(text);
+  if (value < 1 || value > MAX_TEST_CONCURRENCY) {
+    throw new Error(`${source} must be between 1 and ${MAX_TEST_CONCURRENCY}, got ${value}`);
+  }
+  return value;
+}
+
+function readForwardedConcurrency(forwarded) {
+  const values = [];
+  for (let i = 0; i < forwarded.length; i += 1) {
+    const arg = forwarded[i];
+    const inline = arg.match(/^--test-concurrency=(\d+)$/);
+    if (inline) {
+      values.push(parseConcurrency(inline[1], "--test-concurrency"));
+      continue;
+    }
+    if (arg === "--test-concurrency") {
+      values.push(parseConcurrency(forwarded[i + 1], "--test-concurrency"));
+      i += 1;
+    }
+  }
+  if (new Set(values).size > 1) throw new Error("Conflicting --test-concurrency values");
+  return values.length ? values[0] : null;
+}
+
+function readIsolation(forwarded) {
+  for (let i = 0; i < forwarded.length; i += 1) {
+    const arg = forwarded[i];
+    const inline = arg.match(/^--test-isolation=(.+)$/);
+    if (inline) return inline[1];
+    if (arg === "--test-isolation") return forwarded[i + 1] ?? "unknown";
+  }
+  return "process (Node default)";
+}
 
 function envMs(name, fallback) {
   const raw = process.env[name];
@@ -175,8 +230,56 @@ function waitForExit(child, timeoutMs) {
 const { forwarded, perTestTimeoutMs, overallTimeoutMs } = parseArgs(process.argv.slice(2));
 const scopes = forwarded.filter((arg) => arg.startsWith("--ci-scope="));
 if (scopes.length > 1) throw new Error("Only one CI scope may be specified");
-const selected = scopes.length ? ownedFiles(scopes[0].slice("--ci-scope=".length)) : [];
-const nodeArgs = ["--test", `--test-timeout=${perTestTimeoutMs}`, ...forwarded.filter((arg) => !arg.startsWith("--ci-scope=")), ...selected];
+const scope = scopes.length ? scopes[0].slice("--ci-scope=".length) : null;
+const selected = scope ? ownedFiles(scope) : [];
+const forwardedConcurrency = readForwardedConcurrency(forwarded);
+const envConcurrency = parseConcurrency(process.env.EGA_TEST_CONCURRENCY, "EGA_TEST_CONCURRENCY");
+if (forwardedConcurrency !== null && envConcurrency !== null && forwardedConcurrency !== envConcurrency) {
+  throw new Error(
+    `EGA_TEST_CONCURRENCY (${envConcurrency}) conflicts with --test-concurrency (${forwardedConcurrency})`,
+  );
+}
+const explicitConcurrency = forwardedConcurrency ?? envConcurrency;
+// Only inject the flag when the caller did not already pass it, so the forwarded
+// argv stays exactly what the workflow asked for.
+const concurrencyArgs =
+  envConcurrency === null || forwardedConcurrency !== null ? [] : [`--test-concurrency=${envConcurrency}`];
+const nodeArgs = [
+  "--test",
+  `--test-timeout=${perTestTimeoutMs}`,
+  ...concurrencyArgs,
+  ...forwarded.filter((arg) => !arg.startsWith("--ci-scope=")),
+  ...selected,
+];
+
+// One machine-readable line so a hosted log proves the runtime it actually used
+// instead of inferring it from the runner label. It never contains paths, tokens,
+// or environment values other than the concurrency variable already selected.
+const availableParallelism =
+  typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+const runtime = {
+  node: process.version,
+  platform: process.platform,
+  arch: process.arch,
+  availableParallelism,
+  cpuCount: os.cpus().length,
+  totalMemMiB: Math.round(os.totalmem() / 1024 / 1024),
+  testIsolation: readIsolation(forwarded),
+  testConcurrency: explicitConcurrency ?? documentedDefaultConcurrency(),
+  testConcurrencySource:
+    explicitConcurrency === null
+      ? "default (availableParallelism - 1)"
+      : forwardedConcurrency !== null
+        ? "flag"
+        : "EGA_TEST_CONCURRENCY",
+  scope: scope ?? "unscoped",
+  files: scope ? selected.length : "default discovery",
+  // For the unscoped Windows suite, record the default-discovery inventory so the
+  // log itself proves how many files the run covered. It uses the same declared
+  // glob as the ownership check; an explicit scope already returns its own list.
+  discoveredFiles: scope ? selected.length : discover().length,
+};
+process.stderr.write(`[test:bounded] runtime ${JSON.stringify(runtime)}\n`);
 
 process.stderr.write(
   `[test:bounded] node ${nodeArgs.join(" ")}\n` +

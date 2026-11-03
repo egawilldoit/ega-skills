@@ -7,6 +7,19 @@ on:
       - main
       - release/2.0
   workflow_dispatch:
+    inputs:
+      # Benchmark-only knobs. Blank (the default) keeps Node's documented
+      # `availableParallelism() - 1` behaviour, so routine PR/push runs are
+      # byte-identical to the previous workflow. Values are validated before use
+      # and only ever affect the two foundation test invocations.
+      linux_core_concurrency:
+        description: 'Optional Node --test-concurrency for Linux foundation core tests (blank = Node default)'
+        required: false
+        default: ''
+      windows_concurrency:
+        description: 'Optional Node --test-concurrency for Windows foundation tests (blank = Node default)'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.base_ref != 'release/2.0' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
@@ -119,7 +132,28 @@ jobs:
       - name: Token estimator vectors
         run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
 
+      - name: Validate requested test concurrency
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          EGA_LINUX_CORE_CONCURRENCY: ${{ inputs.linux_core_concurrency }}
+          EGA_WINDOWS_CONCURRENCY: ${{ inputs.windows_concurrency }}
+        run: |
+          set -euo pipefail
+          for value in "$EGA_LINUX_CORE_CONCURRENCY" "$EGA_WINDOWS_CONCURRENCY"; do
+            if [[ -n "$value" ]] && ! [[ "$value" =~ ^[1-9][0-9]?$ ]]; then
+              printf 'Invalid concurrency input %q: expected a positive integer between 1 and 99\n' "$value" >&2
+              exit 1
+            fi
+          done
+
       - name: Test
+        env:
+          # Routine runs have no dispatch inputs, so this is empty and the bounded
+          # runner keeps Node's default concurrency. Only a manual dispatch can
+          # choose a value, and the step above rejects anything that is not a
+          # positive integer.
+          EGA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && inputs.windows_concurrency || (runner.os != 'Windows' && inputs.linux_core_concurrency || '') }}
         run: ${{ runner.os == 'Windows' && 'pnpm test:ci' || 'node scripts/release/run-tests-bounded.mjs --ci-scope=core' }}
 
       - name: Check frozen specs
