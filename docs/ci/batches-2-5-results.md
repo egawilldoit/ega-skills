@@ -447,13 +447,14 @@ rejected or deferred for a stated reason.
 
 | Path | Wall | Bound by | Composition |
 |---|---:|---|---|
-| Normal PR (`b8aadd8`) | 203 s execution latency | `foundation-linux shard (2/2)` 180 s | test 165 s, of which one file is ~102 s |
+| Normal PR (`7577387`) | 200 s execution latency | `foundation-linux shard (2/2)` 173 s, with `web console (ubuntu-latest)` at 166 s | Linux test 165 s, of which one file is ~102 s |
 | Full Linux/Windows (`b8aadd8`) | 522 s | `foundation-windows shard (1/2)` 487 s | test 374 s, install 56 s, checks ~18 s |
 
-The routine PR path is now bound by a single Linux core shard whose wall is dominated
-by `tests/router/golden/determinism.test.mjs` (about 102 s of the 165 s). The full-run
-path is bound by a Windows shard whose wall is dominated by its test step (374 s) and
-its install (56 s).
+The routine PR path is now co-bound by the slower Linux core shard and the web job:
+in the final run they finished 173 s and 166 s after job start. The Linux shard's wall
+is dominated by `tests/router/golden/determinism.test.mjs` (about 102 s of the 165 s).
+The full-run path is bound by a Windows shard whose wall is dominated by its test step
+(374 s) and its install (56 s).
 
 ### 8.2 Candidates, measurements and disposition
 
