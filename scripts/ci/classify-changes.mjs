@@ -30,6 +30,17 @@ export function classify(entries) {
   return {mode:'full', reason:'shared, security, or unclassified changes'};
 }
 
+// Windows is selected for manual full runs and release-target events only. The
+// workflow also derives this predicate independently for `ci-gate`; if the two ever
+// disagree, the gate fails closed instead of silently accepting a skipped shard.
+export function windowsSelected({ event, baseRef, ref } = {}) {
+  return (
+    event === 'workflow_dispatch' ||
+    (event === 'pull_request' && baseRef === 'release/2.0') ||
+    (event === 'push' && ref === 'refs/heads/release/2.0')
+  );
+}
+
 // The full job set is fixed. Requiring every key to be present (even when a mode
 // does not gate on it) means adding a `needs:` entry without teaching the gate
 // about it fails closed instead of silently passing.
@@ -40,17 +51,50 @@ export const MODES = Object.freeze({
 });
 export const REQUIRED_JOBS = MODES.full;
 
-export function gate(mode, results) {
+// Linux foundation is the checks job plus two real test shards behind the required
+// `foundation (ubuntu-latest)` aggregator. They are mandatory whenever the mode
+// selects foundation at all.
+export const LINUX_FOUNDATION_JOBS = Object.freeze([
+  'foundation-checks',
+  'foundation-linux-shard-1',
+  'foundation-linux-shard-2',
+]);
+
+// Windows foundation is two real shards plus the aggregator that keeps the release
+// context name. All three are mandatory whenever Windows is selected.
+export const WINDOWS_JOBS = Object.freeze([
+  'foundation-windows-shard-1',
+  'foundation-windows-shard-2',
+  'foundation-windows',
+]);
+export const ALL_JOBS = Object.freeze([...REQUIRED_JOBS, ...LINUX_FOUNDATION_JOBS, ...WINDOWS_JOBS]);
+
+export function gate(mode, results, { windows = false } = {}) {
   if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) return false;
   if (!results || typeof results !== 'object' || Array.isArray(results)) return false;
   const keys = Object.keys(results);
-  if (keys.length !== REQUIRED_JOBS.length || !REQUIRED_JOBS.every(name => Object.hasOwn(results, name))) return false;
-  return MODES[mode].every(name => results[name] === 'success');
+  if (keys.length !== ALL_JOBS.length || !ALL_JOBS.every(name => Object.hasOwn(results, name))) return false;
+  if (!MODES[mode].every(name => results[name] === 'success')) return false;
+  // Mode-aware Linux foundation validation: a mode that runs foundation must show
+  // its checks job and both shards succeeding; a mode that skips it must show them
+  // explicitly skipped, never green.
+  const foundationExpected = MODES[mode].includes('foundation') ? 'success' : 'skipped';
+  if (!LINUX_FOUNDATION_JOBS.every(name => results[name] === foundationExpected)) return false;
+  // Mode-aware Windows validation. A release or manual run must present real shard
+  // success; every other run must present an explicit skip. `success` outside a
+  // Windows selection and `skipped` inside one both fail closed.
+  const expected = windows ? 'success' : 'skipped';
+  return WINDOWS_JOBS.every(name => results[name] === expected);
 }
 
 function git(...args) { return execFileSync('git', args, {encoding:'utf8', maxBuffer:10_000_000}).trim(); }
 function select() {
-  if (process.env.CI_EVENT !== 'pull_request' || process.env.CI_BASE_REF === 'release/2.0') return {mode:'full', reason:'release, push, or manual verification'};
+  const windows = windowsSelected({
+    event: process.env.CI_EVENT,
+    baseRef: process.env.CI_BASE_REF,
+    ref: process.env.CI_REF,
+  });
+  if (process.env.CI_EVENT !== 'pull_request' || process.env.CI_BASE_REF === 'release/2.0') return {mode:'full', reason:'release, push, or manual verification', windows};
   try {
     if (git('rev-parse','--is-shallow-repository') !== 'false') throw new Error('shallow repository');
     const base = process.env.CI_BASE_SHA ?? '';
@@ -62,20 +106,20 @@ function select() {
     if (parts.pop() !== '' || parts.length % 2) throw new Error('incomplete diff');
     const entries = [];
     for (let i=0; i<parts.length; i+=2) entries.push({status:parts[i],path:parts[i+1]});
-    return classify(entries);
-  } catch { return {mode:'full', reason:'git history or diff unavailable'}; }
+    return {...classify(entries), windows};
+  } catch { return {mode:'full', reason:'git history or diff unavailable', windows}; }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'gate') {
     const results = JSON.parse(process.env.CI_NEEDS ?? '{}');
     const normalized = Object.fromEntries(Object.entries(results).map(([k,v]) => [k === 'web-isolation' ? 'isolation' : k, v?.result]));
-    if (!gate(process.env.CI_MODE, normalized)) { console.error('ci-gate: required job missing or not successful', normalized); process.exit(1); }
+    if (!gate(process.env.CI_MODE, normalized, {windows: process.env.CI_WINDOWS === 'true'})) { console.error('ci-gate: required job missing or not successful', normalized); process.exit(1); }
     console.log('ci-gate: selected jobs succeeded');
   } else {
     const selected = select();
     console.log(JSON.stringify(selected));
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT missing');
-    appendFileSync(process.env.GITHUB_OUTPUT, `mode=${selected.mode}\nreason=${selected.reason}\n`);
+    appendFileSync(process.env.GITHUB_OUTPUT, `mode=${selected.mode}\nreason=${selected.reason}\nwindows=${selected.windows}\n`);
   }
 }

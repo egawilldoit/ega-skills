@@ -26,9 +26,10 @@ replace them with mocks or `continue-on-error`.
 
 ## Test ownership
 
-`scripts/ci/test-ownership.json` lists all default Node-discovered files. At head
-`50b3a8c` it contains 150 core and 38 web files; `ownership.mjs` checks the
-inventory for missing, stale or duplicate owners. When a discovered test is
+`scripts/ci/test-ownership.json` lists all default Node-discovered files. At the
+Batch 2 head `c487883` it contains 152 core and 38 web files (190 total, up from
+189 because the bounded-runner contract test was added); `ownership.mjs` checks
+the inventory for missing, stale or duplicate owners. When a discovered test is
 added, removed or moved, update the manifest and run:
 
 ```sh
@@ -48,6 +49,67 @@ manual full runs retain Windows foundation and web. Windows foundation keeps the
 full unscoped suite, including deliberate release-time overlap with web. The
 release ruleset requires `foundation (ubuntu-latest)`, `foundation (windows-2022)`,
 and `contract-f rls (ubuntu-latest)`; preserve those exact names.
+
+## Linux shards and the gate
+
+Linux foundation is `foundation-checks (ubuntu-latest)`, two core shard jobs
+`foundation-linux shard (1/2)` and `(2/2)`, and the aggregator `foundation`, which
+carries the required `foundation (ubuntu-latest)` name. The checks job holds every
+non-test gate (artifact, staging, catalog, typecheck, registry performance, token
+vectors, specs); the shards hold the 152-file core suite split by
+`run-tests-bounded.mjs --ci-scope=core --shard=i/2`.
+
+The aggregator runs `verify-shards.mjs` with `CI_SHARD_SCOPE=core` and also fails
+when `foundation-checks` did not succeed, because the ruleset only sees the
+aggregator's name. `ci-gate` lists all three sub-jobs directly.
+
+Changing the shard count means updating `LINUX_FOUNDATION_JOBS` in
+`classify-changes.mjs`, the aggregator's `CI_SHARD_JOBS`/`CI_SHARD_COUNT`, the
+`ci-gate.needs` list and the gate tests. Evidence is in
+[../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §7.
+
+## Windows shards and the gate
+
+Windows foundation runs as two explicit jobs, `foundation-windows-shard-1` and
+`foundation-windows-shard-2`, plus the aggregator `foundation-windows`, which
+carries the required `foundation (windows-2022)` name. Explicit job ids are
+deliberate: a matrix job collapses to one `needs` entry, so a missing or
+duplicated shard would be invisible to the gate.
+
+Each shard runs `pnpm test:ci -- --shard=i/2`, which keeps the unscoped suite and
+default Node discovery. `scripts/ci/sharding.mjs` owns the partition: sorted file
+*i* goes to shard `(i % n) + 1`, it fails on any duplicate or omission, and it
+hashes both the selection and the full inventory. `scripts/ci/verify-shards.mjs`
+runs in the aggregator, re-derives both partitions from the checkout and fails on
+a missing, failed, cancelled, skipped, duplicated or drifted shard.
+
+`ci-gate` lists the two shards and the aggregator directly because `needs` is not
+transitive. `windowsSelected()` decides whether Windows is expected, and the gate
+derives the same predicate independently from the event context; a disagreement
+fails the gate. When Windows is selected the three jobs must be `success`; when it
+is not, they must be an explicit `skipped`. A green Windows job outside a Windows
+selection is rejected.
+
+Do not add a new shard job without adding it to `ci-gate.needs`, `WINDOWS_JOBS`
+in `classify-changes.mjs`, `CI_SHARD_JOBS` in the aggregator and the partition
+tests. Re-measure shard balance after any test-file inventory change; index-parity
+membership reshuffles when a file is added or removed. Evidence is in
+[../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §6.
+
+## Test concurrency
+
+`scripts/release/run-tests-bounded.mjs` resolves the effective `--test-concurrency`
+from an explicit flag, then `EGA_TEST_CONCURRENCY`, then Node's documented default
+(`availableParallelism() - 1`). It logs the resolved runtime as one JSON line so a
+hosted log records the machine it actually used instead of the runner label.
+
+Windows foundation runs at an explicit `4`; Linux foundation, the web suite and
+every other invocation keep the Node default. `workflow_dispatch` exposes
+`linux_core_concurrency` and `windows_concurrency` for controlled comparisons;
+both default to empty, so routine and release runs are unaffected. The values are
+validated by a shell guard and by the runner (integer 1–32). Registry performance
+stays pinned at `--test-concurrency=1` and is not part of the experiment. Evidence
+is in [../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §5.
 
 The duplicate `hashing-traversal.yml` workflow was removed. The two traversal
 files and hashing enumeration remain in the foundation inventory; inspect both

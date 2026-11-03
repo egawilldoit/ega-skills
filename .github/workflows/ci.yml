@@ -7,6 +7,19 @@ on:
       - main
       - release/2.0
   workflow_dispatch:
+    inputs:
+      # Benchmark-only knobs. Blank (the default) keeps Node's documented
+      # `availableParallelism() - 1` behaviour, so routine PR/push runs are
+      # byte-identical to the previous workflow. Values are validated before use
+      # and only ever affect the two foundation test invocations.
+      linux_core_concurrency:
+        description: 'Optional Node --test-concurrency for Linux foundation core tests (blank = Node default)'
+        required: false
+        default: ''
+      windows_concurrency:
+        description: 'Optional Node --test-concurrency for Windows foundation tests (blank = Node default)'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.base_ref != 'release/2.0' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
@@ -21,6 +34,7 @@ jobs:
     outputs:
       mode: ${{ steps.select.outputs.mode }}
       reason: ${{ steps.select.outputs.reason }}
+      windows: ${{ steps.select.outputs.windows }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -34,6 +48,7 @@ jobs:
           CI_BASE_REF: ${{ github.base_ref }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REF: ${{ github.ref }}
         run: node scripts/ci/classify-changes.mjs
 
   docs:
@@ -57,16 +72,16 @@ jobs:
         env:
           CI_REASON: ${{ needs.classify.outputs.reason }}
 
-  foundation:
+  # Linux foundation is split into its non-test checks plus two test shards, with the
+  # required `foundation (ubuntu-latest)` name on the aggregator below. Splitting the
+  # ~250 s core test step is what shortens ordinary PR CI; the checks job keeps every
+  # gate that is not a test (artifact, catalog, typecheck, perf, tokens, specs).
+  foundation-checks:
     needs: classify
     if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
-    name: foundation (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: foundation-checks (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
       - name: Require healthy full classification on release PRs
@@ -119,11 +134,254 @@ jobs:
       - name: Token estimator vectors
         run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
 
+      - name: Check frozen specs
+        run: pnpm specs:check
+
+  foundation-linux-shard-1:
+    needs: classify
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
+    name: foundation-linux shard (1/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EGA_TEST_SHARD: 1/2
+    outputs: &foundation-linux-shard-outputs
+      shard_index: ${{ steps.test.outputs.shard_index }}
+      shard_count: ${{ steps.test.outputs.shard_count }}
+      shard_files: ${{ steps.test.outputs.shard_files }}
+      shard_full_files: ${{ steps.test.outputs.shard_full_files }}
+      shard_selection_digest: ${{ steps.test.outputs.shard_selection_digest }}
+      shard_full_digest: ${{ steps.test.outputs.shard_full_digest }}
+      shard_scope: ${{ steps.test.outputs.shard_scope }}
+    steps: &foundation-linux-shard-steps
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile is unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate requested test concurrency
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          EGA_LINUX_CORE_CONCURRENCY: ${{ inputs.linux_core_concurrency }}
+          EGA_WINDOWS_CONCURRENCY: ${{ inputs.windows_concurrency }}
+        run: |
+          set -euo pipefail
+          for value in "$EGA_LINUX_CORE_CONCURRENCY" "$EGA_WINDOWS_CONCURRENCY"; do
+            if [[ -n "$value" ]] && ! [[ "$value" =~ ^[1-9][0-9]?$ ]]; then
+              printf 'Invalid concurrency input %q: expected a positive integer between 1 and 99\n' "$value" >&2
+              exit 1
+            fi
+          done
+
+      # `--ci-scope=core` keeps the ownership group; `--shard` splits that same
+      # inventory. The bounded runner proves the partition is complete and disjoint
+      # in every shard and publishes its selection for the aggregator to re-derive.
       - name: Test
-        run: ${{ runner.os == 'Windows' && 'pnpm test:ci' || 'node scripts/release/run-tests-bounded.mjs --ci-scope=core' }}
+        id: test
+        env:
+          EGA_TEST_CONCURRENCY: ${{ inputs.linux_core_concurrency }}
+        run: node scripts/release/run-tests-bounded.mjs --ci-scope=core --shard=${{ env.EGA_TEST_SHARD }}
+
+  foundation-linux-shard-2:
+    needs: classify
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
+    name: foundation-linux shard (2/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EGA_TEST_SHARD: 2/2
+    outputs: *foundation-linux-shard-outputs
+    steps: *foundation-linux-shard-steps
+
+  # Keeps the exact release-required context name. It fails unless the checks job and
+  # both shard executions succeeded and the shards cover the core inventory exactly
+  # once.
+  foundation:
+    needs: [classify, foundation-checks, foundation-linux-shard-1, foundation-linux-shard-2]
+    if: ${{ always() && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
+    name: foundation (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Verify the checks job and both shards succeeded
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SHARD_JOBS: '["foundation-linux-shard-1","foundation-linux-shard-2"]'
+          CI_SHARD_COUNT: '2'
+          CI_SHARD_SCOPE: core
+        run: node scripts/ci/verify-shards.mjs
+
+      # `verify-shards` proves the shard evidence. The non-test checks are a separate
+      # job, so the required context must also fail when that job fails; `ci-gate`
+      # lists it directly as well.
+      - name: Require the checks job to have succeeded
+        if: ${{ needs.foundation-checks.result != 'success' }}
+        run: exit 1
+
+  # Windows foundation runs as two explicit shards. Explicit job ids (rather than a
+  # matrix) are what let `ci-gate` require each shard's own result: a matrix job
+  # collapses to one `needs` entry, so a missing or duplicated shard would be
+  # invisible. Both shards share one step list and the release-required check name
+  # lives on the aggregator below.
+  foundation-windows-shard-1:
+    needs: classify
+    if: ${{ always() && needs.classify.outputs.windows == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
+    name: foundation-windows shard (1/2)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      EGA_TEST_SHARD: 1/2
+    outputs: &foundation-windows-shard-outputs
+      shard_index: ${{ steps.test.outputs.shard_index }}
+      shard_count: ${{ steps.test.outputs.shard_count }}
+      shard_files: ${{ steps.test.outputs.shard_files }}
+      shard_full_files: ${{ steps.test.outputs.shard_full_files }}
+      shard_selection_digest: ${{ steps.test.outputs.shard_selection_digest }}
+      shard_full_digest: ${{ steps.test.outputs.shard_full_digest }}
+      shard_scope: ${{ steps.test.outputs.shard_scope }}
+    steps: &foundation-windows-shard-steps
+      - name: Require healthy full classification on release PRs
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
+        run: exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Runtime versions
+        run: |
+          node --version
+          pnpm --version
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile is unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate committed deployment artifact
+        run: node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
+
+      - name: Verify the web deployment artifact stages and verifies
+        run: node scripts/web/stage-artifact.mjs --check-only
+
+      - name: Check generated catalog is not stale
+        run: pnpm catalog:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Registry cold-import performance
+        run: pnpm test:perf:registry
+
+      - name: Token estimator vectors
+        run: node --test tests/tokens/canonicalization.test.mjs tests/tokens/errors.test.mjs tests/tokens/offline.test.mjs tests/tokens/token-estimator.test.mjs
+
+      - name: Validate requested test concurrency
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          EGA_WINDOWS_CONCURRENCY: ${{ inputs.windows_concurrency }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$EGA_WINDOWS_CONCURRENCY" ]] && ! [[ "$EGA_WINDOWS_CONCURRENCY" =~ ^[1-9][0-9]?$ ]]; then
+            printf 'Invalid concurrency input %q: expected a positive integer between 1 and 99\n' "$EGA_WINDOWS_CONCURRENCY" >&2
+            exit 1
+          fi
+
+      # The unscoped suite keeps default Node discovery (190 files, including the
+      # deliberate web overlap). `--shard` splits that same inventory; the bounded
+      # runner proves the partition is complete and disjoint in every shard and
+      # publishes its selection for the aggregator to re-derive.
+      - name: Test
+        id: test
+        env:
+          # Batch 2 measured Node's implicit 3 against an explicit 4 on this exact
+          # workload: 4 was faster in both paired runs with identical test parity, so
+          # it is the explicit default here. `windows_concurrency` still overrides it
+          # for controlled comparisons.
+          EGA_TEST_CONCURRENCY: ${{ inputs.windows_concurrency || '4' }}
+        run: pnpm test:ci -- --shard=${{ env.EGA_TEST_SHARD }}
 
       - name: Check frozen specs
         run: pnpm specs:check
+
+  foundation-windows-shard-2:
+    needs: classify
+    if: ${{ always() && needs.classify.outputs.windows == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full'))) }}
+    name: foundation-windows shard (2/2)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      EGA_TEST_SHARD: 2/2
+    outputs: *foundation-windows-shard-outputs
+    steps: *foundation-windows-shard-steps
+
+  # Keeps the exact release-required context name. It is a real job that fails unless
+  # both shard executions succeeded and their published selections cover discovery
+  # exactly once. A skipped or cancelled shard is a failure here, not a green matrix
+  # summary.
+  foundation-windows:
+    needs: [classify, foundation-windows-shard-1, foundation-windows-shard-2]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) }}
+    name: foundation (windows-2022)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Verify both shards cover discovery exactly once
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SHARD_JOBS: '["foundation-windows-shard-1","foundation-windows-shard-2"]'
+          CI_SHARD_COUNT: '2'
+        run: node scripts/ci/verify-shards.mjs
 
   web:
     needs: classify
@@ -420,7 +678,19 @@ jobs:
   ci-gate:
     name: ci-gate
     if: ${{ always() }}
-    needs: [classify, docs, foundation, web, web-isolation, rls]
+    needs:
+      - classify
+      - docs
+      - foundation
+      - foundation-checks
+      - foundation-linux-shard-1
+      - foundation-linux-shard-2
+      - web
+      - web-isolation
+      - rls
+      - foundation-windows-shard-1
+      - foundation-windows-shard-2
+      - foundation-windows
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -432,4 +702,8 @@ jobs:
         env:
           CI_MODE: ${{ needs.classify.outputs.mode }}
           CI_NEEDS: ${{ toJSON(needs) }}
+          # Derived independently of `classify` on purpose: if the classifier's
+          # Windows decision ever disagrees with this predicate, the gate sees the
+          # expected Windows jobs as skipped instead of successful and fails.
+          CI_WINDOWS: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0') }}
         run: node scripts/ci/check-gate.mjs

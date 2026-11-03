@@ -2,6 +2,7 @@
   "core": [
     "tests/catalog/catalog-generator.test.mjs",
     "tests/ci/classify-changes.test.mjs",
+    "tests/ci/run-tests-bounded.test.mjs",
     "tests/ci/test-ownership.test.mjs",
     "tests/cli/artifact-only-serving-e2e.test.mjs",
     "tests/cli/cli.test.mjs",
