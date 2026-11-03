@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertPartitionComplete, buildShardPartitions, describeShard, parseShard } from '../../scripts/ci/sharding.mjs';
-import { discover } from '../../scripts/ci/ownership.mjs';
+import { discover, manifest } from '../../scripts/ci/ownership.mjs';
 
 // These cases exercise the bounded runner's own contract. Every nested run uses an
 // explicit trivial test file and never `--ci-scope`, so it cannot fan out into the
@@ -120,7 +120,8 @@ test('shard parsing rejects malformed, out-of-range and single-shard values', ()
 
 test('shard partitions are disjoint, complete and identical to the declared inventory', () => {
   const full = discover().slice().sort();
-  assert.equal(full.length, 190);
+  const expectedTotal = manifest.core.length + manifest.web.length;
+  assert.equal(full.length, expectedTotal);
   for (const count of [2, 3, 4]) {
     const partitions = buildShardPartitions(full, count);
     assert.equal(partitions.length, count);
@@ -148,7 +149,7 @@ test('shard description hashes the selection and the full inventory distinctly',
   const second = describeShard({ index: 2, count: 2, files: partitions[1], fullFiles: full });
   assert.deepEqual(
     { index: first.index, count: first.count, files: first.files, fullFiles: first.fullFiles },
-    { index: 1, count: 2, files: 95, fullFiles: 190 },
+    { index: 1, count: 2, files: Math.ceil(full.length / 2), fullFiles: full.length },
   );
   assert.notEqual(first.selectionDigest, second.selectionDigest);
   assert.equal(first.fullDigest, second.fullDigest);
