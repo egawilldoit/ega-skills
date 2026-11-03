@@ -1,7 +1,7 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
 Status: Batches 2–5 complete. Every batch has a final disposition; the code-final head
-`9a7b39c` passed a full Linux/Windows run and the pull-request path. This document is
+`f5244e6` passed a full Linux/Windows run and the pull-request path. This document is
 the evidence record, not a release authorization.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
@@ -322,12 +322,12 @@ preserved: both Windows jobs still run the web files (19 in each shard).
 
 ### 6.5 Balance, risks and rollback
 
-- Measured balance ratio 358 s / 262 s = **1.37**, above the 1.25 target used in the
-  original plan. The heavier shard carries the x10 determinism file and the
-  provenance fixture. The cost of the imbalance is bounded: shard 1 finishes 96 s
-  early while the run waits on shard 2. A weighted scheduler was **not** added,
-  because it needs a maintained per-file weight table and the brief reserves that for
-  the case where native partitioning is not enough. It is re-examined in Batch 5.
+- Measured balance ratio 358 s / 262 s = **1.37** on the first sharded run, then 1.12,
+  1.24 and 1.02 on later runs for identical shard content. The heavier shard carries the
+  x10 determinism file and the provenance fixture. The cost of the imbalance is bounded:
+  the faster shard finishes early while the run waits on the slower one. A weighted
+  scheduler was **not** added, because the ratio is not stable enough to target and it
+  would need a maintained per-file weight table. It is re-examined in Batch 5.
 - Index-parity membership is order-sensitive: adding or removing one test file
   reshuffles every later assignment. Balance must be re-measured after inventory
   changes; the completeness and digest checks make a wrong reshuffle loud, not silent.
@@ -449,14 +449,14 @@ rejected or deferred for a stated reason.
 
 | Path | Wall | Bound by | Composition |
 |---|---:|---|---|
-| Normal PR (`7577387`) | 200 s execution latency | `foundation-linux shard (2/2)` 173 s, with `web console (ubuntu-latest)` at 166 s | Linux test 165 s, of which one file is ~102 s |
-| Full Linux/Windows (`b8aadd8`) | 522 s | `foundation-windows shard (1/2)` 487 s | test 374 s, install 56 s, checks ~18 s |
+| Normal PR (`f5244e6`) | 188 s execution latency | `foundation-linux shard (2/2)` 148 s, `web console (ubuntu-latest)` 166 s in the previous run | Linux test 137 s, of which one file is ~102 s |
+| Full Linux/Windows (`f5244e6`) | 449 s | `foundation-windows shard (2/2)` 416 s | test 319 s, install 51 s, checks ~18 s |
 
-The routine PR path is now co-bound by the slower Linux core shard and the web job:
-in the final run they finished 173 s and 166 s after job start. The Linux shard's wall
-is dominated by `tests/router/golden/determinism.test.mjs` (about 102 s of the 165 s).
-The full-run path is bound by a Windows shard whose wall is dominated by its test step
-(374 s) and its install (56 s).
+The routine PR path is co-bound by the slower Linux core shard and the web job; the two
+swap places between runs (173 s versus 166 s, then 148 s versus an unknown web time).
+The Linux shard's wall is dominated by `tests/router/golden/determinism.test.mjs`
+(about 102 s of the 137–165 s). The full-run path is bound by a Windows shard whose wall
+is dominated by its test step (299–377 s) and its install (51–127 s).
 
 ### 8.2 Candidates, measurements and disposition
 
@@ -464,8 +464,8 @@ The full-run path is bound by a Windows shard whose wall is dominated by its tes
 |---|---|---|---|
 | Split `determinism.test.mjs` by scenario group | ~102 s of the 165 s critical Linux shard | Could cut the PR shard to ~90–110 s | **DEFERRED** — not small or safe. The file deliberately builds the golden registry once and shares it across 41 scenarios × 10 resolves plus a 100-skill warm benchmark. Splitting multiplies that setup, fragments an intentionally co-located determinism proof, and is a test refactor that needs its own review boundary (the plan's Batch 6). |
 | Move the heavy file to the other Linux shard | shard walls 139 s and 165 s | Modelled: receiver goes to ~173 s, sender to ~131 s → max 173 s, **worse** than 165 s | **REJECTED** — the model says it makes the critical path longer. |
-| Weighted shard scheduler (either platform) | Windows ratio 1.37 then 1.12 for identical content; Linux 1.19 | Recovering half of the observed idle is ~13 s (Linux) or ~24 s (Windows) | **REJECTED** — the Windows imbalance is not stable across runs, so the target is noise; the weight table would also need maintenance on every test-file change. |
-| Windows pnpm-store cache | Install 54–81 s in six measured Windows jobs, on the critical shard | ~30–40 s off the critical shard, ~6–8% of a full run | **DEFERRED** — real gain, but it adds a cache as a new failure mode on release-critical jobs, and correctness cannot be established by one run: it needs a multi-run A/B with a store-integrity check. The repository deliberately has no caches today. Recorded as the top remaining candidate. |
+| Weighted shard scheduler (either platform) | Windows ratio 1.37, 1.12, 1.24, 1.02 for identical content; Linux 1.19, 1.07 | Recovering half of the observed idle is ~13 s (Linux) or ~24 s (Windows) | **REJECTED** — the Windows imbalance is not stable across runs, so the target is noise; the weight table would also need maintenance on every test-file change. |
+| Windows pnpm-store cache | Install 51–127 s across ten measured Windows jobs, always on the critical shard | ~30–40 s off the critical shard when the install is slow, less when it is fast | **DEFERRED** — real gain, but it adds a cache as a new failure mode on release-critical jobs, and correctness cannot be established by one run: it needs a multi-run A/B with a store-integrity check. The repository deliberately has no caches today. Recorded as the top remaining candidate. |
 | Stop duplicating the non-test checks across the two Windows shards | ~15 s per shard (`perf` 7–8 s, catalog 2 s, artifact/staging 2 s, typecheck 1 s, tokens 2 s, specs 1 s) | <1% of a full run in runner cost, no wall change; removing them would drop cross-platform validation | **REJECTED** |
 | `--test-concurrency=4` on the Linux shards | Batch 2 paired runs | Within runner variance | **REJECTED** (Batch 2 decision stands) |
 | Linux pnpm/Node cache | Install 3–7 s on every Linux job | Restore cost exceeds the saving | **REJECTED** (audit finding restated, no new evidence) |
@@ -498,26 +498,27 @@ columns are the critical-path value, not an average of every job.
 
 | Metric | Original (historical) | After Batch 1 | After Batches 2–5 | Total improvement |
 |---|---|---|---|---|
-| Linux PR CI wall | 360 s median (6.00 min) | 294 s | **200 s** execution; the raw 313 s at `7577387` contained 112 s of runner queue from a concurrent manual run | −44% (360 → 200 s) |
-| Full Linux/Windows CI wall | 1,056 s median (17.6 min) | 916 s | **505 / 522 / 622 s** across three sharded runs (median 522 s) | −50% median (1,056 → 522 s) |
-| Windows foundation | 1,032 s median (17.2 min) | 889 s single job | **459–569 s** (critical shard) | −48% at the median |
-| Linux foundation | 258 s median (4.3 min) | 270 s | **164–180 s** (critical shard) | −35% |
-| Critical-path test step | Windows 967 s; Linux web 316 s; Linux core 246 s | Windows 755 s; web 135 s; core 250 s | Windows shard 343–377 s; Linux core shard 160–165 s; web 135–166 s | Windows −61%; core −35% |
-| Runner-minutes | 17.278 mean per successful run (mixed cohort, not comparable) | PR 9.667 / full 30.267 | PR 10.1 / full 27.6–33.7 (median 31.2) | roughly neutral; PR +0.4, full −0.5 to +3.5 |
+| Linux PR CI wall | 360 s median (6.00 min) | 294 s | **188 s** execution (final head `f5244e6`); 200–203 s in the two Batch 4/5 runs | −48% (360 → 188 s) |
+| Full Linux/Windows CI wall | 1,056 s median (17.6 min) | 916 s | **449 s** at the final head; 449 / 505 / 522 / 622 s across four sharded runs (median 505 s) | −57% at the final head, −52% at the median |
+| Windows foundation | 1,032 s median (17.2 min) | 889 s single job | **416 s** critical shard at the final head; 409–569 s overall | −60% at the final head |
+| Linux foundation | 258 s median (4.3 min) | 270 s | **152 s** critical shard at the final head; 148–180 s overall | −41% |
+| Critical-path test step | Windows 967 s; Linux web 316 s; Linux core 246 s | Windows 755 s; web 135 s; core 250 s | Windows shard **299 s**; Linux core shard **137–165 s**; web 135–166 s | Windows −69%; core −44% |
+| Runner-minutes | 17.278 mean per successful run (mixed cohort, not comparable) | PR 9.667 / full 30.267 | PR 10.1 / full 27.6–33.7 (median 30.1) | roughly neutral; PR +0.4, full −0.2 |
 | Test coverage | 189 files (151 core, 38 web); 2,225 Windows tests | 189 files; 2,225 Windows tests | 190 files (152 core, 38 web); 2,247 Windows tests; 1,451 Linux core tests | +1 file and +22 tests, no reduction |
 
 Every post-change row is a measured hosted number, not a model. The historical column
 is the version-mixed baseline from [optimization-results.md](optimization-results.md) §3
-and is not a paired control. The three sharded full runs span 505–622 s for identical
-workflow code: the spread is runner hardware and Windows install variance (56–127 s),
-which is why the median is reported next to the range.
+and is not a paired control. The four sharded full runs span 449–622 s for identical
+workflow code: the spread is runner hardware and Windows install variance (51–127 s),
+which is why the median is reported next to the range and the final head is named
+separately.
 
 ### 9.1 Cost and capacity
 
 - Routine PR runner-minutes: 9.667 after Batch 1 → 10.1 now (+0.4). Three extra Linux
-  jobs buy about 90 s of developer latency.
-- Full Linux/Windows runner-minutes: 30.267 after Batch 1 → 27.6, 31.2, 33.7 in the
-  three sharded runs. Neutral within variance.
+  jobs buy about 100 s of developer latency.
+- Full Linux/Windows runner-minutes: 30.267 after Batch 1 → 27.6, 29.8, 30.1, 31.2, 33.7
+  in the sharded runs. Neutral within variance.
 - GitHub-hosted standard runners are free for this public repository, so the money cost
   of every configuration here is zero. The currency that changed is concurrency
   capacity: a full run now starts 9 jobs instead of 7.
@@ -535,15 +536,19 @@ which is why the median is reported next to the range.
 | `b8aadd8` | manual full | [41635001638](https://github.com/egawilldoit/ega-skills/actions/runs/41635001638) | success | Batch 4 shards green |
 | `e2ce2a7` | pull request | [41636516276](https://github.com/egawilldoit/ega-skills/actions/runs/41636516276) | failure (intended) | Linux shard injection plus the pre-existing web flake; reverted |
 | `7577387` | pull request | [41638509715](https://github.com/egawilldoit/ega-skills/actions/runs/41638509715) | success | 200 s execution latency |
-| `9a7b39c` | manual full | [41639495317](https://github.com/egawilldoit/ega-skills/actions/runs/41639495317) | success | Code-final head; 2,247 Windows tests, 1,451 Linux core tests |
+| `9a7b39c` | manual full | [41639495317](https://github.com/egawilldoit/ega-skills/actions/runs/41639495317) | success | 622 s; slow Windows runner (127 s install) |
+| `f5244e6` | pull request | [41641206901](https://github.com/egawilldoit/ega-skills/actions/runs/41641206901) | success | 188 s execution latency |
+| `f5244e6` | manual full | [41641852832](https://github.com/egawilldoit/ega-skills/actions/runs/41641852832) | success | 449 s wall; shards 409/416 s; 2,247 Windows and 1,451 Linux core tests |
 
 Two corrections were required during the program, both caught by CI rather than by
 review: an un-updated gate fixture in `tests/release/ci-release-path.test.mjs`
 (run `41630489965`), and a hard-coded discovery count that a temporary injection file
 would have broken (`e433e7b`). No failure was worked around by relaxing a check.
 
-The final documentation head differs from `9a7b39c` only by this document. Its own
-pull-request and full Linux/Windows runs are recorded in the pull-request description.
+The commit that adds this section changes documentation only; the workflow, scripts and
+tests are byte-identical to `f5244e6`, which carries the full Linux/Windows validation.
+The documentation head's own pull-request and full runs are recorded in the
+pull-request description.
 
 ## 11. Risks, debt and rollback
 
