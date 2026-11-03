@@ -11,9 +11,13 @@ function readNeeds() {
 // `web-isolation` is the workflow job id; the gate calls it `isolation`.
 const needs = readNeeds();
 const results = Object.fromEntries(Object.entries(needs).map(([name, value]) => [name === 'web-isolation' ? 'isolation' : name, value?.result]));
+// Windows is expected only on the events the workflow itself selects it for. The
+// value is derived from the same predicate independently of `classify`, so a
+// disagreement shows up as a red gate instead of a silently skipped shard.
+const windows = process.env.CI_WINDOWS === 'true';
 
-if (!gate(process.env.CI_MODE, results)) {
-  console.error('ci-gate: required job missing or not successful', {mode: process.env.CI_MODE, results});
+if (!gate(process.env.CI_MODE, results, { windows })) {
+  console.error('ci-gate: required job missing or not successful', {mode: process.env.CI_MODE, windows, results});
   process.exit(1);
 }
-console.log('ci-gate: selected jobs succeeded');
+console.log(`ci-gate: selected jobs succeeded (windows=${windows})`);

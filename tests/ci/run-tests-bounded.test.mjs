@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertPartitionComplete, buildShardPartitions, describeShard, parseShard } from '../../scripts/ci/sharding.mjs';
+import { discover } from '../../scripts/ci/ownership.mjs';
 
 // These cases exercise the bounded runner's own contract. Every nested run uses an
 // explicit trivial test file and never `--ci-scope`, so it cannot fan out into the
@@ -103,5 +105,60 @@ test('bounded runner preserves the per-test timeout, overall bound and exit-code
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+test('shard parsing rejects malformed, out-of-range and single-shard values', () => {
+  assert.equal(parseShard(null), null);
+  assert.equal(parseShard(''), null);
+  assert.deepEqual(parseShard('1/2'), { index: 1, count: 2 });
+  assert.deepEqual(parseShard('2/2'), { index: 2, count: 2 });
+  for (const value of ['0/2', '3/2', '1/1', '1/0', '1/9', '1', '1/2/3', 'a/b', '-1/2', '1.5/2', ' 1/2']) {
+    assert.throws(() => parseShard(value), undefined, value);
+  }
+});
+
+test('shard partitions are disjoint, complete and identical to the declared inventory', () => {
+  const full = discover().slice().sort();
+  assert.equal(full.length, 190);
+  for (const count of [2, 3, 4]) {
+    const partitions = buildShardPartitions(full, count);
+    assert.equal(partitions.length, count);
+    assert.deepEqual(assertPartitionComplete(full, partitions), { files: full.length, partitions: count });
+    for (const partition of partitions) {
+      assert.ok(partition.length >= Math.floor(full.length / count));
+      assert.ok(partition.length <= Math.ceil(full.length / count));
+    }
+    // Every file appears exactly once across the shards.
+    const union = partitions.flat();
+    assert.equal(union.length, full.length);
+    assert.deepEqual(union.slice().sort(), full);
+  }
+  // A duplicate or a dropped file fails closed.
+  const parted = buildShardPartitions(full, 2);
+  assert.throws(() => assertPartitionComplete(full, [[...parted[0], parted[1][0]], parted[1]]), /duplicate shard assignment/);
+  assert.throws(() => assertPartitionComplete(full, [parted[0].slice(1), parted[1]]), /unassigned test files/);
+  assert.throws(() => assertPartitionComplete(full, [parted[0], []]), /unassigned test files/);
+});
+
+test('shard description hashes the selection and the full inventory distinctly', () => {
+  const full = discover().slice().sort();
+  const partitions = buildShardPartitions(full, 2);
+  const first = describeShard({ index: 1, count: 2, files: partitions[0], fullFiles: full });
+  const second = describeShard({ index: 2, count: 2, files: partitions[1], fullFiles: full });
+  assert.deepEqual(
+    { index: first.index, count: first.count, files: first.files, fullFiles: first.fullFiles },
+    { index: 1, count: 2, files: 95, fullFiles: 190 },
+  );
+  assert.notEqual(first.selectionDigest, second.selectionDigest);
+  assert.equal(first.fullDigest, second.fullDigest);
+  assert.match(first.selectionDigest, /^[0-9a-f]{64}$/);
+});
+
+test('bounded runner refuses a shard combined with explicit files', () => {
+  withTrivialTest((file) => {
+    const run = invoke(file, { args: ['--shard=1/2'] });
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /cannot be combined with explicit test files/);
   });
 });

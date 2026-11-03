@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import os from "node:os";
 import { ownedFiles, discover } from "../ci/ownership.mjs";
+import {
+  assertPartitionComplete,
+  buildShardPartitions,
+  describeShard,
+  parseShard,
+} from "../ci/sharding.mjs";
 
 const DEFAULT_PER_TEST_TIMEOUT_MS = 600_000;
 const DEFAULT_OVERALL_TIMEOUT_MS = 1_500_000;
@@ -61,6 +68,10 @@ function readIsolation(forwarded) {
   }
   return "process (Node default)";
 }
+
+// Sharding is computed in `scripts/ci/sharding.mjs` so the same pure partition and
+// completeness rules are used by the runner and by the aggregator that re-derives it.
+
 
 function envMs(name, fallback) {
   const raw = process.env[name];
@@ -232,6 +243,18 @@ const scopes = forwarded.filter((arg) => arg.startsWith("--ci-scope="));
 if (scopes.length > 1) throw new Error("Only one CI scope may be specified");
 const scope = scopes.length ? scopes[0].slice("--ci-scope=".length) : null;
 const selected = scope ? ownedFiles(scope) : [];
+const shardArgs = forwarded.filter((arg) => arg.startsWith("--shard="));
+if (shardArgs.length > 1) throw new Error("Only one shard may be specified");
+const shard = parseShard(shardArgs.length ? shardArgs[0].slice("--shard=".length) : null);
+const forwardedWithoutScopeOrShard = forwarded.filter(
+  (arg) => !arg.startsWith("--ci-scope=") && !arg.startsWith("--shard="),
+);
+// A shard selects from the inventory, so combining it with positional test files
+// would silently run the shard *plus* those files. Refuse instead of guessing.
+const explicitFiles = forwardedWithoutScopeOrShard.filter((arg) => !arg.startsWith("-"));
+if (shard && explicitFiles.length > 0) {
+  throw new Error("--shard selects from the inventory and cannot be combined with explicit test files");
+}
 const forwardedConcurrency = readForwardedConcurrency(forwarded);
 const envConcurrency = parseConcurrency(process.env.EGA_TEST_CONCURRENCY, "EGA_TEST_CONCURRENCY");
 if (forwardedConcurrency !== null && envConcurrency !== null && forwardedConcurrency !== envConcurrency) {
@@ -244,12 +267,31 @@ const explicitConcurrency = forwardedConcurrency ?? envConcurrency;
 // argv stays exactly what the workflow asked for.
 const concurrencyArgs =
   envConcurrency === null || forwardedConcurrency !== null ? [] : [`--test-concurrency=${envConcurrency}`];
+
+// The full inventory a given invocation covers: the ownership group for a scoped
+// run, or default Node discovery otherwise. It is sorted so every shard derives the
+// same partition regardless of filesystem order.
+const fullInventory = (scope ? selected : discover()).slice().sort();
+let shardDescription = null;
+let filesToRun = selected;
+if (shard) {
+  const partitions = buildShardPartitions(fullInventory, shard.count);
+  assertPartitionComplete(fullInventory, partitions);
+  filesToRun = partitions[shard.index - 1];
+  shardDescription = describeShard({
+    index: shard.index,
+    count: shard.count,
+    files: filesToRun,
+    fullFiles: fullInventory,
+  });
+}
+
 const nodeArgs = [
   "--test",
   `--test-timeout=${perTestTimeoutMs}`,
   ...concurrencyArgs,
-  ...forwarded.filter((arg) => !arg.startsWith("--ci-scope=")),
-  ...selected,
+  ...forwardedWithoutScopeOrShard,
+  ...filesToRun,
 ];
 
 // One machine-readable line so a hosted log proves the runtime it actually used
@@ -277,9 +319,29 @@ const runtime = {
   // For the unscoped Windows suite, record the default-discovery inventory so the
   // log itself proves how many files the run covered. It uses the same declared
   // glob as the ownership check; an explicit scope already returns its own list.
-  discoveredFiles: scope ? selected.length : discover().length,
+  discoveredFiles: fullInventory.length,
 };
 process.stderr.write(`[test:bounded] runtime ${JSON.stringify(runtime)}\n`);
+if (shardDescription) {
+  process.stderr.write(`[test:bounded] shard ${JSON.stringify(shardDescription)}\n`);
+  // Publish the selection so the aggregator can re-derive it from the repository and
+  // prove both shards together cover discovery exactly once.
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      [
+        `shard_index=${shardDescription.index}`,
+        `shard_count=${shardDescription.count}`,
+        `shard_files=${shardDescription.files}`,
+        `shard_full_files=${shardDescription.fullFiles}`,
+        `shard_selection_digest=${shardDescription.selectionDigest}`,
+        `shard_full_digest=${shardDescription.fullDigest}`,
+        `shard_scope=${scope ?? "unscoped"}`,
+        "",
+      ].join("\n"),
+    );
+  }
+}
 
 process.stderr.write(
   `[test:bounded] node ${nodeArgs.join(" ")}\n` +
