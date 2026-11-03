@@ -413,7 +413,42 @@ The percentages compare the stated observations; they are not estimates of a con
 
 PR [#197](https://github.com/egawilldoit/ega-skills/pull/197) is open, with no review decision recorded at report time. Batch 1 is ready for independent review; the overall program must not be reported complete. Rollback for Batch 1 is to revert its four test-file changes. No application data or artifact rollback is involved.
 
-This report update is documentation only and refers to the validated implementation SHA above. It is not a new hosted validation. After committing this correction, the new PR head must receive fresh PR CI and a manual full Linux/Windows run before merge; those are verification runs, separate from the Batch 1 performance measurements above.
+The documentation correction was committed as `533dc54`. Its PR CI passed, but its separate manual full run failed in Linux web startup (Section 14). Batch 1 performance evidence above remains historical evidence for `2c1fb6c`; the subsequent test-harness change requires fresh PR CI and full Linux/Windows validation before merge. No merge is authorized by this follow-up.
+
+## 14. Readiness child startup investigation (2026-11-03)
+
+### 14.1 Failed revalidation and evidence
+
+Manual full run [41531727578](https://github.com/egawilldoit/ega-skills/actions/runs/41531727578), head `533dc5468da276505ec6a3b8ae95cf9ac8b7e123`, failed in [Linux web job 125573438700](https://github.com/egawilldoit/ega-skills/actions/runs/41531727578/job/125573438700). The complete 1,391-line job log was read. `/readyz rejects an artifact path that exists but is a file` exhausted its 20-second poll on port 34220. Web summary: 792 tests, 782 passed, 1 failed, 9 skipped. Both foundation jobs, Windows web, real PostgreSQL isolation and Contract F RLS succeeded; `ci-gate` failed because Linux web failed. Separate PR run 41531681294 succeeded on that SHA; it does not substitute for the failed full run.
+
+**Historical failure mechanism remains unresolved.** The original harness discarded child stderr and did not observe early child failure during polling. Consequently, the log cannot distinguish address-in-use, a bootstrap exception, early termination or resource contention. No competing fixed use of 34220 was found in the web tests, but this does not exclude transient OS port ownership. The invalid-file readiness precondition returns 503 before artifact verification; source inspection did not demonstrate a production defect. The earlier authorization-test 403 → 503 failure is separate and remains unresolved.
+
+Before modification, the original focused suite passed 18/18 locally, and the exact existing concurrent web command passed 792 tests (783 passed, 0 failed, 9 skipped). The previously failing case passed in 663 ms in that full run. Neither local run reproduced the hosted failure.
+
+### 14.2 Test-only correction and regressions
+
+Only `tests/web/console-server.test.mjs` changes behavior. Child stdout is drained; a bounded 8-KiB stderr tail is retained. Diagnostics expose only allowlisted error classes/codes and the fixed listening line; arbitrary exception text, paths, URLs, headers and environment values are redacted. Child `error`, `exit` and `close` events are tracked. An early failure interrupts readiness polling immediately, and the error reports exit code, signal, transport error classification and redacted stderr after reaping the child.
+
+The existing 20-second startup deadline and 100-ms polling interval are preserved. An abortable deadline now also covers fetch and response-body reads. Cleanup waits for `close`, including stdio closure, and reports a cleanup deadline failure instead of silently resolving. Existing Windows temporary-tree cleanup is retained. Ports and production behavior are unchanged because a deterministic collision or production defect was not established.
+
+Four real-child regression cases cover early exit with stdout backpressure and bounded/redacted stderr, nonexistent executable/spawn failure, a stalled response body with abort and reaping, and an intentionally occupied ephemeral port producing `EADDRINUSE`. The last case verifies diagnostics; it does **not** establish the cause of the historical failure. The stalled-body test uses a shorter test-only deadline; real server probes retain 20 seconds.
+
+All original readiness assertions remain: invalid file 503, missing directory 503, committed verified artifact 200, no configured artifact 503, retained manifest alone 503. The four Batch 1 optimized files remain byte-identical to `2c1fb6c`. No production, schema, dependency, workflow, ownership inventory, RLS or security expectation changes are made.
+
+### 14.3 Local verification and current hosted status
+
+Local Node v24.18.0, 2-CPU VM; each measured command ran through `heavy` and `/usr/bin/time -v`. The focused command uses the bounded runner with `--test-reporter=spec tests/web/console-server.test.mjs`; the full command is `node scripts/release/run-tests-bounded.mjs --ci-scope=web`.
+
+| Measurement | Tests | Passed | Failed | Skipped | Command wall | Maximum process RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| Original focused | 18 | 18 | 0 | 0 | 6.26 s | 171,528 KiB |
+| Original full web | 792 | 783 | 0 | 9 | 311.26 s | 1,191,124 KiB |
+| Patched focused | 22 | 22 | 0 | 0 | 6.78 s | 172,004 KiB |
+| Patched full web | 796 | 787 | 0 | 9 | 325.81 s | 1,169,984 KiB |
+
+The patched full scope passed, including all four unchanged Batch 1 files; the original failing readiness case also passed. CI classifier/gate and ownership tests passed 13/13; ownership discovery remains 189 unique files. All 18 original console-server test names and 58 original assertion lines are retained. The first candidate focused run exposed an initialization-order mistake in the new helper; it was corrected before the successful focused run above. These local measurements include four additional regression tests after the patch, are sequential observations with cache/runner variability, and are not a Batch 1 performance comparison. GNU time reports the largest descendant process RSS, not aggregate concurrent memory.
+
+New-head PR CI and separate manual full Linux/Windows CI are pending. PR #197 must not be labeled ready until both pass on the same new head. Even a successful validation will not prove the historical flake's root cause; if it recurs, the new bounded lifecycle diagnostics should distinguish the failure mechanism without weakening the readiness contract.
 
 ## Source references
 
