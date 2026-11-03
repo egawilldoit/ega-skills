@@ -26,9 +26,10 @@ replace them with mocks or `continue-on-error`.
 
 ## Test ownership
 
-`scripts/ci/test-ownership.json` lists all default Node-discovered files. At head
-`50b3a8c` it contains 150 core and 38 web files; `ownership.mjs` checks the
-inventory for missing, stale or duplicate owners. When a discovered test is
+`scripts/ci/test-ownership.json` lists all default Node-discovered files. At the
+Batch 2 head `c487883` it contains 152 core and 38 web files (190 total, up from
+189 because the bounded-runner contract test was added); `ownership.mjs` checks
+the inventory for missing, stale or duplicate owners. When a discovered test is
 added, removed or moved, update the manifest and run:
 
 ```sh
@@ -48,6 +49,21 @@ manual full runs retain Windows foundation and web. Windows foundation keeps the
 full unscoped suite, including deliberate release-time overlap with web. The
 release ruleset requires `foundation (ubuntu-latest)`, `foundation (windows-2022)`,
 and `contract-f rls (ubuntu-latest)`; preserve those exact names.
+
+## Test concurrency
+
+`scripts/release/run-tests-bounded.mjs` resolves the effective `--test-concurrency`
+from an explicit flag, then `EGA_TEST_CONCURRENCY`, then Node's documented default
+(`availableParallelism() - 1`). It logs the resolved runtime as one JSON line so a
+hosted log records the machine it actually used instead of the runner label.
+
+Windows foundation runs at an explicit `4`; Linux foundation, the web suite and
+every other invocation keep the Node default. `workflow_dispatch` exposes
+`linux_core_concurrency` and `windows_concurrency` for controlled comparisons;
+both default to empty, so routine and release runs are unaffected. The values are
+validated by a shell guard and by the runner (integer 1–32). Registry performance
+stays pinned at `--test-concurrency=1` and is not part of the experiment. Evidence
+is in [../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §5.
 
 The duplicate `hashing-traversal.yml` workflow was removed. The two traversal
 files and hashing enumeration remain in the foundation inventory; inspect both

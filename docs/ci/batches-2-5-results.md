@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
-Status: IN PROGRESS. Batch 2 running; Batches 3–5 pending.
+Status: IN PROGRESS. Batch 2 complete; Batch 3 in progress; Batches 4–5 pending.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
 [optimization-results.md](optimization-results.md), [../operations/ci-optimization.md](../operations/ci-optimization.md).
@@ -84,14 +84,102 @@ The full-run critical path is `foundation (windows-2022)`.
 
 | Batch | Status | Implementation | Tests | Performance | Decision |
 |---|---|---|---|---|---|
-| 2 — Concurrency | IN PROGRESS | Pending | Pending | Pending | Pending |
-| 3 — Windows sharding | PENDING | Pending | Pending | Pending | Conditional |
+| 2 — Concurrency | COMPLETE | Runtime instrumentation + validated dispatch controls; `4` applied to Windows only | 29 CI contract tests pass; hosted parity exact (1437 / 2233) | Windows test step −4.8%, full wall −4.8% | IMPLEMENTED (Windows); Linux default retained |
+| 3 — Windows sharding | IN PROGRESS | Pending | Pending | Pending | Conditional |
 | 4 — Linux sharding | PENDING | Pending | Pending | Pending | Conditional |
 | 5 — Final optimization | PENDING | Pending | Pending | Pending | Conditional |
 
 ## 5. Batch 2 — Node test concurrency benchmark
 
-_Recorded as the batch completes._
+**Decision: IMPLEMENTED for Windows (`--test-concurrency=4`), Node default retained on Linux.**
+The measurement hook, runtime instrumentation and contract tests stay; the Linux default is unchanged.
+
+### 5.1 What was built
+
+- `scripts/release/run-tests-bounded.mjs` now resolves an effective concurrency from, in order,
+  an explicit `--test-concurrency` argument, `EGA_TEST_CONCURRENCY`, or Node's documented default
+  (`availableParallelism() - 1`). Values must be a bare integer in 1–32; a flag/env disagreement is
+  an error, not a silent winner. The value is injected once and never duplicated into the forwarded argv.
+- Every invocation logs one machine-readable line with Node version, platform, architecture,
+  `availableParallelism()`, CPU count, total memory, isolation mode, the effective concurrency and
+  its source, the scope and the file count. It contains no paths, tokens, or unrelated environment.
+- `.github/workflows/ci.yml` gained two validated `workflow_dispatch` inputs,
+  `linux_core_concurrency` and `windows_concurrency`. Both default to empty, so routine PR, push and
+  release runs resolve exactly as before. The input is validated twice: a shell guard rejects
+  anything that is not `^[1-9][0-9]?$`, and the runner rejects anything outside 1–32.
+- The registry performance test, the web suite and its concurrency are untouched.
+- `scripts/ci/test-ownership.json` gained the new CI contract test file, so discovery is now
+  190 files (152 core, 38 web) instead of 189/151/38.
+
+### 5.2 Method
+
+Four `workflow_dispatch` full runs on the same SHA (`c487883`), dispatched as two simultaneous
+pairs so each pair shared runner generation and time of day. Pair 1 and pair 2 differ only in the
+requested concurrency. Every run is attempt 1, event `workflow_dispatch`, branch
+`perf/ci-optimization-batches-2-5`, fully successful.
+
+Runtime recorded by the runner itself (identical on every run):
+
+```json
+{"node":"v24.22.1","platform":"linux","arch":"x64","availableParallelism":4,"cpuCount":4,
+ "totalMemMiB":15984,"testIsolation":"process (Node default)","scope":"core"}
+{"node":"v24.22.1","platform":"win32","arch":"x64","availableParallelism":4,"cpuCount":4,
+ "totalMemMiB":16379,"testIsolation":"process (Node default)","scope":"unscoped"}
+```
+
+Both runners resolve to 4 CPUs, so Node's implicit default is 3 and "3" is the current behaviour.
+
+### 5.3 Results
+
+Test-step wall, seconds. Paired comparisons only; no cross-pair claim.
+
+| Run | Concurrency | Linux core test | Windows test | Linux foundation job | Windows foundation job | Full run wall | Job-minutes |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| [41625815207](https://github.com/egawilldoit/ega-skills/actions/runs/41625815207) | 3 | 241 | 668 | 262 | 791 | 819 s | 25.933 |
+| [41625826614](https://github.com/egawilldoit/ega-skills/actions/runs/41625826614) | 4 | 237 | 639 | 257 | 752 | 774 s | 27.233 |
+| [41627835693](https://github.com/egawilldoit/ega-skills/actions/runs/41627835693) | 3 | 242 | 714 | 261 | 813 | 837 s | 29.317 |
+| [41627843587](https://github.com/egawilldoit/ega-skills/actions/runs/41627843587) | 4 | 220 | 677 | 239 | 779 | 802 s | 28.917 |
+
+| Workload | 3 (mean of 2) | 4 (mean of 2) | Delta | Pair 1 | Pair 2 |
+|---|---:|---:|---:|---:|---:|
+| Linux core test step | 241.5 s | 228.5 s | −13.0 s (−5.4%) | −4 s (−1.7%) | −22 s (−9.1%) |
+| Windows test step | 691.0 s | 658.0 s | −33.0 s (−4.8%) | −29 s (−4.2%) | −37 s (−5.2%) |
+| Full run wall | 828 s | 788 s | −40 s (−4.8%) | −45 s | −35 s |
+
+Concurrency 4 was faster in every one of the four paired comparisons. On Windows the magnitude is
+consistent (4.2% and 5.2%). On Linux it is not (1.7% then 9.1%), which is the reason for the split
+decision below.
+
+### 5.4 Coverage and reliability parity
+
+| Invocation | Tests | Passed | Failed | Skipped | Identical across 3 and 4 |
+|---|---:|---:|---:|---:|---|
+| Linux foundation core (152 files) | 1,437 | 1,430 | 0 | 7 | yes, all four runs |
+| Windows foundation full discovery (190 files) | 2,233 | 2,216 | 0 | 17 | yes, all four runs |
+
+No timeout, retry, cancellation or flake occurred in any of the four runs. The per-test bound
+(600 s) and the overall bound (1,500 s) were not changed. Peak RSS per test process is
+**NOT MEASURED**: the workflow records total runner memory but no per-process high-water mark.
+
+### 5.5 Decision and reasoning
+
+- **Windows — IMPLEMENTED.** Node's implicit 3 resolves on a 4-CPU runner; 4 removes one more
+  serialization point from the release-critical job and cut its test step by a repeatable ~5%
+  (about 33 s) with exact test parity. The value is applied in the workflow and remains overridable
+  through `windows_concurrency` for future controlled runs.
+- **Linux — NOT ADOPTED, default retained.** 4 was faster in both pairs, but the effect is small and
+  its magnitude is below the runner-to-runner variance seen for identical configurations elsewhere
+  in this program (for example, 158 s versus 250 s for the same default configuration on two
+  different runners). Adopting it would be an unproven change on the exact workload where the
+  critical path is about to be restructured by Batch 4.
+- The measurement hook is retained because it is off by default, validated twice, and is the only
+  way to repeat this experiment later. It is documented as a benchmark-only control in
+  [../operations/ci-optimization.md](../operations/ci-optimization.md).
+
+### 5.6 Rejected alternative
+
+Forcing 4 on Linux as well. Held back by the inconsistency above, not by a reliability regression:
+there was none.
 
 ## 6. Batch 3 — Windows foundation sharding
 
