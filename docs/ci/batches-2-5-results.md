@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
-Status: IN PROGRESS. Batches 2–4 complete; Batch 5 in progress.
+Status: Batches 2–5 complete; final hosted validation pending on the final head.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
 [optimization-results.md](optimization-results.md), [../operations/ci-optimization.md](../operations/ci-optimization.md).
@@ -87,7 +87,7 @@ The full-run critical path is `foundation (windows-2022)`.
 | 2 — Concurrency | COMPLETE | Runtime instrumentation + validated dispatch controls; `4` applied to Windows only | 29 CI contract tests pass; hosted parity exact (1437 / 2233) | Windows test step −4.8%, full wall −4.8% | IMPLEMENTED (Windows); Linux default retained |
 | 3 — Windows sharding | COMPLETE | Two explicit shards + `foundation (windows-2022)` aggregator + digest-verified coverage | 39 CI contract tests; hosted failure injection (shard failure → aggregator → gate) | Full wall −35.9%, runner-minutes −1.6% | IMPLEMENTED |
 | 4 — Linux sharding | COMPLETE | checks job + two core shards + `foundation (ubuntu-latest)` aggregator | 40 CI contract tests; hosted failure injection (shard → aggregator → gate) | PR execution latency −28%, PR job-minutes +1.6 | IMPLEMENTED |
-| 5 — Final optimization | IN PROGRESS | Pending | Pending | Pending | Conditional |
+| 5 — Final optimization | COMPLETE | No change (analysis only) | Full diff audit; 40 contract tests | No candidate met the measured, safe, reversible bar | COMPLETE — NO ADDITIONAL CHANGE JUSTIFIED |
 
 ## 5. Batch 2 — Node test concurrency benchmark
 
@@ -439,7 +439,51 @@ recorded in the remaining risks.
 
 ## 8. Batch 5 — Final targeted optimization and audit
 
-_Pending Batches 2–4._
+**Decision: COMPLETE — NO ADDITIONAL CHANGE JUSTIFIED.** No code change was made in
+this batch. Every candidate was evaluated against measured critical-path evidence and
+rejected or deferred for a stated reason.
+
+### 8.1 The newest critical path
+
+| Path | Wall | Bound by | Composition |
+|---|---:|---|---|
+| Normal PR (`b8aadd8`) | 203 s execution latency | `foundation-linux shard (2/2)` 180 s | test 165 s, of which one file is ~102 s |
+| Full Linux/Windows (`b8aadd8`) | 522 s | `foundation-windows shard (1/2)` 487 s | test 374 s, install 56 s, checks ~18 s |
+
+The routine PR path is now bound by a single Linux core shard whose wall is dominated
+by `tests/router/golden/determinism.test.mjs` (about 102 s of the 165 s). The full-run
+path is bound by a Windows shard whose wall is dominated by its test step (374 s) and
+its install (56 s).
+
+### 8.2 Candidates, measurements and disposition
+
+| Candidate | Measured basis | Modelled or observed effect | Disposition |
+|---|---|---|---|
+| Split `determinism.test.mjs` by scenario group | ~102 s of the 165 s critical Linux shard | Could cut the PR shard to ~90–110 s | **DEFERRED** — not small or safe. The file deliberately builds the golden registry once and shares it across 41 scenarios × 10 resolves plus a 100-skill warm benchmark. Splitting multiplies that setup, fragments an intentionally co-located determinism proof, and is a test refactor that needs its own review boundary (the plan's Batch 6). |
+| Move the heavy file to the other Linux shard | shard walls 139 s and 165 s | Modelled: receiver goes to ~173 s, sender to ~131 s → max 173 s, **worse** than 165 s | **REJECTED** — the model says it makes the critical path longer. |
+| Weighted shard scheduler (either platform) | Windows ratio 1.37 then 1.12 for identical content; Linux 1.19 | Recovering half of the observed idle is ~13 s (Linux) or ~24 s (Windows) | **REJECTED** — the Windows imbalance is not stable across runs, so the target is noise; the weight table would also need maintenance on every test-file change. |
+| Windows pnpm-store cache | Install 54–81 s in six measured Windows jobs, on the critical shard | ~30–40 s off the critical shard, ~6–8% of a full run | **DEFERRED** — real gain, but it adds a cache as a new failure mode on release-critical jobs, and correctness cannot be established by one run: it needs a multi-run A/B with a store-integrity check. The repository deliberately has no caches today. Recorded as the top remaining candidate. |
+| Stop duplicating the non-test checks across the two Windows shards | ~15 s per shard (`perf` 7–8 s, catalog 2 s, artifact/staging 2 s, typecheck 1 s, tokens 2 s, specs 1 s) | <1% of a full run in runner cost, no wall change; removing them would drop cross-platform validation | **REJECTED** |
+| `--test-concurrency=4` on the Linux shards | Batch 2 paired runs | Within runner variance | **REJECTED** (Batch 2 decision stands) |
+| Linux pnpm/Node cache | Install 3–7 s on every Linux job | Restore cost exceeds the saving | **REJECTED** (audit finding restated, no new evidence) |
+| Inline `classify` into the heavy jobs | `classify` 6 s, each aggregator 6–9 s | Would add ~2 s of setup per job and remove the single fail-closed classification step | **REJECTED** |
+
+### 8.3 Final audit of the accumulated diff
+
+Reviewed `origin/main…HEAD` (12 files, +1,636/−36):
+
+| Check | Result |
+|---|---|
+| Extra or missing test files | None. Discovery 190 = manifest 190 (152 core / 38 web). |
+| Incorrect job dependencies | `ci-gate` lists all 12 gated jobs directly; both aggregators list their inputs. |
+| Skipped-job bypasses | Windows and Linux foundation sub-jobs must be `skipped` when unselected and `success` when selected; a green-but-unselected job fails the gate. |
+| Ambiguous required-check names | `foundation (ubuntu-latest)` and `foundation (windows-2022)` each exist exactly once, on the aggregators. Shard and checks names are distinct. |
+| Unsafe caching | No cache was added. |
+| Resource regressions | PR runner-minutes +1.6; full-run runner-minutes −0.44 to +3.5 depending on shard noise. |
+| Flaky tests or altered expectations | No test expectation changed. The timeouts are unchanged. One pre-existing flake reproduced (§7.4). |
+| Dependency, runtime, application scope creep | None. No `package.json`, lockfile, schema, or runtime change. |
+| Stale performance documentation | `docs/operations/ci-optimization.md` updated for concurrency, Linux shards, Windows shards and the ownership count. |
+| Unproven optimization left in the diff | None; the Linux concurrency experiment was not adopted and the two injections were reverted. |
 
 ## 9. Final comparison
 
