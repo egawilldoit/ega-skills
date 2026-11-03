@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
-Status: IN PROGRESS. Batch 2 complete; Batch 3 in progress; Batches 4–5 pending.
+Status: IN PROGRESS. Batch 2 and Batch 3 complete; Batch 4 in progress; Batch 5 pending.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
 [optimization-results.md](optimization-results.md), [../operations/ci-optimization.md](../operations/ci-optimization.md).
@@ -85,8 +85,8 @@ The full-run critical path is `foundation (windows-2022)`.
 | Batch | Status | Implementation | Tests | Performance | Decision |
 |---|---|---|---|---|---|
 | 2 — Concurrency | COMPLETE | Runtime instrumentation + validated dispatch controls; `4` applied to Windows only | 29 CI contract tests pass; hosted parity exact (1437 / 2233) | Windows test step −4.8%, full wall −4.8% | IMPLEMENTED (Windows); Linux default retained |
-| 3 — Windows sharding | IN PROGRESS | Pending | Pending | Pending | Conditional |
-| 4 — Linux sharding | PENDING | Pending | Pending | Pending | Conditional |
+| 3 — Windows sharding | COMPLETE | Two explicit shards + `foundation (windows-2022)` aggregator + digest-verified coverage | 39 CI contract tests; hosted failure injection (shard failure → aggregator → gate) | Full wall −35.9%, runner-minutes −1.6% | IMPLEMENTED |
+| 4 — Linux sharding | IN PROGRESS | Pending | Pending | Pending | Conditional |
 | 5 — Final optimization | PENDING | Pending | Pending | Pending | Conditional |
 
 ## 5. Batch 2 — Node test concurrency benchmark
@@ -183,7 +183,155 @@ there was none.
 
 ## 6. Batch 3 — Windows foundation sharding
 
-_Pending Batch 2 evidence._
+**Decision: IMPLEMENTED.** Two explicit Windows shards behind a real
+`foundation (windows-2022)` aggregator cut the full-run critical path by 283 s (35.9%)
+with no test-coverage change and no increase in runner-minutes.
+
+### 6.1 Feasibility analysis
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Windows test discovery | 190 files at the Batch 2 head (189 recorded baseline + the new bounded-runner contract test) | `scripts/ci/test-ownership.json`, `[test:bounded] runtime … discoveredFiles:190` |
+| Expected test and skip counts | 2,233 tests / 2,216 pass / 0 fail / 17 skipped before Batch 3's own test additions | Batch 2 runs, all four |
+| Per-file durations | **NOT MEASURED** for Windows. Hosted logs do not label per-file wall time, and the archived log for the sampled baseline run was truncated. | Log inspection |
+| Projected shard balance | 1.16 by heavy-file proxy | Linux per-file attribution in the audit applied to the two shards (below) |
+| Branch-protection contexts | `foundation (ubuntu-latest)`, `foundation (windows-2022)`, `contract-f rls (ubuntu-latest)` on release/2.0 | Live ruleset read-back, unchanged by this work |
+| `ci-gate` semantics | `needs` is not transitive, so every shard must be a direct dependency | `scripts/ci/classify-changes.mjs` |
+| Windows isolation | Each shard is an independent job with its own checkout, install and build; no shared artifacts, no shared filesystem | Workflow structure |
+| Expected critical-path gain | about 290 s | Measured single-job Windows wall 752–779 s split in two |
+| Expected added runner-minutes | about +3 per full run (one extra install/build) | Modelled, then measured in §6.4 |
+
+Projection used the only per-file attribution available — the Linux core run from the
+audit — as a proxy for the Windows shape. It placed the two heaviest golden-router
+files in different shards (`determinism` index 123 → shard 2, `runner` index 128 →
+shard 1) and gave heavy-file sums of 147.5 s and 171.6 s, a ratio of 1.16. That
+projection was optimistic; the measured ratio is 1.37 (§6.4). It is labelled modelled
+and is not used as a result.
+
+### 6.2 Implementation
+
+- `scripts/ci/sharding.mjs` (new): the single partition rule — sorted file *i* goes to
+  shard `(i % n) + 1` — plus `assertPartitionComplete` (duplicates and omissions fail)
+  and `describeShard` (counts and SHA-256 digests of the selection and the full
+  inventory).
+- `scripts/release/run-tests-bounded.mjs`: accepts `--shard=i/n`, builds the inventory
+  from `discover()` (unscoped) or the ownership group (scoped), asserts the whole
+  partition is complete before running, passes an explicit file list to `node --test`,
+  logs a `shard {…}` line and publishes the selection to `GITHUB_OUTPUT`. Combining
+  `--shard` with explicit file arguments is refused rather than guessed. Sharding is
+  additive: without `--shard` the runner behaves exactly as before, including default
+  Node discovery.
+- `.github/workflows/ci.yml`: Windows leaves the `foundation` matrix, which is now
+  Ubuntu-only and keeps the required name `foundation (ubuntu-latest)`. Two explicit
+  jobs, `foundation-windows-shard-1` and `-2`, share one anchored step list (same
+  steps as before, `fail-fast: false` semantics preserved by using independent jobs),
+  run `pnpm test:ci -- --shard=i/2` at the Batch 2 Windows concurrency, and publish
+  their selection. `foundation-windows` is the aggregator and carries the exact
+  required name `foundation (windows-2022)`.
+- `scripts/ci/verify-shards.mjs` (new): the aggregator re-derives both partitions from
+  the checked-in inventory and compares counts and digests with what each shard
+  published. It fails on a missing, failed, cancelled, skipped, duplicated or drifted
+  shard.
+- `scripts/ci/classify-changes.mjs` / `check-gate.mjs`: the gate now requires the three
+  Windows jobs as direct `needs` entries. `windowsSelected()` derives the expectation,
+  and `ci-gate` derives the same predicate independently from the event context, so a
+  disagreement between the two fails the gate instead of silently skipping Windows.
+  Mode-aware validation: when Windows is selected all three jobs must be `success`;
+  otherwise all three must be an explicit `skipped`. A green job outside a Windows
+  selection is also rejected.
+
+Why not Node's native `--test-shard`: it works with both discovery and an explicit
+file list, and the rule above matches its observed index-parity distribution. It
+cannot report which files it selected, though, so CI could not prove that the union
+of the shards equals discovery. The runner therefore computes the same partition,
+proves completeness inside every shard, and lets the aggregator re-derive it from the
+repository. Coverage proof was worth more than the shorter invocation.
+
+### 6.3 Release safety and negative tests
+
+| Contract | Mechanism | Proof |
+|---|---|---|
+| Exact required names | `foundation (ubuntu-latest)` (Linux job), `foundation (windows-2022)` (aggregator), `contract-f rls (ubuntu-latest)` (unchanged) | `ci.yml`; required-context rehearsal below |
+| Both real shards must pass | `ci-gate` lists both shards *and* the aggregator directly; the aggregator re-derives both selections | `tests/release/ci-release-path.test.mjs`, `tests/ci/classify-changes.test.mjs` |
+| Missing shard | `needs` key absent → gate fails closed | unit test |
+| Duplicate shard | both jobs report the same `shard_index` → aggregator fails | unit test |
+| Cancelled or skipped shard while selected | result !== `success` → aggregator fails; gate also rejects `skipped` | unit test + hosted run below |
+| Failed Windows setup/check | job fails before the Test step, aggregator sees `failure`, no outputs match | unit test (`did not succeed` precedes output comparison) |
+| Invalid classifier mode | `gate()` rejects unknown modes before any other check | existing + new unit tests |
+| Incorrect coverage or file count | selection digest, full digest, both counts and the scope are compared | unit test |
+| Normal docs/web runs | Windows jobs skipped, gate expects `skipped` | hosted PR run `41631468804` green |
+
+Hosted failure injection (temporary commit `ffb00bc`, reverted immediately after):
+
+- Run [41632958074](https://github.com/egawilldoit/ega-skills/actions/runs/41632958074) —
+  a Windows-only failing test injected into shard 1.
+- `foundation-windows shard (1/2)`: **failure**, 1,247 tests, 1,237 passed, 1 failed
+  (the injected assertion), 9 skipped, suite exited 1.
+- `foundation-windows shard (2/2)`: **success**. Every Linux job: **success**.
+- `foundation (windows-2022)` aggregator: **failure** with
+  `verify-shards: foundation-windows-shard-1 did not succeed { result: 'failure' }`.
+- `ci-gate`: **failure**, `ci-gate: required job missing or not successful
+  { mode: 'full', windows: true, … }`.
+
+The injection commit was removed with `git reset --hard` and a force-with-lease push;
+the run above remains the evidence. Note that inserting one file at sorted index 4
+shifted every later index and therefore reshuffled the partition — expected for
+index-parity sharding and the reason the aggregator re-derives rather than trusts
+counts.
+
+### 6.4 Measured result
+
+Single full run on `05bb054` (attempt 1), compared with the two Batch 2 windows runs at
+the same concurrency on `c487883`. Different SHAs; the only source difference is Batch
+3's own added tests.
+
+| Measurement | Single Windows job (mean of 2) | Two shards | Change |
+|---|---:|---:|---:|
+| Windows test-step wall (critical shard) | 658 s | 358 s | −300 s |
+| Windows foundation wall (critical path) | 765.5 s | 475 s | −290.5 s (−38%) |
+| Full run wall | 788 s | 505 s | −283 s (−35.9%) |
+| Summed job-minutes | 28.075 | 27.633 | −0.44 (−1.6%) |
+| Runner jobs on the Windows leg | 1 | 3 (2 shards + 7 s aggregator) | +2 |
+
+The duplicated Windows install/build (about 113 s per job) is almost exactly paid back
+by the shorter shards: total test time across both shards was 620 s against 658 s in a
+single job, because each shard has half the process-level memory and CPU pressure.
+Runner-minutes therefore did not increase.
+
+Per-shard detail:
+
+| Job | Wall | Test step | Files | Tests | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `foundation-windows shard (1/2)` | 373 s | 262 s | 95 | 1,020 | 1,012 | 0 | 8 |
+| `foundation-windows shard (2/2)` | 475 s | 358 s | 95 | 1,226 | 1,217 | 0 | 9 |
+| **Union** | — | 620 s of work | **190** | **2,246** | **2,229** | **0** | **17** |
+| `foundation (windows-2022)` (aggregator) | 7 s | — | — | — | — | — | — |
+
+Shard union evidence: the runner logged `shard {"index":1,"count":2,"files":95,"fullFiles":190,…}`
+and the same for shard 2, and both published digests over the identical 190-file
+inventory (`fullDigest` `c9da481f2a7b…`). The aggregator recomputed both partitions
+from the checkout and matched them, and reported
+`union=190/190`.
+
+Coverage parity: 2,246 tests is exactly the Batch 2 total of 2,233 plus the 13 tests
+added by Batch 3's own contract tests (Linux core moved 1,437 → 1,450 on the same
+head). No test was skipped, merged or retried. The deliberate Windows web overlap is
+preserved: both Windows jobs still run the web files (19 in each shard).
+
+### 6.5 Balance, risks and rollback
+
+- Measured balance ratio 358 s / 262 s = **1.37**, above the 1.25 target used in the
+  original plan. The heavier shard carries the x10 determinism file and the
+  provenance fixture. The cost of the imbalance is bounded: shard 1 finishes 96 s
+  early while the run waits on shard 2. A weighted scheduler was **not** added,
+  because it needs a maintained per-file weight table and the brief reserves that for
+  the case where native partitioning is not enough. It is re-examined in Batch 5.
+- Index-parity membership is order-sensitive: adding or removing one test file
+  reshuffles every later assignment. Balance must be re-measured after inventory
+  changes; the completeness and digest checks make a wrong reshuffle loud, not silent.
+- Rollback: revert the Batch 3 commit. The shard script and the aggregator are
+  additive; `run-tests-bounded` still works without `--shard`, and restoring the
+  Windows matrix entry restores the previous single job with the same required name.
 
 ## 7. Batch 4 — Linux foundation sharding
 

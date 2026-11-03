@@ -50,6 +50,34 @@ full unscoped suite, including deliberate release-time overlap with web. The
 release ruleset requires `foundation (ubuntu-latest)`, `foundation (windows-2022)`,
 and `contract-f rls (ubuntu-latest)`; preserve those exact names.
 
+## Windows shards and the gate
+
+Windows foundation runs as two explicit jobs, `foundation-windows-shard-1` and
+`foundation-windows-shard-2`, plus the aggregator `foundation-windows`, which
+carries the required `foundation (windows-2022)` name. Explicit job ids are
+deliberate: a matrix job collapses to one `needs` entry, so a missing or
+duplicated shard would be invisible to the gate.
+
+Each shard runs `pnpm test:ci -- --shard=i/2`, which keeps the unscoped suite and
+default Node discovery. `scripts/ci/sharding.mjs` owns the partition: sorted file
+*i* goes to shard `(i % n) + 1`, it fails on any duplicate or omission, and it
+hashes both the selection and the full inventory. `scripts/ci/verify-shards.mjs`
+runs in the aggregator, re-derives both partitions from the checkout and fails on
+a missing, failed, cancelled, skipped, duplicated or drifted shard.
+
+`ci-gate` lists the two shards and the aggregator directly because `needs` is not
+transitive. `windowsSelected()` decides whether Windows is expected, and the gate
+derives the same predicate independently from the event context; a disagreement
+fails the gate. When Windows is selected the three jobs must be `success`; when it
+is not, they must be an explicit `skipped`. A green Windows job outside a Windows
+selection is rejected.
+
+Do not add a new shard job without adding it to `ci-gate.needs`, `WINDOWS_JOBS`
+in `classify-changes.mjs`, `CI_SHARD_JOBS` in the aggregator and the partition
+tests. Re-measure shard balance after any test-file inventory change; index-parity
+membership reshuffles when a file is added or removed. Evidence is in
+[../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §6.
+
 ## Test concurrency
 
 `scripts/release/run-tests-bounded.mjs` resolves the effective `--test-concurrency`
