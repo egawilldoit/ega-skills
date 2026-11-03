@@ -50,6 +50,24 @@ full unscoped suite, including deliberate release-time overlap with web. The
 release ruleset requires `foundation (ubuntu-latest)`, `foundation (windows-2022)`,
 and `contract-f rls (ubuntu-latest)`; preserve those exact names.
 
+## Linux shards and the gate
+
+Linux foundation is `foundation-checks (ubuntu-latest)`, two core shard jobs
+`foundation-linux shard (1/2)` and `(2/2)`, and the aggregator `foundation`, which
+carries the required `foundation (ubuntu-latest)` name. The checks job holds every
+non-test gate (artifact, staging, catalog, typecheck, registry performance, token
+vectors, specs); the shards hold the 152-file core suite split by
+`run-tests-bounded.mjs --ci-scope=core --shard=i/2`.
+
+The aggregator runs `verify-shards.mjs` with `CI_SHARD_SCOPE=core` and also fails
+when `foundation-checks` did not succeed, because the ruleset only sees the
+aggregator's name. `ci-gate` lists all three sub-jobs directly.
+
+Changing the shard count means updating `LINUX_FOUNDATION_JOBS` in
+`classify-changes.mjs`, the aggregator's `CI_SHARD_JOBS`/`CI_SHARD_COUNT`, the
+`ci-gate.needs` list and the gate tests. Evidence is in
+[../ci/batches-2-5-results.md](../ci/batches-2-5-results.md) §7.
+
 ## Windows shards and the gate
 
 Windows foundation runs as two explicit jobs, `foundation-windows-shard-1` and

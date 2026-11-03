@@ -1,6 +1,6 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
-Status: IN PROGRESS. Batch 2 and Batch 3 complete; Batch 4 in progress; Batch 5 pending.
+Status: IN PROGRESS. Batches 2–4 complete; Batch 5 in progress.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
 [optimization-results.md](optimization-results.md), [../operations/ci-optimization.md](../operations/ci-optimization.md).
@@ -86,8 +86,8 @@ The full-run critical path is `foundation (windows-2022)`.
 |---|---|---|---|---|---|
 | 2 — Concurrency | COMPLETE | Runtime instrumentation + validated dispatch controls; `4` applied to Windows only | 29 CI contract tests pass; hosted parity exact (1437 / 2233) | Windows test step −4.8%, full wall −4.8% | IMPLEMENTED (Windows); Linux default retained |
 | 3 — Windows sharding | COMPLETE | Two explicit shards + `foundation (windows-2022)` aggregator + digest-verified coverage | 39 CI contract tests; hosted failure injection (shard failure → aggregator → gate) | Full wall −35.9%, runner-minutes −1.6% | IMPLEMENTED |
-| 4 — Linux sharding | IN PROGRESS | Pending | Pending | Pending | Conditional |
-| 5 — Final optimization | PENDING | Pending | Pending | Pending | Conditional |
+| 4 — Linux sharding | COMPLETE | checks job + two core shards + `foundation (ubuntu-latest)` aggregator | 40 CI contract tests; hosted failure injection (shard → aggregator → gate) | PR execution latency −28%, PR job-minutes +1.6 | IMPLEMENTED |
+| 5 — Final optimization | IN PROGRESS | Pending | Pending | Pending | Conditional |
 
 ## 5. Batch 2 — Node test concurrency benchmark
 
@@ -335,7 +335,107 @@ preserved: both Windows jobs still run the web files (19 in each shard).
 
 ## 7. Batch 4 — Linux foundation sharding
 
-_Pending Batch 3 evidence._
+**Decision: IMPLEMENTED.** Two Linux core shards behind the real
+`foundation (ubuntu-latest)` aggregator, plus a separate non-test checks job, cut the
+ordinary pull-request execution latency by 79–83 s (−28%).
+
+### 7.1 Critical-path reassessment after Batch 3
+
+| Job on a normal PR | Wall after Batch 3 |
+|---|---:|
+| `foundation (ubuntu-latest)` | 264 s (test 246 s) |
+| `web console (ubuntu-latest)` | 99–113 s |
+| `web isolation (real PostgreSQL 16)` | 60–68 s |
+| `contract-f rls (ubuntu-latest)` | 53–56 s |
+| `docs` / `classify` / `ci-gate` | 6–11 s each |
+
+Linux foundation was the critical path by more than 2×, and full-run wall was still
+bound by the Windows shards (475–487 s). Sharding Linux therefore could not shorten a
+full run; it targets ordinary PR CI, which is the stated goal of this batch. The batch
+is justified on that basis, not on full-run wall.
+
+### 7.2 Implementation
+
+- `foundation-checks (ubuntu-latest)` (new): every non-test gate — artifact
+  verification, web artifact staging check, catalog freshness, typecheck, registry
+  cold-import performance, token vectors, frozen specs. About 16–18 s.
+- `foundation-linux shard (1/2)` and `(2/2)` (new): checkout, Node, corepack, install,
+  lockfile check, build, then `run-tests-bounded.mjs --ci-scope=core --shard=i/2`.
+  Same anchored step list, same published shard metadata, same `fail-fast: false`
+  semantics as independent jobs.
+- `foundation (ubuntu-latest)` (rewritten): the aggregator carrying the exact required
+  name. It runs `verify-shards.mjs` against `CI_SHARD_SCOPE=core`, then fails if the
+  checks job did not succeed — the aggregator must not be green while a non-test gate
+  failed, because the ruleset sees only this name.
+- `scripts/ci/classify-changes.mjs`: `LINUX_FOUNDATION_JOBS` are now part of the fixed
+  key set and are required to be `success` whenever the mode selects foundation, and
+  an explicit `skipped` in docs mode. `ci-gate` lists all three directly.
+- The 152-file core discovery is unchanged; `--shard` splits that same inventory.
+
+### 7.3 Results
+
+| Measurement | Before (2 runs) | After |
+|---|---:|---:|
+| PR execution latency (first job start → `ci-gate` complete) | 282 s and 286 s | **203 s** |
+| PR wall as reported by GitHub (includes queueing) | 284–286 s | 325 s (122 s of runner queue while a manual full run was in flight) |
+| Linux core test step | 246 s | 139 s / 165 s (critical shard) |
+| Linux foundation wall | 264 s | 180 s (critical shard) |
+| PR job-minutes | 8.5 | 10.1 |
+| Full-run wall | 505 s | 522 s (still Windows-bound) |
+
+Execution latency is the honest comparison: the post-change run was created during a
+manual full run and waited 122 s for a runner, which a sweep of `run_started_at` does
+not reveal, while `first job start → gate` isolates the workflow's own work.
+
+- **Wall gain:** −79 to −83 s, −28%.
+- **Runner cost:** +1.6 job-minutes per PR run (one extra install/build and one
+  aggregator job). On this public repository the runners are free; the cost is
+  concurrency capacity, not money.
+- **Balance:** 139 s versus 165 s = **1.19**, inside the 1.25 planning target and
+  stable across both runs (141/164 on the PR run).
+
+### 7.4 Coverage and gate evidence
+
+| Job | Files | Tests | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|---:|
+| `foundation-linux shard (1/2)` | 76 | 634 | 630 | 0 | 4 |
+| `foundation-linux shard (2/2)` | 76 | 817 | 814 | 0 | 3 |
+| **Union** | **152** | **1,451** | **1,444** | **0** | **7** |
+
+1,451 is the previous 1,450 plus the one gate-contract test Batch 4 added; the same
++1 appears on the Windows total (2,246 → 2,247). The aggregator logged
+`Verify the checks job and both shards succeeded` (status 0) and the shards published
+digests over the identical 152-file core inventory.
+
+Hosted failure injection (temporary commit `e2ce2a7`, reverted immediately after):
+
+- Run [41636516276](https://github.com/egawilldoit/ega-skills/actions/runs/41636516276) —
+  an always-failing core test injected into shard 1.
+- `foundation-linux shard (1/2)`: **failure**. `foundation-linux shard (2/2)`:
+  **success**. `foundation-checks`: **success**.
+- `foundation (ubuntu-latest)`: **failure** with
+  `verify-shards: foundation-linux-shard-1 did not succeed { result: 'failure' }`.
+- `ci-gate`: **failure**. `docs`, `contract-f rls` and `web isolation`: success.
+- The Windows jobs were correctly `skipped` on that pull-request run.
+
+The same run also reproduced the pre-existing `ega-719-artifact-release-authorization`
+flake: one test hung to the 600 s per-test bound and timed out (`test timed out after
+600000ms`), which is the documented unresolved reliability investigation, not a Batch 4
+regression. The bounded runner reported the timeout instead of hiding it. That is
+recorded in the remaining risks.
+
+### 7.5 Risks and rollback
+
+- The ruleset only watches `foundation (ubuntu-latest)`, so the aggregator must fail
+  when `foundation-checks` fails. It does, both through `ci-gate` (direct dependency)
+  and through the aggregator's own result check.
+- Linux shard membership is index-parity over the sorted 152-file core inventory, so
+  adding a test file reshuffles assignments. Re-measure balance after inventory changes;
+  digests make a wrong reshuffle loud.
+- Rollback: revert the Batch 4 commit. `sharding.mjs` and the aggregator are shared
+  with Batch 3, so reverting Batch 3 alone would restore the Windows matrix while
+  leaving the Linux split intact only if the two commits are separated carefully; the
+  intended rollback unit is both sharding commits together.
 
 ## 8. Batch 5 — Final targeted optimization and audit
 
