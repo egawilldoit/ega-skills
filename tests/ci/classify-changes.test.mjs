@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { classify, gate, isReleaseSensitive, MODES, REQUIRED_JOBS, WINDOWS_JOBS, ALL_JOBS, windowsSelected } from '../../scripts/ci/classify-changes.mjs';
+import { classify, gate, isReleaseSensitive, MODES, REQUIRED_JOBS, LINUX_FOUNDATION_JOBS, WINDOWS_JOBS, ALL_JOBS, windowsSelected } from '../../scripts/ci/classify-changes.mjs';
 import { buildShardPartitions, describeShard } from '../../scripts/ci/sharding.mjs';
 import { verifyShards } from '../../scripts/ci/verify-shards.mjs';
 
@@ -58,24 +58,43 @@ test('mixed docs and web selects web, shared security mutation selects full', ()
 });
 
 // Every gate fixture must now carry the whole `needs` key set: the six Linux jobs,
-// the two Windows shards and the Windows aggregator.
+// the three Linux foundation sub-jobs and the three Windows jobs.
 const baseJobs = {classify:'success', docs:'success', foundation:'success', web:'success', isolation:'success', rls:'success'};
+const linuxFoundationSucceeded = {'foundation-checks':'success','foundation-linux-shard-1':'success','foundation-linux-shard-2':'success'};
+const linuxFoundationSkipped = {'foundation-checks':'skipped','foundation-linux-shard-1':'skipped','foundation-linux-shard-2':'skipped'};
 const windowsSkipped = {'foundation-windows-shard-1':'skipped','foundation-windows-shard-2':'skipped','foundation-windows':'skipped'};
 const windowsSucceeded = {'foundation-windows-shard-1':'success','foundation-windows-shard-2':'success','foundation-windows':'success'};
-const ok = {...baseJobs, ...windowsSkipped};
+const ok = {...baseJobs, ...linuxFoundationSucceeded, ...windowsSkipped};
 
 test('gate rejects failed, missing, cancelled or skipped selected jobs', () => {
   assert.equal(gate('full', ok), true);
   for (const job of Object.keys(baseJobs)) for (const value of ['failure','cancelled','skipped','', null, undefined]) assert.equal(gate('full', {...ok,[job]:value}), false);
-  assert.equal(gate('docs', {...ok,foundation:'skipped',web:'skipped',isolation:'skipped',rls:'skipped'}), true);
+  assert.equal(gate('docs', {...ok,foundation:'skipped',web:'skipped',isolation:'skipped',rls:'skipped',...linuxFoundationSkipped}), true);
   assert.equal(gate('web', {...ok,isolation:'skipped',rls:'skipped'}), true);
 });
 
+test('gate requires the Linux foundation checks job and both shards when foundation runs', () => {
+  for (const job of Object.keys(linuxFoundationSucceeded)) {
+    for (const value of ['failure','cancelled','skipped','', null, undefined]) {
+      assert.equal(gate('full', {...ok,[job]:value}), false, `full ${job}=${value}`);
+      assert.equal(gate('web', {...ok,[job]:value,isolation:'skipped',rls:'skipped'}), false, `web ${job}=${value}`);
+    }
+    const missing = {...ok};
+    delete missing[job];
+    assert.equal(gate('full', missing), false, `missing ${job}`);
+  }
+  // A docs run that reports green foundation work is not a valid state either.
+  const docsOk = {...ok,foundation:'skipped',web:'skipped',isolation:'skipped',rls:'skipped',...linuxFoundationSkipped};
+  assert.equal(gate('docs', docsOk), true);
+  for (const job of Object.keys(linuxFoundationSucceeded)) {
+    assert.equal(gate('docs', {...docsOk,[job]:'success'}), false, `docs ${job} must be skipped`);
+  }
+});
+
 test('gate requires real Windows shard success when Windows is selected', () => {
-  const windowsRun = {...baseJobs, ...windowsSucceeded};
+  const windowsRun = {...baseJobs, ...linuxFoundationSucceeded, ...windowsSucceeded};
   assert.equal(gate('full', windowsRun, {windows:true}), true);
   assert.equal(gate('web', windowsRun, {windows:true}), true);
-  assert.equal(gate('docs', windowsRun, {windows:true}), true);
   // A skipped shard, skipped aggregator, failure or cancellation is never enough.
   for (const job of Object.keys(windowsSucceeded)) {
     for (const value of ['skipped','failure','cancelled','', null, undefined]) {
@@ -94,11 +113,11 @@ test('gate requires an explicit Windows skip when Windows is not selected', () =
   assert.equal(gate('full', ok), true);
   assert.equal(gate('full', ok, {windows:false}), true);
   // Windows work that ran when it was not selected is not a valid state either.
-  assert.equal(gate('full', {...baseJobs, ...windowsSucceeded}), false);
-  assert.equal(gate('full', {...baseJobs, ...windowsSucceeded}, {windows:false}), false);
+  assert.equal(gate('full', {...baseJobs, ...linuxFoundationSucceeded, ...windowsSucceeded}), false);
+  assert.equal(gate('full', {...baseJobs, ...linuxFoundationSucceeded, ...windowsSucceeded}, {windows:false}), false);
   // Windows selected but the jobs are absent from `needs` entirely.
-  assert.equal(gate('full', baseJobs, {windows:true}), false);
-  assert.equal(gate('full', baseJobs, {windows:false}), false);
+  assert.equal(gate('full', {...baseJobs, ...linuxFoundationSucceeded}, {windows:true}), false);
+  assert.equal(gate('full', {...baseJobs, ...linuxFoundationSucceeded}, {windows:false}), false);
 });
 
 test('gate is fail-closed for unknown modes and malformed results', () => {
@@ -131,8 +150,9 @@ test('mode table only exposes the known modes', () => {
   assert.deepEqual(Object.keys(MODES).sort(), ['docs', 'full', 'web']);
   assert.deepEqual(REQUIRED_JOBS, ['classify', 'docs', 'foundation', 'web', 'isolation', 'rls']);
   assert.deepEqual(MODES.full, REQUIRED_JOBS);
+  assert.deepEqual(LINUX_FOUNDATION_JOBS, ['foundation-checks','foundation-linux-shard-1','foundation-linux-shard-2']);
   assert.deepEqual(WINDOWS_JOBS, ['foundation-windows-shard-1','foundation-windows-shard-2','foundation-windows']);
-  assert.deepEqual(ALL_JOBS, [...REQUIRED_JOBS, ...WINDOWS_JOBS]);
+  assert.deepEqual(ALL_JOBS, [...REQUIRED_JOBS, ...LINUX_FOUNDATION_JOBS, ...WINDOWS_JOBS]);
 });
 
 test('CLI defaults to full when git refs are missing and gate exits nonzero for skipped required job', async () => {
@@ -152,6 +172,7 @@ test('CLI defaults to full when git refs are missing and gate exits nonzero for 
 
     const fullNeeds = Object.fromEntries([
       ...['classify','docs','foundation','web','web-isolation','rls'].map(name => [name,{result:'success'}]),
+      ...['foundation-checks','foundation-linux-shard-1','foundation-linux-shard-2'].map(name => [name,{result:'success'}]),
       ...['foundation-windows-shard-1','foundation-windows-shard-2','foundation-windows'].map(name => [name,{result:'skipped'}]),
     ]);
     const clean = spawnSync(process.execPath, ['scripts/ci/check-gate.mjs'], {env:{...process.env, CI_MODE:'full', CI_NEEDS:JSON.stringify(fullNeeds), CI_WINDOWS:'false'},encoding:'utf8'});

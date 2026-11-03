@@ -51,6 +51,15 @@ export const MODES = Object.freeze({
 });
 export const REQUIRED_JOBS = MODES.full;
 
+// Linux foundation is the checks job plus two real test shards behind the required
+// `foundation (ubuntu-latest)` aggregator. They are mandatory whenever the mode
+// selects foundation at all.
+export const LINUX_FOUNDATION_JOBS = Object.freeze([
+  'foundation-checks',
+  'foundation-linux-shard-1',
+  'foundation-linux-shard-2',
+]);
+
 // Windows foundation is two real shards plus the aggregator that keeps the release
 // context name. All three are mandatory whenever Windows is selected.
 export const WINDOWS_JOBS = Object.freeze([
@@ -58,7 +67,7 @@ export const WINDOWS_JOBS = Object.freeze([
   'foundation-windows-shard-2',
   'foundation-windows',
 ]);
-export const ALL_JOBS = Object.freeze([...REQUIRED_JOBS, ...WINDOWS_JOBS]);
+export const ALL_JOBS = Object.freeze([...REQUIRED_JOBS, ...LINUX_FOUNDATION_JOBS, ...WINDOWS_JOBS]);
 
 export function gate(mode, results, { windows = false } = {}) {
   if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) return false;
@@ -66,6 +75,11 @@ export function gate(mode, results, { windows = false } = {}) {
   const keys = Object.keys(results);
   if (keys.length !== ALL_JOBS.length || !ALL_JOBS.every(name => Object.hasOwn(results, name))) return false;
   if (!MODES[mode].every(name => results[name] === 'success')) return false;
+  // Mode-aware Linux foundation validation: a mode that runs foundation must show
+  // its checks job and both shards succeeding; a mode that skips it must show them
+  // explicitly skipped, never green.
+  const foundationExpected = MODES[mode].includes('foundation') ? 'success' : 'skipped';
+  if (!LINUX_FOUNDATION_JOBS.every(name => results[name] === foundationExpected)) return false;
   // Mode-aware Windows validation. A release or manual run must present real shard
   // success; every other run must present an explicit skip. `success` outside a
   // Windows selection and `skipped` inside one both fail closed.

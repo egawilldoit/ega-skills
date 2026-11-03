@@ -78,6 +78,9 @@ test('ci-gate always runs and needs every gated job', () => {
     'classify',
     'docs',
     'foundation',
+    'foundation-checks',
+    'foundation-linux-shard-1',
+    'foundation-linux-shard-2',
     'foundation-windows',
     'foundation-windows-shard-1',
     'foundation-windows-shard-2',
@@ -175,6 +178,18 @@ const windowsSkipped = {
   'foundation-windows': { result: 'skipped' },
 };
 
+const linuxFoundationSucceeded = {
+  'foundation-checks': { result: 'success' },
+  'foundation-linux-shard-1': { result: 'success' },
+  'foundation-linux-shard-2': { result: 'success' },
+};
+
+const linuxFoundationSkipped = {
+  'foundation-checks': { result: 'skipped' },
+  'foundation-linux-shard-1': { result: 'skipped' },
+  'foundation-linux-shard-2': { result: 'skipped' },
+};
+
 const okNeeds = {
   classify: { result: 'success' },
   docs: { result: 'success' },
@@ -182,6 +197,7 @@ const okNeeds = {
   web: { result: 'success' },
   'web-isolation': { result: 'success' },
   rls: { result: 'success' },
+  ...linuxFoundationSucceeded,
   ...windowsSkipped,
 };
 
@@ -225,13 +241,17 @@ test('docs and web modes gate their own subset but still require the full job se
     web: { result: 'skipped' },
     'web-isolation': { result: 'skipped' },
     rls: { result: 'skipped' },
+    ...linuxFoundationSkipped,
   };
   assert.equal(runGate('docs', JSON.stringify(docsNeeds)).status, 0);
   assert.notEqual(runGate('docs', JSON.stringify({ ...docsNeeds, docs: { result: 'failure' } })).status, 0);
+  // A docs run must not report green foundation work.
+  assert.notEqual(runGate('docs', JSON.stringify({ ...docsNeeds, 'foundation-checks': { result: 'success' } })).status, 0);
 
   const webNeeds = { ...okNeeds, 'web-isolation': { result: 'skipped' }, rls: { result: 'skipped' } };
   assert.equal(runGate('web', JSON.stringify(webNeeds)).status, 0);
   assert.notEqual(runGate('web', JSON.stringify({ ...webNeeds, web: { result: 'failure' } })).status, 0);
+  assert.notEqual(runGate('web', JSON.stringify({ ...webNeeds, 'foundation-linux-shard-2': { result: 'skipped' } })).status, 0);
 });
 
 test('windows runs need both shards and the aggregator, and a skipped shard fails the gate', () => {
