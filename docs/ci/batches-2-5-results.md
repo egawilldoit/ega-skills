@@ -1,6 +1,8 @@
 # EGA Skills CI/CD optimization: Batches 2–5
 
-Status: Batches 2–5 complete; final hosted validation pending on the final head.
+Status: Batches 2–5 complete. Every batch has a final disposition; the code-final head
+`9a7b39c` passed a full Linux/Windows run and the pull-request path. This document is
+the evidence record, not a release authorization.
 
 Related: [performance-audit.md](performance-audit.md), [optimization-plan.md](optimization-plan.md),
 [optimization-results.md](optimization-results.md), [../operations/ci-optimization.md](../operations/ci-optimization.md).
@@ -488,4 +490,90 @@ Reviewed `origin/main…HEAD` (12 files, +1,636/−36):
 
 ## 9. Final comparison
 
-_Pending._
+## 9. Final comparison
+
+Definitions: PR wall is `run_started_at → ci-gate completed_at`. Where a run waited for
+a runner that is called out, because the queue is not workflow cost. Job and test
+columns are the critical-path value, not an average of every job.
+
+| Metric | Original (historical) | After Batch 1 | After Batches 2–5 | Total improvement |
+|---|---|---|---|---|
+| Linux PR CI wall | 360 s median (6.00 min) | 294 s | **200 s** execution; the raw 313 s at `7577387` contained 112 s of runner queue from a concurrent manual run | −44% (360 → 200 s) |
+| Full Linux/Windows CI wall | 1,056 s median (17.6 min) | 916 s | **505 / 522 / 622 s** across three sharded runs (median 522 s) | −50% median (1,056 → 522 s) |
+| Windows foundation | 1,032 s median (17.2 min) | 889 s single job | **459–569 s** (critical shard) | −48% at the median |
+| Linux foundation | 258 s median (4.3 min) | 270 s | **164–180 s** (critical shard) | −35% |
+| Critical-path test step | Windows 967 s; Linux web 316 s; Linux core 246 s | Windows 755 s; web 135 s; core 250 s | Windows shard 343–377 s; Linux core shard 160–165 s; web 135–166 s | Windows −61%; core −35% |
+| Runner-minutes | 17.278 mean per successful run (mixed cohort, not comparable) | PR 9.667 / full 30.267 | PR 10.1 / full 27.6–33.7 (median 31.2) | roughly neutral; PR +0.4, full −0.5 to +3.5 |
+| Test coverage | 189 files (151 core, 38 web); 2,225 Windows tests | 189 files; 2,225 Windows tests | 190 files (152 core, 38 web); 2,247 Windows tests; 1,451 Linux core tests | +1 file and +22 tests, no reduction |
+
+Every post-change row is a measured hosted number, not a model. The historical column
+is the version-mixed baseline from [optimization-results.md](optimization-results.md) §3
+and is not a paired control. The three sharded full runs span 505–622 s for identical
+workflow code: the spread is runner hardware and Windows install variance (56–127 s),
+which is why the median is reported next to the range.
+
+### 9.1 Cost and capacity
+
+- Routine PR runner-minutes: 9.667 after Batch 1 → 10.1 now (+0.4). Three extra Linux
+  jobs buy about 90 s of developer latency.
+- Full Linux/Windows runner-minutes: 30.267 after Batch 1 → 27.6, 31.2, 33.7 in the
+  three sharded runs. Neutral within variance.
+- GitHub-hosted standard runners are free for this public repository, so the money cost
+  of every configuration here is zero. The currency that changed is concurrency
+  capacity: a full run now starts 9 jobs instead of 7.
+
+## 10. Validation runs
+
+| Head | Event | Run | Result | Notes |
+|---|---|---|---|---|
+| `c487883` | manual full ×4 | [41625815207](https://github.com/egawilldoit/ega-skills/actions/runs/41625815207), [41625826614](https://github.com/egawilldoit/ega-skills/actions/runs/41625826614), [41627835693](https://github.com/egawilldoit/ega-skills/actions/runs/41627835693), [41627843587](https://github.com/egawilldoit/ega-skills/actions/runs/41627843587) | all success | Batch 2 concurrency pairs |
+| `9dd6978` | pull request | [41630489965](https://github.com/egawilldoit/ega-skills/actions/runs/41630489965) | failure | CI caught an un-updated gate test; fixed in `05bb054` |
+| `05bb054` | pull request | [41631468804](https://github.com/egawilldoit/ega-skills/actions/runs/41631468804) | success | Batch 3 routine path, Windows skipped |
+| `05bb054` | manual full | [41631530042](https://github.com/egawilldoit/ega-skills/actions/runs/41631530042) | success | Batch 3 shards green |
+| `ffb00bc` | manual full | [41632958074](https://github.com/egawilldoit/ega-skills/actions/runs/41632958074) | failure (intended) | Windows shard injection; reverted |
+| `b8aadd8` | pull request | [41634926037](https://github.com/egawilldoit/ega-skills/actions/runs/41634926037) | success | Batch 4 routine path |
+| `b8aadd8` | manual full | [41635001638](https://github.com/egawilldoit/ega-skills/actions/runs/41635001638) | success | Batch 4 shards green |
+| `e2ce2a7` | pull request | [41636516276](https://github.com/egawilldoit/ega-skills/actions/runs/41636516276) | failure (intended) | Linux shard injection plus the pre-existing web flake; reverted |
+| `7577387` | pull request | [41638509715](https://github.com/egawilldoit/ega-skills/actions/runs/41638509715) | success | 200 s execution latency |
+| `9a7b39c` | manual full | [41639495317](https://github.com/egawilldoit/ega-skills/actions/runs/41639495317) | success | Code-final head; 2,247 Windows tests, 1,451 Linux core tests |
+
+Two corrections were required during the program, both caught by CI rather than by
+review: an un-updated gate fixture in `tests/release/ci-release-path.test.mjs`
+(run `41630489965`), and a hard-coded discovery count that a temporary injection file
+would have broken (`e433e7b`). No failure was worked around by relaxing a check.
+
+The final documentation head differs from `9a7b39c` only by this document. Its own
+pull-request and full Linux/Windows runs are recorded in the pull-request description.
+
+## 11. Risks, debt and rollback
+
+| Risk | Evidence | Mitigation / next step |
+|---|---|---|
+| Windows test-step variance | 262 s, 374 s and 377 s for the same 95-file shard on different runners; install 54–127 s | Report ranges, never a single run; do not chase the variance with weights |
+| Shard imbalance is not stable | Windows 1.37 then 1.12 for identical content | No weighted scheduler; re-measure after inventory changes |
+| Index-parity membership reshuffles on inventory change | Adding one file at sorted index 4 moved the partition | Completeness and digest checks make it loud; re-measure balance |
+| `ega-719-artifact-release-authorization` flake | Reproduced twice: 503 on an unreachable local mock (historical) and a 600 s per-test timeout (`41636516276`) | Separate investigation; the bounded runner reports it instead of hiding it. Not caused by this work; the file and job are untouched. |
+| Multi-aggregator latency | two aggregators add 6–10 s each | Accepted; they carry the required names |
+| Cache surface if the deferred Windows store cache is added later | none yet | Needs its own A/B with a store-integrity check and a single-step rollback |
+| Per-file and peak-RSS telemetry | not measured | Add a reporter option in a future batch if shard balance must be optimised further |
+
+**Rollback.** Batches 2 and 3 are independent: reverting `9dd6978` restores the
+single Windows job with the previous matrix. Batch 4 depends on the sharding helpers
+from Batch 3, so the intended unit for rolling sharding back is both commits
+(`9dd6978` + `b8aadd8`) together. Batch 2's concurrency value is a single workflow
+expression, so rolling it back is deleting `|| '4'`. No secret, deployment, ruleset or
+data rollback is involved in any of them.
+
+## 12. Recommended next actions
+
+1. Owner review of the two aggregators and the mode-aware gate; the highest-risk part is
+   the `skipped`-versus-`success` Windows predicate.
+2. A dedicated, owner-approved experiment for the Windows pnpm-store cache with at least
+   three full runs per arm and a store-integrity check.
+3. Resolve the `ega-719` reliability investigation before treating any Windows or web
+   timing as a stable p90.
+4. If PR latency matters more than review scope, split
+   `tests/router/golden/determinism.test.mjs` by scenario group as its own change; it is
+   the 102 s floor inside the 165 s Linux shard.
+5. Refresh the shard-balance measurement after the next significant test-inventory
+   change.
