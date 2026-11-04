@@ -15,7 +15,8 @@ import {
   type CatalogQuery,
 } from "../components/CatalogControls";
 import { DataTable, type Column } from "../components/DataTable";
-import { shortDigest } from "../components/ReleaseStatus";
+import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
+import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
 import { EmptyState, ResourceSection } from "../components/StatePanel";
 
 /**
@@ -53,12 +54,30 @@ const COLUMNS: readonly Column<SkillSummary>[] = [
     ),
   },
   { key: "name", label: "Name", width: "160px", render: (row) => row.name },
+  {
+    key: "namespace",
+    label: "Namespace",
+    mono: true,
+    width: "130px",
+    render: (row) => row.namespace,
+  },
   { key: "description", label: "Description", render: (row) => row.description },
   {
     key: "domains",
     label: "Domains",
     width: "120px",
     render: (row) => (row.domains.length === 0 ? "—" : row.domains.join(", ")),
+  },
+  {
+    key: "version_hash",
+    label: "Pinned version",
+    mono: true,
+    width: "280px",
+    render: (row) => (
+      <span className="val" title={row.version_hash}>
+        {row.version_hash}
+      </span>
+    ),
   },
   {
     key: "content_digest",
@@ -151,6 +170,12 @@ export function SkillsPage(): ReactNode {
 
           return (
             <>
+              <ConsoleReleaseIdentity
+                release={data.release}
+                unavailableReason={data.release_unavailable_reason}
+              />
+              <HostedReleaseStatusPanel />
+
               {/*
                 The category panel and the controls stay mounted when nothing
                 matches, so a filter the server refuses to satisfy — including one
@@ -202,7 +227,7 @@ export function SkillsPage(): ReactNode {
                     columns={COLUMNS}
                     rows={data.skills as readonly SkillSummary[]}
                     rowKey={(row) => row.skill_id}
-                    minWidth="900px"
+                    minWidth="1250px"
                   />
                   <CatalogPagination
                     total={data.total}

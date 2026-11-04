@@ -496,6 +496,15 @@ describe("a release-identity mismatch fails closed over HTTP", () => {
     assert.equal(body.is_stable, false);
   });
 
+  test("the hosted release status is unknown, not a false comparison, on a mismatch", async () => {
+    const { status, body } = await request(mismatched, "/api/hosted-release-status");
+    assert.equal(status, 200);
+    assert.equal(body.state, "unknown");
+    assert.equal(body.hosted_release_digest, null);
+    assert.equal(body.observed_at, null);
+    assert.match(body.reason, /does not match/i);
+  });
+
   test("catalog, skill and content routes answer 503 and serve no rows", async () => {
     const cases = [
       "/api/catalog",
@@ -639,6 +648,7 @@ describe("unknown routes and wrong methods are answered, never executed", () => 
       "/api/skills",
       `/api/skills/${SAMPLE_SKILL_SEGMENT}`,
       `/api/skills/${SAMPLE_SKILL_SEGMENT}/content?level=L2`,
+      "/api/hosted-release-status",
       "/api/releases",
       `/api/releases/compare?base=${encodeURIComponent(COMMITTED_DIGEST)}&candidate=${encodeURIComponent(COMMITTED_DIGEST)}`,
       `/api/releases/${encodeURIComponent(COMMITTED_DIGEST)}`,
@@ -1062,6 +1072,7 @@ describe("response size, deadline and concurrency are bounded", () => {
       "audit-events",
       "catalog",
       "discovery-inspection",
+      "hosted-release-status",
       "project-detail",
       "projects",
       "release-detail",

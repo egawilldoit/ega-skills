@@ -1,4 +1,4 @@
-import type { ReleaseIntegrityStatus } from "../api/contracts";
+import type { HostedReleaseState, ReleaseIntegrityStatus } from "../api/contracts";
 
 /**
  * Status wording for a release integrity state.
@@ -51,4 +51,21 @@ export function shortDigest(digest: string): string {
   const match = /^sha256:([0-9a-f]{64})$/.exec(digest);
   if (match === null) return digest;
   return `sha256:${match[1]?.slice(0, 12)}…`;
+}
+
+/**
+ * Exact wording for the three hosted MCP comparison states.
+ *
+ * "unknown" is not "different": a failed observation has not proved that the
+ * releases disagree, and the UI must not imply that it has.
+ */
+export function describeHostedReleaseState(state: HostedReleaseState): string {
+  switch (state) {
+    case "matches":
+      return "Hosted MCP release matches";
+    case "different":
+      return "Hosted MCP release differs";
+    case "unknown":
+      return "Hosted MCP status unknown";
+  }
 }

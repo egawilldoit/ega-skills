@@ -112,6 +112,7 @@ export const API_ENDPOINTS = {
   /** `/releases/compare` must never be shadowed by `/releases/:releaseDigest`. */
   releaseCompare: () => "/releases/compare",
   release: (releaseDigest: string) => `/releases/${encodePathSegment(releaseDigest, "releaseDigest")}`,
+  hostedReleaseStatus: "/hosted-release-status",
   projects: "/projects",
   project: (projectId: string) => `/projects/${encodePathSegment(projectId, "projectId")}`,
   workspace: "/workspace",

@@ -42,6 +42,25 @@ const RELEASE = {
   mismatch_reason: null,
 };
 
+const HOSTED_STATUS = {
+  state: "unknown" as const,
+  console_release_digest: RELEASE_DIGEST,
+  hosted_release_digest: null,
+  observed_at: null,
+  checked_at: "2026-11-04T12:05:00.000Z",
+  reason: "The canonical hosted MCP readiness check timed out.",
+  endpoint: "https://ega-skills-mcp.vercel.app/readyz",
+};
+
+const HOSTED_PATH = "/hosted-release-status";
+
+/** Last catalog read, ignoring the independent hosted-status read. */
+function lastCatalogCall(): [string, { query: Record<string, unknown> }] | undefined {
+  return client.get.mock.calls.filter(([path]) => path === "/skills").at(-1) as
+    | [string, { query: Record<string, unknown> }]
+    | undefined;
+}
+
 const row = (skill_id: string, name: string, namespace: string) => ({
   skill_id,
   name,
@@ -171,7 +190,9 @@ async function settle(times = 4): Promise<void> {
 
 describe("category browsing on the Skills page", () => {
   test("renders the categories the server sent, with the server's counts", async () => {
-    client.get.mockResolvedValue(page([MATTPOCOCK, EGA], 3, null));
+    client.get.mockImplementation((path: string) =>
+      Promise.resolve(path === HOSTED_PATH ? HOSTED_STATUS : page([MATTPOCOCK, EGA], 3, null)),
+    );
     const view = mount(tree());
     await settle();
 
@@ -188,20 +209,27 @@ describe("category browsing on the Skills page", () => {
       (node) => node.textContent,
     );
     expect(axisTitles).toEqual(["Publisher", "Use case"]);
-    // The only request is the catalog itself; the panel reads no endpoint.
-    expect(client.get.mock.calls.at(-1)?.[0]).toBe("/skills");
+    // The catalog read stays the only input to the list; the hosted-status panel
+    // reads its own fixed endpoint independently.
+    expect(lastCatalogCall()?.[0]).toBe("/skills");
+    expect(client.get.mock.calls.some(([path]) => path === HOSTED_PATH)).toBe(true);
     expect(view.text()).toContain("mattpocock/alpha");
     expect(view.text()).toContain("egawilldoit/beta");
+    // The row carries the canonical namespace and the full pinned version hash,
+    // not a shortened digest.
+    expect(view.text()).toContain("Namespace");
+    expect(view.text()).toContain(MATTPOCOCK.version_hash);
   });
 
   test("choosing a category re-reads the list through the catalog's own filter", async () => {
-    client.get.mockImplementation((_path: string, options: { query: Record<string, unknown> }) =>
-      Promise.resolve(
+    client.get.mockImplementation((path: string, options: { query: Record<string, unknown> }) => {
+      if (path === HOSTED_PATH) return Promise.resolve(HOSTED_STATUS);
+      return Promise.resolve(
         options.query.namespace === "mattpocock"
           ? page([MATTPOCOCK], 2, "mattpocock")
           : page([MATTPOCOCK, EGA], 3, null),
-      ),
-    );
+      );
+    });
     const view = mount(tree());
     await settle();
     expect(view.text()).toContain("egawilldoit/beta");
@@ -209,9 +237,9 @@ describe("category browsing on the Skills page", () => {
     view.click("mattpocock (2)");
     await settle();
 
-    const last = client.get.mock.calls.at(-1) as [string, { query: Record<string, unknown> }];
-    expect(last[0]).toBe("/skills");
-    expect(last[1].query).toEqual({ sort: "name", limit: 50, offset: 0, namespace: "mattpocock" });
+    const last = lastCatalogCall();
+    expect(last?.[0]).toBe("/skills");
+    expect(last?.[1].query).toEqual({ sort: "name", limit: 50, offset: 0, namespace: "mattpocock" });
     expect(view.button("mattpocock (2)").getAttribute("aria-pressed")).toBe("true");
     // The list is the server's answer for that category, not a client-side slice.
     expect(view.text()).toContain("mattpocock/alpha");
@@ -222,13 +250,14 @@ describe("category browsing on the Skills page", () => {
   });
 
   test("choosing a use-case group re-reads the list through the catalog's own group filter", async () => {
-    client.get.mockImplementation((_path: string, options: { query: Record<string, unknown> }) =>
-      Promise.resolve(
+    client.get.mockImplementation((path: string, options: { query: Record<string, unknown> }) => {
+      if (path === HOSTED_PATH) return Promise.resolve(HOSTED_STATUS);
+      return Promise.resolve(
         options.query.group === "verify"
           ? page([MATTPOCOCK], 1, null, "verify")
           : page([MATTPOCOCK, EGA], 3, null),
-      ),
-    );
+      );
+    });
     const view = mount(tree());
     await settle();
     expect(view.text()).toContain("egawilldoit/beta");
@@ -236,9 +265,9 @@ describe("category browsing on the Skills page", () => {
     view.click("verify (2)");
     await settle();
 
-    const last = client.get.mock.calls.at(-1) as [string, { query: Record<string, unknown> }];
-    expect(last[0]).toBe("/skills");
-    expect(last[1].query).toEqual({ sort: "name", limit: 50, offset: 0, group: "verify" });
+    const last = lastCatalogCall();
+    expect(last?.[0]).toBe("/skills");
+    expect(last?.[1].query).toEqual({ sort: "name", limit: 50, offset: 0, group: "verify" });
     expect(view.button("verify (2)").getAttribute("aria-pressed")).toBe("true");
     // The list is the server's answer for that group, not a client-side slice.
     expect(view.text()).toContain("mattpocock/alpha");
@@ -247,13 +276,14 @@ describe("category browsing on the Skills page", () => {
   });
 
   test("choosing the active category again clears it", async () => {
-    client.get.mockImplementation((_path: string, options: { query: Record<string, unknown> }) =>
-      Promise.resolve(
+    client.get.mockImplementation((path: string, options: { query: Record<string, unknown> }) => {
+      if (path === HOSTED_PATH) return Promise.resolve(HOSTED_STATUS);
+      return Promise.resolve(
         options.query.namespace === "mattpocock"
           ? page([MATTPOCOCK], 2, "mattpocock")
           : page([MATTPOCOCK, EGA], 3, null),
-      ),
-    );
+      );
+    });
     const view = mount(tree());
     await settle();
     view.click("mattpocock (2)");
@@ -261,19 +291,20 @@ describe("category browsing on the Skills page", () => {
     view.click("mattpocock (2)");
     await settle();
 
-    const last = client.get.mock.calls.at(-1) as [string, { query: Record<string, unknown> }];
-    expect(last[1].query).toEqual({ sort: "name", limit: 50, offset: 0 });
+    const last = lastCatalogCall();
+    expect(last?.[1].query).toEqual({ sort: "name", limit: 50, offset: 0 });
     expect(view.text()).toContain("egawilldoit/beta");
   });
 
   test("a category with no matching skills reports an honest zero and stays recoverable", async () => {
-    client.get.mockImplementation((_path: string, options: { query: Record<string, unknown> }) =>
-      Promise.resolve(
+    client.get.mockImplementation((path: string, options: { query: Record<string, unknown> }) => {
+      if (path === HOSTED_PATH) return Promise.resolve(HOSTED_STATUS);
+      return Promise.resolve(
         options.query.namespace === "mattpocock"
           ? page([], 0, "mattpocock")
           : page([MATTPOCOCK, EGA], 3, null),
-      ),
-    );
+      );
+    });
     const view = mount(tree());
     await settle();
 
@@ -293,7 +324,9 @@ describe("category browsing on the Skills page", () => {
   });
 
   test("clicking a category's skill opens the existing skill detail route", async () => {
-    client.get.mockResolvedValue(page([MATTPOCOCK, EGA], 3, null));
+    client.get.mockImplementation((path: string) =>
+      Promise.resolve(path === HOSTED_PATH ? HOSTED_STATUS : page([MATTPOCOCK, EGA], 3, null)),
+    );
     const view = mount(tree());
     await settle();
 

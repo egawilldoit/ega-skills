@@ -950,6 +950,36 @@ form .field,
   color: var(--mute);
 }
 
+.badge--hosted-matches {
+  border-color: transparent;
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.badge--hosted-different {
+  border-color: var(--amber-border);
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.badge--hosted-unknown {
+  border-color: var(--line2);
+  background: var(--chip);
+  color: var(--mute);
+}
+
+.hosted-release__note {
+  margin: 0 0 12px;
+  color: var(--mute);
+  font-size: 0.8125rem;
+}
+
+.hosted-release__reason {
+  margin: 0 0 12px;
+  color: var(--amber);
+  font-size: 0.875rem;
+}
+
 .chip {
   display: inline-block;
   padding: 1px 8px;
