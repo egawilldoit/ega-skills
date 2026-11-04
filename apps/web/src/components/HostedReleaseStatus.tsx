@@ -70,7 +70,7 @@ export function HostedReleaseStatusPanel(): ReactNode {
         <p className="page__lede">{describeApiError(resource.state.error)}</p>
         <ComparisonNote />
         <button type="button" className="button button--secondary" onClick={resource.reload}>
-          Check again
+          Refresh status
         </button>
       </section>
     );
@@ -84,8 +84,8 @@ export function HostedReleaseStatusPanel(): ReactNode {
         Hosted MCP <HostedBadge state={status.state} />
       </h2>
       <p className="page__lede">
-        The Console compares its verified release with a fresh observation of the fixed
-        canonical hosted MCP readiness endpoint.
+        The Console compares its verified release with an observation of the fixed canonical
+        hosted MCP readiness endpoint.
       </p>
       <dl className="fields">
         <Field label="Console release digest" mono>
@@ -94,14 +94,14 @@ export function HostedReleaseStatusPanel(): ReactNode {
         <Field label="Hosted MCP release digest" mono>
           {status.hosted_release_digest ?? "No successful observation"}
         </Field>
-        <Field label="Observed at">
+        <Field label="MCP observation time">
           {status.observed_at === null ? (
             "No successful observation"
           ) : (
             <time dateTime={status.observed_at}>{status.observed_at}</time>
           )}
         </Field>
-        <Field label="Checked at">
+        <Field label="Console status request time">
           <time dateTime={status.checked_at}>{status.checked_at}</time>
         </Field>
         <Field label="Endpoint" mono>
@@ -111,9 +111,13 @@ export function HostedReleaseStatusPanel(): ReactNode {
       {status.reason === null ? null : (
         <p className="hosted-release__reason">{status.reason}</p>
       )}
+      <p className="hosted-release__note">
+        Observations can be reused for up to 15 seconds. Refresh status asks the Console for
+        the current result; it may reuse a cached observation without contacting the MCP again.
+      </p>
       <ComparisonNote />
       <button type="button" className="button button--secondary" onClick={resource.reload}>
-        Check again
+        Refresh status
       </button>
     </section>
   );

@@ -18,8 +18,6 @@
  *   authorize anything.
  */
 
-import { Buffer } from "node:buffer";
-
 import { isCanonicalDigest, type ServerConfig } from "./env.ts";
 import { getReleaseIdentityBinding } from "./release-identity.ts";
 
@@ -50,6 +48,12 @@ export interface HostedReleaseStatusView {
   readonly console_release_digest: string | null;
   readonly hosted_release_digest: string | null;
   readonly observed_at: string | null;
+  /**
+   * When the Console handled this status request.
+   *
+   * A cached observation keeps its original `observed_at` while this timestamp
+   * advances. It is not proof that the Console contacted the MCP again.
+   */
   readonly checked_at: string;
   /** Non-null exactly when `state === "unknown"`. */
   readonly reason: string | null;
@@ -65,6 +69,14 @@ export interface HostedReleaseDependencies {
   readonly freshnessMs?: number;
 }
 
+/**
+ * One accepted observation, keyed by the Console digest it was compared with.
+ *
+ * A cached entry keeps its original `observedAtMs`. A later request updates the
+ * response's `checked_at` but reuses this `observed_at`, so the UI never claims
+ * a new upstream check happened. Entries older than the freshness window are
+ * never served; they are re-observed or the state becomes unknown.
+ */
 interface CachedObservation {
   readonly consoleDigest: string;
   readonly hostedDigest: string;
@@ -167,13 +179,60 @@ async function readBoundedBody(response: Response): Promise<string> {
     }
   }
 
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > HOSTED_READINESS_MAX_BODY_BYTES) {
+  const body = response.body;
+  if (body === null) {
     throw new HostedReadinessError(
-      `The canonical hosted MCP readiness response exceeded the ${HOSTED_READINESS_MAX_BODY_BYTES}-byte limit.`,
+      "The canonical hosted MCP readiness response had no readable body.",
     );
   }
-  return text;
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const textChunks: string[] = [];
+  let receivedBytes = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      receivedBytes += value.byteLength;
+      if (receivedBytes > HOSTED_READINESS_MAX_BODY_BYTES) {
+        // Stop the producer before the oversized chunk can join the accepted
+        // text. `cancel` is best effort: the limit error is the real result.
+        try {
+          await reader.cancel();
+        } catch {
+          // The stream is already unusable; the size refusal still stands.
+        }
+        throw new HostedReadinessError(
+          `The canonical hosted MCP readiness response exceeded the ${HOSTED_READINESS_MAX_BODY_BYTES}-byte limit.`,
+        );
+      }
+
+      textChunks.push(decoder.decode(value, { stream: true }));
+    }
+
+    textChunks.push(decoder.decode());
+    return textChunks.join("");
+  } catch (error) {
+    if (error instanceof HostedReadinessError) throw error;
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore a cancel failure on an already broken stream.
+    }
+    throw new HostedReadinessError(
+      "The canonical hosted MCP readiness response could not be read completely.",
+    );
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // A reader with a pending read can reject releaseLock; the body is
+      // already refused, so there is nothing useful to do here.
+    }
+  }
 }
 
 /**

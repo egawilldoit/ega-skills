@@ -21,6 +21,7 @@ const CONSOLE_DIGEST = `sha256:${"a".repeat(64)}`;
 const HOSTED_DIGEST = `sha256:${"b".repeat(64)}`;
 const OBSERVED_AT = "2026-11-04T12:00:00.000Z";
 const CHECKED_AT = "2026-11-04T12:05:00.000Z";
+const LATER_CHECKED_AT = "2026-11-04T12:05:15.000Z";
 
 const status = (overrides = {}) => ({
   state: "matches",
@@ -56,6 +57,16 @@ function mount(element: ReactElement) {
   return {
     container,
     text: () => container.textContent ?? "",
+    button: (label: string) => {
+      const found = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+      if (!found) throw new Error(`button missing: ${label}`);
+      return found as HTMLButtonElement;
+    },
+    click: (label: string) => {
+      const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+      if (!button) throw new Error(`button missing: ${label}`);
+      act(() => dom!.click(button));
+    },
   };
 }
 
@@ -68,7 +79,7 @@ async function settle(times = 4): Promise<void> {
 }
 
 describe("hosted MCP release status panel", () => {
-  test("matching digests name the match and show the observation time", async () => {
+  test("matching digests name the match and show accessible timestamps", async () => {
     client.get.mockResolvedValue(status());
     const view = mount(<HostedReleaseStatusPanel />);
     await settle();
@@ -78,6 +89,56 @@ describe("hosted MCP release status panel", () => {
     expect(view.text()).toContain(OBSERVED_AT);
     expect(view.text()).toContain("https://ega-skills-mcp.vercel.app/readyz");
     expect(view.text()).not.toContain("Hosted MCP status unknown");
+    expect(view.text()).toContain("MCP observation time");
+    expect(view.text()).toContain("Console status request time");
+    const times = [...view.container.querySelectorAll("time")].map((node) =>
+      node.getAttribute("dateTime"),
+    );
+    expect(times).toContain(OBSERVED_AT);
+    expect(times).toContain(CHECKED_AT);
+  });
+
+  test("states that observations can be reused for up to 15 seconds", async () => {
+    client.get.mockResolvedValue(status());
+    const view = mount(<HostedReleaseStatusPanel />);
+    await settle();
+
+    expect(view.text()).toContain("Observations can be reused for up to 15 seconds");
+    expect(view.text()).toContain("may reuse a cached observation");
+    expect(view.button("Refresh status")).toBeTruthy();
+  });
+
+  test("Refresh status reuses a cached observation without changing observed_at", async () => {
+    let current = status();
+    client.get.mockImplementation(() => Promise.resolve(current));
+    const view = mount(<HostedReleaseStatusPanel />);
+    await settle();
+
+    const initialCalls = client.get.mock.calls.length;
+    current = status({ checked_at: LATER_CHECKED_AT });
+    view.click("Refresh status");
+    await settle();
+
+    expect(client.get.mock.calls.length).toBeGreaterThan(initialCalls);
+    expect(view.text()).toContain(OBSERVED_AT);
+    expect(view.text()).toContain(LATER_CHECKED_AT);
+  });
+
+  test("a failed refresh never leaves a false match on screen", async () => {
+    let fail = false;
+    client.get.mockImplementation(() =>
+      fail ? Promise.reject(new Error("network down")) : Promise.resolve(status()),
+    );
+    const view = mount(<HostedReleaseStatusPanel />);
+    await settle();
+    expect(view.text()).toContain("Hosted MCP release matches");
+
+    fail = true;
+    view.click("Refresh status");
+    await settle();
+
+    expect(view.text()).toContain("Hosted MCP status unknown");
+    expect(view.text()).not.toContain("Hosted MCP release matches");
   });
 
   test("different valid digests name the difference and show both", async () => {
