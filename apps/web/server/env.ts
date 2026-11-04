@@ -53,6 +53,7 @@ export const SERVER_ENV_KEYS = [
   "EGA_SUPABASE_SECRET_KEY",
   "EGA_SUPABASE_PUBLISHABLE_KEY",
   "EGA_SUPABASE_ANON_KEY",
+  "EGA_SKILL_PREFERENCES_DATABASE_URL",
   "EGA_WEB_PUBLIC_POLICY",
   "EGA_WEB_ALLOW_ANONYMOUS",
 ] as const;
@@ -116,6 +117,8 @@ export interface ServerConfig {
    * Must never be a privileged secret key.
    */
   readonly supabasePublishableKey: string | null;
+  /** Dedicated database login with EXECUTE on only the preference writer. */
+  readonly skillPreferencesDatabaseUrl: string | null;
   /** True when an authoritative expected digest is configured or derived. */
   readonly hasExpectedReleaseDigest: boolean;
   /** True when at least one release source is configured at all. */
@@ -231,6 +234,32 @@ export function parseServerConfig(
     configured(env["EGA_SUPABASE_PUBLISHABLE_KEY"]) ??
     configured(env["EGA_SUPABASE_ANON_KEY"]) ??
     null;
+  const skillPreferencesDatabaseUrl = configured(env["EGA_SKILL_PREFERENCES_DATABASE_URL"]) ?? null;
+  if (skillPreferencesDatabaseUrl !== null) {
+    let parsed: URL;
+    try {
+      parsed = new URL(skillPreferencesDatabaseUrl);
+    } catch {
+      throw new ServerConfigError(
+        "E_WEB_ENV_INVALID",
+        "EGA_SKILL_PREFERENCES_DATABASE_URL must be a PostgreSQL connection URL",
+        "EGA_SKILL_PREFERENCES_DATABASE_URL",
+      );
+    }
+    if (
+      !["postgres:", "postgresql:"].includes(parsed.protocol) ||
+      parsed.hostname === "" ||
+      parsed.pathname.length < 2 ||
+      parsed.username === "" ||
+      parsed.password === ""
+    ) {
+      throw new ServerConfigError(
+        "E_WEB_ENV_INVALID",
+        "EGA_SKILL_PREFERENCES_DATABASE_URL must be a PostgreSQL URL with a database and dedicated login",
+        "EGA_SKILL_PREFERENCES_DATABASE_URL",
+      );
+    }
+  }
 
   if (
     supabasePublishableKey !== null &&
@@ -266,6 +295,7 @@ export function parseServerConfig(
     supabaseUrl,
     supabaseSecretKey,
     supabasePublishableKey,
+    skillPreferencesDatabaseUrl,
     hasExpectedReleaseDigest: expectedReleaseDigest !== null || expectCommittedArtifact,
     hasReleaseSource: artifactDir !== null || retainedManifestPath !== null,
     isPublicPolicy,

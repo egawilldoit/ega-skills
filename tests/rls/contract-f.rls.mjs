@@ -8,7 +8,7 @@
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -71,6 +71,20 @@ function asSubject(subject, sql) {
   return psql(DB_URL, `begin; set local role authenticated; set local "request.jwt.claims" = '${claims}'; ${sql}; commit;`);
 }
 
+function asPreferenceWriter(sql) {
+  return psql(DB_URL, `begin; set local role ega_skill_preferences_writer; ${sql}; commit;`);
+}
+
+function failsAsPreferenceWriter(sql, pattern) {
+  let stderr = "";
+  try {
+    asPreferenceWriter(sql);
+  } catch (error) {
+    stderr = String(error?.stderr ?? error?.message ?? "");
+  }
+  assert.match(stderr, pattern, `expected the dedicated writer to be denied: ${sql}`);
+}
+
 function rows(subject, sql) {
   return asSubject(subject, sql)
     .split("\n")
@@ -111,7 +125,7 @@ after(() => {
 test("RLS is enabled on every Contract F table", () => {
   const tables = [
     "personal_workspaces", "hubs", "hub_releases", "hub_stable_pointers", "security_denies", "audit_events",
-    "workspace_memberships", "projects", "project_contexts", "context_revocations", "quota_policies",
+    "workspace_memberships", "skill_preferences", "projects", "project_contexts", "context_revocations", "quota_policies",
     "immutable_objects", "hub_release_artifacts", "source_credentials", "quota_usage", "public_hub_publications",
   ];
   const enabled = psql(DB_URL, `select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relrowsecurity order by relname`)
@@ -119,6 +133,87 @@ test("RLS is enabled on every Contract F table", () => {
   for (const table of tables) {
     assert.ok(enabled.includes(table), `RLS must be enabled on public.${table}`);
   }
+});
+
+test("private preferences are owner-scoped and have no PostgREST write path", () => {
+  const insert = `select * from private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux'], array['design/ux'], 0)`;
+  assert.match(asPreferenceWriter(insert), /1\|\{design\/ux\}\|\{design\/ux\}\|/);
+  assert.equal(scalar("user-a", "select relforcerowsecurity::text from pg_class where oid='public.skill_preferences'::regclass"), "true");
+  assert.equal(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 1);
+  assert.equal(count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 0);
+  assert.equal(count("admin-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 0);
+  assert.equal(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_B}'`), 0);
+  assert.equal(count("inactive-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 0);
+  assert.equal(scalar("user-a", "select has_table_privilege('anon', 'public.skill_preferences', 'SELECT')::text"), "false");
+  for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+    assert.equal(scalar("user-a", `select has_table_privilege('authenticated', 'public.skill_preferences', '${privilege}')::text`), "false");
+    assert.equal(scalar("user-a", `select has_table_privilege('service_role', 'public.skill_preferences', '${privilege}')::text`), "false");
+    assert.equal(scalar("user-a", `select has_table_privilege('anon', 'public.skill_preferences', '${privilege}')::text`), "false");
+  }
+  assert.equal(scalar("user-a", "select has_table_privilege('service_role', 'public.skill_preferences', 'SELECT')::text"), "false");
+  assert.equal(scalar("user-a", "select has_function_privilege('authenticated', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text"), "false");
+  assert.equal(scalar("user-a", "select has_function_privilege('anon', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text"), "false");
+  assert.equal(scalar("user-a", "select has_function_privilege('service_role', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text"), "false");
+  assert.equal(scalar("user-a", "select has_function_privilege('ega_skill_preferences_writer', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text"), "true");
+  assert.equal(scalar("user-a", "select has_schema_privilege('ega_skill_preferences_writer', 'private', 'USAGE')::text"), "true");
+  assert.equal(scalar("user-a", "select has_schema_privilege('ega_skill_preferences_writer', 'public', 'CREATE')::text"), "false");
+  for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+    assert.equal(scalar("user-a", `select has_table_privilege('ega_skill_preferences_writer', 'public.skill_preferences', '${privilege}')::text`), "false");
+  }
+  assert.equal(scalar("user-a", "select has_function_privilege('ega_skill_preferences_writer', 'private.is_canonical_skill_id_array(text[],integer)', 'EXECUTE')::text"), "false");
+  assert.equal(scalar("user-a", "select has_function_privilege('ega_skill_preferences_writer', 'private.has_workspace_role(uuid,text[])', 'EXECUTE')::text"), "false");
+  failsAs("user-a", insert, /permission denied/);
+  failsAs("user-a", `update public.skill_preferences set default_skill_ids=array['design/ux'] where workspace_id='${WS_A}'`, /permission denied/);
+  failsAs("inactive-a", `select * from private.write_skill_preferences('${WS_A}', 'inactive-a', array[]::text[], array[]::text[], 0)`, /permission denied/);
+  failsAs("user-a", `select * from private.write_skill_preferences('${WS_B}', 'user-a', array[]::text[], array[]::text[], 0)`, /permission denied/);
+  failsAs("user-a", `select * from private.write_skill_preferences('${WS_A}', 'user-b', array[]::text[], array[]::text[], 0)`, /permission denied/);
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'inactive-a', array[]::text[], array[]::text[], 0)`, /active workspace owner required/);
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_B}', 'user-a', array[]::text[], array[]::text[], 0)`, /active workspace owner required/);
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-b', array[]::text[], array[]::text[], 0)`, /active workspace owner required/);
+});
+
+test("revoking an Owner membership immediately removes reads and writes", () => {
+  psql(DB_URL, `update public.workspace_memberships set active=false where workspace_id='${WS_A}' and subject='user-a' and role='owner'`);
+  try {
+    assert.equal(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 0);
+    failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array[]::text[], 1)`, /active workspace owner required/);
+  } finally {
+    psql(DB_URL, `update public.workspace_memberships set active=true where workspace_id='${WS_A}' and subject='user-a' and role='owner'`);
+  }
+});
+
+test("the writer is a bounded SECURITY DEFINER with a pinned search path", () => {
+  const owner = rows("user-a", `select r.rolsuper::text, r.rolbypassrls::text from pg_proc p join pg_roles r on r.oid=p.proowner where p.oid='private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure`)[0];
+  assert.ok(owner, "writer function has a catalog owner");
+  assert.ok(owner[0] === "true" || owner[1] === "true", "the function owner must bypass RLS because the table forces RLS");
+  const config = scalar("user-a", `select coalesce(array_to_string(proconfig, ','), '') from pg_proc where oid='private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure`);
+  assert.match(config, /search_path=/);
+  assert.match(config, /statement_timeout=3s/);
+  assert.match(config, /lock_timeout=2s/);
+});
+
+test("the database rejects excess and duplicate IDs and serializes revision-checked writes", async () => {
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array['a/one','b/two','c/three','d/four'], 1)`, /invalid preference IDs/);
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array['a/one','a/one'], 1)`, /invalid preference IDs/);
+  failsAs("user-a", `insert into public.skill_preferences(workspace_id, subject, revision, default_skill_ids) values ('${WS_A}', 'user-a', 2, array['a/one','a/one'])`, /permission denied/);
+  const competing = `select revision, default_skill_ids from private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux'], array['a/one','b/two','c/three'], 1)`;
+  const runs = [0, 1].map(() => new Promise((resolve, reject) => {
+    const child = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr)));
+    child.stdin.end(`begin; set local role ega_skill_preferences_writer; select pg_sleep(0.1); ${competing}; commit;`);
+  }));
+  const outputs = await Promise.all(runs);
+  assert.equal(outputs.filter((output) => output.includes("2|{a/one,b/two,c/three}")).length, 1);
+  assert.equal(count("user-a", `select cardinality(default_skill_ids) from public.skill_preferences where workspace_id='${WS_A}'`), 3);
+  // An unavailable/retired default can be removed because the function validates
+  // structural shape; only the API validates newly added catalog IDs.
+  const removal = `select revision from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array['a/one','b/two'], 2)`;
+  assert.match(asPreferenceWriter(removal), /3/);
 });
 
 function failsAs(subject, sql, pattern) {
