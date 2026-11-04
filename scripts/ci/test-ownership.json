@@ -190,6 +190,7 @@
     "tests/web/source-manager/published-links.test.mjs",
     "tests/web/source-manager/routes.test.mjs",
     "tests/web/source-manager/service.test.mjs",
+    "tests/web/source-navigation.test.mjs",
     "tests/web/stage-artifact.test.mjs",
     "tests/web/supabase-read.test.mjs",
     "tests/web/workspace-pages.test.mjs"

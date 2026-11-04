@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { API_ENDPOINTS } from "../api/client";
+import { API_ENDPOINTS, toApiError } from "../api/client";
 import type { SkillContentLevel, SkillContentView, SkillDetail, SkillSourceRef } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
@@ -11,12 +11,20 @@ import { CopyButton } from "../components/CopyButton";
 import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
 import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
 import { EmptyState, ErrorState, ResourceSection } from "../components/StatePanel";
+import { loadSourceIndex } from "./sourceIndex";
+import { resolveSourceSkill, sourceSkillHref } from "./sourceSkillNavigation";
 
 type ContentState =
   | { readonly status: "idle" }
   | { readonly status: "loading"; readonly level: SkillContentLevel; readonly filePath?: string }
   | { readonly status: "loaded"; readonly data: SkillContentView }
   | { readonly status: "error"; readonly message: string; readonly level: SkillContentLevel; readonly filePath?: string };
+
+type SourceState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading" }
+  | { readonly status: "available"; readonly href: string }
+  | { readonly status: "unavailable"; readonly reason: string };
 
 const SOURCE_COLUMNS: readonly Column<SkillSourceRef>[] = [
   { key: "source_id", label: "Source id", mono: true, render: (row) => row.source_id },
@@ -59,8 +67,16 @@ export function SkillDetailPage(): ReactNode {
     [client, skillId],
   );
   const resource = useApiResource(load, [client, skillId]);
+  const releasedDetail = resource.state.status === "ready"
+    && resource.state.data.summary.skill_id === skillId
+    && resource.state.data.release !== null
+    ? resource.state.data
+    : null;
+  const releasedSkillId = releasedDetail?.summary.skill_id ?? null;
+  const releasedSkillName = releasedDetail?.summary.name ?? null;
 
   const [contentState, setContentState] = useState<ContentState>({ status: "idle" });
+  const [sourceState, setSourceState] = useState<SourceState>({ status: "idle" });
 
   const activeRequestRef = useRef<{
     seq: number;
@@ -82,6 +98,42 @@ export function SkillDetailPage(): ReactNode {
       }
     };
   }, [skillId]);
+
+  // The source index is a separate, independently guarded read. It is only
+  // consulted for a released skill, and its result is used only to decide
+  // whether the exact source identity can be edited.
+  useEffect(() => {
+    if (releasedSkillId === null || releasedSkillName === null) {
+      setSourceState({ status: "idle" });
+      return;
+    }
+    const controller = new AbortController();
+    setSourceState({ status: "loading" });
+    void (async () => {
+      try {
+        const index = await loadSourceIndex(client, controller.signal);
+        if (controller.signal.aborted) return;
+        const resolution = resolveSourceSkill(releasedSkillId, index, { declaredName: releasedSkillName });
+        if (controller.signal.aborted) return;
+        if (resolution.status === "match") {
+          setSourceState({ status: "available", href: sourceSkillHref(releasedSkillId, index.sha) });
+        } else {
+          setSourceState({ status: "unavailable", reason: resolution.reason });
+        }
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        const error = toApiError(cause);
+        if (error.status === 403) {
+          setSourceState({ status: "unavailable", reason: "Source editing is unavailable for this account." });
+        } else if (error.status === 503) {
+          setSourceState({ status: "unavailable", reason: "Source editing is not configured." });
+        } else {
+          setSourceState({ status: "unavailable", reason: `Source unavailable: ${error.message}` });
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [client, releasedSkillId, releasedSkillName]);
 
   const closeContent = useCallback(() => {
     if (activeRequestRef.current) {
@@ -204,6 +256,28 @@ export function SkillDetailPage(): ReactNode {
           )}
 
           <HostedReleaseStatusPanel />
+
+          {data.release !== null ? (
+            <section className="panel" aria-labelledby="skill-source">
+              <h2 id="skill-source">Source</h2>
+              {sourceState.status === "loading" ? (
+                <p role="status">Checking pinned source index…</p>
+              ) : null}
+              {sourceState.status === "available" ? (
+                <>
+                  <p>
+                    <Link className="button button--secondary" to={sourceState.href}>
+                      Manage source
+                    </Link>
+                  </p>
+                  <p className="muted">
+                    Editing source creates a pull request proposal. It does not publish a release.
+                  </p>
+                </>
+              ) : null}
+              {sourceState.status === "unavailable" ? <p>{sourceState.reason}</p> : null}
+            </section>
+          ) : null}
 
           <h2>Identity</h2>
           <dl className="fields">

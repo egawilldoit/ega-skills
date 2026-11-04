@@ -1,14 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { parse } from 'yaml';
 import { useApiClient } from '../api/useApiClient';
 import { toApiError } from '../api/client';
 import type { CatalogPage } from '../api/contracts';
 import { useWorkspace } from '../workspace/WorkspaceProvider';
+import { loadSourceIndex } from './sourceIndex';
+import { resolveSourceSkill, type SourceIndex, type SourceIndexItem } from './sourceSkillNavigation';
 import { sourcePublishedLinks } from './sourcePublishedLinks';
 import { sourceInterfaceDefaults, sourceSkillSlug } from './sourceInterfaceDefaults';
 
-type Item = { name: string; description: string; provenance: 'copied' | 'adapted' | 'original' };
-type Index = { sha: string; total: number; items: Item[] };
+type Item = SourceIndexItem;
+type Index = SourceIndex;
 type Detail = { sha: string; files: { path: string; contentBase64: string }[] };
 type Preview = { baseSha: string; operation: string; name: string; provenance: string; digest: string; changes: { path: string; before: string | null; after: string | null; binary?: boolean; mode?: string }[]; errors: string[]; warnings: string[] };
 type Proposal = { number: number; url: string; head: string };
@@ -24,11 +27,6 @@ const caseLabels: Record<CaseField, string> = { direct: 'Direct request', indire
 const emptyCases = (): Record<CaseField, string> => ({ direct: '', indirect: '', incomplete: '', negative: '', collision: '', edge: '' });
 
 const message = (cause: unknown): string => cause instanceof Error ? cause.message : toApiError(cause).message;
-const decodeIndex = (value: unknown): Index => {
-  const v = value as Index;
-  if (!v || !/^[0-9a-f]{40}$/.test(v.sha) || !Number.isSafeInteger(v.total) || !Array.isArray(v.items) || v.items.some(item => typeof item.name !== 'string' || typeof item.description !== 'string' || !['original', 'adapted', 'copied'].includes(item.provenance))) throw new Error('Invalid source index');
-  return v;
-};
 const decodeDetail = (value: unknown): Detail => {
   const v = value as Detail;
   if (!v || !/^[0-9a-f]{40}$/.test(v.sha) || !Array.isArray(v.files) || v.files.some(file => !file || typeof file.path !== 'string' || typeof file.contentBase64 !== 'string')) throw new Error('Invalid source detail');
@@ -98,16 +96,15 @@ export function SourceSkillsPage(): ReactNode {
   const [status, setStatus] = useState<Status | null>(null);
   const [published, setPublished] = useState<Set<string> | null>(null);
   const [publishedUnavailable, setPublishedUnavailable] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSkill = searchParams.get('skill');
+  const requestedSha = searchParams.get('sha');
+  const consumedRequest = useRef<string | null>(null);
 
   const load = async (signal?: AbortSignal): Promise<void> => {
     setLoading(true); setError('');
     try {
-      const data = await client.get<Index>('/source-skills', { query: { limit: 100 }, ...(signal ? { signal } : {}), timeoutMs: 30_000, decode: decodeIndex });
-      while (data.items.length < data.total) {
-        const page = await client.get<Index>('/source-skills', { query: { limit: 100, offset: data.items.length }, ...(signal ? { signal } : {}), timeoutMs: 30_000, decode: decodeIndex });
-        if (page.sha !== data.sha || page.total !== data.total || !page.items.length) throw new Error('Source main changed while loading. Refresh and compare again.');
-        data.items.push(...page.items);
-      }
+      const data = await loadSourceIndex(client, signal);
       if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? ''); setCollisionNeighbor(data.items[0]?.name ?? ''); }
     } catch (cause) { if (!signal?.aborted) setError(message(cause)); }
     finally { if (!signal?.aborted) setLoading(false); }
@@ -122,7 +119,6 @@ export function SourceSkillsPage(): ReactNode {
       .catch(() => { if (!controller.signal.aborted) setPublishedUnavailable(true); });
     return () => controller.abort();
   }, [client, role]);
-  if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
   const startAdd = (): void => { clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
@@ -146,6 +142,25 @@ export function SourceSkillsPage(): ReactNode {
     } catch (cause) { setError(message(cause)); }
     finally { setLoading(false); }
   };
+  useEffect(() => {
+    if (!index || requestedSkill === null) return;
+    const key = `${requestedSkill}\u0000${requestedSha ?? ''}`;
+    if (consumedRequest.current === key) return;
+    consumedRequest.current = key;
+    const next = new URLSearchParams(searchParams);
+    next.delete('skill');
+    next.delete('sha');
+    setSearchParams(next, { replace: true });
+    const resolution = resolveSourceSkill(requestedSkill, index, { expectedSha: requestedSha });
+    if (resolution.status !== 'match') {
+      clear();
+      setMode('list');
+      setError(resolution.reason);
+      return;
+    }
+    void startEdit(resolution.item);
+  }, [index, requestedSkill, requestedSha, searchParams, setSearchParams]);
+  if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const loadImport = async (): Promise<void> => {
     setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     try {
