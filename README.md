@@ -143,6 +143,24 @@ inspect
 get_content
 ```
 
+### Using the four tools
+
+`search` is keyword discovery. It returns L0 metadata only, including
+`triggers` (signals the skill is useful) and `anti_triggers` (signals it should
+not be selected). `resolve` is task-based selection: it returns selected or
+candidate skills with their `version_hash`. Neither tool executes a skill or
+loads an L2 body.
+
+`inspect` reads one discovered version's L0 metadata, manifest, trust, token
+sizes, and sources without returning L1/L2 bodies. `get_content` returns the
+exact pinned L1/L2 body; reuse the `version_hash` from `search` or `resolve`,
+and the `effective_release_digest` for hosted calls. Do not call `get_content`
+for every search hit, and do not expect a different version to be substituted.
+
+These descriptions are guidance, not guaranteed client behavior: a client may
+ignore them. Discovering or selecting a skill never means it has executed, and
+content is only present when `get_content` returned it.
+
 Runtime properties:
 
 ```text

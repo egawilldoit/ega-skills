@@ -1,7 +1,7 @@
 [
   {
     "name": "resolve",
-    "description": "Resolve a task to the best local skill set (SPEC-006 \u00a75.1.5)",
+    "description": "Select skills for a task; returns ids and version_hash.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -49,7 +49,7 @@
   },
   {
     "name": "search",
-    "description": "Search project-visible skill L0 metadata by query",
+    "description": "Discover skills by keyword; returns triggers, anti_triggers, version_hash.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -86,7 +86,7 @@
   },
   {
     "name": "inspect",
-    "description": "Inspect one canonical skill version's L0 metadata",
+    "description": "Inspect one version's metadata; no L1/L2 bodies.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -351,7 +351,7 @@
   },
   {
     "name": "get_content",
-    "description": "Return exact canonical L1/L2 content for a version",
+    "description": "Exact pinned L1/L2 content by version_hash.",
     "inputSchema": {
       "type": "object",
       "properties": {
