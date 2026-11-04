@@ -368,9 +368,26 @@ describe("the real endpoints are validated at the response boundary", () => {
     assert.deepEqual(await client.get("/catalog"), body);
   });
 
+  test("a valid hosted release status passes the boundary unchanged", async () => {
+    const body = {
+      state: "different",
+      console_release_digest: `sha256:${"a".repeat(64)}`,
+      hosted_release_digest: `sha256:${"b".repeat(64)}`,
+      observed_at: "2026-11-04T12:00:00.000Z",
+      checked_at: "2026-11-04T12:05:00.000Z",
+      reason: null,
+      endpoint: "https://ega-skills-mcp.vercel.app/readyz",
+    };
+    const client = createApiClient({
+      fetchImpl: async () => stubResponse({ status: 200, body }),
+    });
+    assert.deepEqual(await client.get("/hosted-release-status"), body);
+  });
+
   test("parameterized and newly covered endpoints reject malformed payloads", async () => {
     const endpoints = [
       ["/skills/anthropic%2Fclaude-api", { not_a_skill: true }],
+      ["/hosted-release-status", { state: "maybe" }],
       ["/releases/sha256%3A" + "a".repeat(64), { not_a_release: true }],
       ["/projects", { not_an_array: true }],
       ["/projects/018f0c2a-1b2c-7d3e-8f40-1234567890ab", { not_a_project: true }],
@@ -411,6 +428,7 @@ describe("every endpoint the console calls has a declared decoder", () => {
       "/catalog",
       "/skills",
       "/skills/anthropic%2Fclaude-api",
+      "/hosted-release-status",
       "/releases",
       "/releases/compare",
       "/releases/sha256%3A" + "a".repeat(64),

@@ -179,6 +179,17 @@ With `EGA_WEB_PUBLIC_POLICY`/`EGA_WEB_ALLOW_ANONYMOUS` unset, artifact routes
 require an authenticated caller, which is what makes the signed-out refusal in
 the acceptance checklist meaningful.
 
+### Hosted MCP release status
+
+The Console reads the fixed canonical endpoint
+`https://ega-skills-mcp.vercel.app/readyz` on the server. The browser cannot
+supply a URL. The check has a 2-second timeout, accepts at most 2 KiB, requires
+HTTP 200 and a canonical `sha256:<64 lowercase hex>` digest, and caches a
+successful observation for 15 seconds. A stale, missing, malformed, timed-out or
+unavailable observation is shown as **Hosted MCP status unknown**, never as a
+match. Equal digests identify the same release artifact. They do not authorize
+access and do not prove that every caller can read every skill.
+
 ## 3. Deploy and alias (planned commands — not executed)
 
 Follow RELEASE-2.0-RUNBOOK.md hard invariants: assert Vercel identity **before**

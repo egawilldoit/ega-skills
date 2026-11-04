@@ -79,6 +79,27 @@ export interface ReleaseIdentity {
   readonly mismatch_reason: string | null;
 }
 
+/** The three states the Console may present for the canonical hosted MCP. */
+export type HostedReleaseState = "matches" | "different" | "unknown";
+
+/**
+ * One server-side observation of the canonical hosted MCP release.
+ *
+ * `observed_at` is non-null only for a successful readiness observation; a
+ * failed attempt still carries `checked_at` and an honest reason.
+ */
+export interface HostedReleaseStatusView {
+  readonly state: HostedReleaseState;
+  readonly console_release_digest: string | null;
+  readonly hosted_release_digest: string | null;
+  readonly observed_at: string | null;
+  readonly checked_at: string;
+  /** Non-null exactly when `state === "unknown"`. */
+  readonly reason: string | null;
+  /** The fixed canonical endpoint, shown for transparency. */
+  readonly endpoint: string;
+}
+
 /** Immutable-object backing one half of a release. */
 export interface ReleaseArtifactRef {
   /** `release` (serialized HubRelease) or `sqlite`. */
