@@ -205,6 +205,33 @@ test("write authorization serializes against concurrent membership revocation (r
   }
 });
 
+test("concurrent membership revocation blocks while writer holds authorization lock (reverse ordering)", async () => {
+  const rev = Number(scalar("user-a", `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 0)`));
+  const writer = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  let werr = "";
+  writer.stderr.on("data", (d) => { werr += String(d); });
+  const wrote = new Promise((resolve, reject) => {
+    let out = "";
+    writer.stdout.on("data", (d) => { out += String(d); if (/\d/.test(out)) resolve(out); });
+    writer.on("error", reject);
+    writer.on("close", (code) => { if (!/\d/.test(out)) reject(new Error(`writer closed ${code}: ${werr}\n${out}`)); });
+  });
+  writer.stdin.write(`BEGIN; SET ROLE ega_skill_preferences_writer; SELECT revision FROM private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux']::text[], array[]::text[], ${rev});\n`);
+  await wrote;
+  try {
+    assert.throws(
+      () => psql(DB_URL, `SET lock_timeout='1s'; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner';`),
+      (e) => /lock timeout|55P03|canceling statement/i.test(String(e?.message ?? e)),
+      "revocation must not commit while writer holds authorized membership lock",
+    );
+  } finally {
+    try { writer.stdin.write("ROLLBACK;\n"); } catch {}
+    writer.stdin.end();
+    await new Promise((resolve) => writer.on("close", resolve));
+  }
+  assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' and subject='user-a' and role='owner'`).trim(), /^(t|true)$/);
+});
+
 test("the writer is a bounded SECURITY DEFINER with a pinned search path", () => {
   const owner = rows("user-a", `select r.rolsuper::text, r.rolbypassrls::text from pg_proc p join pg_roles r on r.oid=p.proowner where p.oid='private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure`)[0];
   assert.ok(owner, "writer function has a catalog owner");
@@ -607,34 +634,39 @@ test("first-party sessions keep their existing control-plane reads", () => {
   assert.ok(count("user-a", "select count(*) from public.immutable_objects") > 0);
 });
 
-test("migration fails closed on pre-existing cluster-wide writer role (production path)", () => {
-  const name = `ega_role_gate_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
+test("skill_preferences migration succeeds unmodified on a clean isolated cluster when writer role absent; otherwise fails closed and fixture isolation provisions per-DB objects (real PostgreSQL)", () => {
+  const name = `ega_prefs_clean_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const dbUrl = withDatabase(BASE_URL, name);
+  const migration = readFileSync(join(ROOT, "supabase", "migrations", "202609210001_private_skill_preferences.sql"), "utf8");
   try {
     psql(ADMIN_URL, `create database "${name}"`);
-    // In shared CI containers the role may already exist from an earlier suite;
-    // the production migration must still fail closed with no opt-in/bypass.
-    const migration = readFileSync(join(ROOT, "supabase", "migrations", "202609210001_private_skill_preferences.sql"), "utf8");
     psql(dbUrl, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-    // Apply prerequisites so the migration's context is realistic if role absent.
-    const migrations = readdirSync(join(ROOT, "supabase", "migrations")).filter((f) => f.endsWith(".sql")).sort();
-    let roleExists = psql(ADMIN_URL, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim() === "1";
-    for (const f of migrations) {
+    // Apply prerequisites only.
+    for (const f of readdirSync(join(ROOT, "supabase", "migrations")).filter((x) => x.endsWith(".sql")).sort()) {
       if (f === "202609210001_private_skill_preferences.sql") break;
       psql(dbUrl, readFileSync(join(ROOT, "supabase", "migrations", f), "utf8"));
     }
+    const roleExists = psql(ADMIN_URL, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim() === "1";
     if (!roleExists) {
-      // No pre-existing role: migration should create it successfully.
+      // Clean cluster path: unmodified migration must succeed (true production DDL).
       psql(dbUrl, migration);
       assert.equal(psql(dbUrl, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim(), "1");
+      assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences') is not null`).trim(), "t");
+      assert.equal(psql(dbUrl, `select relrowsecurity::text||relforcerowsecurity::text from pg_class where oid='public.skill_preferences'::regclass`).trim(), "tt");
+      assert.match(psql(dbUrl, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /for update of m/i);
+      assert.match(psql(dbUrl, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /security definer/i);
     } else {
+      // Shared/local container: production migration must fail closed with no
+      // partial per-DB objects from the unmodified path (psql ON_ERROR_STOP).
       assert.throws(() => psql(dbUrl, migration), (e) => /already exists; refusing reuse/.test(String(e?.stderr ?? e?.message ?? e)));
+      assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences')`).trim(), "", "fail-closed unmodified migration must not create per-DB objects");
+      // Fixture isolation (per-DB objects only, read-only role checks) is
+      // exercised by applyMigrations in all other disposable-DB suites.
     }
   } finally {
     try { psql(ADMIN_URL, `drop database if exists "${name}"`); } catch {}
   }
 });
-
 test("skill_preferences rollback removes table/function without dropping shared cluster-wide role", () => {
   const name = `ega_prefs_rb_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const dbUrl = withDatabase(BASE_URL, name);
