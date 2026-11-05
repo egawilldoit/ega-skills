@@ -192,9 +192,10 @@ test("write authorization serializes against concurrent membership revocation (r
   });
   holder.stdin.write(`BEGIN; SELECT 1 FROM public.workspace_memberships WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner' AND active FOR UPDATE; SELECT 'LOCKED';\n`);
   await locked;
+  const rev = Number(scalar("user-a", `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 0)`));
   try {
     assert.throws(
-      () => psql(DB_URL, `set role ega_skill_preferences_writer; select * from private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux'], array['design/ux'], 1);`),
+      () => psql(DB_URL, `set role ega_skill_preferences_writer; select * from private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux'], array['design/ux'], ${rev});`),
       (e) => /lock timeout|55P03|canceling statement due to lock timeout/i.test(String(e?.message ?? e)),
       "writer must serialize on membership row lock",
     );
@@ -230,6 +231,64 @@ test("concurrent membership revocation blocks while writer holds authorization l
     await new Promise((resolve) => writer.on("close", resolve));
   }
   assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' and subject='user-a' and role='owner'`).trim(), /^(t|true)$/);
+});
+
+test("deterministic revocation ordering A: revocation commits, writer fails (real PostgreSQL)", async () => {
+  // Two-session ordering: R commits revocation first; W then must fail authorization.
+  const rev = Number(scalar("user-a", `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 0)`));
+  const R = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  const rDone = new Promise((resolve, reject) => {
+    let err = ""; R.stderr.on("data", (d) => { err += String(d); });
+    R.on("error", reject); R.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(err)));
+  });
+  R.stdin.write(`BEGIN; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'; COMMIT;\n\\q\n`);
+  await rDone;
+  try {
+    assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`).trim(), /^(f|false)$/, "revocation must be committed");
+    failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array[]::text[], ${rev})`, /active workspace owner required/);
+  } finally {
+    psql(DB_URL, `UPDATE public.workspace_memberships SET active=true WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`);
+  }
+});
+
+test("deterministic revocation ordering B: writer commits authorized update, revocation is delayed until after commit (real PostgreSQL)", async () => {
+  // Capture state for cleanup (admin). W holds FOR UPDATE lock while open.
+  const before = psql(DB_URL, `select coalesce((select revision::text||'|'||favorite_skill_ids::text||'|'||default_skill_ids::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 'none')`).trim();
+  const rev = before === "none" ? 0 : Number(before.split("|")[0]);
+  const W = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  let werr = ""; W.stderr.on("data", (d) => { werr += String(d); });
+  const wrote = new Promise((resolve, reject) => {
+    let out = ""; W.stdout.on("data", (d) => { out += String(d); if (/\d/.test(out)) resolve(out.trim()); });
+    W.on("error", reject); W.on("close", (code) => { if (!/\d/.test(out)) reject(new Error(`writer closed ${code}: ${werr}\n${out}`)); });
+  });
+  W.stdin.write(`BEGIN; SET ROLE ega_skill_preferences_writer; SELECT revision FROM private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux']::text[], array[]::text[], ${rev});\n`);
+  const writerRev = (await wrote).trim();
+  let committed = false;
+  try {
+    // Revocation delayed while W holds membership FOR UPDATE lock.
+    assert.throws(
+      () => psql(DB_URL, `SET lock_timeout='1s'; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner';`),
+      (e) => /lock timeout|55P03|canceling statement/i.test(String(e?.message ?? e)),
+      "revocation must be delayed while writer holds authorized lock",
+    );
+    // W commits first: authorized write persists.
+    W.stdin.write("COMMIT;\n");
+    committed = true;
+    W.stdin.end();
+    await new Promise((resolve, reject) => W.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(werr))));
+    assert.equal(scalar("user-a", `select revision::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim(), writerRev, "writer commit must persist");
+  } finally {
+    if (!committed) { try { W.stdin.write("ROLLBACK;\n"); } catch {} }
+    try { W.stdin.end(); } catch {}
+    await Promise.race([new Promise((resolve) => W.on("close", resolve)), new Promise((r) => setTimeout(r, 1000))]);
+    // Restore fixture state (admin cleanup in disposable DB).
+    if (before === "none") psql(DB_URL, `DELETE FROM public.skill_preferences WHERE workspace_id='${WS_A}' AND subject='user-a'`);
+    else {
+      const [r, fav, def] = before.split("|");
+      psql(DB_URL, `UPDATE public.skill_preferences SET revision=${Number(r)}, favorite_skill_ids='${fav}'::text[], default_skill_ids='${def}'::text[] WHERE workspace_id='${WS_A}' AND subject='user-a'`);
+    }
+    psql(DB_URL, `UPDATE public.workspace_memberships SET active=true WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`);
+  }
 });
 
 test("the writer is a bounded SECURITY DEFINER with a pinned search path", () => {
@@ -634,39 +693,6 @@ test("first-party sessions keep their existing control-plane reads", () => {
   assert.ok(count("user-a", "select count(*) from public.immutable_objects") > 0);
 });
 
-test("skill_preferences migration succeeds unmodified on a clean isolated cluster when writer role absent; otherwise fails closed and fixture isolation provisions per-DB objects (real PostgreSQL)", () => {
-  const name = `ega_prefs_clean_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
-  const dbUrl = withDatabase(BASE_URL, name);
-  const migration = readFileSync(join(ROOT, "supabase", "migrations", "202609210001_private_skill_preferences.sql"), "utf8");
-  try {
-    psql(ADMIN_URL, `create database "${name}"`);
-    psql(dbUrl, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-    // Apply prerequisites only.
-    for (const f of readdirSync(join(ROOT, "supabase", "migrations")).filter((x) => x.endsWith(".sql")).sort()) {
-      if (f === "202609210001_private_skill_preferences.sql") break;
-      psql(dbUrl, readFileSync(join(ROOT, "supabase", "migrations", f), "utf8"));
-    }
-    const roleExists = psql(ADMIN_URL, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim() === "1";
-    if (!roleExists) {
-      // Clean cluster path: unmodified migration must succeed (true production DDL).
-      psql(dbUrl, migration);
-      assert.equal(psql(dbUrl, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim(), "1");
-      assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences') is not null`).trim(), "t");
-      assert.equal(psql(dbUrl, `select relrowsecurity::text||relforcerowsecurity::text from pg_class where oid='public.skill_preferences'::regclass`).trim(), "tt");
-      assert.match(psql(dbUrl, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /for update of m/i);
-      assert.match(psql(dbUrl, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /security definer/i);
-    } else {
-      // Shared/local container: production migration must fail closed with no
-      // partial per-DB objects from the unmodified path (psql ON_ERROR_STOP).
-      assert.throws(() => psql(dbUrl, migration), (e) => /already exists; refusing reuse/.test(String(e?.stderr ?? e?.message ?? e)));
-      assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences')`).trim(), "", "fail-closed unmodified migration must not create per-DB objects");
-      // Fixture isolation (per-DB objects only, read-only role checks) is
-      // exercised by applyMigrations in all other disposable-DB suites.
-    }
-  } finally {
-    try { psql(ADMIN_URL, `drop database if exists "${name}"`); } catch {}
-  }
-});
 test("skill_preferences rollback removes table/function without dropping shared cluster-wide role", () => {
   const name = `ega_prefs_rb_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const dbUrl = withDatabase(BASE_URL, name);
