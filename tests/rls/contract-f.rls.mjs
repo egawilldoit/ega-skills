@@ -233,32 +233,50 @@ test("concurrent membership revocation blocks while writer holds authorization l
   assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' and subject='user-a' and role='owner'`).trim(), /^(t|true)$/);
 });
 
-test("deterministic revocation ordering A: revocation commits first; writer authorization fails (overlapping both-successful-commits blocked by design) (real PostgreSQL)", async () => {
-  // R commits revocation. W then fails 42501. Overlapping "both commit with a
-  // successful writer preference write" is infeasible/blocked by design here:
-  // committed revocation denies authorization and FOR UPDATE serialization
-  // prevents R from committing a conflicting revocation while W holds the lock.
+test("deterministic revocation ordering A: overlapping txns (R holds uncommitted revocation, W waits then fails 42501 after R commits) (real PostgreSQL)", async () => {
+  // Feasible overlap: R updates membership and holds tx uncommitted; W starts and
+  // blocks on FOR UPDATE authorization lock (observed in pg_stat_activity); R
+  // commits; W unblocks, sees revoked membership (READ COMMITTED), fails 42501.
+  // Overlapping both-successful-commits is blocked by design (no successful
+  // preference write when authorization fails).
   const rev = Number(scalar("user-a", `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 0)`));
+  const markerW = "ega824_ord_a_w";
   const R = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
-  const rDone = new Promise((resolve, reject) => {
-    let err = ""; R.stderr.on("data", (d) => { err += String(d); });
-    R.on("error", reject); R.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(err)));
-  });
-  R.stdin.write(`BEGIN; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'; COMMIT;\n\\q\n`);
-  await rDone;
+  let rerr = ""; R.stderr.on("data", (d) => { rerr += String(d); });
+  const rLocked = new Promise((resolve, reject) => { let out=""; R.stdout.on("data",(d)=>{out+=String(d); if(out.includes("R_LOCKED")) resolve(null);}); R.on("error",reject); R.on("close",(c)=>{ if(!out.includes("R_LOCKED")) reject(new Error(`R closed ${c}: ${rerr}`));}); });
+  R.stdin.write(`BEGIN; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'; SELECT 'R_LOCKED';\n`);
+  await rLocked;
+  const W = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  let werr = "", wout = ""; W.stderr.on("data", (d) => { werr += String(d); }); W.stdout.on("data", (d) => { wout += String(d); });
+  const wDone = new Promise((resolve) => W.on("close", (code) => resolve({ code, werr, wout })));
+  W.stdin.write(`BEGIN; SET ROLE ega_skill_preferences_writer; /* ${markerW} */ SELECT * FROM private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array[]::text[], ${rev}); COMMIT;\n`);
   try {
-    assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`).trim(), /^(f|false)$/, "revocation must be committed");
-    failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array[]::text[], ${rev})`, /active workspace owner required/);
-    assert.equal(psql(DB_URL, `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a' and revision=${rev + 1}`).trim(), "0", "no successful writer commit after committed revocation");
+    // Deterministic overlap proof: W observed waiting on a lock.
+    let waiting = "0";
+    for (let i = 0; i < 40 && waiting === "0"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      waiting = psql(DB_URL, `select count(*)::text from pg_stat_activity where wait_event_type='Lock' and query like '%${markerW}%' and pid <> pg_backend_pid()`).trim();
+    }
+    assert.notEqual(waiting, "0", "W must be observed waiting on lock while R holds uncommitted revocation (overlap)");
+    R.stdin.write("COMMIT;\n\\q\n");
+    await new Promise((resolve, reject) => R.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(rerr))));
+    const w = await wDone;
+    assert.notEqual(w.code, 0, "writer must fail after committed revocation");
+    assert.match(w.werr + w.wout, /active workspace owner required|42501/, "writer fails with authorization denial");
+    assert.equal(psql(DB_URL, `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a' and revision=${rev + 1}`).trim(), "0", "no successful writer commit");
   } finally {
+    try { R.stdin.write("ROLLBACK;\n"); R.stdin.end(); } catch {}
+    try { W.stdin.end(); } catch {}
+    await Promise.race([Promise.all([new Promise((res)=>R.on("close",res)), new Promise((res)=>W.on("close",res))]), new Promise((r)=>setTimeout(r,1500))]);
     psql(DB_URL, `UPDATE public.workspace_memberships SET active=true WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`);
   }
 });
 
-test("deterministic revocation ordering B: overlapping txns both commit (writer commits first, revocation commits after unblock) (real PostgreSQL)", async () => {
+test("deterministic revocation ordering B: overlapping txns both commit (writer commits first, revocation observed waiting then commits) (real PostgreSQL)", async () => {
   // Capture state for cleanup (admin). W holds FOR UPDATE lock while open.
   const before = psql(DB_URL, `select coalesce((select revision::text||'|'||favorite_skill_ids::text||'|'||default_skill_ids::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 'none')`).trim();
   const rev = before === "none" ? 0 : Number(before.split("|")[0]);
+  const markerR = "ega824_ord_b_r";
   const W = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
   let werr = ""; W.stderr.on("data", (d) => { werr += String(d); });
   const wrote = new Promise((resolve, reject) => {
@@ -268,15 +286,19 @@ test("deterministic revocation ordering B: overlapping txns both commit (writer 
   W.stdin.write(`BEGIN; SET ROLE ega_skill_preferences_writer; SELECT revision FROM private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux']::text[], array[]::text[], ${rev});\n`);
   const writerRev = (await wrote).trim();
   let wCommitted = false;
-  // R: revocation transaction started while W holds lock; it will block until W commits, then commit.
   const R = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
   let rerr = "", rout = ""; R.stderr.on("data", (d) => { rerr += String(d); }); R.stdout.on("data", (d) => { rout += String(d); });
   const rDone = new Promise((resolve, reject) => { R.on("error", reject); R.on("close", (code) => code === 0 ? resolve(rout.trim()) : reject(new Error(`revocation failed ${code}: ${rerr}`))); });
-  R.stdin.write(`BEGIN; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner' RETURNING active::text;\n`);
-  // Give R time to block on W's FOR UPDATE lock.
-  await new Promise((r) => setTimeout(r, 300));
+  R.stdin.write(`BEGIN; /* ${markerR} */ UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner' RETURNING active::text;\n`);
   try {
-    assert.equal(rout.trim(), "", "revocation must block while writer holds authorized lock (not yet committed)");
+    // Deterministic overlap proof: R observed waiting on lock (reached blocking UPDATE).
+    let waiting = "0";
+    for (let i = 0; i < 40 && waiting === "0"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      waiting = psql(DB_URL, `select count(*)::text from pg_stat_activity where wait_event_type='Lock' and query like '%${markerR}%' and pid <> pg_backend_pid()`).trim();
+    }
+    assert.notEqual(waiting, "0", "R must be observed waiting on lock before W commits (overlap reached blocking UPDATE)");
+    assert.equal(rout.trim(), "", "revocation must not return before W commits");
     // W commits first: authorized write persists.
     W.stdin.write("COMMIT;\n"); wCommitted = true; W.stdin.end();
     await new Promise((resolve, reject) => W.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(werr))));
