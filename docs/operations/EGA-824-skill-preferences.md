@@ -85,15 +85,21 @@ membership; it receives no direct table grant.
 First remove the runtime URL and stop preference writes. Revoke the writer role
 from the actual deployment login and remove that login/password through the
 deployment secret process. Then, using the migration owner, run the following
-in order (the login name shown is the recommended deployment role name):
+in order (the login name shown is the recommended deployment role name). **Do
+not drop `ega_skill_preferences_writer` if the cluster/database role may be
+shared by other databases or has unexpected members/grants**; it is cluster-wide
+and the migration reuses it only after strict least-privilege validation.
 
 ```sql
-REVOKE ega_skill_preferences_writer FROM ega_skill_preferences_runtime;
-DROP TABLE public.skill_preferences;
-DROP FUNCTION private.write_skill_preferences(uuid, text, text[], text[], bigint);
-DROP FUNCTION private.is_canonical_skill_id_array(text[], integer);
+REVOKE ega_skill_preferences_writer FROM ega_skill_preferences_runtime; -- deployment login, if present
+DROP TABLE IF EXISTS public.skill_preferences;
+DROP FUNCTION IF EXISTS private.write_skill_preferences(uuid, text, text[], text[], bigint);
+DROP FUNCTION IF EXISTS private.is_canonical_skill_id_array(text[], integer);
 REVOKE ALL ON SCHEMA private FROM ega_skill_preferences_writer;
-DROP ROLE ega_skill_preferences_writer;
+-- Inspect before dropping the cluster-wide role:
+-- SELECT rolname, rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname='ega_skill_preferences_writer';
+-- SELECT * FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid WHERE r.rolname='ega_skill_preferences_writer';
+-- DROP ROLE ega_skill_preferences_writer; -- only when confirmed safe/not shared
 ```
 
 Dropping the table deletes saved preferences. There is no cascade in this

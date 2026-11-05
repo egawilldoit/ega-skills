@@ -13,16 +13,37 @@ begin
 end
 $$;
 
--- Roles are cluster-wide. Disposable CI/test databases on the same cluster may
--- apply this migration independently; creating the role is idempotent. Least
--- privilege is enforced unconditionally below (attributes + per-database grants).
+-- Roles are cluster-wide. Disposable CI/test databases on the same service
+-- container may apply this migration independently. Reusing an existing role is
+-- ONLY allowed when it passes rigorous least-privilege validation (fail closed):
+-- no login/superuser/bypassrls/create/replication, noinherit, not a member of
+-- any role, and no roles are members of it. This prevents granting EXECUTE on a
+-- SECURITY DEFINER writer to an untrusted pre-existing role. Per-database grants
+-- below are explicit and minimal.
 do $$
+declare
+  r record;
+  member_count bigint;
+  member_of_count bigint;
 begin
-  if not exists (select 1 from pg_roles where rolname = 'ega_skill_preferences_writer') then
+  select * into r from pg_roles where rolname = 'ega_skill_preferences_writer';
+  if not found then
     create role ega_skill_preferences_writer nologin noinherit;
+    select * into r from pg_roles where rolname = 'ega_skill_preferences_writer';
+  else
+    if r.rolcanlogin or r.rolsuper or r.rolbypassrls or r.rolcreatedb
+       or r.rolcreaterole or r.rolreplication or r.rolinherit then
+      raise exception 'ega_skill_preferences_writer exists with unsafe attributes; refusing to reuse';
+    end if;
+    select count(*) into member_count from pg_auth_members where roleid = r.oid;
+    select count(*) into member_of_count from pg_auth_members where member = r.oid;
+    if member_count > 0 or member_of_count > 0 then
+      raise exception 'ega_skill_preferences_writer exists with role memberships; refusing to reuse';
+    end if;
   end if;
 end
 $$;
+-- Enforce known-safe attributes on the validated role only (no privilege escalation).
 alter role ega_skill_preferences_writer
   nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
 
@@ -64,6 +85,11 @@ create policy skill_preferences_owner_read on public.skill_preferences
     subject = auth.jwt() ->> 'sub'
     and private.has_workspace_role(workspace_id, array['owner']::text[])
   );
+drop policy if exists delegated_oauth_containment on public.skill_preferences;
+create policy delegated_oauth_containment on public.skill_preferences
+  as restrictive for all to authenticated
+  using ((auth.jwt() ->> 'client_id') is null)
+  with check ((auth.jwt() ->> 'client_id') is null);
 
 revoke all on public.skill_preferences from public, anon, authenticated, service_role;
 grant select on public.skill_preferences to authenticated;

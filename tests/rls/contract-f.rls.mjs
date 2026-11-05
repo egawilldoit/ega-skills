@@ -246,9 +246,9 @@ test("owners are workspace-isolated; writer checks target authorization, not HTT
   // user-b/WS_B row may already exist from the concurrent first-insert test (rev 1).
   const wsB = count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_B}' and subject='user-b'`);
   if (wsB === 0) {
-    assert.match(asPreferenceWriter(`select revision from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 0)`), /1/);
+    assert.match(asPreferenceWriter(`select revision from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 0)`), /^1$/);
   } else {
-    assert.match(asPreferenceWriter(`select revision, default_skill_ids from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 1)`), /2\|\{\}\|/);
+    assert.match(asPreferenceWriter(`select revision, default_skill_ids from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 1)`).trim(), /^2\|\{\}$/);
   }
   assert.equal(count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_B}' and subject='user-b'`), 1);
   assert.equal(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_B}'`), 0, "RLS isolates workspace B from user-a");
@@ -513,6 +513,7 @@ const CONTROL_PLANE_TABLES = [
   "hub_release_artifacts",
   "source_credentials",
   "quota_usage",
+  "skill_preferences",
   "public_hub_publications",
   // Contract T1 telemetry. Present here so the count assertion below and the
   // delegated-token loop both cover it: a new control-plane table that misses
@@ -539,6 +540,7 @@ test("delegated OAuth tokens read zero control-plane rows even for workspace own
     count("user-a", "select count(*) from public.workspace_memberships") > 0,
     "fixture memberships must be visible to the first-party owner",
   );
+  assert.ok(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`) > 0, "first-party owner must see own preferences");
 
   // ...and exactly zero rows through a delegated OAuth client token.
   for (const table of CONTROL_PLANE_TABLES) {
@@ -548,6 +550,12 @@ test("delegated OAuth tokens read zero control-plane rows even for workspace own
   }
   const otherClient = asDelegated("user-b", "another-client", "select count(*) from public.hubs").trim();
   assert.equal(otherClient, "0", "containment is independent of subject or client id");
+});
+
+test("delegated OAuth token with Owner subject cannot read private skill preferences (real PostgreSQL)", () => {
+  assert.ok(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`) > 0, "first-party owner reads own preferences");
+  const delegated = asDelegated("user-a", "delegated-client-1", `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim();
+  assert.equal(delegated, "0", "delegated token must not read skill_preferences via PostgREST/RLS path");
 });
 
 test("delegated OAuth tokens cannot mutate control-plane state", () => {
