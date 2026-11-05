@@ -220,3 +220,72 @@ test("anonymous sessions are rejected before workspace or preference reads", asy
   );
   assert.equal(reads, 0);
 });
+
+test("adding defaults fails closed when Supabase-backed release authorization cannot be verified", async () => {
+  const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
+  process.env.EGA_SUPABASE_URL = "https://example.supabase.co";
+  process.env.EGA_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+  delete process.env.EGA_SUPABASE_ANON_KEY;
+  try {
+    const routes = buildSkillPreferenceRoutes({
+      bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+      reader: {
+        async resolveCaller() { return { subject: "user-a" }; },
+        async readAsCaller(_caller, table) {
+          if (table === "workspace_memberships") return [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }];
+          return [];
+        },
+      },
+      store: { async update() { throw new Error("must not write when release authorization is unavailable"); } },
+      catalogIds: () => new Set(["known/skill"]),
+      isPublicPolicy: () => false,
+      resolveAdditionReleaseDigest: () => { throw new Error("release identity unavailable"); },
+      authorizeRelease: async () => { throw new Error("must not authorize without verified release digest"); },
+    });
+    await assert.rejects(
+      routes[0].handle({
+        method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+        request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["known/skill"] }),
+      }),
+      (error) => error.code === "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE" && error.status === 503,
+    );
+  } finally {
+    if (saved.url === undefined) delete process.env.EGA_SUPABASE_URL; else process.env.EGA_SUPABASE_URL = saved.url;
+    if (saved.key === undefined) delete process.env.EGA_SUPABASE_PUBLISHABLE_KEY; else process.env.EGA_SUPABASE_PUBLISHABLE_KEY = saved.key;
+    if (saved.anon === undefined) delete process.env.EGA_SUPABASE_ANON_KEY; else process.env.EGA_SUPABASE_ANON_KEY = saved.anon;
+  }
+});
+
+test("adding defaults on Supabase-backed deployments requires explicit release digest authorization", async () => {
+  const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
+  process.env.EGA_SUPABASE_URL = "https://example.supabase.co";
+  process.env.EGA_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+  delete process.env.EGA_SUPABASE_ANON_KEY;
+  try {
+    let seen;
+    const routes = buildSkillPreferenceRoutes({
+      bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+      reader: {
+        async resolveCaller() { return { subject: "user-a" }; },
+        async readAsCaller(_caller, table) {
+          if (table === "workspace_memberships") return [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }];
+          return [];
+        },
+      },
+      store: { async update(input) { return { revision: 1, favorite_skill_ids: [], default_skill_ids: [...input.defaults], updated_at: null }; } },
+      catalogIds: () => new Set(["known/skill"]),
+      isPublicPolicy: () => false,
+      resolveAdditionReleaseDigest: () => "sha256:abc123",
+      authorizeRelease: async (_ctx, _reader, options) => { seen = options; },
+    });
+    await routes[0].handle({
+      method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+      request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["known/skill"] }),
+    });
+    assert.deepEqual(seen?.requestedDigests, ["sha256:abc123"]);
+  } finally {
+    if (saved.url === undefined) delete process.env.EGA_SUPABASE_URL; else process.env.EGA_SUPABASE_URL = saved.url;
+    if (saved.key === undefined) delete process.env.EGA_SUPABASE_PUBLISHABLE_KEY; else process.env.EGA_SUPABASE_PUBLISHABLE_KEY = saved.key;
+    if (saved.anon === undefined) delete process.env.EGA_SUPABASE_ANON_KEY; else process.env.EGA_SUPABASE_ANON_KEY = saved.anon;
+  }
+});

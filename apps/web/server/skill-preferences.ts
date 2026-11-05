@@ -244,7 +244,10 @@ export interface PreferenceRouteOptions {
   readonly authorizeRelease?: (
     context: ApiRouteContext,
     reader: ControlPlaneReader,
+    options?: { readonly requestedDigests?: readonly string[] },
   ) => Promise<unknown>;
+  /** Test seam: resolve release digest required for new defaults on Supabase-backed deployments. */
+  readonly resolveAdditionReleaseDigest?: () => string;
 }
 
 /** GET reads through caller-scoped PostgREST; PUT uses the narrow DB function. */
@@ -255,6 +258,7 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
   const catalogIds = options.catalogIds ?? (() => new Set(getRegistry(loadServerConfig()).listReleasedSkillIds()));
   const isPublicPolicy = options.isPublicPolicy ?? (() => loadServerConfig().isPublicPolicy);
   const authorizeRelease = options.authorizeRelease ?? authorizeArtifactRequest;
+  const resolveAdditionReleaseDigest = options.resolveAdditionReleaseDigest ?? (() => getRegistry(loadServerConfig()).getRelease().release_digest);
   return [{
     id: "skill-preferences",
     path: "/skill-preferences",
@@ -284,7 +288,24 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
         // read the public catalog without a workspace-specific release grant.
         // Removal-only/favorite updates do not require release authorization.
         if (!isPublicPolicy()) {
-          await authorizeRelease({ ...context, method: "GET" }, reader);
+          const cfg = loadServerConfig();
+          if (cfg.supabaseUrl) {
+            // Fail closed: on Supabase-backed deployments, additions require a
+            // verifiable release digest check. Do not silently skip when identity
+            // is unavailable.
+            let releaseDigest: string;
+            try {
+              releaseDigest = resolveAdditionReleaseDigest();
+            } catch {
+              fail(503, "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE", "Current release authorization is unavailable for new defaults.");
+            }
+            if (typeof releaseDigest !== "string" || releaseDigest.length === 0) {
+              fail(503, "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE", "Current release authorization is unavailable for new defaults.");
+            }
+            await authorizeRelease({ ...context, method: "GET" }, reader, { requestedDigests: [releaseDigest] });
+          } else {
+            await authorizeRelease({ ...context, method: "GET" }, reader);
+          }
         }
         let known: ReadonlySet<string>;
         try {

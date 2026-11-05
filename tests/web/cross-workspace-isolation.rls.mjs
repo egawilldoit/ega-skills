@@ -547,6 +547,7 @@ async function readAsToken(token, table, options) {
 
 before(() => {
   psql(ADMIN_URL, `create database "${DB_NAME}"`);
+  psql(ADMIN_URL, `alter database "${DB_NAME}" set ega.test.disposable_db_role_reuse = 'true'`);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
   const migrations = readdirSync(join(ROOT, "supabase", "migrations"))
     .filter((file) => file.endsWith(".sql"))
