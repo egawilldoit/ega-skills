@@ -169,6 +169,7 @@
     "tests/web/discovery-inspection.test.mjs",
     "tests/web/ega-719-artifact-release-authorization.test.mjs",
     "tests/web/governance-pages.test.mjs",
+    "tests/web/hosted-release.test.mjs",
     "tests/web/project-boundary.test.mjs",
     "tests/web/project-pages.test.mjs",
     "tests/web/release-detail-rendering.test.mjs",
@@ -190,6 +191,7 @@
     "tests/web/source-manager/published-links.test.mjs",
     "tests/web/source-manager/routes.test.mjs",
     "tests/web/source-manager/service.test.mjs",
+    "tests/web/source-navigation.test.mjs",
     "tests/web/stage-artifact.test.mjs",
     "tests/web/supabase-read.test.mjs",
     "tests/web/workspace-pages.test.mjs"

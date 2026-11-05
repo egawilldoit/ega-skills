@@ -78,3 +78,21 @@ test('authorized ZIP upload reaches the real archive validator and rejects unsaf
     for (const [key, value] of Object.entries({ EGA_SOURCE_GITHUB_TOKEN: old.token, EGA_SOURCE_EDITOR_SUBJECTS: old.subjects, EGA_SOURCE_EDITOR_ORIGIN: old.origin })) value === undefined ? delete process.env[key] : process.env[key] = value;
   }
 });
+
+test('editor allowlist refuses a signed-in caller who is not an editor before GitHub access', async () => {
+  const old = { token: process.env.EGA_SOURCE_GITHUB_TOKEN, subjects: process.env.EGA_SOURCE_EDITOR_SUBJECTS, origin: process.env.EGA_SOURCE_EDITOR_ORIGIN };
+  const oldFetch = globalThis.fetch; let githubCalls = 0;
+  globalThis.fetch = async () => { githubCalls++; throw Error('unexpected'); };
+  process.env.EGA_SOURCE_GITHUB_TOKEN = 'secret';
+  process.env.EGA_SOURCE_EDITOR_SUBJECTS = '11111111-1111-1111-1111-111111111111';
+  process.env.EGA_SOURCE_EDITOR_ORIGIN = 'https://console.example';
+  const reader = { resolveCaller: async () => ({ subject, token: 'session' }) };
+  const route = sourceManagerRoutes(reader, fn => fn).find(route => route.id === 'source-skill-index');
+  try {
+    await assert.rejects(route.handle(context('GET')), error => error.status === 403 && error.code === 'E_SOURCE_FORBIDDEN');
+    assert.equal(githubCalls, 0);
+  } finally {
+    globalThis.fetch = oldFetch;
+    for (const [key, value] of Object.entries({ EGA_SOURCE_GITHUB_TOKEN: old.token, EGA_SOURCE_EDITOR_SUBJECTS: old.subjects, EGA_SOURCE_EDITOR_ORIGIN: old.origin })) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
+});

@@ -1,14 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { parse } from 'yaml';
 import { useApiClient } from '../api/useApiClient';
 import { toApiError } from '../api/client';
 import type { CatalogPage } from '../api/contracts';
 import { useWorkspace } from '../workspace/WorkspaceProvider';
+import { loadSourceIndex } from './sourceIndex';
+import { resolveSourceSkill, type SourceIndex, type SourceIndexItem } from './sourceSkillNavigation';
 import { sourcePublishedLinks } from './sourcePublishedLinks';
 import { sourceInterfaceDefaults, sourceSkillSlug } from './sourceInterfaceDefaults';
 
-type Item = { name: string; description: string; provenance: 'copied' | 'adapted' | 'original' };
-type Index = { sha: string; total: number; items: Item[] };
+type Item = SourceIndexItem;
+type Index = SourceIndex;
 type Detail = { sha: string; files: { path: string; contentBase64: string }[] };
 type Preview = { baseSha: string; operation: string; name: string; provenance: string; digest: string; changes: { path: string; before: string | null; after: string | null; binary?: boolean; mode?: string }[]; errors: string[]; warnings: string[] };
 type Proposal = { number: number; url: string; head: string };
@@ -24,11 +27,6 @@ const caseLabels: Record<CaseField, string> = { direct: 'Direct request', indire
 const emptyCases = (): Record<CaseField, string> => ({ direct: '', indirect: '', incomplete: '', negative: '', collision: '', edge: '' });
 
 const message = (cause: unknown): string => cause instanceof Error ? cause.message : toApiError(cause).message;
-const decodeIndex = (value: unknown): Index => {
-  const v = value as Index;
-  if (!v || !/^[0-9a-f]{40}$/.test(v.sha) || !Number.isSafeInteger(v.total) || !Array.isArray(v.items) || v.items.some(item => typeof item.name !== 'string' || typeof item.description !== 'string' || !['original', 'adapted', 'copied'].includes(item.provenance))) throw new Error('Invalid source index');
-  return v;
-};
 const decodeDetail = (value: unknown): Detail => {
   const v = value as Detail;
   if (!v || !/^[0-9a-f]{40}$/.test(v.sha) || !Array.isArray(v.files) || v.files.some(file => !file || typeof file.path !== 'string' || typeof file.contentBase64 !== 'string')) throw new Error('Invalid source detail');
@@ -98,16 +96,19 @@ export function SourceSkillsPage(): ReactNode {
   const [status, setStatus] = useState<Status | null>(null);
   const [published, setPublished] = useState<Set<string> | null>(null);
   const [publishedUnavailable, setPublishedUnavailable] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSkill = searchParams.get('skill');
+  const requestedSha = searchParams.get('sha');
+  const consumedRequest = useRef<string | null>(null);
+  const indexRef = useRef<Index | null>(null);
+  indexRef.current = index;
+  const editorRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const editorGenerationRef = useRef(0);
 
   const load = async (signal?: AbortSignal): Promise<void> => {
     setLoading(true); setError('');
     try {
-      const data = await client.get<Index>('/source-skills', { query: { limit: 100 }, ...(signal ? { signal } : {}), timeoutMs: 30_000, decode: decodeIndex });
-      while (data.items.length < data.total) {
-        const page = await client.get<Index>('/source-skills', { query: { limit: 100, offset: data.items.length }, ...(signal ? { signal } : {}), timeoutMs: 30_000, decode: decodeIndex });
-        if (page.sha !== data.sha || page.total !== data.total || !page.items.length) throw new Error('Source main changed while loading. Refresh and compare again.');
-        data.items.push(...page.items);
-      }
+      const data = await loadSourceIndex(client, signal);
       if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? ''); setCollisionNeighbor(data.items[0]?.name ?? ''); }
     } catch (cause) { if (!signal?.aborted) setError(message(cause)); }
     finally { if (!signal?.aborted) setLoading(false); }
@@ -122,15 +123,27 @@ export function SourceSkillsPage(): ReactNode {
       .catch(() => { if (!controller.signal.aborted) setPublishedUnavailable(true); });
     return () => controller.abort();
   }, [client, role]);
-  if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
+  const cancelEditorRequest = (): void => {
+    editorRequestRef.current?.controller.abort();
+    editorRequestRef.current = null;
+    editorGenerationRef.current += 1;
+    setLoading(false);
+  };
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
-  const reset = (): void => { clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
-  const startEdit = async (item: Item): Promise<void> => {
+  const reset = (): void => { cancelEditorRequest(); clear(); setMode('list'); setConfirmation(''); };
+  const startAdd = (): void => { cancelEditorRequest(); clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
+  const startRemove = (item: Item): void => { cancelEditorRequest(); clear(); setName(item.name); setConfirmation(''); setMode('remove'); };
+  const startEdit = async (item: Item, expectedSha: string | null = null): Promise<void> => {
+    const generation = ++editorGenerationRef.current;
+    editorRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    editorRequestRef.current = { generation, controller };
     clear(); setLoading(true);
     try {
-      const detail = await client.get<Detail>(`/source-skills/${encodeURIComponent(item.name)}`, { timeoutMs: 30_000, decode: decodeDetail });
-      if (!index || detail.sha !== index.sha) throw new Error('Source main changed. Refresh the list and compare again.');
+      const detail = await client.get<Detail>(`/source-skills/${encodeURIComponent(item.name)}`, { signal: controller.signal, timeoutMs: 30_000, decode: decodeDetail });
+      if (controller.signal.aborted || editorGenerationRef.current !== generation) return;
+      if (!indexRef.current || detail.sha !== indexRef.current.sha) throw new Error('Source main changed. Refresh the list and compare again.');
+      if (expectedSha !== null && detail.sha !== expectedSha) throw new Error('Source main changed. Refresh the list and compare again.');
       const skill = detail.files.find(file => file.path === 'SKILL.md');
       if (!skill) throw new Error('Source skill is missing SKILL.md.');
       const match = textFile(skill.contentBase64).match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -142,10 +155,54 @@ export function SourceSkillsPage(): ReactNode {
       const routing = parse(textFile(routingFile.contentBase64), { uniqueKeys: true, maxAliasCount: 0 }) as Record<string, unknown>;
       const routingList = (key: string): string[] => { const value = routing?.[key] ?? []; if (!Array.isArray(value) || value.some(entry => typeof entry !== 'string')) throw new Error('Source routing metadata is invalid.'); return value as string[]; };
       const editable = detail.files.filter(file => /^references\//.test(file.path) && /\.(?:md|txt)$/i.test(file.path)).map(file => ({ path: file.path, content: textFile(file.contentBase64) }));
+      if (controller.signal.aborted || editorGenerationRef.current !== generation) return;
       setName(item.name); setDescription(meta.description); setBody(match[2]!.trim()); setTriggers(routingList('triggers').join('\n')); setAntiTriggers(routingList('anti_triggers').join('\n')); setTags({ domains: routingList('domains').join('\n'), platforms: routingList('platforms').join('\n'), frameworks: routingList('frameworks').join('\n'), aliases: routingList('aliases').join('\n') }); setReferences(editable); setEditProvenance(item.provenance); setMode('update');
-    } catch (cause) { setError(message(cause)); }
-    finally { setLoading(false); }
+    } catch (cause) {
+      if (controller.signal.aborted || editorGenerationRef.current !== generation) return;
+      setError(message(cause));
+    } finally {
+      if (!controller.signal.aborted && editorGenerationRef.current === generation) {
+        editorRequestRef.current = null;
+        setLoading(false);
+      }
+    }
   };
+  useEffect(() => {
+    if (!index || requestedSkill === null) return;
+    const key = `${requestedSkill}\u0000${requestedSha ?? ''}`;
+    if (consumedRequest.current === key) return;
+    consumedRequest.current = key;
+    const next = new URLSearchParams(searchParams);
+    next.delete('skill');
+    next.delete('sha');
+    setSearchParams(next, { replace: true });
+    cancelEditorRequest();
+    if (requestedSha === null) {
+      clear();
+      setMode('list');
+      setError('A pinned source revision is required to open the source editor. Return to the skill and use Manage source.');
+      return;
+    }
+    const resolution = resolveSourceSkill(requestedSkill, index, { expectedSha: requestedSha });
+    if (resolution.status !== 'match') {
+      clear();
+      setMode('list');
+      setError(resolution.reason);
+      return;
+    }
+    void startEdit(resolution.item, requestedSha);
+  }, [index, requestedSkill, requestedSha, searchParams, setSearchParams]);
+  useEffect(() => () => {
+    editorRequestRef.current?.controller.abort();
+    editorRequestRef.current = null;
+  }, []);
+  useEffect(() => {
+    if (role === 'owner') return;
+    editorRequestRef.current?.controller.abort();
+    editorRequestRef.current = null;
+    setLoading(false);
+  }, [role]);
+  if (role !== 'owner') return <p role="alert">Source management is available to workspace owners with editor access.</p>;
   const loadImport = async (): Promise<void> => {
     setError(''); setLoading(true); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setPreview(null); setName(''); setNameLabel(''); setDescription(''); setBody('');
     try {
@@ -235,7 +292,7 @@ export function SourceSkillsPage(): ReactNode {
         <strong>{item.name}</strong> ({item.provenance}) — {item.description}{' '}
         {published?.has(`egawilldoit/${item.name}`) ? <><a href={`/skills/${encodeURIComponent(`egawilldoit/${item.name}`)}`}>View published skill</a>{' '}</> : null}
         <button disabled={loading} onClick={() => void startEdit(item)}>Edit skill</button>{' '}
-        <button disabled={loading} onClick={() => { clear(); setName(item.name); setConfirmation(''); setMode('remove'); }}>Remove from next catalog</button>
+        <button disabled={loading} onClick={() => startRemove(item)}>Remove from next catalog</button>
       </li>)}</ul>
     </> : null}
     {mode !== 'list' ? <fieldset disabled={loading} onChange={() => { setPreview(null); setRequest(null); setPr(null); }}>

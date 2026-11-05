@@ -105,6 +105,7 @@ function decodeSkillSummary(value: unknown, what: string, detail: string): Recor
   if (!isRecord(value)) fail(what, `${detail}: expected an object, received ${describe(value)}`);
   requireString(value.skill_id, what, `${detail}.skill_id`);
   requireString(value.name, what, `${detail}.name`);
+  requireString(value.namespace, what, `${detail}.namespace`);
   requireString(value.description, what, `${detail}.description`);
   requireString(value.content_digest, what, `${detail}.content_digest`);
   requireString(value.version_hash, what, `${detail}.version_hash`);
@@ -158,6 +159,61 @@ export function decodeCatalogPage(value: unknown): Record<string, unknown> {
 /* -------------------------------------------------------------------------- */
 /* Releases                                                                    */
 /* -------------------------------------------------------------------------- */
+
+function requireNullableTimestamp(value: unknown, what: string, detail: string): string | null {
+  if (value === null) return null;
+  const text = requireString(value, what, detail);
+  if (Number.isNaN(Date.parse(text))) {
+    fail(what, `${detail}: expected an ISO timestamp or null, received an unparseable string`);
+  }
+  return text;
+}
+
+const CANONICAL_DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+function requireNullableCanonicalDigest(
+  value: unknown,
+  what: string,
+  detail: string,
+): string | null {
+  if (value === null) return null;
+  const digest = requireString(value, what, detail);
+  if (!CANONICAL_DIGEST.test(digest)) {
+    fail(what, `${detail}: expected a canonical sha256 digest or null, received a non-canonical string`);
+  }
+  return digest;
+}
+
+/**
+ * `/hosted-release-status`.
+ *
+ * The three states are the whole contract. An unrecognized state is refused
+ * rather than coerced to unknown, because coercion would hide a server defect
+ * behind a state the UI already considers safe to display.
+ */
+export function decodeHostedReleaseStatus(value: unknown): Record<string, unknown> {
+  const what = "hosted release status";
+  if (!isRecord(value)) fail(what, `expected an object, received ${describe(value)}`);
+
+  if (value.state !== "matches" && value.state !== "different" && value.state !== "unknown") {
+    fail(
+      what,
+      `state: expected matches, different or unknown, received ${describe(value.state)}`,
+    );
+  }
+  requireNullableCanonicalDigest(value.console_release_digest, what, "console_release_digest");
+  requireNullableCanonicalDigest(value.hosted_release_digest, what, "hosted_release_digest");
+  requireNullableTimestamp(value.observed_at, what, "observed_at");
+  const checkedAt = requireString(value.checked_at, what, "checked_at");
+  if (Number.isNaN(Date.parse(checkedAt))) {
+    fail(what, "checked_at: expected an ISO timestamp, received an unparseable string");
+  }
+  if (value.reason !== null && typeof value.reason !== "string") {
+    fail(what, `reason: expected a string or null, received ${describe(value.reason)}`);
+  }
+  requireString(value.endpoint, what, "endpoint");
+  return value;
+}
 
 function decodeReleaseIdentity(value: unknown, what: string, detail: string): Record<string, unknown> {
   if (!isRecord(value)) fail(what, `${detail}: expected an object, received ${describe(value)}`);
@@ -473,6 +529,7 @@ export function decodeDiscoveryInspection(value: unknown): Record<string, unknow
 export const RESPONSE_DECODERS: Readonly<Record<string, (value: unknown) => unknown>> = Object.freeze({
   "/catalog": decodeCatalogPage,
   "/skills": decodeCatalogPage,
+  "/hosted-release-status": decodeHostedReleaseStatus,
   "/releases": decodeReleasesPage,
   "/releases/compare": decodeReleaseComparison,
   "/projects": decodeProjectsList,

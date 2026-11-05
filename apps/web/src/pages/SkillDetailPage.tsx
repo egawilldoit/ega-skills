@@ -2,19 +2,30 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { API_ENDPOINTS } from "../api/client";
+import { API_ENDPOINTS, toApiError } from "../api/client";
 import type { SkillContentLevel, SkillContentView, SkillDetail, SkillSourceRef } from "../api/contracts";
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { DataTable, Field, type Column } from "../components/DataTable";
-import { ReleaseIntegrityNotice, ReleaseStatusBadge, shortDigest } from "../components/ReleaseStatus";
+import { CopyButton } from "../components/CopyButton";
+import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
+import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
 import { EmptyState, ErrorState, ResourceSection } from "../components/StatePanel";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
+import { loadSourceIndex } from "./sourceIndex";
+import { parseSourceSkillIdentity, resolveSourceSkill, sourceSkillHref } from "./sourceSkillNavigation";
 
 type ContentState =
   | { readonly status: "idle" }
   | { readonly status: "loading"; readonly level: SkillContentLevel; readonly filePath?: string }
   | { readonly status: "loaded"; readonly data: SkillContentView }
   | { readonly status: "error"; readonly message: string; readonly level: SkillContentLevel; readonly filePath?: string };
+
+type SourceState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading" }
+  | { readonly status: "available"; readonly href: string }
+  | { readonly status: "unavailable"; readonly reason: string };
 
 const SOURCE_COLUMNS: readonly Column<SkillSourceRef>[] = [
   { key: "source_id", label: "Source id", mono: true, render: (row) => row.source_id },
@@ -45,6 +56,7 @@ function isInspectableCompanionFile(row: SkillDetail["files"][number]): boolean 
  */
 export function SkillDetailPage(): ReactNode {
   const client = useApiClient();
+  const { role } = useWorkspace();
   const params = useParams<{ readonly skillId: string | undefined }>();
   const skillId = params.skillId ?? null;
 
@@ -57,8 +69,20 @@ export function SkillDetailPage(): ReactNode {
     [client, skillId],
   );
   const resource = useApiResource(load, [client, skillId]);
+  const releasedDetail = resource.state.status === "ready"
+    && resource.state.data.summary.skill_id === skillId
+    && resource.state.data.release !== null
+    ? resource.state.data
+    : null;
+  const releasedSkillId = releasedDetail?.summary.skill_id ?? null;
+  const releasedSkillName = releasedDetail?.summary.name ?? null;
+  const sourceIdentity = releasedSkillId === null || releasedSkillName === null
+    ? null
+    : parseSourceSkillIdentity(releasedSkillId, releasedSkillName);
 
   const [contentState, setContentState] = useState<ContentState>({ status: "idle" });
+  const [sourceState, setSourceState] = useState<SourceState>({ status: "idle" });
+  const sourceRequestRef = useRef<AbortController | null>(null);
 
   const activeRequestRef = useRef<{
     seq: number;
@@ -80,6 +104,58 @@ export function SkillDetailPage(): ReactNode {
       }
     };
   }, [skillId]);
+
+  // The source index is a separate, independently guarded read. Nothing is
+  // fetched while browsing a released skill: the owner must explicitly ask for
+  // source availability, and any earlier request is discarded when the skill,
+  // role or component lifetime changes.
+  useEffect(() => {
+    sourceRequestRef.current?.abort();
+    sourceRequestRef.current = null;
+    setSourceState({ status: "idle" });
+    return () => {
+      sourceRequestRef.current?.abort();
+      sourceRequestRef.current = null;
+    };
+  }, [releasedSkillId, releasedSkillName, role]);
+
+  const checkSource = (): void => {
+    if (
+      role !== "owner"
+      || sourceIdentity?.status !== "supported"
+      || releasedSkillId === null
+      || releasedSkillName === null
+    ) return;
+    sourceRequestRef.current?.abort();
+    const controller = new AbortController();
+    sourceRequestRef.current = controller;
+    setSourceState({ status: "loading" });
+    void (async () => {
+      try {
+        const index = await loadSourceIndex(client, controller.signal);
+        if (controller.signal.aborted) return;
+        const resolution = resolveSourceSkill(releasedSkillId, index, { declaredName: releasedSkillName });
+        if (controller.signal.aborted) return;
+        if (resolution.status === "match") {
+          setSourceState({ status: "available", href: sourceSkillHref(releasedSkillId, index.sha) });
+        } else {
+          setSourceState({ status: "unavailable", reason: resolution.reason });
+        }
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        const error = toApiError(cause);
+        if (error.status === 403) {
+          setSourceState({ status: "unavailable", reason: "Source editing is unavailable for this account." });
+        } else if (error.status === 503) {
+          setSourceState({ status: "unavailable", reason: "Source editing is not configured." });
+        } else {
+          setSourceState({ status: "unavailable", reason: `Source unavailable: ${error.message}` });
+        }
+      } finally {
+        if (sourceRequestRef.current === controller) sourceRequestRef.current = null;
+      }
+    })();
+  };
 
   const closeContent = useCallback(() => {
     if (activeRequestRef.current) {
@@ -198,21 +274,55 @@ export function SkillDetailPage(): ReactNode {
               reason="The API returned this skill without a release identity, so it cannot be attributed to a verified release."
             />
           ) : (
-            <section className="panel" aria-labelledby="skill-release">
-              <h2 id="skill-release">
-                Released in <ReleaseStatusBadge status={data.release.status} />
-              </h2>
-              <ReleaseIntegrityNotice release={data.release} />
-              <Field label="Digest" mono>
-                {shortDigest(data.release.release_digest)}
-              </Field>
-            </section>
+            <ConsoleReleaseIdentity release={data.release} unavailableReason={null} />
           )}
+
+          <HostedReleaseStatusPanel />
+
+          {data.release !== null ? (
+            <section className="panel" aria-labelledby="skill-source">
+              <h2 id="skill-source">Source</h2>
+              {role !== "owner" ? (
+                <p>Source editing is available to workspace owners with editor access.</p>
+              ) : sourceIdentity === null ? null : sourceIdentity.status === "unsupported" ? (
+                <p>{sourceIdentity.reason}</p>
+              ) : (
+                <>
+                  {sourceState.status === "idle" ? (
+                    <p>
+                      <button type="button" className="button button--secondary" onClick={checkSource}>
+                        Check source availability
+                      </button>
+                    </p>
+                  ) : null}
+                  {sourceState.status === "loading" ? (
+                    <p role="status">Checking pinned source index…</p>
+                  ) : null}
+                  {sourceState.status === "available" ? (
+                    <>
+                      <p>
+                        <Link className="button button--secondary" to={sourceState.href}>
+                          Manage source
+                        </Link>
+                      </p>
+                      <p className="muted">
+                        Editing source creates a pull request proposal. It does not publish a release.
+                      </p>
+                    </>
+                  ) : null}
+                  {sourceState.status === "unavailable" ? <p>{sourceState.reason}</p> : null}
+                </>
+              )}
+            </section>
+          ) : null}
 
           <h2>Identity</h2>
           <dl className="fields">
             <Field label="Skill id" mono>
               {data.summary.skill_id}
+            </Field>
+            <Field label="Namespace" mono>
+              {data.summary.namespace}
             </Field>
             <Field label="Name">{data.summary.name}</Field>
             <Field label="Description">{data.summary.description}</Field>
@@ -220,7 +330,8 @@ export function SkillDetailPage(): ReactNode {
               {data.summary.schema_version}
             </Field>
             <Field label="Release-pinned version hash" mono>
-              <span title={data.summary.version_hash}>{shortDigest(data.summary.version_hash)}</span>
+              <span className="val">{data.summary.version_hash}</span>
+              <CopyButton text={data.summary.version_hash} label="release-pinned version hash" />
             </Field>
             <Field label="Content digest" mono>
               {data.summary.content_digest}
