@@ -12,7 +12,7 @@ import {
   type RequestBounds,
 } from "./api.ts";
 import { getRegistry } from "./registry.ts";
-import { loadServerConfig } from "./env.ts";
+import { loadServerConfig, sanitizeVerifiedTlsConnectionString } from "./env.ts";
 import {
   type CallerIdentity,
   type ControlPlaneReader,
@@ -74,7 +74,7 @@ async function defaultStore(): Promise<PreferenceStore> {
   }
   defaultPool ??= import("pg").then(({ Pool }) => {
     const pool = new Pool({
-      connectionString: config.skillPreferencesDatabaseUrl!,
+      connectionString: sanitizeVerifiedTlsConnectionString(config.skillPreferencesDatabaseUrl!),
       max: 1,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 2_000,
@@ -258,7 +258,7 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
   const catalogIds = options.catalogIds ?? (() => new Set(getRegistry(loadServerConfig()).listReleasedSkillIds()));
   const isPublicPolicy = options.isPublicPolicy ?? (() => loadServerConfig().isPublicPolicy);
   const authorizeRelease = options.authorizeRelease ?? authorizeArtifactRequest;
-  const resolveAdditionReleaseDigest = options.resolveAdditionReleaseDigest ?? (() => getRegistry(loadServerConfig()).getRelease().release_digest);
+  const resolveAdditionReleaseDigest = options.resolveAdditionReleaseDigest ?? (() => getRegistry(loadServerConfig()).snapshot.release.digest);
   return [{
     id: "skill-preferences",
     path: "/skill-preferences",

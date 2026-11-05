@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildSkillPreferenceRoutes } from "../../apps/web/server/skill-preferences.ts";
-import { parseServerConfig, ServerConfigError } from "../../apps/web/server/env.ts";
+import { parseServerConfig, ServerConfigError, sanitizeVerifiedTlsConnectionString } from "../../apps/web/server/env.ts";
 
 const WS = "00000000-0000-4000-8000-0000000000a1";
 
@@ -14,6 +14,50 @@ test("the dedicated PostgreSQL URL is server-only configuration and fails closed
     () => parseServerConfig({ EGA_SKILL_PREFERENCES_DATABASE_URL: "https://user:secret-value@example.invalid/db" }),
     (error) => error instanceof ServerConfigError && !error.message.includes("secret-value"),
   );
+});
+
+test("skill-preferences database URL rejects TLS-weakening overrides and sanitizes driver options", async () => {
+  for (const variant of [
+    "postgresql://u:s@db.example.invalid:5432/app?sslmode=disable",
+    "postgresql://u:s@db.example.invalid:5432/app?sslmode=allow",
+    "postgresql://u:s@db.example.invalid:5432/app?sslmode=prefer",
+    "postgresql://u:s@db.example.invalid:5432/app?sslmode=require",
+    "postgresql://u:s@db.example.invalid:5432/app?sslmode=no-verify",
+    "postgresql://u:s@db.example.invalid:5432/app?ssl=false",
+    "postgresql://u:s@db.example.invalid:5432/app?uselibpqcompat=true",
+  ]) {
+    assert.throws(
+      () => parseServerConfig({ EGA_SKILL_PREFERENCES_DATABASE_URL: variant }),
+      (error) => error instanceof ServerConfigError && /must not weaken TLS verification|must not use libpq compatibility/.test(error.message),
+      variant,
+    );
+  }
+  const sanitized = sanitizeVerifiedTlsConnectionString("postgresql://u:s@db.example.invalid:5432/app?sslmode=verify-full&application_name=ega&sslrootcert=/tmp/x");
+  assert.equal(sanitized.includes("sslmode"), false);
+  assert.equal(sanitized.includes("sslrootcert"), false);
+  assert.equal(sanitized.includes("application_name=ega"), true);
+  // Actual pg parsing behavior: sanitized URL has no TLS-weakening params and
+  // enforced ssl config is applied.
+  const { createRequire } = await import("node:module");
+  const requireFromWeb = createRequire(new URL("../../apps/web/server/env.ts", import.meta.url));
+  const pg = requireFromWeb("pg");
+  const pool = new pg.Pool({ connectionString: sanitized, ssl: { rejectUnauthorized: true } });
+  try {
+    assert.deepEqual(pool.options.ssl, { rejectUnauthorized: true });
+    assert.equal(pool.options.connectionString?.includes("sslmode"), false);
+  } finally {
+    await pool.end();
+  }
+  // And with a weakening sslmode in the raw string, pg parsing would not enforce
+  // verified TLS - which is why env rejects and the store sanitizes before passing to pg.
+  const weakPool = new pg.Pool({ connectionString: "postgresql://u:s@db.example.invalid:5432/app?sslmode=disable" });
+  try {
+    const ssl = weakPool.options.ssl;
+    assert.notEqual(ssl?.rejectUnauthorized, true, `sslmode=disable must not yield verified TLS (got ${JSON.stringify(ssl)})`);
+    assert.equal(ssl === true || ssl?.rejectUnauthorized === true, false);
+  } finally {
+    await weakPool.end();
+  }
 });
 
 function request(method, body = undefined) {

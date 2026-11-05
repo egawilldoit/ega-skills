@@ -197,6 +197,52 @@ function pathVariable(
   return absolute;
 }
 
+const TLS_WEAKENING_SSLMODES = new Set(["disable", "allow", "prefer", "require", "no-verify", "no_verify"]);
+
+export function assertSafePostgresTlsUrl(raw: string, key: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new ServerConfigError("E_WEB_ENV_INVALID", `${key} must be a PostgreSQL connection URL`, key);
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(parsed.protocol) ||
+    parsed.hostname === "" ||
+    parsed.pathname.length < 2 ||
+    parsed.username === "" ||
+    parsed.password === ""
+  ) {
+    throw new ServerConfigError("E_WEB_ENV_INVALID", `${key} must be a PostgreSQL URL with a database and dedicated login`, key);
+  }
+  for (const [param, value] of parsed.searchParams.entries()) {
+    const name = param.toLowerCase();
+    const v = value.trim().toLowerCase();
+    if (name === "sslmode" && TLS_WEAKENING_SSLMODES.has(v)) {
+      throw new ServerConfigError("E_WEB_ENV_INVALID", `${key} must not weaken TLS verification`, key);
+    }
+    if (name === "ssl" && (v === "false" || v === "0" || v === "off" || v === "no")) {
+      throw new ServerConfigError("E_WEB_ENV_INVALID", `${key} must not weaken TLS verification`, key);
+    }
+    if (name === "uselibpqcompat") {
+      throw new ServerConfigError("E_WEB_ENV_INVALID", `${key} must not use libpq compatibility TLS options`, key);
+    }
+  }
+  return parsed;
+}
+
+/** Remove URL TLS params so the driver cannot override enforced verified TLS. */
+export function sanitizeVerifiedTlsConnectionString(raw: string): string {
+  const parsed = new URL(raw);
+  for (const key of [...parsed.searchParams.keys()]) {
+    const name = key.toLowerCase();
+    if (name === "sslmode" || name === "ssl" || name.startsWith("ssl") || name === "uselibpqcompat") {
+      parsed.searchParams.delete(key);
+    }
+  }
+  return parsed.toString();
+}
+
 /**
  * Validate a whole environment record into a frozen {@link ServerConfig}.
  *
@@ -236,29 +282,7 @@ export function parseServerConfig(
     null;
   const skillPreferencesDatabaseUrl = configured(env["EGA_SKILL_PREFERENCES_DATABASE_URL"]) ?? null;
   if (skillPreferencesDatabaseUrl !== null) {
-    let parsed: URL;
-    try {
-      parsed = new URL(skillPreferencesDatabaseUrl);
-    } catch {
-      throw new ServerConfigError(
-        "E_WEB_ENV_INVALID",
-        "EGA_SKILL_PREFERENCES_DATABASE_URL must be a PostgreSQL connection URL",
-        "EGA_SKILL_PREFERENCES_DATABASE_URL",
-      );
-    }
-    if (
-      !["postgres:", "postgresql:"].includes(parsed.protocol) ||
-      parsed.hostname === "" ||
-      parsed.pathname.length < 2 ||
-      parsed.username === "" ||
-      parsed.password === ""
-    ) {
-      throw new ServerConfigError(
-        "E_WEB_ENV_INVALID",
-        "EGA_SKILL_PREFERENCES_DATABASE_URL must be a PostgreSQL URL with a database and dedicated login",
-        "EGA_SKILL_PREFERENCES_DATABASE_URL",
-      );
-    }
+    assertSafePostgresTlsUrl(skillPreferencesDatabaseUrl, "EGA_SKILL_PREFERENCES_DATABASE_URL");
   }
 
   if (

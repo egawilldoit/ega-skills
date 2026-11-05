@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('migrations, exact stored command, idempotency, denied roles and scheduler-triggered purge', async () => {
   assert.equal(sql("select current_database() = current_setting('cron.database_name')"), 't');
-  sql("alter database current_database() set ega.test.disposable_db_role_reuse = 'true'");
+  sql("do $$ begin execute format('alter database %I set ega.test.disposable_db_role_reuse = %L', current_database(), 'true'); end $$;");
   sql(readFileSync('tests/rls/bootstrap.sql', 'utf8'));
   for (const file of readdirSync('supabase/migrations').filter((file) => file.endsWith('.sql')).sort())
     sql(readFileSync(`supabase/migrations/${file}`, 'utf8'));
