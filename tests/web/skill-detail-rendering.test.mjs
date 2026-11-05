@@ -71,6 +71,14 @@ describe("SkillDetailPage rendering structure (R6)", () => {
     assert.match(pageSource, /Unable to serve \{contentState\.level\} content/);
     assert.match(pageSource, /\{contentState\.message\}/);
   });
+
+  test("shows the canonical namespace and the complete pinned version hash", () => {
+    assert.match(pageSource, /label="Namespace"/);
+    assert.match(pageSource, /data\.summary\.namespace/);
+    assert.match(pageSource, /label="Release-pinned version hash"/);
+    assert.match(pageSource, /data\.summary\.version_hash/);
+    assert.doesNotMatch(pageSource, /shortDigest\(data\.summary\.version_hash\)/);
+  });
 });
 
 describe("decodeSkillContent validator", () => {

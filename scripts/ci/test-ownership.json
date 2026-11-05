@@ -168,6 +168,7 @@
     "tests/web/discovery-inspection.test.mjs",
     "tests/web/ega-719-artifact-release-authorization.test.mjs",
     "tests/web/governance-pages.test.mjs",
+    "tests/web/hosted-release.test.mjs",
     "tests/web/project-boundary.test.mjs",
     "tests/web/project-pages.test.mjs",
     "tests/web/release-detail-rendering.test.mjs",

@@ -7,7 +7,9 @@ import type { SkillContentLevel, SkillContentView, SkillDetail, SkillSourceRef }
 import { useApiClient } from "../api/useApiClient";
 import { useApiResource } from "../api/useApiResource";
 import { DataTable, Field, type Column } from "../components/DataTable";
-import { ReleaseIntegrityNotice, ReleaseStatusBadge, shortDigest } from "../components/ReleaseStatus";
+import { CopyButton } from "../components/CopyButton";
+import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
+import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
 import { EmptyState, ErrorState, ResourceSection } from "../components/StatePanel";
 
 type ContentState =
@@ -198,21 +200,18 @@ export function SkillDetailPage(): ReactNode {
               reason="The API returned this skill without a release identity, so it cannot be attributed to a verified release."
             />
           ) : (
-            <section className="panel" aria-labelledby="skill-release">
-              <h2 id="skill-release">
-                Released in <ReleaseStatusBadge status={data.release.status} />
-              </h2>
-              <ReleaseIntegrityNotice release={data.release} />
-              <Field label="Digest" mono>
-                {shortDigest(data.release.release_digest)}
-              </Field>
-            </section>
+            <ConsoleReleaseIdentity release={data.release} unavailableReason={null} />
           )}
+
+          <HostedReleaseStatusPanel />
 
           <h2>Identity</h2>
           <dl className="fields">
             <Field label="Skill id" mono>
               {data.summary.skill_id}
+            </Field>
+            <Field label="Namespace" mono>
+              {data.summary.namespace}
             </Field>
             <Field label="Name">{data.summary.name}</Field>
             <Field label="Description">{data.summary.description}</Field>
@@ -220,7 +219,8 @@ export function SkillDetailPage(): ReactNode {
               {data.summary.schema_version}
             </Field>
             <Field label="Release-pinned version hash" mono>
-              <span title={data.summary.version_hash}>{shortDigest(data.summary.version_hash)}</span>
+              <span className="val">{data.summary.version_hash}</span>
+              <CopyButton text={data.summary.version_hash} label="release-pinned version hash" />
             </Field>
             <Field label="Content digest" mono>
               {data.summary.content_digest}

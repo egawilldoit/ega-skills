@@ -78,6 +78,7 @@ import {
 import {
   getReleaseIdentityBinding,
 } from "./release-identity.ts";
+import { getHostedReleaseStatus } from "./hosted-release.ts";
 import {
   RegistryReadError,
 } from "./registry.ts";
@@ -756,6 +757,17 @@ function handleReleaseIdentity(): unknown {
   return releaseIdentityView();
 }
 
+/**
+ * Observe the fixed canonical hosted MCP release.
+ *
+ * Query parameters are accepted only so the shared bound can refuse a URL-sized
+ * query; they are never read. There is deliberately no caller-supplied URL.
+ */
+async function handleHostedReleaseStatus(context: ApiRouteContext): Promise<unknown> {
+  assertBoundedQuery(context.query);
+  return getHostedReleaseStatus(loadServerConfig());
+}
+
 function handleCatalog(query: URLSearchParams): unknown {
   assertBoundedQuery(query);
   const config = loadServerConfig();
@@ -972,6 +984,15 @@ export function installConsoleApi(
       handle: bound(async (context) => {
         await authorizeArtifactRequest(context, lazyReader);
         return handleReleaseIdentity();
+      }),
+    },
+    {
+      id: "hosted-release-status",
+      path: "/hosted-release-status",
+      methods: ["GET"],
+      handle: bound(async (context) => {
+        await authorizeArtifactRequest(context, lazyReader);
+        return handleHostedReleaseStatus(context);
       }),
     },
     {
