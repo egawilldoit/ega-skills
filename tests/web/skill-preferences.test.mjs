@@ -336,6 +336,23 @@ test("default digest resolution path is used for Supabase-backed additions (fail
   }
 });
 
+test("additions use reusable release registry once per request (bounded handle path)", async () => {
+  let registryReads = 0;
+  const routes = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+    reader: {
+      async resolveCaller() { return { subject: "user-a" }; },
+      async readAsCaller(_c, t) { return t === "workspace_memberships" ? [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }] : []; },
+    },
+    store: { async update(input) { return { revision: 1, favorite_skill_ids: [], default_skill_ids: [...input.defaults], updated_at: null }; } },
+    isPublicPolicy: () => true,
+    getReleaseRegistry: () => { registryReads += 1; return { snapshot: { release: { digest: "sha256:" + "b".repeat(64) } }, listReleasedSkillIds: () => ["known/skill"] }; },
+  });
+  await routes[0].handle({ method: "PUT", pathname: "/skill-preferences", query: new URLSearchParams(), params: {},
+    request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["known/skill"] }) });
+  assert.equal(registryReads, 1, "one reusable registry read per request; no per-request handle opening");
+});
+
 test("additions bind one release snapshot for digest authorization and catalog validation", async () => {
   const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
   process.env.EGA_SUPABASE_URL = "https://example.supabase.co";

@@ -178,6 +178,33 @@ test("revoking an Owner membership immediately removes reads and writes", () => 
   }
 });
 
+test("write authorization serializes against concurrent membership revocation (row lock)", async () => {
+  // Hold the active-owner membership row; the writer takes FOR UPDATE on that
+  // row and blocks/fails fast (lock_timeout), preventing check-then-write TOCTOU.
+  const holder = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  let holderErr = "";
+  holder.stderr.on("data", (d) => { holderErr += String(d); });
+  const locked = new Promise((resolve, reject) => {
+    let out = "";
+    holder.stdout.on("data", (d) => { out += String(d); if (out.includes("LOCKED")) resolve(null); });
+    holder.on("error", reject);
+    holder.on("close", (code) => { if (!out.includes("LOCKED")) reject(new Error(`holder closed ${code}: ${holderErr}`)); });
+  });
+  holder.stdin.write(`BEGIN; SELECT 1 FROM public.workspace_memberships WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner' AND active FOR UPDATE; SELECT 'LOCKED';\n`);
+  await locked;
+  try {
+    assert.throws(
+      () => psql(DB_URL, `set role ega_skill_preferences_writer; select * from private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux'], array['design/ux'], 1);`),
+      (e) => /lock timeout|55P03|canceling statement due to lock timeout/i.test(String(e?.message ?? e)),
+      "writer must serialize on membership row lock",
+    );
+  } finally {
+    try { holder.stdin.write("ROLLBACK;\n"); } catch {}
+    holder.stdin.end();
+    await new Promise((resolve) => holder.on("close", resolve));
+  }
+});
+
 test("the writer is a bounded SECURITY DEFINER with a pinned search path", () => {
   const owner = rows("user-a", `select r.rolsuper::text, r.rolbypassrls::text from pg_proc p join pg_roles r on r.oid=p.proowner where p.oid='private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure`)[0];
   assert.ok(owner, "writer function has a catalog owner");

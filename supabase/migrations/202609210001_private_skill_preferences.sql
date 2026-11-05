@@ -106,13 +106,14 @@ begin
      or not private.is_canonical_skill_id_array(p_default_skill_ids, 3) then
     raise exception using errcode = '22023', message = 'invalid preference IDs';
   end if;
-  if not exists (
-    select 1 from public.workspace_memberships m
+  -- Serialize owner authorization against concurrent revocation/role changes.
+  perform 1 from public.workspace_memberships m
     where m.workspace_id = p_workspace_id
       and m.subject = p_subject
       and m.role = 'owner'
       and m.active
-  ) then
+    for update of m;
+  if not found then
     raise exception using errcode = '42501', message = 'active workspace owner required';
   end if;
 

@@ -250,6 +250,8 @@ export interface PreferenceRouteOptions {
   readonly resolveAdditionReleaseDigest?: () => string;
   /** Test seam: bind one release snapshot for both digest auth and catalog IDs. */
   readonly resolveReleaseContext?: () => { readonly digest: string; readonly catalogIds: ReadonlySet<string> };
+  /** Test seam: process-wide release reader (must be reused, not opened per request). */
+  readonly getReleaseRegistry?: () => { readonly snapshot: { readonly release: { readonly digest: string } }; listReleasedSkillIds(): readonly string[] };
 }
 
 /** GET reads through caller-scoped PostgREST; PUT uses the narrow DB function. */
@@ -294,10 +296,11 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
             known = ctx.catalogIds;
           } else if (options.resolveAdditionReleaseDigest || options.catalogIds) {
             // Preserve explicit seam behavior for tests/callers.
+            const releaseRegistry = options.getReleaseRegistry ?? (() => getRegistry());
             if (options.resolveAdditionReleaseDigest) releaseDigest = options.resolveAdditionReleaseDigest();
-            known = options.catalogIds ? options.catalogIds() : new Set(getRegistry(loadServerConfig()).listReleasedSkillIds());
+            known = options.catalogIds ? options.catalogIds() : new Set(releaseRegistry().listReleasedSkillIds());
           } else {
-            const reg = getRegistry(loadServerConfig());
+            const reg = (options.getReleaseRegistry ?? (() => getRegistry()))();
             releaseDigest = reg.snapshot.release.digest;
             known = new Set(reg.listReleasedSkillIds());
           }
