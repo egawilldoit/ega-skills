@@ -72,6 +72,69 @@ jobs:
         env:
           CI_REASON: ${{ needs.classify.outputs.reason }}
 
+  # The normal PR jobs run on GitHub's synthetic merge commit
+  # (refs/pull/N/merge). This job checks out the actual PR head and proves the
+  # executed SHA equals github.event.pull_request.head.sha before running the
+  # focused source-navigation and web checks. It does not replace the
+  # merge-result jobs; the two answer different questions.
+  pr-head-verification:
+    needs: classify
+    if: ${{ github.event_name == 'pull_request' && needs.classify.result == 'success' && (needs.classify.outputs.mode == 'web' || needs.classify.outputs.mode == 'full') }}
+    name: pr-head verification (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record and assert executed PR head
+        env:
+          EXPECTED_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "CI_EXECUTED_SHA=$actual"
+          echo "PR_HEAD_SHA=$EXPECTED_PR_HEAD"
+          test "$actual" = "$EXPECTED_PR_HEAD"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install from frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile is unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      - name: Build domain packages
+        run: pnpm build
+
+      - name: Focused source-navigation tests
+        run: node --test tests/web/source-navigation.test.mjs tests/web/source-manager/routes.test.mjs tests/web/skill-detail-rendering.test.mjs
+
+      - name: Web component behaviour (executed React)
+        run: pnpm test:web:components
+
+      - name: Typecheck web frontend
+        run: pnpm --filter @ega-skills/web typecheck
+
+      - name: Typecheck web server
+        run: pnpm --filter @ega-skills/web typecheck:server
+
+      - name: Build web frontend
+        run: pnpm --filter @ega-skills/web build
+
   # Linux foundation is split into its non-test checks plus two test shards, with the
   # required `foundation (ubuntu-latest)` name on the aggregator below. Splitting the
   # ~250 s core test step is what shortens ordinary PR CI; the checks job keeps every

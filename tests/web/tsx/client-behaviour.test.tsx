@@ -148,7 +148,14 @@ describe("production workspace selection and requests", () => {
 const skillData = (id: string) => ({ release: null, summary: { skill_id: id, name: id, description: "fixture", schema_version: 1, content_digest: "digest", l1_tokens: null, l2_tokens: 2, l1_status: "MISSING" }, routing: { domains: [], triggers: [], exclude_patterns: [] }, sources: [], files: [] });
 const contentData = (content: string) => ({ content, level: "L2", token_count: 2, requested_max_tokens: 32000, version_hash: "digest", truncated: false });
 function Navigation() { const navigate = useNavigate(); return <button onClick={() => navigate("/skills/skill-b")}>next skill</button>; }
-function skillTree() { return <MemoryRouter initialEntries={["/skills/skill-a"]}><Navigation /><Routes><Route path="/skills/:skillId" element={<SkillDetailPage />} /></Routes></MemoryRouter>; }
+const OWNER_MEMBERSHIP = { workspaceId: "ws-a", role: "owner" as const, active: true };
+function skillTree() {
+  return (
+    <WorkspaceProvider membership={OWNER_MEMBERSHIP} workspaceId="ws-a">
+      <MemoryRouter initialEntries={["/skills/skill-a"]}><Navigation /><Routes><Route path="/skills/:skillId" element={<SkillDetailPage />} /></Routes></MemoryRouter>
+    </WorkspaceProvider>
+  );
+}
 let contentRequests: any[];
 function contentTransport() {
   contentRequests = [];
