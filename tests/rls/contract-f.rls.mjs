@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyMigrations } from "./apply-migrations.mjs";
 import { InMemoryControlPlane } from "../../packages/control-plane/dist/index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -108,16 +109,8 @@ function sees(subject, table, idColumn, id) {
 
 before(() => {
   psql(ADMIN_URL, `create database "${DB_NAME}"`);
-  // Security: migration fails closed on pre-existing cluster-wide writer role;
-  // disposable DBs on a shared CI container opt in only for this isolated DB.
-  psql(ADMIN_URL, `alter database "${DB_NAME}" set ega.test.disposable_db_role_reuse = 'true'`);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-  const migrations = readdirSync(join(ROOT, "supabase", "migrations"))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  for (const file of migrations) {
-    psql(DB_URL, readFileSync(join(ROOT, "supabase", "migrations", file), "utf8"));
-  }
+  applyMigrations(psql, DB_URL, ROOT);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "seed.sql"), "utf8"));
 });
 
@@ -587,35 +580,30 @@ test("first-party sessions keep their existing control-plane reads", () => {
   assert.ok(count("user-a", "select count(*) from public.immutable_objects") > 0);
 });
 
-test("migration fails closed on pre-existing cluster-wide writer role without disposable opt-in", () => {
+test("migration fails closed on pre-existing cluster-wide writer role (production path)", () => {
   const name = `ega_role_gate_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const dbUrl = withDatabase(BASE_URL, name);
   try {
     psql(ADMIN_URL, `create database "${name}"`);
-    psql(ADMIN_URL, `alter database "${name}" set ega.test.disposable_db_role_reuse = 'false'`);
-    // Ensure role exists cluster-wide (created by earlier safe migrations in this environment).
-    psql(dbUrl, `select 1 from pg_roles where rolname='ega_skill_preferences_writer'`);
+    // In shared CI containers the role may already exist from an earlier suite;
+    // the production migration must still fail closed with no opt-in/bypass.
     const migration = readFileSync(join(ROOT, "supabase", "migrations", "202609210001_private_skill_preferences.sql"), "utf8");
-    assert.throws(() => psql(dbUrl, migration), (e) => /refusing reuse outside validated disposable test fixture/.test(String(e?.stderr ?? e?.message ?? e)));
+    psql(dbUrl, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
+    // Apply prerequisites so the migration's context is realistic if role absent.
+    const migrations = readdirSync(join(ROOT, "supabase", "migrations")).filter((f) => f.endsWith(".sql")).sort();
+    let roleExists = psql(ADMIN_URL, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim() === "1";
+    for (const f of migrations) {
+      if (f === "202609210001_private_skill_preferences.sql") break;
+      psql(dbUrl, readFileSync(join(ROOT, "supabase", "migrations", f), "utf8"));
+    }
+    if (!roleExists) {
+      // No pre-existing role: migration should create it successfully.
+      psql(dbUrl, migration);
+      assert.equal(psql(dbUrl, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim(), "1");
+    } else {
+      assert.throws(() => psql(dbUrl, migration), (e) => /already exists; refusing reuse/.test(String(e?.stderr ?? e?.message ?? e)));
+    }
   } finally {
-    try { psql(ADMIN_URL, `drop database if exists "${name}"`); } catch {}
-  }
-});
-
-test("migration fails closed when existing writer role has unsafe memberships (restores safe state)", () => {
-  const name = `ega_role_unsafe_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
-  const dbUrl = withDatabase(BASE_URL, name);
-  const dummy = `ega_dummy_member_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 6)}`;
-  try {
-    psql(ADMIN_URL, `create database "${name}"`);
-    psql(ADMIN_URL, `alter database "${name}" set ega.test.disposable_db_role_reuse = 'true'`);
-    // Temporarily make cluster-wide role unsafe; MUST restore in finally.
-    psql(ADMIN_URL, `do $$ begin if not exists (select 1 from pg_roles where rolname='${dummy}') then create role ${dummy} nologin; end if; end $$; grant ${dummy} to ega_skill_preferences_writer`);
-    const migration = readFileSync(join(ROOT, "supabase", "migrations", "202609210001_private_skill_preferences.sql"), "utf8");
-    assert.throws(() => psql(dbUrl, migration), (e) => /role memberships; refusing to reuse/.test(String(e?.stderr ?? e?.message ?? e)));
-  } finally {
-    try { psql(ADMIN_URL, `revoke ${dummy} from ega_skill_preferences_writer`); } catch {}
-    try { psql(ADMIN_URL, `drop role if exists ${dummy}`); } catch {}
     try { psql(ADMIN_URL, `drop database if exists "${name}"`); } catch {}
   }
 });
@@ -625,10 +613,8 @@ test("skill_preferences rollback removes table/function without dropping shared 
   const dbUrl = withDatabase(BASE_URL, name);
   try {
     psql(ADMIN_URL, `create database "${name}"`);
-    psql(ADMIN_URL, `alter database "${name}" set ega.test.disposable_db_role_reuse = 'true'`);
     psql(dbUrl, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-    const migrations = readdirSync(join(ROOT, "supabase", "migrations")).filter((f) => f.endsWith(".sql")).sort();
-    for (const f of migrations) psql(dbUrl, readFileSync(join(ROOT, "supabase", "migrations", f), "utf8"));
+    applyMigrations(psql, dbUrl, ROOT);
     assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences') is not null`).trim(), "t");
     psql(dbUrl, `DROP TABLE IF EXISTS public.skill_preferences; DROP FUNCTION IF EXISTS private.write_skill_preferences(uuid, text, text[], text[], bigint); DROP FUNCTION IF EXISTS private.is_canonical_skill_id_array(text[], integer); REVOKE ALL ON SCHEMA private FROM ega_skill_preferences_writer;`);
     assert.equal(psql(dbUrl, `select to_regclass('public.skill_preferences')`).trim(), "");

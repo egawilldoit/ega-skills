@@ -300,6 +300,42 @@ test("adding defaults fails closed when Supabase-backed release authorization ca
   }
 });
 
+test("default digest resolution path is used for Supabase-backed additions (fail-closed without verified snapshot)", async () => {
+  const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY, art: process.env.EGA_WEB_ARTIFACT_DIR };
+  process.env.EGA_SUPABASE_URL = "https://example.supabase.co";
+  process.env.EGA_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+  delete process.env.EGA_SUPABASE_ANON_KEY;
+  delete process.env.EGA_WEB_ARTIFACT_DIR;
+  try {
+    const routes = buildSkillPreferenceRoutes({
+      bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+      reader: {
+        async resolveCaller() { return { subject: "user-a" }; },
+        async readAsCaller(_caller, table) {
+          if (table === "workspace_memberships") return [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }];
+          return [];
+        },
+      },
+      store: { async update() { throw new Error("must not write when default digest resolution fails"); } },
+      catalogIds: () => new Set(["known/skill"]),
+      isPublicPolicy: () => false,
+      // resolveAdditionReleaseDigest and authorizeRelease intentionally NOT injected:
+      // exercises actual default getRegistry(config).snapshot.release.digest path.
+    });
+    await assert.rejects(
+      routes[0].handle({
+        method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+        request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["known/skill"] }),
+      }),
+      (error) => error.code === "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE" && error.status === 503,
+    );
+  } finally {
+    for (const [k, v] of [["EGA_SUPABASE_URL", saved.url], ["EGA_SUPABASE_PUBLISHABLE_KEY", saved.key], ["EGA_SUPABASE_ANON_KEY", saved.anon], ["EGA_WEB_ARTIFACT_DIR", saved.art]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
 test("adding defaults on Supabase-backed deployments requires explicit release digest authorization", async () => {
   const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
   process.env.EGA_SUPABASE_URL = "https://example.supabase.co";

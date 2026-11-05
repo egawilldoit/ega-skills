@@ -16,10 +16,11 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before, describe } from "node:test";
+import { applyMigrations } from "./apply-migrations.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -100,12 +101,8 @@ before(() => {
   DB_URL = parsed.toString();
 
   psql(adminUrl, `create database "${DB_NAME}"`);
-  psql(adminUrl, `alter database "${DB_NAME}" set ega.test.disposable_db_role_reuse = 'true'`);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-
-  for (const file of readdirSync(MIGRATIONS).filter((n) => n.endsWith(".sql")).sort()) {
-    psql(DB_URL, readFileSync(join(MIGRATIONS, file), "utf8"));
-  }
+  applyMigrations(psql, DB_URL, ROOT);
 
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "telemetry-seed.sql"), "utf8"));
 

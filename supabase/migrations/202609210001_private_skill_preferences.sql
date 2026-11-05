@@ -13,73 +13,19 @@ begin
 end
 $$;
 
--- Roles are cluster-wide. Reusing a pre-existing role is dangerous because
--- GRANT EXECUTE on the SECURITY DEFINER writer could attach to an unrelated role
--- with existing memberships/grants/ownership. Production/default path: FAIL
--- CLOSED if the role already exists. Disposable test fixtures sharing one
--- service container may opt in ONLY by setting
--- ega.test.disposable_db_role_reuse=true for the disposable database/session AND
--- the role must still pass rigorous validation (attributes, no memberships,
--- owns no databases, owns no objects in current database, no explicit
--- database/schema privileges beyond PUBLIC defaults expected for a bare role).
+-- Roles are cluster-wide. A pre-existing role with the same name may carry
+-- memberships/grants/ownership in this or other databases; attaching EXECUTE on
+-- the SECURITY DEFINER writer to it could grant unrelated authority. FAIL CLOSED
+-- unconditionally on any existing role. (Disposable test fixtures must isolate
+-- without mutating shared roles/other databases; see test harness handling.)
 do $$
-declare
-  r record;
-  disposable_reuse boolean;
-  member_count bigint;
-  member_of_count bigint;
-  owned_db_count bigint;
-  owned_obj_count bigint;
-  explicit_db_grants bigint;
 begin
-  select * into r from pg_roles where rolname = 'ega_skill_preferences_writer';
-  if not found then
-    create role ega_skill_preferences_writer nologin noinherit;
-    return;
+  if exists (select 1 from pg_roles where rolname = 'ega_skill_preferences_writer') then
+    raise exception 'ega_skill_preferences_writer already exists; refusing reuse';
   end if;
-
-  disposable_reuse := coalesce(current_setting('ega.test.disposable_db_role_reuse', true), '') = 'true';
-  if not disposable_reuse then
-    raise exception 'ega_skill_preferences_writer already exists; refusing reuse outside validated disposable test fixture';
-  end if;
-
-  if r.rolcanlogin or r.rolsuper or r.rolbypassrls or r.rolcreatedb
-     or r.rolcreaterole or r.rolreplication or r.rolinherit then
-    raise exception 'ega_skill_preferences_writer exists with unsafe attributes; refusing to reuse';
-  end if;
-
-  select count(*) into member_count from pg_auth_members where roleid = r.oid;
-  select count(*) into member_of_count from pg_auth_members where member = r.oid;
-  if member_count > 0 or member_of_count > 0 then
-    raise exception 'ega_skill_preferences_writer exists with role memberships; refusing to reuse';
-  end if;
-
-  select count(*) into owned_db_count from pg_database where datdba = r.oid;
-  if owned_db_count > 0 then
-    raise exception 'ega_skill_preferences_writer owns database objects; refusing to reuse';
-  end if;
-
-  select count(*) into owned_obj_count
-  from pg_shdepend d
-  where d.refobjid = r.oid and d.refclassid = 'pg_authid'::regclass
-    and d.deptype = 'o' and d.dbid = (select oid from pg_database where datname = current_database());
-  if owned_obj_count > 0 then
-    raise exception 'ega_skill_preferences_writer owns objects in current database; refusing to reuse';
-  end if;
-
-  -- Explicit database privileges granted directly to the role (beyond defaults) are suspicious.
-  select count(*) into explicit_db_grants
-  from pg_database d,
-       lateral aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) as a(grantor, grantee, privilege_type, is_grantable)
-  where d.datname = current_database()
-    and a.grantee = r.oid
-    and a.grantor <> r.oid;
-  if explicit_db_grants > 0 then
-    raise exception 'ega_skill_preferences_writer has explicit database grants; refusing to reuse';
-  end if;
+  create role ega_skill_preferences_writer nologin noinherit;
 end
 $$;
--- Enforce known-safe attributes after validation (never escalates privileges).
 alter role ega_skill_preferences_writer
   nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
 

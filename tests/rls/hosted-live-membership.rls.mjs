@@ -18,10 +18,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, createSign } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyMigrations } from "./apply-migrations.mjs";
 import { buildHubRelease } from "../../packages/project/dist/index.js";
 import { createHostedRuntimeFromEnv } from "../../packages/mcp/dist/index.js";
 
@@ -187,14 +188,8 @@ function denied(result) {
 
 before(() => {
   psql(ADMIN_URL, `create database "${DB_NAME}"`);
-  psql(ADMIN_URL, `alter database "${DB_NAME}" set ega.test.disposable_db_role_reuse = 'true'`);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-  const migrations = readdirSync(join(ROOT, "supabase", "migrations"))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  for (const file of migrations) {
-    psql(DB_URL, readFileSync(join(ROOT, "supabase", "migrations", file), "utf8"));
-  }
+  applyMigrations(psql, DB_URL, ROOT);
   psql(DB_URL, `
     insert into public.personal_workspaces (id, owner_subject) values ('${WORKSPACE}', 'owner-1');
     insert into public.workspace_memberships (workspace_id, subject, role, active) values

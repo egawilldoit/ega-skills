@@ -1,8 +1,9 @@
 /** Real pg_cron acceptance. Requires a disposable cluster's cron metadata DB. */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { applyMigrations } from './apply-migrations.mjs';
 const url = process.env.EGA_PGCRON_DATABASE_URL;
 if (!url) throw new Error('EGA_PGCRON_DATABASE_URL must identify an isolated disposable cron database');
 const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', url], { input: text, encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).trim();
@@ -11,10 +12,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('migrations, exact stored command, idempotency, denied roles and scheduler-triggered purge', async () => {
   assert.equal(sql("select current_database() = current_setting('cron.database_name')"), 't');
-  sql("do $$ begin execute format('alter database %I set ega.test.disposable_db_role_reuse = %L', current_database(), 'true'); end $$;");
   sql(readFileSync('tests/rls/bootstrap.sql', 'utf8'));
-  for (const file of readdirSync('supabase/migrations').filter((file) => file.endsWith('.sql')).sort())
-    sql(readFileSync(`supabase/migrations/${file}`, 'utf8'));
+  applyMigrations((_dbUrl, text) => sql(text), url, '.');
   sql(readFileSync('tests/rls/telemetry-seed.sql', 'utf8'));
   // Simulate a previously applied migration's invalid registered command.
   sql("select cron.alter_job(jobid, command := 'select service_role.public.purge_expired_telemetry(90);') from cron.job where jobname = 'ega-telemetry-retention'");
