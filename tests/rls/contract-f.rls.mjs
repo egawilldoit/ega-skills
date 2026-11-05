@@ -793,3 +793,91 @@ test("platform RLS provisioning helpers are not callable by clients", () => {
   );
   assert.ok(result === "absent" || result === "false", `rls_auto_enable must not be executable, got ${result}`);
 });
+
+function b64url(value) { return Buffer.from(value).toString("base64url"); }
+function sessionToken(claims) {
+  return [b64url(JSON.stringify({ alg: "HS256", typ: "JWT" })), b64url(JSON.stringify({ role: "authenticated", ...claims })), "synthetic"].join(".");
+}
+function decodeBearerClaims(authz) {
+  assert.match(authz, /^Bearer /);
+  return JSON.parse(Buffer.from(authz.slice(7).split(".")[1], "base64url").toString("utf8"));
+}
+function pgText(value) { return String(value).replaceAll("'", "''"); }
+function translateRestToSql(input) {
+  const url = new URL(input);
+  const table = url.pathname.replace(/^\/rest\/v1\//, "");
+  assert.match(table, /^[a-z_]+$/, `unexpected table ${table}`);
+  const select = url.searchParams.get("select") ?? "*";
+  assert.match(select, /^[a-z_,*]+$/, `unexpected select ${select}`);
+  const where = [];
+  for (const [k, v] of url.searchParams.entries()) {
+    if (k === "select" || k === "limit" || k === "order" || k === "offset") continue;
+    const m = /^eq\.(.*)$/.exec(v);
+    assert.ok(m, `unsupported filter ${k}=${v}`);
+    where.push(`${k} = '${pgText(m[1])}'`);
+  }
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? "100"), 1000);
+  return `select coalesce(json_agg(to_json(t)), '[]'::json) from (select ${select} from public.${table}${where.length ? ` where ${where.join(" and ")}` : ""} limit ${limit}) t`;
+}
+function psqlRlsJson(claims, sql) {
+  const literal = pgText(JSON.stringify(claims));
+  const out = psql(DB_URL, `begin; set local role authenticated; set local "request.jwt.claims" = '${literal}'; ${sql}; commit;`);
+  return JSON.parse(out.trim() || "[]");
+}
+
+test("authenticated bearer preference API integration exercises real resolveCaller boundary and real PostgreSQL (synthetic credential, transport-injected auth endpoint)", async () => {
+  // Verifies actual server auth boundary code paths: bearer extraction, GET-only
+  // resolveCaller flow, /auth/v1/user call/response parsing, subject used for
+  // caller-scoped RLS reads and passed to real PostgreSQL writer. Synthetic
+  // credentials + transport injection (existing infra, like cross-workspace
+  // isolation). Does NOT prove GoTrue cryptographic JWT verification or the
+  // deployed gateway's bearer verification; exact missing component for that:
+  // a real GoTrue/Supabase Auth service (/auth/v1/user issuer+verifier) in CI.
+  const tokenA = sessionToken({ sub: "user-a" });
+  const tokenB = sessionToken({ sub: "user-b" });
+  let authCalls = 0;
+  const transport = async (input, init) => {
+    assert.equal(init.method, "GET");
+    const url = new URL(input);
+    const authz = init.headers?.["authorization"] ?? init.headers?.["Authorization"];
+    if (url.pathname === "/auth/v1/user") {
+      authCalls += 1;
+      if (!authz) return { ok: false, status: 401, json: async () => ({}) };
+      const claims = decodeBearerClaims(authz);
+      return { ok: true, status: 200, json: async () => ({ id: claims.sub }) };
+    }
+    if (!authz) return { ok: false, status: 401, json: async () => ({}) };
+    const claims = decodeBearerClaims(authz);
+    return { ok: true, status: 200, json: async () => psqlRlsJson(claims, translateRestToSql(input)) };
+  };
+  const reader = createControlPlaneReader({ supabaseUrl: "https://synthetic.supabase.co", publishableKey: "sb_publishable_synthetic", transport });
+  const { buildSkillPreferenceRoutes } = await import("../../apps/web/server/skill-preferences.ts");
+  const store = {
+    async update(input) {
+      const fav = input.favorites.length ? `array[${input.favorites.map((id) => `'${pgText(id)}'`).join(",")}]::text[]` : "array[]::text[]";
+      const def = input.defaults.length ? `array[${input.defaults.map((id) => `'${pgText(id)}'`).join(",")}]::text[]` : "array[]::text[]";
+      const out = psql(DB_URL, `begin; set local role ega_skill_preferences_writer; select revision, favorite_skill_ids, default_skill_ids, updated_at::text from private.write_skill_preferences('${input.workspaceId}', '${input.subject}', ${fav}, ${def}, ${input.expectedRevision}); commit;`).trim();
+      if (!out) return null;
+      const [revision, favorites, defaults, updatedAt] = out.split("|");
+      const arr = (v) => v === "{}" ? [] : v.replace(/^\{|\}$/g, "").split(",").filter(Boolean);
+      return { revision: Number(revision), favorite_skill_ids: arr(favorites), default_skill_ids: arr(defaults), updated_at: updatedAt };
+    },
+  };
+  const routes = buildSkillPreferenceRoutes({ bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 5_000, maxConcurrentRequests: 4 }, reader, store, isPublicPolicy: () => true, getReleaseRegistry: () => ({ snapshot: { release: { digest: "sha256:" + "b".repeat(64) } }, listReleasedSkillIds: () => ["design/ux"] }) });
+  const route = routes[0];
+  const ctx = (method, query, headers = {}, body) => ({
+    method, pathname: "/api/skill-preferences", query: new URLSearchParams(query), params: {},
+    request: { headers, async *[Symbol.asyncIterator]() { if (body) yield Buffer.from(body); } }, signal: AbortSignal.timeout(5000),
+  });
+  await assert.rejects(route.handle(ctx("GET", { workspace_id: WS_A }, {})), (e) => e.status === 401 || e.code === "E_WEB_UNAUTHENTICATED" || /bearer|unauth/i.test(String(e?.message ?? e)));
+  const got = await route.handle(ctx("GET", { workspace_id: WS_A }, { authorization: `Bearer ${tokenA}` }));
+  assert.ok(typeof got.revision === "number");
+  assert.ok(authCalls >= 1, "actual resolveCaller must call auth endpoint");
+  await assert.rejects(route.handle(ctx("GET", { workspace_id: WS_A }, { authorization: `Bearer ${tokenB}` })), (e) => e.status === 403 || e.code === "E_WEB_PREFERENCES_FORBIDDEN");
+  const expected = Number(psql(DB_URL, `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'),0)`).trim());
+  const put = await route.handle(ctx("PUT", {}, { authorization: `Bearer ${tokenA}`, "content-type": "application/json" }, JSON.stringify({ workspace_id: WS_A, expected_revision: expected, favorite_skill_ids: ["design/ux"], default_skill_ids: [] })));
+  assert.equal(put.revision, expected + 1);
+  assert.deepEqual([...put.favorite_skill_ids], ["design/ux"]);
+  assert.equal(psql(DB_URL, `select favorite_skill_ids::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim(), "{design/ux}", "real PostgreSQL row persisted");
+  psql(DB_URL, `DELETE FROM public.skill_preferences WHERE workspace_id='${WS_A}' AND subject='user-a'`);
+});
