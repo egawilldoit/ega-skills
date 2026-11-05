@@ -353,6 +353,31 @@ test("additions use reusable release registry once per request (bounded handle p
   assert.equal(registryReads, 1, "one reusable registry read per request; no per-request handle opening");
 });
 
+test("stale expected revision fails before addition/catalog classification (prevents retired-ID re-add race)", async () => {
+  // Race model: rev=1 has [retired] (no longer in catalog). T2 removed it -> rev=2.
+  // T1 read rev=1, submits expected_revision=2 keeping [retired]; classifying additions
+  // against stale rev=1 would see no addition and bypass catalog. Must reject as conflict.
+  const routes = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+    reader: {
+      async resolveCaller() { return { subject: "user-a" }; },
+      async readAsCaller(_c, t, o) {
+        if (t === "workspace_memberships") return [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }];
+        if (t === "skill_preferences") return [{ revision: 1, favorite_skill_ids: [], default_skill_ids: ["retired/skill"], updated_at: null }];
+        return [];
+      },
+    },
+    store: { async update() { throw new Error("must not write when expected revision is stale"); } },
+    isPublicPolicy: () => true,
+    getReleaseRegistry: () => { throw new Error("must not resolve catalog for stale revision"); },
+  });
+  await assert.rejects(
+    routes[0].handle({ method: "PUT", pathname: "/skill-preferences", query: new URLSearchParams(), params: {},
+      request: request("PUT", { workspace_id: WS, expected_revision: 2, favorite_skill_ids: [], default_skill_ids: ["retired/skill"] }) }),
+    (e) => e.code === "E_WEB_PREFERENCES_CONFLICT" && e.status === 409,
+  );
+});
+
 test("additions bind one release snapshot for digest authorization and catalog validation", async () => {
   const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
   process.env.EGA_SUPABASE_URL = "https://example.supabase.co";

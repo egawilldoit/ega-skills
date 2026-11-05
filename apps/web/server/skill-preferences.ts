@@ -282,6 +282,9 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
 
       const input = parseUpdate(await readJson(context));
       const current = await requireOwner(context, reader, caller, input.workspaceId);
+      if (input.expectedRevision !== current.revision) {
+        fail(409, "E_WEB_PREFERENCES_CONFLICT", "Preferences changed since they were read; reload before updating.");
+      }
       const currentDefaults = new Set(current.default_skill_ids);
       const additions = input.defaults.filter((skillId) => !currentDefaults.has(skillId));
       if (additions.length > 0) {
