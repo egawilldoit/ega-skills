@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyMigrations } from "./apply-migrations.mjs";
 import { InMemoryControlPlane } from "../../packages/control-plane/dist/index.js";
+import { createControlPlaneReader } from "../../apps/web/server/supabase-read.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BASE_URL = process.env.EGA_RLS_DATABASE_URL;
