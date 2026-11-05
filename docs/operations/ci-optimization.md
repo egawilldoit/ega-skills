@@ -16,13 +16,28 @@ Only a modified README selects docs. Modifications limited to README and the
 existing allowlisted StatCard, Icon, Disclosure and format components select web.
 All other changes, uncertainty, renames, deletions or missing history select full.
 Release PRs, pushes and manual runs select full. Pull request workflows normally
-checkout GitHub's synthetic merge ref; record both that checkout SHA and the PR
-head SHA when reporting evidence.
+checkout GitHub's synthetic merge ref. `pr-head-verification` is the explicit
+exception: it checks out `github.event.pull_request.head.sha`, asserts the
+executed `git rev-parse HEAD` equals that SHA, and logs `CI_EXECUTED_SHA`.
+Record both the merge-checkout SHA and the executed PR head SHA when reporting
+evidence.
 
 Full Linux runs foundation, web, real PostgreSQL 16 isolation and Contract F RLS,
 plus docs/classification and gate. Isolation includes telemetry, pg_cron and the
 writer gateway; RLS includes catalog bootstrap and membership regressions. Do not
 replace them with mocks or `continue-on-error`.
+
+## Exact-head verification
+
+The merge-result jobs above run on GitHub's synthetic `refs/pull/N/merge`
+commit. `pr-head-verification` is a separate PR job that checks out the actual
+`github.event.pull_request.head.sha`, asserts `git rev-parse HEAD` equals that
+SHA, and runs the focused source-navigation Node tests, the full component
+suite, web typechecks and the web build. It is additive: it does not replace or
+weaken the merge-result jobs, and it is not part of `ci-gate.needs` unless the
+gate's fixed job set is deliberately migrated. Use its logged `CI_EXECUTED_SHA`
+for exact-head evidence; a check attached to the PR head alone does not prove
+the job executed that head.
 
 ## Test ownership
 
