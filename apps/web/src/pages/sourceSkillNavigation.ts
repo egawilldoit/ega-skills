@@ -20,6 +20,10 @@ export interface SourceIndex {
   readonly items: readonly SourceIndexItem[];
 }
 
+export type SourceSkillIdentity =
+  | { readonly status: 'supported'; readonly name: string }
+  | { readonly status: 'unsupported'; readonly reason: string };
+
 export type SourceSkillResolution =
   | { readonly status: 'match'; readonly name: string; readonly item: SourceIndexItem }
   | { readonly status: 'unsupported'; readonly reason: string }
@@ -56,17 +60,12 @@ export function sourceSkillHref(skillId: string, sourceSha: string): string {
 }
 
 /**
- * Resolve one canonical released skill against the pinned source index.
+ * Validate a canonical released skill identity without reading any source.
  *
- * Only an exact namespace, exact name and exact revision produce `match`.
- * Every other outcome is explicit and carries a safe explanation; this function
- * never falls back to a prefix, case-insensitive or nearest-name match.
+ * The detail page uses this to skip the guarded source-index request entirely
+ * for unsupported namespaces or inconsistent identities.
  */
-export function resolveSourceSkill(
-  skillId: string,
-  index: SourceIndex,
-  options: ResolveSourceSkillOptions = {},
-): SourceSkillResolution {
+export function parseSourceSkillIdentity(skillId: string, declaredName?: string): SourceSkillIdentity {
   const parts = skillId.split('/');
   if (parts.length !== 2) {
     return {
@@ -87,12 +86,29 @@ export function resolveSourceSkill(
       reason: `Source editing does not support the skill name in ${JSON.stringify(skillId)}.`,
     };
   }
-  if (options.declaredName !== undefined && options.declaredName !== name) {
+  if (declaredName !== undefined && declaredName !== name) {
     return {
       status: 'unsupported',
-      reason: `The released skill declares ${JSON.stringify(options.declaredName)} but its id names ${JSON.stringify(name)}; the identity is inconsistent, so no source is opened.`,
+      reason: `The released skill declares ${JSON.stringify(declaredName)} but its id names ${JSON.stringify(name)}; the identity is inconsistent, so no source is opened.`,
     };
   }
+  return { status: 'supported', name };
+}
+
+/**
+ * Resolve one canonical released skill against the pinned source index.
+ *
+ * Only an exact namespace, exact name and exact revision produce `match`.
+ * Every other outcome is explicit and carries a safe explanation; this function
+ * never falls back to a prefix, case-insensitive or nearest-name match.
+ */
+export function resolveSourceSkill(
+  skillId: string,
+  index: SourceIndex,
+  options: ResolveSourceSkillOptions = {},
+): SourceSkillResolution {
+  const identity = parseSourceSkillIdentity(skillId, options.declaredName);
+  if (identity.status === 'unsupported') return identity;
   if (options.expectedSha !== undefined && options.expectedSha !== null) {
     if (!SOURCE_SHA.test(options.expectedSha)) {
       return {
@@ -107,12 +123,12 @@ export function resolveSourceSkill(
       };
     }
   }
-  const item = index.items.find(candidate => candidate.name === name);
+  const item = index.items.find(candidate => candidate.name === identity.name);
   if (!item) {
     return {
       status: 'missing',
-      reason: `No exact source skill named ${JSON.stringify(name)} exists in the pinned source index.`,
+      reason: `No exact source skill named ${JSON.stringify(identity.name)} exists in the pinned source index.`,
     };
   }
-  return { status: 'match', name, item };
+  return { status: 'match', name: identity.name, item };
 }

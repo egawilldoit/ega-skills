@@ -11,8 +11,9 @@ import { CopyButton } from "../components/CopyButton";
 import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
 import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
 import { EmptyState, ErrorState, ResourceSection } from "../components/StatePanel";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { loadSourceIndex } from "./sourceIndex";
-import { resolveSourceSkill, sourceSkillHref } from "./sourceSkillNavigation";
+import { parseSourceSkillIdentity, resolveSourceSkill, sourceSkillHref } from "./sourceSkillNavigation";
 
 type ContentState =
   | { readonly status: "idle" }
@@ -55,6 +56,7 @@ function isInspectableCompanionFile(row: SkillDetail["files"][number]): boolean 
  */
 export function SkillDetailPage(): ReactNode {
   const client = useApiClient();
+  const { role } = useWorkspace();
   const params = useParams<{ readonly skillId: string | undefined }>();
   const skillId = params.skillId ?? null;
 
@@ -74,9 +76,13 @@ export function SkillDetailPage(): ReactNode {
     : null;
   const releasedSkillId = releasedDetail?.summary.skill_id ?? null;
   const releasedSkillName = releasedDetail?.summary.name ?? null;
+  const sourceIdentity = releasedSkillId === null || releasedSkillName === null
+    ? null
+    : parseSourceSkillIdentity(releasedSkillId, releasedSkillName);
 
   const [contentState, setContentState] = useState<ContentState>({ status: "idle" });
   const [sourceState, setSourceState] = useState<SourceState>({ status: "idle" });
+  const sourceRequestRef = useRef<AbortController | null>(null);
 
   const activeRequestRef = useRef<{
     seq: number;
@@ -99,15 +105,30 @@ export function SkillDetailPage(): ReactNode {
     };
   }, [skillId]);
 
-  // The source index is a separate, independently guarded read. It is only
-  // consulted for a released skill, and its result is used only to decide
-  // whether the exact source identity can be edited.
+  // The source index is a separate, independently guarded read. Nothing is
+  // fetched while browsing a released skill: the owner must explicitly ask for
+  // source availability, and any earlier request is discarded when the skill,
+  // role or component lifetime changes.
   useEffect(() => {
-    if (releasedSkillId === null || releasedSkillName === null) {
-      setSourceState({ status: "idle" });
-      return;
-    }
+    sourceRequestRef.current?.abort();
+    sourceRequestRef.current = null;
+    setSourceState({ status: "idle" });
+    return () => {
+      sourceRequestRef.current?.abort();
+      sourceRequestRef.current = null;
+    };
+  }, [releasedSkillId, releasedSkillName, role]);
+
+  const checkSource = (): void => {
+    if (
+      role !== "owner"
+      || sourceIdentity?.status !== "supported"
+      || releasedSkillId === null
+      || releasedSkillName === null
+    ) return;
+    sourceRequestRef.current?.abort();
     const controller = new AbortController();
+    sourceRequestRef.current = controller;
     setSourceState({ status: "loading" });
     void (async () => {
       try {
@@ -130,10 +151,11 @@ export function SkillDetailPage(): ReactNode {
         } else {
           setSourceState({ status: "unavailable", reason: `Source unavailable: ${error.message}` });
         }
+      } finally {
+        if (sourceRequestRef.current === controller) sourceRequestRef.current = null;
       }
     })();
-    return () => controller.abort();
-  }, [client, releasedSkillId, releasedSkillName]);
+  };
 
   const closeContent = useCallback(() => {
     if (activeRequestRef.current) {
@@ -260,22 +282,37 @@ export function SkillDetailPage(): ReactNode {
           {data.release !== null ? (
             <section className="panel" aria-labelledby="skill-source">
               <h2 id="skill-source">Source</h2>
-              {sourceState.status === "loading" ? (
-                <p role="status">Checking pinned source index…</p>
-              ) : null}
-              {sourceState.status === "available" ? (
+              {role !== "owner" ? (
+                <p>Source editing is available to workspace owners with editor access.</p>
+              ) : sourceIdentity === null ? null : sourceIdentity.status === "unsupported" ? (
+                <p>{sourceIdentity.reason}</p>
+              ) : (
                 <>
-                  <p>
-                    <Link className="button button--secondary" to={sourceState.href}>
-                      Manage source
-                    </Link>
-                  </p>
-                  <p className="muted">
-                    Editing source creates a pull request proposal. It does not publish a release.
-                  </p>
+                  {sourceState.status === "idle" ? (
+                    <p>
+                      <button type="button" className="button button--secondary" onClick={checkSource}>
+                        Check source availability
+                      </button>
+                    </p>
+                  ) : null}
+                  {sourceState.status === "loading" ? (
+                    <p role="status">Checking pinned source index…</p>
+                  ) : null}
+                  {sourceState.status === "available" ? (
+                    <>
+                      <p>
+                        <Link className="button button--secondary" to={sourceState.href}>
+                          Manage source
+                        </Link>
+                      </p>
+                      <p className="muted">
+                        Editing source creates a pull request proposal. It does not publish a release.
+                      </p>
+                    </>
+                  ) : null}
+                  {sourceState.status === "unavailable" ? <p>{sourceState.reason}</p> : null}
                 </>
-              ) : null}
-              {sourceState.status === "unavailable" ? <p>{sourceState.reason}</p> : null}
+              )}
             </section>
           ) : null}
 
