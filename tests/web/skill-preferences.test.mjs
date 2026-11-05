@@ -444,3 +444,52 @@ test("adding defaults on Supabase-backed deployments requires explicit release d
     if (saved.anon === undefined) delete process.env.EGA_SUPABASE_ANON_KEY; else process.env.EGA_SUPABASE_ANON_KEY = saved.anon;
   }
 });
+
+test("database failure returns a sanitized unavailable error through the bounded route", async () => {
+  const routes = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64000, requestTimeoutMs: 2000, maxConcurrentRequests: 4 },
+    reader: {
+      async resolveCaller() { return { subject: "user-a" }; },
+      async readAsCaller(_caller, table) { return table === "workspace_memberships" ? [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }] : []; },
+    },
+    store: { async update() { throw new Error("connection failed postgresql://user:secret-value@private-host/db"); } },
+    isPublicPolicy: () => true,
+  });
+  await assert.rejects(routes[0].handle({ method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+    request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: [] }) }),
+  (error) => error.status === 503 && error.code === "E_WEB_PREFERENCES_UNAVAILABLE" && !JSON.stringify(error).includes("secret-value") && !error.message.includes("private-host"));
+});
+
+test("retry after an uncertain timed-out write cannot replace a newer winning revision", async () => {
+  let record = { revision: 0, favorite_skill_ids: [], default_skill_ids: [], updated_at: null };
+  let finishWrite;
+  const pending = new Promise((resolve) => { finishWrite = resolve; });
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const routes = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64000, requestTimeoutMs: 30, maxConcurrentRequests: 4 },
+    reader: {
+      async resolveCaller() { return { subject: "user-a" }; },
+      async readAsCaller(_caller, table) { return table === "workspace_memberships" ? [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }] : [record]; },
+    },
+    store: { async update(input) {
+      entered();
+      await pending;
+      if (input.expectedRevision !== record.revision) return null;
+      record = { revision: record.revision + 1, favorite_skill_ids: [...input.favorites], default_skill_ids: [], updated_at: null };
+      return record;
+    } },
+    isPublicPolicy: () => true,
+  });
+  const invoke = () => routes[0].handle({ method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+    request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: ["old/skill"], default_skill_ids: [] }) });
+  const first = invoke();
+  await started;
+  await assert.rejects(first, (error) => error.code === "E_WEB_REQUEST_TIMEOUT");
+  // A competing update wins while the timed-out operation is still uncertain.
+  record = { revision: 1, favorite_skill_ids: ["winner/skill"], default_skill_ids: [], updated_at: null };
+  finishWrite();
+  await assert.rejects(invoke(), (error) => error.code === "E_WEB_PREFERENCES_CONFLICT" && error.status === 409);
+  assert.deepEqual(record.favorite_skill_ids, ["winner/skill"]);
+  assert.equal(record.revision, 1);
+});
