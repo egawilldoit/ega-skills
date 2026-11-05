@@ -443,7 +443,7 @@ describe("the surface is GET only", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("only allow-listed tables and columns are readable", () => {
-  test("the allow-list is exactly the eleven documented surfaces", () => {
+  test("the allow-list is exactly the fourteen documented surfaces", () => {
     assert.deepEqual(CONTROL_PLANE_TABLE_NAMES, [
       "audit_events",
       "context_revocations",
@@ -457,6 +457,7 @@ describe("only allow-listed tables and columns are readable", () => {
       "quota_policies",
       "quota_usage",
       "security_denies",
+      "skill_preferences",
       "workspace_memberships",
     ]);
   });

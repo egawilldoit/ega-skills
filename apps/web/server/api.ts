@@ -114,6 +114,7 @@ import { createProjectRoutes } from "./projects.ts";
 import { createGovernanceRoutes, handleAnalyticsUsage } from "./governance.ts";
 import { getDiscoveryInspection } from "./discovery.ts";
 import { sourceManagerRoutes } from "./source-manager/routes.ts";
+import { buildSkillPreferenceRoutes } from "./skill-preferences.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Bounds                                                                      */
@@ -1102,6 +1103,7 @@ export function installConsoleApi(
     ...buildWorkspaceRoutes(bounds, lazyReader),
     ...createProjectRoutes({ bounds, reader: lazyReader }),
     ...createGovernanceRoutes({ bounds, reader: lazyReader }),
+    ...buildSkillPreferenceRoutes({ bounds, reader: lazyReader }),
     controlPlaneRoute("analytics-usage", "/analytics/usage", handleAnalyticsUsage, bounds, lazyReader),
   );
 

@@ -21,11 +21,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
+import { applyMigrations } from "./apply-migrations.mjs";
 
 import {
   DEFAULT_ARTIFACT_DIR,
@@ -117,12 +118,7 @@ before(async () => {
   workdir = mkdtempSync(join(tmpdir(), "ega-bootstrap-receipts-"));
   psql(ADMIN_URL, `create database "${DB_NAME}"`);
   psql(DB_URL, readFileSync(join(ROOT, "tests", "rls", "bootstrap.sql"), "utf8"));
-  const migrations = readdirSync(join(ROOT, "supabase", "migrations"))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  for (const file of migrations) {
-    psql(DB_URL, readFileSync(join(ROOT, "supabase", "migrations", file), "utf8"));
-  }
+  applyMigrations(psql, DB_URL, ROOT);
   psql(
     DB_URL,
     `insert into public.personal_workspaces (id, owner_subject) values

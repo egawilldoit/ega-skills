@@ -175,6 +175,7 @@
     "tests/web/release-identity.test.mjs",
     "tests/web/releases.test.mjs",
     "tests/web/skill-detail-rendering.test.mjs",
+    "tests/web/skill-preferences.test.mjs",
     "tests/web/skills.test.mjs",
     "tests/web/source-manager/archive.test.mjs",
     "tests/web/source-manager/description-overlap.test.mjs",
