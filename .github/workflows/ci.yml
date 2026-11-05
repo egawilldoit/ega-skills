@@ -710,8 +710,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Skill preferences migration (clean cluster, unmodified)
+        run: node --test tests/rls/skill-preferences-migration-clean.rls.mjs
+        env:
+          EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
       - name: Contract F RLS suite
-        run: node --test tests/rls/contract-f.rls.mjs
+        run: node --test --experimental-strip-types tests/rls/contract-f.rls.mjs
         env:
           EGA_RLS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 

@@ -364,16 +364,17 @@ function freezeTableSpec(spec: ControlPlaneTableSpec): ControlPlaneTableSpec {
 }
 
 /**
- * The eleven control-plane surfaces the console reads, and nothing else.
+ * The fourteen control-plane surfaces the console reads, and nothing else.
  *
  * Membership matches the later page builders exactly:
  * `personal_workspaces`, `workspace_memberships` (members page);
  * `projects`, `project_contexts`, `context_revocations` (projects/contexts);
- * `quota_policies`, `quota_usage`, `security_denies`, `audit_events`
+ * `skill_preferences` (the caller's own preferences), `quota_policies`,
+ * `quota_usage`, `security_denies`, `audit_events`
  * (quotas/security/audit); `hubs`, `hub_releases`, `hub_stable_pointers` (the
  * control-plane hub/release pointer).
  *
- * Four of the sixteen RLS-governed tables are **absent on purpose**:
+ * Four of the eighteen RLS-governed tables are **absent on purpose**:
  * `immutable_objects`, `hub_release_artifacts`, `source_credentials`, and
  * `public_hub_publications`. The console's release data comes from the verified
  * artifact bundle, not from the database; blob byte lengths and object digests
@@ -403,6 +404,10 @@ const CONTROL_PLANE_TABLE_LITERALS: Readonly<Record<string, ControlPlaneTableSpe
       role: { kind: "workspace-role" },
       active: { kind: "boolean" },
     },
+  },
+  skill_preferences: {
+    columns: ["workspace_id", "subject", "favorite_skill_ids", "default_skill_ids", "revision", "updated_at"],
+    filterable: { workspace_id: { kind: "uuid" }, subject: { kind: "short-text" } },
   },
   projects: {
     columns: ["id", "workspace_id", "name", "created_at"],
@@ -525,6 +530,7 @@ const TABLE_ORDER: Readonly<Record<string, string>> = Object.freeze({
   hub_stable_pointers: "hub_id.asc",
   personal_workspaces: "id.asc",
   workspace_memberships: "workspace_id.asc,subject.asc",
+  skill_preferences: "workspace_id.asc,subject.asc",
   projects: "id.asc",
   project_contexts: "id.asc",
   context_revocations: "context_id.asc",
@@ -532,7 +538,7 @@ const TABLE_ORDER: Readonly<Record<string, string>> = Object.freeze({
   security_denies: "workspace_id.asc,kind.asc,identity.asc",
 });
 
-/** The eleven allow-listed tables, deep-frozen. This is the exported boundary. */
+/** The allow-listed tables, deep-frozen. This is the exported boundary. */
 export const CONTROL_PLANE_TABLES: Readonly<Record<string, ControlPlaneTableSpec>> = Object.freeze(
   Object.fromEntries(
     Object.entries(CONTROL_PLANE_TABLE_LITERALS).map(([name, spec]) => [name, freezeTableSpec(spec)]),
