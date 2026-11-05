@@ -51,9 +51,10 @@ test("unmodified private skill preferences migration succeeds on a clean isolate
   psql(DB_URL, readFileSync(join(ROOT, "supabase", "migrations", MIGRATION), "utf8"));
 
   assert.equal(psql(ADMIN_URL, `select count(*) from pg_roles where rolname='ega_skill_preferences_writer'`).trim(), "1", "migration must create cluster-wide writer role");
-  assert.equal(psql(DB_URL, `select to_regclass('public.skill_preferences') is not null`).trim(), "t");
-  assert.equal(psql(DB_URL, `select relrowsecurity::text||relforcerowsecurity::text from pg_class where oid='public.skill_preferences'::regclass`).trim(), "tt");
+  assert.match(psql(DB_URL, `select to_regclass('public.skill_preferences') is not null`).trim(), /^(t|true)$/);
+  assert.match(psql(DB_URL, `select relrowsecurity::text from pg_class where oid='public.skill_preferences'::regclass`).trim(), /^(t|true)$/, "RLS must be enabled");
+  assert.match(psql(DB_URL, `select relforcerowsecurity::text from pg_class where oid='public.skill_preferences'::regclass`).trim(), /^(t|true)$/, "RLS must be forced");
   assert.match(psql(DB_URL, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /for update of m/i, "authorization must serialize with FOR UPDATE");
   assert.match(psql(DB_URL, `select pg_get_functiondef('private.write_skill_preferences(uuid,text,text[],text[],bigint)'::regprocedure)`), /security definer/i);
-  assert.equal(psql(DB_URL, `select has_function_privilege('authenticated', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text`).trim(), "f");
+  assert.match(psql(DB_URL, `select has_function_privilege('authenticated', 'private.write_skill_preferences(uuid,text,text[],text[],bigint)', 'EXECUTE')::text`).trim(), /^(f|false)$/);
 });

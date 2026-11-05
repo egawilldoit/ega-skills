@@ -233,8 +233,11 @@ test("concurrent membership revocation blocks while writer holds authorization l
   assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' and subject='user-a' and role='owner'`).trim(), /^(t|true)$/);
 });
 
-test("deterministic revocation ordering A: revocation commits, writer fails (real PostgreSQL)", async () => {
-  // Two-session ordering: R commits revocation first; W then must fail authorization.
+test("deterministic revocation ordering A: revocation commits first; writer authorization fails (overlapping both-successful-commits blocked by design) (real PostgreSQL)", async () => {
+  // R commits revocation. W then fails 42501. Overlapping "both commit with a
+  // successful writer preference write" is infeasible/blocked by design here:
+  // committed revocation denies authorization and FOR UPDATE serialization
+  // prevents R from committing a conflicting revocation while W holds the lock.
   const rev = Number(scalar("user-a", `select coalesce((select revision from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 0)`));
   const R = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
   const rDone = new Promise((resolve, reject) => {
@@ -246,12 +249,13 @@ test("deterministic revocation ordering A: revocation commits, writer fails (rea
   try {
     assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`).trim(), /^(f|false)$/, "revocation must be committed");
     failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'user-a', array[]::text[], array[]::text[], ${rev})`, /active workspace owner required/);
+    assert.equal(psql(DB_URL, `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a' and revision=${rev + 1}`).trim(), "0", "no successful writer commit after committed revocation");
   } finally {
     psql(DB_URL, `UPDATE public.workspace_memberships SET active=true WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`);
   }
 });
 
-test("deterministic revocation ordering B: writer commits authorized update, revocation is delayed until after commit (real PostgreSQL)", async () => {
+test("deterministic revocation ordering B: overlapping txns both commit (writer commits first, revocation commits after unblock) (real PostgreSQL)", async () => {
   // Capture state for cleanup (admin). W holds FOR UPDATE lock while open.
   const before = psql(DB_URL, `select coalesce((select revision::text||'|'||favorite_skill_ids::text||'|'||default_skill_ids::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'), 'none')`).trim();
   const rev = before === "none" ? 0 : Number(before.split("|")[0]);
@@ -263,25 +267,28 @@ test("deterministic revocation ordering B: writer commits authorized update, rev
   });
   W.stdin.write(`BEGIN; SET ROLE ega_skill_preferences_writer; SELECT revision FROM private.write_skill_preferences('${WS_A}', 'user-a', array['design/ux']::text[], array[]::text[], ${rev});\n`);
   const writerRev = (await wrote).trim();
-  let committed = false;
+  let wCommitted = false;
+  // R: revocation transaction started while W holds lock; it will block until W commits, then commit.
+  const R = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+  let rerr = "", rout = ""; R.stderr.on("data", (d) => { rerr += String(d); }); R.stdout.on("data", (d) => { rout += String(d); });
+  const rDone = new Promise((resolve, reject) => { R.on("error", reject); R.on("close", (code) => code === 0 ? resolve(rout.trim()) : reject(new Error(`revocation failed ${code}: ${rerr}`))); });
+  R.stdin.write(`BEGIN; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner' RETURNING active::text;\n`);
+  // Give R time to block on W's FOR UPDATE lock.
+  await new Promise((r) => setTimeout(r, 300));
   try {
-    // Revocation delayed while W holds membership FOR UPDATE lock.
-    assert.throws(
-      () => psql(DB_URL, `SET lock_timeout='1s'; UPDATE public.workspace_memberships SET active=false WHERE workspace_id='${WS_A}' AND subject='user-a' AND role='owner';`),
-      (e) => /lock timeout|55P03|canceling statement/i.test(String(e?.message ?? e)),
-      "revocation must be delayed while writer holds authorized lock",
-    );
+    assert.equal(rout.trim(), "", "revocation must block while writer holds authorized lock (not yet committed)");
     // W commits first: authorized write persists.
-    W.stdin.write("COMMIT;\n");
-    committed = true;
-    W.stdin.end();
+    W.stdin.write("COMMIT;\n"); wCommitted = true; W.stdin.end();
     await new Promise((resolve, reject) => W.on("close", (code) => code === 0 ? resolve(null) : reject(new Error(werr))));
     assert.equal(scalar("user-a", `select revision::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim(), writerRev, "writer commit must persist");
+    // R unblocks after W commits and commits revocation (both transactions commit).
+    R.stdin.write(`COMMIT;\n\\q\n`);
+    await rDone;
+    assert.match(psql(DB_URL, `select active::text from public.workspace_memberships where workspace_id='${WS_A}' AND subject='user-a' AND role='owner'`).trim(), /^(f|false)$/, "revocation commits after writer unblocks");
   } finally {
-    if (!committed) { try { W.stdin.write("ROLLBACK;\n"); } catch {} }
-    try { W.stdin.end(); } catch {}
-    await Promise.race([new Promise((resolve) => W.on("close", resolve)), new Promise((r) => setTimeout(r, 1000))]);
-    // Restore fixture state (admin cleanup in disposable DB).
+    if (!wCommitted) { try { W.stdin.write("ROLLBACK;\n"); } catch {} }
+    try { W.stdin.end(); R.stdin.end(); } catch {}
+    await Promise.race([Promise.all([new Promise((res) => W.on("close", res)), new Promise((res) => R.on("close", res))]), new Promise((r) => setTimeout(r, 1500))]);
     if (before === "none") psql(DB_URL, `DELETE FROM public.skill_preferences WHERE workspace_id='${WS_A}' AND subject='user-a'`);
     else {
       const [r, fav, def] = before.split("|");
