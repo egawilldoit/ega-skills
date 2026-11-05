@@ -336,6 +336,39 @@ test("default digest resolution path is used for Supabase-backed additions (fail
   }
 });
 
+test("additions bind one release snapshot for digest authorization and catalog validation", async () => {
+  const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
+  process.env.EGA_SUPABASE_URL = "https://example.supabase.co";
+  process.env.EGA_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+  delete process.env.EGA_SUPABASE_ANON_KEY;
+  try {
+    let authDigest;
+    let ctxReads = 0;
+    const routes = buildSkillPreferenceRoutes({
+      bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+      reader: {
+        async resolveCaller() { return { subject: "user-a" }; },
+        async readAsCaller(_c, t) { return t === "workspace_memberships" ? [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }] : []; },
+      },
+      store: { async update(input) { return { revision: 1, favorite_skill_ids: [], default_skill_ids: [...input.defaults], updated_at: null }; } },
+      isPublicPolicy: () => false,
+      authorizeRelease: async (_ctx, _r, o) => { authDigest = o?.requestedDigests?.[0]; },
+      resolveReleaseContext: () => { ctxReads += 1; return { digest: "sha256:" + "a".repeat(64), catalogIds: new Set(["skill/from-a"]) }; },
+    });
+    await routes[0].handle({ method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+      request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["skill/from-a"] }) });
+    assert.equal(ctxReads, 1, "digest+catalog must come from one bound snapshot read");
+    assert.equal(authDigest, "sha256:" + "a".repeat(64));
+    await assert.rejects(routes[0].handle({ method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+      request: request("PUT", { workspace_id: WS, expected_revision: 0, favorite_skill_ids: [], default_skill_ids: ["skill/from-b"] }) }),
+      (e) => e.code === "E_WEB_PREFERENCES_DEFAULT_UNAVAILABLE");
+  } finally {
+    if (saved.url === undefined) delete process.env.EGA_SUPABASE_URL; else process.env.EGA_SUPABASE_URL = saved.url;
+    if (saved.key === undefined) delete process.env.EGA_SUPABASE_PUBLISHABLE_KEY; else process.env.EGA_SUPABASE_PUBLISHABLE_KEY = saved.key;
+    if (saved.anon === undefined) delete process.env.EGA_SUPABASE_ANON_KEY; else process.env.EGA_SUPABASE_ANON_KEY = saved.anon;
+  }
+});
+
 test("adding defaults on Supabase-backed deployments requires explicit release digest authorization", async () => {
   const saved = { url: process.env.EGA_SUPABASE_URL, key: process.env.EGA_SUPABASE_PUBLISHABLE_KEY, anon: process.env.EGA_SUPABASE_ANON_KEY };
   process.env.EGA_SUPABASE_URL = "https://example.supabase.co";

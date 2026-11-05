@@ -248,6 +248,8 @@ export interface PreferenceRouteOptions {
   ) => Promise<unknown>;
   /** Test seam: resolve release digest required for new defaults on Supabase-backed deployments. */
   readonly resolveAdditionReleaseDigest?: () => string;
+  /** Test seam: bind one release snapshot for both digest auth and catalog IDs. */
+  readonly resolveReleaseContext?: () => { readonly digest: string; readonly catalogIds: ReadonlySet<string> };
 }
 
 /** GET reads through caller-scoped PostgREST; PUT uses the narrow DB function. */
@@ -255,10 +257,8 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
   const bounds = options.bounds ?? loadRequestBounds();
   const reader = options.reader ?? defaultControlPlaneReader();
   const store = options.store;
-  const catalogIds = options.catalogIds ?? (() => new Set(getRegistry(loadServerConfig()).listReleasedSkillIds()));
   const isPublicPolicy = options.isPublicPolicy ?? (() => loadServerConfig().isPublicPolicy);
   const authorizeRelease = options.authorizeRelease ?? authorizeArtifactRequest;
-  const resolveAdditionReleaseDigest = options.resolveAdditionReleaseDigest ?? (() => getRegistry(loadServerConfig()).snapshot.release.digest);
   return [{
     id: "skill-preferences",
     path: "/skill-preferences",
@@ -283,22 +283,35 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
       const currentDefaults = new Set(current.default_skill_ids);
       const additions = input.defaults.filter((skillId) => !currentDefaults.has(skillId));
       if (additions.length > 0) {
-        // New defaults require the caller's authorized current-release catalog.
-        // Public deployments still require verified Owner membership above and may
-        // read the public catalog without a workspace-specific release grant.
-        // Removal-only/favorite updates do not require release authorization.
+        // Bind one verified release snapshot per request for digest authorization
+        // and catalog IDs, preventing a release switch between separate reads.
+        let releaseDigest: string | undefined;
+        let known: ReadonlySet<string>;
+        try {
+          if (options.resolveReleaseContext) {
+            const ctx = options.resolveReleaseContext();
+            releaseDigest = ctx.digest;
+            known = ctx.catalogIds;
+          } else if (options.resolveAdditionReleaseDigest || options.catalogIds) {
+            // Preserve explicit seam behavior for tests/callers.
+            if (options.resolveAdditionReleaseDigest) releaseDigest = options.resolveAdditionReleaseDigest();
+            known = options.catalogIds ? options.catalogIds() : new Set(getRegistry(loadServerConfig()).listReleasedSkillIds());
+          } else {
+            const reg = getRegistry(loadServerConfig());
+            releaseDigest = reg.snapshot.release.digest;
+            known = new Set(reg.listReleasedSkillIds());
+          }
+        } catch (error) {
+          // Preserve seam-specific error mapping: catalog seam failures stay catalog
+          // errors; default/snapshot/digest resolution failures are release-unavailable.
+          if (options.catalogIds && !options.resolveAdditionReleaseDigest && !options.resolveReleaseContext) {
+            fail(503, "E_WEB_PREFERENCES_CATALOG_UNAVAILABLE", "The authorized skill catalog is unavailable.");
+          }
+          fail(503, "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE", "Current release authorization is unavailable for new defaults.");
+        }
         if (!isPublicPolicy()) {
           const cfg = loadServerConfig();
           if (cfg.supabaseUrl) {
-            // Fail closed: on Supabase-backed deployments, additions require a
-            // verifiable release digest check. Do not silently skip when identity
-            // is unavailable.
-            let releaseDigest: string;
-            try {
-              releaseDigest = resolveAdditionReleaseDigest();
-            } catch {
-              fail(503, "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE", "Current release authorization is unavailable for new defaults.");
-            }
             if (typeof releaseDigest !== "string" || releaseDigest.length === 0) {
               fail(503, "E_WEB_PREFERENCES_RELEASE_UNAVAILABLE", "Current release authorization is unavailable for new defaults.");
             }
@@ -306,12 +319,6 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
           } else {
             await authorizeRelease({ ...context, method: "GET" }, reader);
           }
-        }
-        let known: ReadonlySet<string>;
-        try {
-          known = catalogIds();
-        } catch {
-          fail(503, "E_WEB_PREFERENCES_CATALOG_UNAVAILABLE", "The authorized skill catalog is unavailable.");
         }
         if (additions.some((skillId) => !known.has(skillId))) {
           fail(400, "E_WEB_PREFERENCES_DEFAULT_UNAVAILABLE", "New default skills must be present in the authorized catalog.");

@@ -4,15 +4,25 @@ import { join } from "node:path";
 const ROLE_MIGRATION = "202609210001_private_skill_preferences.sql";
 const ROLE_NAME = "ega_skill_preferences_writer";
 
+function psqlScalar(psql, dbUrl, sql) {
+  return psql(dbUrl, sql).trim().replaceAll(/\s+/g, "");
+}
+
 function isSafeExistingWriterRole(psql, dbUrl) {
-  const row = psql(dbUrl, `select rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit,
-    (select count(*) from pg_auth_members m join pg_roles r on r.oid=m.roleid where r.rolname='${ROLE_NAME}'),
-    (select count(*) from pg_auth_members m join pg_roles r on r.oid=m.member where r.rolname='${ROLE_NAME}')
-    from pg_roles where rolname='${ROLE_NAME}'`).trim();
-  if (!row) return false;
-  const [login, superuser, bypass, createdb, createrole, repl, inherit, members, memberOf] = row.split("|");
-  return [login, superuser, bypass, createdb, createrole, repl, inherit].every((v) => v === "f")
-    && members === "0" && memberOf === "0";
+  // Read-only cluster-wide safety checks. Query fields individually to stay
+  // independent of the caller's psql field separator/output formatting.
+  try {
+    const exists = psqlScalar(psql, dbUrl, `select count(*) from pg_roles where rolname='${ROLE_NAME}'`);
+    if (exists !== "1") return false;
+    const unsafe = psqlScalar(psql, dbUrl, `select count(*) from pg_roles where rolname='${ROLE_NAME}'
+      and (rolcanlogin or rolsuper or rolbypassrls or rolcreatedb or rolcreaterole or rolreplication or rolinherit)`);
+    if (unsafe !== "0") return false;
+    const members = psqlScalar(psql, dbUrl, `select count(*) from pg_auth_members m join pg_roles r on r.oid=m.roleid where r.rolname='${ROLE_NAME}'`);
+    const memberOf = psqlScalar(psql, dbUrl, `select count(*) from pg_auth_members m join pg_roles r on r.oid=m.member where r.rolname='${ROLE_NAME}'`);
+    return members === "0" && memberOf === "0";
+  } catch {
+    return false;
+  }
 }
 
 function perDatabaseSkillPreferencesSql(sql) {
