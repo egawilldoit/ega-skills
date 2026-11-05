@@ -240,6 +240,11 @@ export interface PreferenceRouteOptions {
   readonly store?: PreferenceStore;
   readonly catalogIds?: () => ReadonlySet<string>;
   readonly isPublicPolicy?: () => boolean;
+  /** Test seam for non-public release authorization; defaults to the real check. */
+  readonly authorizeRelease?: (
+    context: ApiRouteContext,
+    reader: ControlPlaneReader,
+  ) => Promise<unknown>;
 }
 
 /** GET reads through caller-scoped PostgREST; PUT uses the narrow DB function. */
@@ -249,6 +254,7 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
   const store = options.store;
   const catalogIds = options.catalogIds ?? (() => new Set(getRegistry(loadServerConfig()).listReleasedSkillIds()));
   const isPublicPolicy = options.isPublicPolicy ?? (() => loadServerConfig().isPublicPolicy);
+  const authorizeRelease = options.authorizeRelease ?? authorizeArtifactRequest;
   return [{
     id: "skill-preferences",
     path: "/skill-preferences",
@@ -270,15 +276,16 @@ export function buildSkillPreferenceRoutes(options: PreferenceRouteOptions = {})
 
       const input = parseUpdate(await readJson(context));
       const current = await requireOwner(context, reader, caller, input.workspaceId);
-      // Authenticate the same current release path used by catalog/detail routes.
-      // Public deployments still require the verified caller above and may read
-      // the public catalog without a workspace-specific release grant.
-      if (!isPublicPolicy()) {
-        await authorizeArtifactRequest({ ...context, method: "GET" }, reader);
-      }
       const currentDefaults = new Set(current.default_skill_ids);
       const additions = input.defaults.filter((skillId) => !currentDefaults.has(skillId));
       if (additions.length > 0) {
+        // New defaults require the caller's authorized current-release catalog.
+        // Public deployments still require verified Owner membership above and may
+        // read the public catalog without a workspace-specific release grant.
+        // Removal-only/favorite updates do not require release authorization.
+        if (!isPublicPolicy()) {
+          await authorizeRelease({ ...context, method: "GET" }, reader);
+        }
         let known: ReadonlySet<string>;
         try {
           known = catalogIds();

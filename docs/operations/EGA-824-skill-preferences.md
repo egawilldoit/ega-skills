@@ -14,12 +14,22 @@ The Console resolves the subject from the caller's bearer session and checks
 active Owner membership using caller-scoped Supabase reads. New default IDs
 must be in the verified current release catalog after the caller passes the
 current release access check. Existing IDs can be removed without catalog
-availability. Writes call `private.write_skill_preferences` using a dedicated
-server-only PostgreSQL login. Its NOLOGIN role can execute only that function;
-it has no table privileges. The function independently checks active Owner
-membership, structural ID rules, the three-default limit, and the expected
-revision. It changes a row only when the revision matches, so competing edits
-have one winner and stale writers receive HTTP 409.
+availability or current-release authorization. Writes call
+`private.write_skill_preferences` using a dedicated server-only PostgreSQL
+login. Its NOLOGIN role can execute only that function; it has no table
+privileges.
+
+**Precise trust boundaries (do not overstate):** the database function
+independently checks that the *target* `p_subject` has active Owner membership
+for `p_workspace_id`, enforces structural ID rules/distinctness/count limits,
+and enforces optimistic revision/concurrency. It **cannot** independently
+validate the HTTP session identity — the API/BFF must pass only the
+authenticated caller's subject (a trusted writer identity boundary). The
+database does **not** independently validate catalog membership; the API
+validates newly added default IDs against the authorized current-release
+catalog. Schema note: `workspace_memberships` enforces one owner role per
+workspace. The function changes a row only when the revision matches, so
+competing edits have one winner and stale writers receive HTTP 409.
 
 PostgREST cannot call the writer function as `anon`, `authenticated`, or
 `service_role`, and those roles have no direct table mutation grants. Do not

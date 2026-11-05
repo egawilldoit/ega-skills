@@ -13,12 +13,14 @@ begin
 end
 $$;
 
+-- Roles are cluster-wide. Disposable CI/test databases on the same cluster may
+-- apply this migration independently; creating the role is idempotent. Least
+-- privilege is enforced unconditionally below (attributes + per-database grants).
 do $$
 begin
-  if exists (select 1 from pg_roles where rolname = 'ega_skill_preferences_writer') then
-    raise exception 'ega_skill_preferences_writer already exists; inspect its privileges before applying this migration';
+  if not exists (select 1 from pg_roles where rolname = 'ega_skill_preferences_writer') then
+    create role ega_skill_preferences_writer nologin noinherit;
   end if;
-  create role ega_skill_preferences_writer nologin noinherit;
 end
 $$;
 alter role ega_skill_preferences_writer

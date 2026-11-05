@@ -216,6 +216,48 @@ test("the database rejects excess and duplicate IDs and serializes revision-chec
   assert.match(asPreferenceWriter(removal), /3/);
 });
 
+test("concurrent first inserts serialize to one winner (no duplicate row)", async () => {
+  const WS_B = "00000000-0000-4000-8000-0000000000b1";
+  const first = `select revision from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array['design/ux'], 0)`;
+  const runs = [0, 1].map(() => new Promise((resolve, reject) => {
+    const child = spawn("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", DB_URL], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr)));
+    child.stdin.end(`begin; set local role ega_skill_preferences_writer; select pg_sleep(0.1); ${first}; commit;`);
+  }));
+  const outputs = await Promise.all(runs);
+  assert.equal(outputs.filter((output) => output === "1").length, 1, `one first-insert wins, got ${JSON.stringify(outputs)}`);
+  assert.equal(outputs.filter((output) => output === "").length, 1, "losing first-insert returns no row (stale/conflict)");
+  assert.equal(count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_B}' and subject='user-b'`), 1);
+});
+
+test("owners are workspace-isolated; writer checks target authorization, not HTTP identity (trusted boundary)", () => {
+  // Trusted writer identity boundary: the dedicated DB writer role validates that
+  // p_subject is an active Owner of p_workspace_id and enforces structural/revision
+  // rules, but it cannot prove HTTP session identity. The API must pass only the
+  // authenticated caller's subject. The DB does not independently validate catalog.
+  // Schema limit: workspace_memberships has one-owner-per-workspace uniqueness, so
+  // this exercises two active owners on different workspaces plus owner isolation.
+  const WS_B = "00000000-0000-4000-8000-0000000000b1";
+  // user-b/WS_B row may already exist from the concurrent first-insert test (rev 1).
+  const wsB = count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_B}' and subject='user-b'`);
+  if (wsB === 0) {
+    assert.match(asPreferenceWriter(`select revision from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 0)`), /1/);
+  } else {
+    assert.match(asPreferenceWriter(`select revision, default_skill_ids from private.write_skill_preferences('${WS_B}', 'user-b', array['design/ux'], array[]::text[], 1)`), /2\|\{\}\|/);
+  }
+  assert.equal(count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_B}' and subject='user-b'`), 1);
+  assert.equal(count("user-a", `select count(*) from public.skill_preferences where workspace_id='${WS_B}'`), 0, "RLS isolates workspace B from user-a");
+  assert.equal(count("user-b", `select count(*) from public.skill_preferences where workspace_id='${WS_A}'`), 0, "RLS isolates workspace A from user-b");
+  // Writer validates target membership; it cannot bind to HTTP identity (API boundary).
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'admin-a', array[]::text[], array[]::text[], 0)`, /active workspace owner required/);
+  failsAsPreferenceWriter(`select * from private.write_skill_preferences('${WS_A}', 'not-owner-a', array[]::text[], array[]::text[], 0)`, /active workspace owner required/);
+});
+
 function failsAs(subject, sql, pattern) {
   let stderr = "";
   try {
@@ -532,6 +574,52 @@ test("first-party sessions keep their existing control-plane reads", () => {
   assert.ok(count("user-a", "select count(*) from public.projects") > 0);
   assert.ok(count("user-a", "select count(*) from public.project_contexts") > 0);
   assert.ok(count("user-a", "select count(*) from public.immutable_objects") > 0);
+});
+
+test("API route uses authenticated caller subject against real PostgreSQL writer (no request-subject spoofing)", async () => {
+  const { buildSkillPreferenceRoutes } = await import("../../apps/web/server/skill-preferences.ts");
+  let calls = 0;
+  const store = {
+    async update(input) {
+      calls += 1;
+      assert.equal(input.subject, "user-a", "API must pass resolved caller subject to the real writer boundary");
+      assert.equal(input.workspaceId, WS_A);
+      const sql = `select revision, favorite_skill_ids, default_skill_ids, updated_at::text from private.write_skill_preferences('${input.workspaceId}', '${input.subject}', array[${input.favorites.map((id) => `'${id}'`).join(",")}]::text[], array[${input.defaults.map((id) => `'${id}'`).join(",")}]::text[], ${input.expectedRevision})`;
+      const out = psql(DB_URL, `begin; set local role ega_skill_preferences_writer; ${sql}; commit;`).trim();
+      if (out === "") return null;
+      const [revision, favorites, defaults, updatedAt] = out.split("|");
+      const parseArray = (value) => value === "{}" ? [] : value.replace(/^\{|\}$/g, "").split(",").filter(Boolean);
+      return { revision: Number(revision), favorite_skill_ids: parseArray(favorites), default_skill_ids: parseArray(defaults), updated_at: updatedAt };
+    },
+  };
+  const reader = {
+    async resolveCaller() { return { subject: "user-a" }; },
+    async readAsCaller(_caller, table) {
+      if (table === "workspace_memberships") return [{ workspace_id: WS_A, subject: "user-a", role: "owner", active: true }];
+      if (table === "skill_preferences") {
+        const out = psql(DB_URL, `select revision, favorite_skill_ids, default_skill_ids, updated_at::text from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim();
+        if (out === "") return [];
+        const [revision, favorites, defaults, updatedAt] = out.split("|");
+        const parseArray = (value) => value === "{}" ? [] : value.replace(/^\{|\}$/g, "").split(",").filter(Boolean);
+        return [{ revision: Number(revision), favorite_skill_ids: parseArray(favorites), default_skill_ids: parseArray(defaults), updated_at: updatedAt }];
+      }
+      return [];
+    },
+  };
+  const route = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+    reader, store, isPublicPolicy: () => true,
+  })[0];
+  const current = reader.readAsCaller ? (await reader.readAsCaller({ subject: "user-a" }, "skill_preferences"))[0] : undefined;
+  const expected = current?.revision ?? 0;
+  const body = Buffer.from(JSON.stringify({ workspace_id: WS_A, expected_revision: expected, favorite_skill_ids: ["design/ux"], default_skill_ids: [] }));
+  const result = await route.handle({
+    method: "PUT", pathname: "/api/skill-preferences", query: new URLSearchParams(), params: {},
+    request: { headers: { authorization: "Bearer test", "content-type": "application/json", "content-length": String(body.length) }, async *[Symbol.asyncIterator]() { yield body; } },
+  });
+  assert.equal(result.favorite_skill_ids.includes("design/ux"), true);
+  assert.equal(calls, 1);
+  assert.equal(Number(psql(DB_URL, `select count(*) from public.skill_preferences where workspace_id='${WS_A}' and subject='user-a'`).trim()), 1);
 });
 
 test("platform RLS provisioning helpers are not callable by clients", () => {

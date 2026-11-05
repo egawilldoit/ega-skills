@@ -113,6 +113,23 @@ test("preferences require the caller's active Owner membership and validate only
   );
 });
 
+test("preference request body cannot spoof subject and requires exact fields", async () => {
+  const { invoke, writes } = fixture();
+  await assert.rejects(invoke("PUT", {
+    workspace_id: WS,
+    subject: "admin-a",
+    expected_revision: 1,
+    favorite_skill_ids: [],
+    default_skill_ids: [],
+  }), (error) => error.code === "E_WEB_PREFERENCES_BODY_INVALID");
+  await assert.rejects(invoke("PUT", {
+    workspace_id: WS,
+    expected_revision: 1,
+    favorite_skill_ids: [],
+  }), (error) => error.code === "E_WEB_PREFERENCES_BODY_INVALID");
+  assert.equal(writes.length, 0, "spoofed/malformed bodies must not reach the writer");
+});
+
 test("preference updates reject duplicate/excess defaults and stale revisions", async () => {
   const { invoke, writes } = fixture();
   const put = (revision, defaults) => invoke("PUT", {
@@ -126,6 +143,50 @@ test("preference updates reject duplicate/excess defaults and stale revisions", 
   assert.equal(writes.length, 0);
   await put(1, ["known/skill"]);
   await assert.rejects(put(1, ["known/skill"]), (error) => error.code === "E_WEB_PREFERENCES_CONFLICT" && error.status === 409);
+});
+
+test("removing defaults/favorites does not require current-release authorization", async () => {
+  let releaseChecks = 0;
+  let record = {
+    revision: 1,
+    favorite_skill_ids: ["known/skill"],
+    default_skill_ids: ["retired/skill"],
+    updated_at: "2026-11-03T00:00:00.000Z",
+  };
+  const routes = buildSkillPreferenceRoutes({
+    bounds: { maxResponseBytes: 64_000, requestTimeoutMs: 2_000, maxConcurrentRequests: 4 },
+    reader: {
+      async resolveCaller() { return { subject: "user-a" }; },
+      async readAsCaller(_caller, table) {
+        if (table === "workspace_memberships") return [{ workspace_id: WS, subject: "user-a", role: "owner", active: true }];
+        if (table === "skill_preferences") return [record];
+        return [];
+      },
+    },
+    store: {
+      async update(input) {
+        record = { revision: input.expectedRevision + 1, favorite_skill_ids: [...input.favorites], default_skill_ids: [...input.defaults], updated_at: "2026-11-04T00:00:00.000Z" };
+        return record;
+      },
+    },
+    catalogIds: () => { throw new Error("catalog must not be consulted for removal-only updates"); },
+    isPublicPolicy: () => false,
+    authorizeRelease: async () => {
+      releaseChecks += 1;
+      throw { status: 403, code: "E_WEB_RELEASE_FORBIDDEN", message: "release inaccessible" };
+    },
+  });
+  const route = routes[0];
+  const result = await route.handle({
+    method: "PUT",
+    pathname: "/api/skill-preferences",
+    query: new URLSearchParams(),
+    request: request("PUT", { workspace_id: WS, expected_revision: 1, favorite_skill_ids: [], default_skill_ids: [] }),
+    params: {},
+  });
+  assert.deepEqual(result.default_skill_ids, []);
+  assert.deepEqual(result.favorite_skill_ids, []);
+  assert.equal(releaseChecks, 0, "inaccessible release must not block removal-only updates");
 });
 
 test("anonymous sessions are rejected before workspace or preference reads", async () => {

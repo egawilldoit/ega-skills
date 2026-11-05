@@ -1082,6 +1082,7 @@ describe("response size, deadline and concurrency are bounded", () => {
       "security-denies",
       "skill-content",
       "skill-detail",
+      "skill-preferences",
       "skills",
       "source-editor-capability",
       "source-github-import",
@@ -1095,9 +1096,11 @@ describe("response size, deadline and concurrency are bounded", () => {
       "workspace-members",
       "workspace-quotas",
     ]);
-    const writes = new Set(["source-github-import", "source-proposal-preview", "source-proposal-submit", "source-skill-upload"]);
+    const postOnly = new Set(["source-github-import", "source-proposal-preview", "source-proposal-submit", "source-skill-upload"]);
+    const readWrite = new Map([["skill-preferences", ["GET", "PUT"]]]);
     for (const route of REGISTERED_ROUTES) {
-      assert.deepEqual(route.methods, writes.has(route.id) ? ["POST"] : ["GET"], `${route.id} has unexpected methods`);
+      const expected = readWrite.get(route.id) ?? (postOnly.has(route.id) ? ["POST"] : ["GET"]);
+      assert.deepEqual(route.methods, expected, `${route.id} has unexpected methods`);
       assert.equal(typeof route.handle, "function");
     }
   });
