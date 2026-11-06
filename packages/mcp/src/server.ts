@@ -48,6 +48,7 @@ import {
   GET_CONTENT_OUTPUT_SCHEMA,
   runGetContentTool,
 } from "./get-content.js";
+import { MCP_USAGE_INSTRUCTIONS } from "./usage.js";
 
 /**
  * Frozen structured error carried by every tool error result (SPEC-006
@@ -579,7 +580,7 @@ const BOUND_HANDLERS: Readonly<
 export function createMcpServer(): McpServer {
   const server = new McpServer(
     { name: "ega-skills", version: "2.0.1" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: MCP_USAGE_INSTRUCTIONS },
   );
 
   const resolveInput = toolSchema({
@@ -626,7 +627,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "resolve",
     {
-      description: "Resolve a task to the best local skill set (SPEC-006 §5.1.5)",
+      description: "Select skills for a task; returns ids and version_hash.",
       inputSchema: resolveInput,
       outputSchema: RESOLVE_OUTPUT_SCHEMA,
     },
@@ -635,7 +636,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "search",
     {
-      description: "Search project-visible skill L0 metadata by query",
+      description: "Discover skills by keyword; returns triggers, anti_triggers, version_hash.",
       inputSchema: searchInput,
       outputSchema: SEARCH_OUTPUT_SCHEMA,
     },
@@ -644,7 +645,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "inspect",
     {
-      description: "Inspect one canonical skill version's L0 metadata",
+      description: "Inspect one version's metadata; no L1/L2 bodies.",
       inputSchema: inspectInput,
       outputSchema: inspectOutputSchema,
     },
@@ -653,7 +654,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "get_content",
     {
-      description: "Return exact canonical L1/L2 content for a version",
+      description: "Exact pinned L1/L2 content by version_hash.",
       inputSchema: getContentInput,
       outputSchema: GET_CONTENT_OUTPUT_SCHEMA,
     },

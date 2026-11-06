@@ -91,6 +91,23 @@ test("MCP skeleton: initialize negotiates and lists exactly the four V1 tools", 
     clientInfo: { name: "skeleton-test", version: "0.0.0" },
   });
   assert.ok(init.result?.serverInfo, "initialize returns serverInfo");
+  assert.equal(
+    typeof init.result.instructions,
+    "string",
+    "initialize publishes the four-tool usage guidance",
+  );
+  for (const signal of [
+    "triggers",
+    "anti_triggers",
+    "version_hash",
+    "effective_release_digest",
+    "never assume discovery executed a skill",
+  ]) {
+    assert.ok(
+      init.result.instructions.includes(signal),
+      `usage guidance names ${signal}`,
+    );
+  }
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
   const list = await request(2, "tools/list", {});
   assert.deepEqual(

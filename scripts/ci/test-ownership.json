@@ -40,6 +40,7 @@
     "tests/integration/client-opencode/remote-acceptance.test.mjs",
     "tests/mcp/absolute-path-detector.test.mjs",
     "tests/mcp/contract.test.mjs",
+    "tests/mcp/discovery-exact-content.test.mjs",
     "tests/mcp/get-content.test.mjs",
     "tests/mcp/hosted-auth.test.mjs",
     "tests/mcp/hosted-content-codes.test.mjs",
