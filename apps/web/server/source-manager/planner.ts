@@ -99,7 +99,7 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
   if (resources.some(file => !/^(?:references|scripts|assets)\//.test(file.path) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.contentBase64) || Buffer.from(file.contentBase64, 'base64').toString('base64') !== file.contentBase64)) errors.push('Resource paths or contents are invalid.');
   errors.push(...validateSourceFiles(sourceFiles));
   let registry: { sources: Array<{ skill: string; mode: string }> };
-  let cases: Array<Record<string, string>>;
+  let cases: Array<Record<string, string | null>>;
   try {
     registry = JSON.parse(snapshot[registryPath] ?? '');
     cases = JSON.parse(snapshot[casesPath] ?? '');
@@ -259,7 +259,7 @@ export function planSkillRemoval(snapshot: SourceSnapshot, input: SkillRemoval):
   if (!validSkillName(input.name, 'ega-skills')) errors.push('Invalid skill name.');
   if (input.confirmation !== input.name) errors.push('Type the exact skill name to confirm removal.');
   let registry: { sources: Array<{ skill: string; mode: string }> };
-  let cases: Array<Record<string, string>>;
+  let cases: Array<Record<string, string | null>>;
   try {
     registry = JSON.parse(snapshot[registryPath] ?? '');
     cases = JSON.parse(snapshot[casesPath] ?? '');
