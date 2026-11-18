@@ -17,6 +17,9 @@ Current state:
   FTS5 search, deterministic router, project config/locks, four-tool MCP,
   `init` → `lock` → `resolve` CLI workflow, Codex + OpenCode E2E.
 - **Contract:** the V1 behavioral contract is frozen under `docs/specs/`.
+- **Active catalog:** being reset to an empty catalog. Zero skills are active;
+  immutable release history and rollback references are retained. See
+  [Clean catalog reset](docs/operations/CLEAN-CATALOG-RESET.md).
 
 ## Problem
 
@@ -241,6 +244,19 @@ Presentation grouping lives in `catalog/presentation.yaml`, which is
 **non-authoritative**: it carries no triggers, domains, platforms,
 anti-triggers, or aliases, and the loader rejects any of those keys. Changing
 the catalog layout cannot change routing or Hub identity.
+
+In the reset model, an empty catalog is a valid state: `catalog`,
+`catalog --json`, and `catalog --search` report zero skills rather than failing,
+and `catalog:check` still fails if the committed generated file is stale. When the catalog is
+empty, the generated document is regenerated from that same empty release —
+never hand-edited. The reset sequence, acceptance matrix, and current blockers
+are in [Clean catalog reset](docs/operations/CLEAN-CATALOG-RESET.md).
+
+Publication is unchanged: there is no manual publisher. A reviewed PR on
+`main`, GitHub CI's `ci-gate`, and the Vercel Git production build move the
+canonical alias; `verify-release.yml` checks the live release and recovers the
+previous deployment if it fails. See
+[automatic release](docs/operations/AUTOMATIC-RELEASE.md).
 
 See [`docs/DISCOVERY-FINDINGS.md`](docs/DISCOVERY-FINDINGS.md) for measured
 discovery quality and the routing-metadata work that belongs in the separate

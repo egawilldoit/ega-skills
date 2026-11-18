@@ -8,8 +8,10 @@
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md) and the frozen behavior contracts in
   [docs/specs/](docs/specs/). The actual CI is [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [CI ownership and maintenance](docs/operations/ci-optimization.md) explains
-  selection, coverage, measurements, and rollback. Release procedures remain
-  authoritative in the
+  selection, coverage, measurements, and rollback. The clean-catalog reset
+  operating model, cross-repository sequence, acceptance matrix, and current
+  blockers are in [CLEAN-CATALOG-RESET.md](docs/operations/CLEAN-CATALOG-RESET.md).
+  Release procedures remain authoritative in the
   [automatic release runbook](docs/operations/AUTOMATIC-RELEASE.md),
   [release runbook](docs/operations/RELEASE-2.0-RUNBOOK.md),
   [historical Web Console preparation plan](docs/operations/web-console-production-promotion.md)
@@ -32,6 +34,13 @@
   a pinned fixture; planner output and Python candidate validation remain separate.
   Explicit `.rls.mjs`, React/Vitest, fixture-dependent and Python checks have
   separate execution contracts; scoped Node tests do not replace them.
+- Clean-catalog regressions live in
+  `tests/ci/clean-catalog-regression.test.mjs` and
+  `tests/release/clean-release-lifecycle.test.mjs`. They use temporary fixtures
+  so they stay valid whether the active catalog is empty or later grows. Two
+  assertions document reset blockers (empty presentation validation and empty
+  release verification); see CLEAN-CATALOG-RESET.md before treating a local
+  failure as a regression in this branch.
 
 ## Commands
 
