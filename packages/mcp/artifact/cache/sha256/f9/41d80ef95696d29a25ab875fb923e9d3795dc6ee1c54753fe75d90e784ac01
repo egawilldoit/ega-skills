@@ -1,9 +1,0 @@
-schema_version: 1
-aliases: [subtract-before-you-add]
-triggers:
-  - "subtract before you add"
-anti_triggers:
-  - "add a feature"
-  - "new feature"
-  - "implement this"
-  - "add this"

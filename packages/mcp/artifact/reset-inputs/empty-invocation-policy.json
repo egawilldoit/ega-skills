@@ -1,0 +1,10 @@
+{
+  "digest": "sha256:8f84a13431dc108817bb32d654173cd4f3793051fd760d4da97fc4499b2eb80b",
+  "object_type": "ega.invocation-policy",
+  "payload": {
+    "profile": "ega-invocation-policy-v1",
+    "sources": [],
+    "bindings": []
+  },
+  "schema_version": 1
+}

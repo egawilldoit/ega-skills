@@ -1,5 +1,5 @@
 {
-  "digest": "sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297",
+  "digest": "sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266",
   "object_type": "ega.hub-release",
   "payload": {
     "adopted_sources": [
@@ -9,6 +9,13 @@
         "source_config_digest": "sha256:4bf73560f72b8c9b58f676f0102447b7a6bda4ba38b28ef9f1cda029531daea1",
         "source_id": "egawilldoit-skills",
         "vendored_snapshot_digest": "sha256:5ab265f037cada366a071c3456127c9a7b78228e4811d8cacb45447d7eb63342"
+      },
+      {
+        "resolved_commit": "7de017b3fc9d50c03cf3ecb98fb71e0ca65a78bd",
+        "selected_skill_tree_digest": "sha256:7de0901c257758c455d618bd69aa6ce9b51f7ba5fd8b06c17b75e48a0c76b4d6",
+        "source_config_digest": "sha256:261b662dbca699e762244f1840522a6e17be130bd80e27f9873b199f9656dbd9",
+        "source_id": "t3dotgg-tstack",
+        "vendored_snapshot_digest": "sha256:baee615c166889a7a6743cbff0eb4cf24e9f37cbe621d1fd69723de4ce599360"
       }
     ],
     "alias_map_digest": "sha256:2c538f9092878cdc395d5548de2ea5ea043166951ac228f4dfcd721d85f7f49e",
@@ -18,18 +25,18 @@
       "import_failures": 0
     },
     "contracts": {
-      "build_contract": "C1",
+      "build_contract": "C2",
       "hashing": 1,
       "hub_contract": "A1",
       "importer_build": 1,
-      "router": 1,
+      "router": 2,
       "schema": "v1.0.1",
       "search": 1,
       "token_estimator": "ega-o200k-v1",
       "update_contract": "B1"
     },
     "hub_id": "personal",
-    "search_index_input_digest": "sha256:8a354e805009b0597388855898215768fe75298051d499b941ee05f084642540",
+    "search_index_input_digest": "sha256:d74ed537f98095a4dba9df9869f167c0932120c71de3f159a994868ad662fdee",
     "skill_versions": {
       "anthropic/academy-guide": "sha256:650d71eb50374c950157d727a317d5cd71d58dcc683ff72a441159cc5256a5d2",
       "anthropic/algorithmic-art": "sha256:a495a2da00d06628db17f9962ee7114035fcc6969132a0422a10ead0ca739c1a",
@@ -139,6 +146,15 @@
       "mattpocock/wayfinder": "sha256:6596ee6ad94133449b4c91474234e1b863209e8cf18b50269de0dfe0e2de8177",
       "mattpocock/wizard": "sha256:a0db405d4a299f296c0ed6da4ad700822f02285cdda59d4f0770a95bf86208b6",
       "mattpocock/writing-for-agents": "sha256:5296e833a83f9775e7abc0c81ec21e94e63ad4860ba94d7ba71f585f80d1cd53",
+      "t3dotgg/babysit-pr": "sha256:e04074fafff80b5b89d8713d46278f74e310e71d936af7bffffa7b8ed3862370",
+      "t3dotgg/council": "sha256:3886b94694c14043eb69ae549026fb58c03b2df5f2f02078fb130fffa092424e",
+      "t3dotgg/file-pr": "sha256:f122b9983ba8d71d5904eecdfaec2087b340f5931006cd63892bf1913e3d576c",
+      "t3dotgg/full-send": "sha256:c665966575ce8896ce9cfe87f9a9962e60b5ae5c3e15f5915d026d97de1796ef",
+      "t3dotgg/full-stop": "sha256:c1be4648ab8b5bc2e4659174aa6f109d5af27718e901e5e8ef5e1821be59edc5",
+      "t3dotgg/leaving-pr-comments": "sha256:cb6bf03e50106ae957670029043649fd87c9a29c529104f2bb03cf0212cb4dbf",
+      "t3dotgg/modernize": "sha256:43f822037b0b0e624274e3dc1127fbb4a269ca920a8ac5e8409f151827ea7958",
+      "t3dotgg/sol-loop": "sha256:ae8fb31ef38a9e30bdca3381c91017aed680f1e319fe9fb2ae2f1fe23cf30d5b",
+      "t3dotgg/takeover": "sha256:39a467c35ec9dfc3937f53e2d4f1c2d23b6a6ff0c3aafc397fef9d9e307cae40",
       "vercel/composition-patterns": "sha256:bb7b0f9e6c022f9e38efcb7d2533059a7a3a584c13235561ae443d0e8312f711",
       "vercel/deploy-to-vercel": "sha256:9b55712ae84cf97ac165e059d933622850864c6e88520971200e31f130485b45",
       "vercel/react-best-practices": "sha256:31856c5e77fb6ef39a8d44195453e0e3ad53bcb77827c16af9c0242f7f5c46bc",
@@ -149,7 +165,9 @@
       "vercel/web-design-guidelines": "sha256:fb18cfe95a3067e333ee4877850e063d2e30095395df7021bdad22d684ed10cd",
       "vercel/writing-guidelines": "sha256:a8eb83093df92886215b483f576f51c068dad41e30cdcb655f9dba437012ce47"
     },
-    "token_artifact_digest": "sha256:20cdf17e22b028da83b8fb7254202a308690e97d1937b8a91cff8b7196744acb"
+    "token_artifact_digest": "sha256:d042a3f7e7147d250e1096562c89b3ea28825b503b7386ccb3013271516c5946",
+    "invocation_policy_digest": "sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6",
+    "invocation_profile": "ega-invocation-policy-v1"
   },
-  "schema_version": 1
+  "schema_version": 2
 }
