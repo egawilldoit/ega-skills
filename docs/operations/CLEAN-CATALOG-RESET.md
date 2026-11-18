@@ -69,7 +69,7 @@ historical baseline remains available while the active catalog is empty.
 - `scripts/ci/test-ownership.json` fails closed on discovered-test drift; new
   tests must be registered there.
 
-## E2E acceptance matrix — final head `44d2a2c`
+## E2E acceptance matrix — final integration head
 
 Evidence labels: **local** (VM run), **hosted** (GitHub Actions PR #203),
 **mocked HTTP** (isolated origin/Vercel test servers), **not production**.
