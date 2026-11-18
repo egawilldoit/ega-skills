@@ -122,9 +122,11 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
     if (typeof value !== 'string' || !value.trim()) errors.push(`Trigger case ${key} must be an existing skill name or null.`);
     else if (!existingNames.has(value)) errors.push('Trigger case neighbors must be existing source skills or null.');
   }
-  for (const key of ['negative', 'collision'] as const) {
-    if (typeof input.cases[key] === 'string' && input.cases[key].trim().split(/\s+/).length < 3) {
-      errors.push(`Trigger case ${key} must contain at least three meaningful words.`);
+  // With no competing skill the example itself must carry the meaning; a
+  // named-neighbor case keeps its existing, shorter contract.
+  for (const [key, neighborKey] of [['negative', 'negative_expected'], ['collision', 'collision_expected']] as const) {
+    if (input.cases[neighborKey] === null && typeof input.cases[key] === 'string' && input.cases[key].trim().split(/\s+/).length < 3) {
+      errors.push(`Trigger case ${key} must contain at least three meaningful words when no competing skill exists.`);
     }
   }
   const metadata = snapshot[metadataPath];
