@@ -35,6 +35,7 @@
     "tests/hashing/identities.test.mjs",
     "tests/hashing/manifest.test.mjs",
     "tests/hosted/bootstrap-catalog.test.mjs",
+    "tests/integration/catalog-reset-lifecycle.test.mjs",
     "tests/integration/client-codex/codex-smoke.test.mjs",
     "tests/integration/client-codex/remote-acceptance.test.mjs",
     "tests/integration/client-opencode/opencode-smoke.test.mjs",

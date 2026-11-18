@@ -22,9 +22,32 @@ export const HISTORICAL_BASE = "f76f3a674069fde70e082ff73130b71d33a63c0d";
 let cachedRoot = null;
 let cachedArtifact = null;
 
+/**
+ * Fail explicitly when the pinned historical commit is absent. A shallow or
+ * partial checkout must never silently substitute current HEAD or skip tests.
+ */
+function requireHistoricalCommit() {
+  let type = null;
+  try {
+    type = execFileSync("git", ["cat-file", "-t", HISTORICAL_BASE], {
+      cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    // treated below
+  }
+  if (type !== "commit") {
+    throw new Error(
+      `Historical fixture commit ${HISTORICAL_BASE} is not available in this checkout. ` +
+      `Fetch it with 'git fetch --no-tags origin ${HISTORICAL_BASE}' or check out with fetch-depth: 0. ` +
+      `Historical contract tests are not skipped and are not rewritten to current HEAD.`,
+    );
+  }
+}
+
 /** Absolute path to an extracted copy of `packages/mcp/artifact` at BASE_SHA. */
 export function historicalArtifact() {
   if (cachedArtifact !== null) return cachedArtifact;
+  requireHistoricalCommit();
   const root = mkdtempSync(join(tmpdir(), "ega-historical-artifact-"));
   execFileSync(
     "bash",

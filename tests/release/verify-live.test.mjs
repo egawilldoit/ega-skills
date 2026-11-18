@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { ciGateState, waitForCanonical } from "../../scripts/release/verify-live.mjs";
+import { ciGateState, verifyCatalog, waitForCanonical } from "../../scripts/release/verify-live.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SCRIPT = join(REPO_ROOT, "scripts/release/verify-live.mjs");
@@ -90,13 +90,26 @@ function makeCatalog({ count = 126, tstackCount = 9 } = {}) {
   return { dir, manifestPath, packagePath, versions, skills: Object.entries(versions) };
 }
 
-function startOrigin({ expectedDigest, versions, failSkill = null, sse = false, authFailure = false, token = "test-token" }) {
+function startOrigin({
+  expectedDigest,
+  versions,
+  failSkill = null,
+  sse = false,
+  authFailure = false,
+  token = "test-token",
+  searchResults = [{ skill_id: "t3dotgg/skill-0" }],
+  tools = TOOL_NAMES,
+  failContent = false,
+}) {
   const state = {
     readyDigest: expectedDigest,
     mcpCalls: [],
     authFailure,
     sse,
     failSkill,
+    searchResults,
+    tools,
+    failContent,
   };
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -128,7 +141,7 @@ function startOrigin({ expectedDigest, versions, failSkill = null, sse = false, 
       }
       let result;
       if (message.method === "tools/list") {
-        result = { tools: TOOL_NAMES.map((name) => ({ name, description: name })) };
+        result = { tools: state.tools.map((name) => ({ name, description: name })) };
       } else if (message.method === "tools/call" && message.params?.name === "inspect") {
         const args = message.params.arguments ?? {};
         if (state.failSkill !== null && args.skill_id === state.failSkill) {
@@ -149,21 +162,28 @@ function startOrigin({ expectedDigest, versions, failSkill = null, sse = false, 
         }
       } else if (message.method === "tools/call" && message.params?.name === "get_content") {
         const args = message.params.arguments ?? {};
-        result = {
-          content: [{ type: "text", text: `content ${args.skill_id}` }],
-          structuredContent: {
-            skill_id: args.skill_id,
-            version_hash: versions[args.skill_id],
-            level: "L2",
-            content: `L2 body for ${args.skill_id}`,
-            effective_release_digest: state.readyDigest,
-          },
-          isError: false,
-        };
+        if (state.failContent) {
+          result = {
+            content: [{ type: "text", text: JSON.stringify({ error: { code: "E_CONTENT_NOT_FOUND", message: "missing L2 content" } }) }],
+            isError: true,
+          };
+        } else {
+          result = {
+            content: [{ type: "text", text: `content ${args.skill_id}` }],
+            structuredContent: {
+              skill_id: args.skill_id,
+              version_hash: versions[args.skill_id],
+              level: "L2",
+              content: `L2 body for ${args.skill_id}`,
+              effective_release_digest: state.readyDigest,
+            },
+            isError: false,
+          };
+        }
       } else if (message.method === "tools/call" && message.params?.name === "search") {
         result = {
           content: [{ type: "text", text: "search results" }],
-          structuredContent: { results: [{ skill_id: "t3dotgg/skill-0" }], effective_release_digest: state.readyDigest },
+          structuredContent: { results: state.searchResults, effective_release_digest: state.readyDigest },
           isError: false,
         };
       } else {
@@ -553,4 +573,169 @@ test("MCP authentication failure exits 2, not a skip", async (t) => {
     overrides: { EGA_VERIFY_DEPLOYMENT_URL: "" },
   }));
   assert.equal(result.code, 2, result.stderr);
+});
+
+// --- direct verifyCatalog() coverage for the three catalog states ------------
+
+function expectedEmpty(overrides = {}) {
+  return { digest: digest("a"), snapshotRows: 0, skillVersions: {}, skills: [], ...overrides };
+}
+
+async function withMcp(originOptions, run) {
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: {}, ...originOptions });
+  const port = await listen(origin.server);
+  try {
+    return await run(`http://127.0.0.1:${port}`, origin.state);
+  } finally {
+    await close(origin.server);
+  }
+}
+
+function callVerify(origin, expected, overrides = {}) {
+  return verifyCatalog({ origin, token: "test-token", expected, timeoutMs: 5_000, ...overrides });
+}
+
+async function assertRejectsWith(run, pattern) {
+  let failure = null;
+  try {
+    await run();
+  } catch (error) {
+    failure = error;
+  }
+  assert.ok(failure, "expected verification to fail");
+  assert.match(String(failure.message), pattern);
+}
+
+test("V1: empty manifest with an empty search verifies successfully", async () => {
+  await withMcp({ searchResults: [] }, async (origin) => {
+    const result = await callVerify(origin, expectedEmpty());
+    assert.equal(result.inspected, 0);
+    assert.equal(result.search_result_count, 0);
+    assert.deepEqual(result.tstack, []);
+    assert.ok(result.checks.some((check) => check.name === "search_empty" && check.ok));
+  });
+});
+
+test("V2: empty manifest with an unexpected search result fails", async () => {
+  await withMcp({ searchResults: [{ skill_id: "t3dotgg/skill-0" }] }, async (origin) => {
+    await assertRejectsWith(() => callVerify(origin, expectedEmpty()), /expected exactly 0/u);
+  });
+});
+
+test("V3: empty manifest with a missing MCP tool fails", async () => {
+  await withMcp({ searchResults: [], tools: TOOL_NAMES.filter((name) => name !== "search") }, async (origin) => {
+    await assertRejectsWith(() => callVerify(origin, expectedEmpty()), /expected exactly/u);
+  });
+});
+
+test("V4: empty manifest with a mismatched release digest fails", async () => {
+  await withMcp({ expectedDigest: digest("b"), searchResults: [] }, async (origin) => {
+    await assertRejectsWith(() => callVerify(origin, expectedEmpty()), /release_digest/u);
+  });
+});
+
+test("V5: empty manifest with authentication failure fails closed", async () => {
+  await withMcp({ searchResults: [], authFailure: true }, async (origin) => {
+    await assertRejectsWith(() => callVerify(origin, expectedEmpty()), /authentication failed/u);
+  });
+});
+
+test("V6: empty release performs zero inspect or content operations", async () => {
+  await withMcp({ searchResults: [] }, async (origin, state) => {
+    await callVerify(origin, expectedEmpty());
+    const calls = state.mcpCalls.map((body) => JSON.parse(body)).filter((body) => body.method === "tools/call");
+    assert.deepEqual(calls.map((body) => body.params.name), ["search"]);
+    assert.ok(origin);
+  });
+});
+
+test("V7: one non-TStack skill with pinned content and discovery verifies", async () => {
+  const versions = { "egawilldoit/first-skill": digest("1") };
+  await withMcp({ versions, searchResults: [{ skill_id: "egawilldoit/first-skill" }] }, async (origin) => {
+    const result = await callVerify(origin, expectedEmpty({ digest: digest("a"), snapshotRows: 1, skillVersions: versions, skills: Object.entries(versions) }));
+    assert.equal(result.inspected, 1);
+    assert.equal(result.tstack.length, 1);
+    assert.equal(result.tstack[0].skill_id, "egawilldoit/first-skill");
+    assert.ok(result.checks.some((check) => check.name === "released_get_content_l2" && check.ok));
+  });
+});
+
+test("V8: one non-TStack skill with missing L2 content fails", async () => {
+  const versions = { "egawilldoit/first-skill": digest("1") };
+  await withMcp({ versions, searchResults: [{ skill_id: "egawilldoit/first-skill" }], failContent: true }, async (origin) => {
+    await assertRejectsWith(
+      () => callVerify(origin, expectedEmpty({ snapshotRows: 1, skillVersions: versions, skills: Object.entries(versions) })),
+      /missing L2 content/u,
+    );
+  });
+});
+
+test("V9: populated 126-skill fixture still verifies directly", async () => {
+  const catalog = makeCatalog();
+  await withMcp({ versions: catalog.versions }, async (origin) => {
+    const result = await callVerify(origin, {
+      digest: digest("a"),
+      snapshotRows: 126,
+      skillVersions: catalog.versions,
+      skills: catalog.skills,
+    });
+    assert.equal(result.inspected, 126);
+    assert.equal(result.tstack.length, 9);
+  });
+});
+
+test("V10: TStack content regression still verifies directly", async () => {
+  const catalog = makeCatalog({ count: 1, tstackCount: 1 });
+  await withMcp({ versions: catalog.versions, searchResults: [{ skill_id: "t3dotgg/skill-0" }] }, async (origin) => {
+    const result = await callVerify(origin, {
+      digest: digest("a"),
+      snapshotRows: 1,
+      skillVersions: catalog.versions,
+      skills: catalog.skills,
+    });
+    assert.equal(result.tstack[0].skill_id, "t3dotgg/skill-0");
+    assert.ok(result.checks.some((check) => check.name === "tstack_get_content_l2" && check.ok));
+  });
+});
+
+test("V11: a failed empty promoted release exits 4 without recovery", async (t) => {
+  const catalog = makeCatalog({ count: 0, tstackCount: 0 });
+  const tokenPath = join(catalog.dir, "token.json");
+  writeFileSync(tokenPath, JSON.stringify({ access_token: "test-token" }), { mode: 0o600 });
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: catalog.versions, searchResults: [{ skill_id: "t3dotgg/skill-0" }] });
+  const vercel = startVercel({ aliasTarget: TARGET });
+  t.after(async () => {
+    await close(origin.server);
+    await close(vercel.server);
+    rmSync(catalog.dir, { recursive: true, force: true });
+  });
+  const originPort = await listen(origin.server);
+  const vercelPort = await listen(vercel.server);
+  const result = await runCli(await baseEnv({ originPort, vercelPort, tokenPath, catalog }));
+  assert.equal(result.code, 4, `${result.stderr}\n${result.stdout}`);
+  assert.equal(parseSummary(result.stdout).exit_code, 4);
+});
+
+test("V12: full verifier entrypoint verifies an authenticated zero-skill deployment with exit 0", async (t) => {
+  const catalog = makeCatalog({ count: 0, tstackCount: 0 });
+  const tokenPath = join(catalog.dir, "token.json");
+  writeFileSync(tokenPath, JSON.stringify({ access_token: "test-token" }), { mode: 0o600 });
+  const origin = startOrigin({ expectedDigest: digest("a"), versions: catalog.versions, searchResults: [] });
+  const vercel = startVercel({ aliasTarget: TARGET });
+  t.after(async () => {
+    await close(origin.server);
+    await close(vercel.server);
+    rmSync(catalog.dir, { recursive: true, force: true });
+  });
+  const originPort = await listen(origin.server);
+  const vercelPort = await listen(vercel.server);
+  const result = await runCli(await baseEnv({ originPort, vercelPort, tokenPath, catalog }));
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
+  const summary = parseSummary(result.stdout);
+  assert.equal(summary.ok, true);
+  assert.equal(summary.skill_count, 0);
+  assert.equal(summary.inspected, 0);
+  assert.equal(summary.search_result_count, 0);
+  assert.deepEqual(summary.tstack, []);
+  assert.ok(summary.checks.some((check) => check.name === "search_empty" && check.ok));
 });

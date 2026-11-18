@@ -8,7 +8,8 @@ export interface InterfaceMetadata { displayName: string; shortDescription: stri
 export interface RoutingTags { domains: string[]; platforms: string[]; frameworks: string[]; aliases: string[] }
 export interface TriggerCase {
   direct: string; indirect: string; incomplete: string; negative: string;
-  negative_expected: string; collision: string; collision_expected: string; edge: string;
+  /** null is the explicit "no competing skill exists" sentinel. */
+  negative_expected: string | null; collision: string; collision_expected: string | null; edge: string;
 }
 export interface OriginalAdd {
   operation: 'add'; name: string; description: string; body: string;
@@ -36,6 +37,42 @@ function validateRoutingTags(tags: RoutingTags): string[] {
     if (normalized.some((value: string) => !/^[a-z0-9][a-z0-9._+-]{0,63}$/.test(value)) || new Set(normalized).size !== normalized.length) errors.push(`${field} must contain unique valid routing identifiers.`);
   }
   return errors;
+}
+
+/**
+ * Replace one generator table line only when its shape is unambiguous.
+ * Both the canonical typed empty form (`= {}` / `= []`) and the historical
+ * populated form (`= {` / `= [` on its own line) are recognized.
+ */
+function insertGeneratorEntry(text: string, emptyPattern: RegExp, openPattern: RegExp, inserted: string): string | undefined {
+  const empties = [...text.matchAll(emptyPattern)];
+  const opens = [...text.matchAll(openPattern)];
+  if (empties.length + opens.length !== 1) return undefined;
+  if (empties.length === 1) {
+    const match = empties[0]!;
+    const prefix = match[0].replace(/(\{\}|\[\])\n?$/, '');
+    const open = match[0].includes('[]') ? '[' : '{';
+    const close = open === '[' ? ']' : '}';
+    return text.slice(0, match.index) + prefix + open + '\n' + inserted + close + '\n' + text.slice(match.index + match[0].length);
+  }
+  const match = opens[0]!;
+  return text.slice(0, match.index) + match[0] + '\n' + inserted + text.slice(match.index + match[0].length);
+}
+
+/** Return a generator table to its canonical typed empty form after a removal. */
+function normalizeEmptyGenerator(text: string, kind: 'metadata' | 'provenance'): string {
+  const entry = kind === 'metadata'
+    ? /^    "(?:[^"\\]|\\.)+": \($/m
+    : /^    "(?:[^"\\]|\\.)+",$/m;
+  if (entry.test(text)) return text;
+  if (kind === 'metadata') {
+    return text
+      .replace(/^(METADATA: dict\[str, tuple\[str, str, str\]\] = )\{[^\n]*$/m, (_match, prefix: string) => `${prefix}{}`)
+      .replace(/^\}[ \t]*\n?/m, '');
+  }
+  return text
+    .replace(/^ORIGINAL(?:: list\[str\])? = \[[^\n]*$/m, () => 'ORIGINAL: list[str] = []')
+    .replace(/^\][ \t]*\n?/m, '');
 }
 
 /** Add an original skill, preserving every unrelated source file byte-for-byte. */
@@ -72,22 +109,46 @@ export function planOriginalAdd(snapshot: SourceSnapshot, input: OriginalAdd): P
   }
   if (registry.sources.some(row => row.skill === name) || cases.some(row => row.skill === name)) errors.push('Skill already exists in source metadata.');
   const existingNames = new Set(registry.sources.map(row => row.skill));
-  for (const [key, value] of Object.entries(input.cases)) {
-    if (typeof value !== 'string' || !value.trim()) errors.push(`Trigger case ${key} is required.`);
-  }
-  for (const key of ['direct', 'indirect', 'incomplete', 'negative', 'negative_expected', 'collision', 'collision_expected', 'edge'] as const) {
+  for (const key of ['direct', 'indirect', 'incomplete', 'negative', 'collision', 'edge'] as const) {
     if (typeof input.cases[key] !== 'string' || !input.cases[key].trim()) errors.push(`Trigger case ${key} is required.`);
   }
-  if (!existingNames.has(input.cases.negative_expected) || !existingNames.has(input.cases.collision_expected)) errors.push('Trigger case neighbors must be existing source skills.');
+  // A null neighbor is the explicit, validated "no competing skill exists"
+  // sentinel used by the first skill. A named neighbor must exist in the
+  // pinned source catalog; anything else (empty string, number, unknown name)
+  // is rejected rather than silently skipped.
+  for (const key of ['negative_expected', 'collision_expected'] as const) {
+    const value = input.cases[key];
+    if (value === null) continue;
+    if (typeof value !== 'string' || !value.trim()) errors.push(`Trigger case ${key} must be an existing skill name or null.`);
+    else if (!existingNames.has(value)) errors.push('Trigger case neighbors must be existing source skills or null.');
+  }
+  for (const key of ['negative', 'collision'] as const) {
+    if (typeof input.cases[key] === 'string' && input.cases[key].trim().split(/\s+/).length < 3) {
+      errors.push(`Trigger case ${key} must contain at least three meaningful words.`);
+    }
+  }
   const metadata = snapshot[metadataPath];
   const provenance = snapshot[provenancePath];
-  const metadataAnchor = 'METADATA: dict[str, tuple[str, str, str]] = {\n';
-  const originalAnchor = 'ORIGINAL = [\n';
-  if (!metadata || metadata.split(metadataAnchor).length !== 2 || !provenance || provenance.split(originalAnchor).length !== 2) errors.push('Source generator format changed; refresh and inspect the generator before proposing.');
+  if (!metadata || !provenance) errors.push('Source generator format changed; refresh and inspect the generator before proposing.');
   if (errors.length) return { changes: {}, errors: [...new Set(errors)], warnings };
   const entry = `    ${pythonString(name)}: (\n        ${pythonString(input.interface.displayName)},\n        ${pythonString(input.interface.shortDescription)},\n        ${pythonString(input.interface.prompt)},\n    ),\n`;
-  changes[metadataPath] = metadata!.replace(metadataAnchor, metadataAnchor + entry);
-  changes[provenancePath] = provenance!.replace(originalAnchor, originalAnchor + `    ${pythonString(name)},\n`);
+  const metadataChange = insertGeneratorEntry(
+    metadata!,
+    /^METADATA: dict\[str, tuple\[str, str, str\]\] = \{\}\n?/gm,
+    /^METADATA: dict\[str, tuple\[str, str, str\]\] = \{$/gm,
+    entry,
+  );
+  const provenanceChange = insertGeneratorEntry(
+    provenance!,
+    /^ORIGINAL(?:: list\[str\])? = \[\]\n?/gm,
+    /^ORIGINAL(?:: list\[str\])? = \[$/gm,
+    `    ${pythonString(name)},\n`,
+  );
+  if (metadataChange === undefined || provenanceChange === undefined) {
+    return { changes: {}, errors: ['Source generator format changed; refresh and inspect the generator before proposing.'], warnings };
+  }
+  changes[metadataPath] = metadataChange;
+  changes[provenancePath] = provenanceChange;
   registry.sources.push({ skill: name, mode: 'original' });
   registry.sources.sort((a, b) => a.skill < b.skill ? -1 : a.skill > b.skill ? 1 : 0);
   changes[registryPath] = JSON.stringify(registry, null, 2) + '\n';
@@ -237,7 +298,7 @@ export function planSkillRemoval(snapshot: SourceSnapshot, input: SkillRemoval):
   registry.sources = registry.sources.filter(row => row.skill !== input.name);
   cases = cases.filter(row => row.skill !== input.name);
   const changes: Record<string, string | null> = {
-    [metadataPath]: metadata!, [provenancePath]: classification!,
+    [metadataPath]: normalizeEmptyGenerator(metadata!, 'metadata'), [provenancePath]: normalizeEmptyGenerator(classification!, 'provenance'),
     [registryPath]: JSON.stringify(registry, null, 2) + '\n',
     [casesPath]: JSON.stringify(cases, null, 2) + '\n',
   };

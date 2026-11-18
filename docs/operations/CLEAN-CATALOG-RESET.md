@@ -69,46 +69,88 @@ historical baseline remains available while the active catalog is empty.
 - `scripts/ci/test-ownership.json` fails closed on discovered-test drift; new
   tests must be registered there.
 
-## E2E acceptance matrix
+## E2E acceptance matrix — final head `44d2a2c`
 
-| ID | Scenario | Verification | Status (base SHA `f76f3a6`) |
+Evidence labels: **local** (VM run), **hosted** (GitHub Actions PR #203),
+**mocked HTTP** (isolated origin/Vercel test servers), **not production**.
+
+| ID | Scenario | Verification | Result / evidence |
 | --- | --- | --- | --- |
-| A1 | Valid empty catalog accepted | `tests/ci/clean-catalog-regression.test.mjs`: empty presentation against an empty release | **FAIL** — hub-side blocker B1 |
-| A2 | Invalid manifests still fail | Presentation cases in `clean-catalog-regression.test.mjs` (removed-skill reference, routing keys, malformed input) plus release-manifest cases in `clean-release-lifecycle.test.mjs` (digest drift, bad version hash, row-count drift) | **PASS** |
-| A3 | Stale generated catalog fails CI | Same file: `catalog:check --check` on stale/missing/current temp outputs | **PASS** |
-| A4 | Empty release builds and validates | `tests/release/clean-release-lifecycle.test.mjs`: empty hub → `validate-artifact` → `skills=0` | **PASS** |
-| A5 | Empty discovers nothing, not a crash | Same file: release-scoped FTS search on empty artifact returns `[]` | **PASS** |
-| A6 | Add → publish → discover | Same file: add one skill to temp hub, rebuild, new digest, artifact validates, FTS finds it | **PASS** |
-| A7 | Post-promotion verification of empty release | Same file: `loadExpectedCatalog` on zero-skill manifest | **FAIL** — release-side blocker B2 |
-| A8 | Rollback identity preserved | Same file: committed `previous-hub-release.json` is present, valid, and distinct from current; package digest bound to release | **PASS** |
-| A9 | Security gates remain active | `tests/ci/classify-changes.test.mjs`, `tests/release/ci-release-path.test.mjs`, `tests/release/recover-production.test.mjs`, `tests/release/verify-live.test.mjs` | **PASS** (baseline run) |
-| A10 | Docs match behavior | This document + README/AGENTS updates | **PASS** once B1/B2 land; currently describes target state with blockers listed |
+| A1 | Valid empty catalog accepted | `tests/ci/clean-catalog-regression.test.mjs` empty presentation against an empty release | **PASS** — local + hosted |
+| A2 | Invalid manifests still fail | Same file plus `tests/release/clean-release-lifecycle.test.mjs` | **PASS** — local + hosted |
+| A3 | Stale generated catalog fails CI | Same file: `catalog:check` on stale/missing/current temp outputs | **PASS** — local + hosted |
+| A4 | Empty release builds and validates | `tests/release/clean-release-lifecycle.test.mjs`: empty hub → `validate-artifact` → `skills=0` | **PASS** — local + hosted |
+| A5 | Empty discovers nothing | Release-scoped FTS search on empty artifact returns `[]` | **PASS** — local + hosted |
+| A6 | Add → publish → discover | Same file: one skill added to a temp hub, new digest, FTS finds it | **PASS** — local + hosted |
+| A7 | Post-promotion verification of empty release | `tests/release/verify-live.test.mjs` V1–V6 and V12: `verifyCatalog()` and full CLI entrypoint | **PASS** — local, mocked HTTP |
+| A8 | Rollback identity preserved | Committed `previous-hub-release.json` present, valid, distinct; package digest bound | **PASS** — local + hosted |
+| A9 | Security gates remain active | `tests/ci/classify-changes.test.mjs`, `tests/release/ci-release-path.test.mjs`, `tests/release/verify-live.test.mjs`; hosted RLS and PostgreSQL isolation jobs | **PASS** — local + hosted |
+| A10 | Docs match behavior | This document, `REGENERATE.md`, artifact README | **PASS** — current revision |
+| A11 | First skill from an empty source catalog | `tests/web/source-manager/planner.test.mjs`, source `tests/test_trigger_audit.py`, `tests/integration/catalog-reset-lifecycle.test.mjs` | **PASS** — local |
+| A12 | Zero → one → two → one → zero | `tests/integration/catalog-reset-lifecycle.test.mjs` with `EGA_RESET_SOURCE_ROOT` pointing at source PR #20 | **PASS** — local |
+| A13 | Populated and non-TStack live verification | `verify-live.test.mjs` V7–V11 (mocked HTTP) | **PASS** — local, mocked HTTP |
 
-## Blockers and required fixes
+All required PR #203 checks pass on the final head in hosted CI run
+`44299830894` (including `ci-gate`, both Linux foundation shards, web console,
+`contract-f rls`, and real PostgreSQL web isolation). Source PR #20 checks pass
+on `e4871b9`.
 
-These are not hidden by skips. The two failing tests above are intentional
-acceptance assertions and must pass after integration.
+## Operating model
 
-| ID | Location | Observed failure | Required fix (outside this branch's ownership) |
-| --- | --- | --- | --- |
-| B1 | `packages/cli/src/catalog.ts` `validatePresentation` (~L241, L263) | `CatalogError: groups must be a non-empty sequence`; an empty `presentation.yaml` also fails the `group needs a non-empty skills sequence` check. `pnpm catalog:check` will fail once the committed presentation is empty. | Accept `favorites: []` and `groups: []` when the release has zero skills, while still rejecting unknown/stale ids and non-empty groups with empty skills when skills exist. Mirror the source-side `validate_catalog.py` empty-catalog contract. Owner: hub catalog reset / CLI agent. |
-| B2 | `scripts/release/verify-live.mjs` L141 (and L592 TStack check) | `ConfigError: hub-release.json has an empty catalog`; TStack L2 verification also requires at least one matching skill. After promotion an empty release would exit `2` (config), which never establishes a verified live release. | Treat zero skills as valid: skip per-skill inspect and TStack L2 reads when the catalog is empty, still verify digest/alias/`ci-gate`, and report `skill_count: 0` with `ok: true`. Owner: release/runtime agent. |
-| B3 | `apps/web/server/presentation.ts` ~L245 | Empty presentation payloads are rejected by the web server projection. | Web empty-state agent must accept an empty presentation and render the empty state. |
-| B4 | `tests/catalog/catalog-generator.test.mjs` | Hard-codes `EXPECTED_CATALOG_SKILLS = 126` and references removed skill ids; will fail after the artifact is emptied. | Hub catalog reset agent must update these historical assertions to the empty end state while keeping the general rendering/validation contracts. Not modified here (not owned by this branch). |
+1. **Zero-skill release verification.** `verify-live.mjs` confirms alias,
+   deployment id, readiness digest and `ci-gate` first. With `snapshot_rows=0`
+   it verifies the four authenticated MCP tools, requires `search` to return
+   exactly `[]` bound to the expected release digest, performs zero inspect and
+   zero L2 content reads, and reports `skill_count=0`, `inspected=0`,
+   `search_result_count=0` with `ok: true`. Unexpected results, missing tools,
+   auth failure or digest drift still fail closed with the original exit codes
+   and recovery contract. Populated releases keep full inspect/L2 coverage; a
+   release with no `t3dotgg/*` skills probes the first pinned manifest skill
+   and requires that skill to appear in search.
+2. **First skill.** The source catalog is empty by design. In the console, Add
+   skill remains available; with no neighbors the UI explains that no competing
+   skills exist and sends the explicit `null` sentinel for `negative_expected`
+   and `collision_expected`. The planner inserts metadata and provenance into
+   the canonical empty generator tables (`= {}` / `= []`), writes SKILL.md,
+   ega.yaml and agents/openai.yaml, and records a real trigger case. Source CI
+   validates the case: the negative and collision examples must be meaningful
+   and must not describe the target itself.
+3. **Routing expectations before competitors exist.** `null` means "no
+   competing skill exists", not "validation skipped". A named neighbor must be
+   an existing pinned source skill. `null` stays valid after a second skill is
+   added, so the first case never has to be rewritten.
+4. **Second skill.** The console restores neighbor selectors (with an explicit
+   "No competing skill" option). The planner requires named neighbors to exist
+   and rejects unknown or malformed values.
+5. **Removing the last skill.** Removal reconciles referencing trigger cases,
+   deletes the skill directory, removes the exact generator entries and returns
+   both tables to their canonical typed empty forms. Source CI must pass again.
+6. **Regenerate and validate a release.** Follow
+   [`reset-inputs/REGENERATE.md`](../../packages/mcp/artifact/reset-inputs/REGENERATE.md):
+   use `hub release preview --policy` and `hub release export`, then run
+   `pnpm generate:catalog`, `pnpm catalog:check`, `pnpm release:verify`, and
+   `node scripts/hosted/validate-artifact.mjs packages/mcp/artifact`. Never
+   hand-edit immutable artifacts.
+7. **Review vs automatic release.** These changes live in draft PRs and need
+   independent review. Only a merge to `main` triggers the native Vercel
+   production build; `ci-gate` must succeed before the canonical alias moves,
+   and `verify-release.yml` verifies and can invoke the existing recovery flow.
+   Vercel previews are not production acceptance.
+8. **Historical recovery.** The 126-skill release, the 117-skill predecessor,
+   the 858 superseded blobs and the pinned discovery report remain in Git at
+   base `f76f3a6…`. Historical contract tests read that immutable fixture from
+   Git (`tests/fixtures/historical-artifact.mjs`); if the commit is missing the
+   helper fails with an actionable fetch instruction rather than skipping.
 
-## Unverified behaviors
+## Evidence boundaries
 
-- **Real hosted promotion.** No production write, deployment, or alias move was
-  performed. `READY` was not treated as live. All hosted evidence in this repo's
-  release tests is mocked; the live production path remains unverified.
-- **Source repo CI.** The source repository was inspected read-only at its
-  in-progress reset worktree; its CI was not executed here. Step 1/2 gates must
-  be observed by the source agent and the lead.
-- **Real PostgreSQL RLS/isolation.** Not run in this branch; those jobs need a
-  service container and remain CI-only.
-- **Final integrated run.** `pnpm release:verify` and the full `pnpm test:ci`
-  were run against base `f76f3a6`, not the merged five-branch tree. The lead
-  must rerun them after integration and after B1/B2 land.
+- Implemented and tested locally: verifier, planner, source validators, zero→
+  one→two→one→zero lifecycle, artifact regeneration.
+- Tested in hosted CI: full platform required checks, source validate-head and
+  validate-merge.
+- Tested with mocked HTTP only: live verifier success/failure paths; no real
+  promotion, alias move or production database was contacted.
+- Not tested in production: by design. No deploy or publication was performed.
 
 ## References
 

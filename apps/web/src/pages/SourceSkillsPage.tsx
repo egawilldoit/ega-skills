@@ -77,8 +77,8 @@ export function SourceSkillsPage(): ReactNode {
   const [confirmation, setConfirmation] = useState('');
   const [editProvenance, setEditProvenance] = useState<Item['provenance']>('original');
   const [references, setReferences] = useState<{ path: string; content: string }[]>([]);
-  const [neighbor, setNeighbor] = useState('');
-  const [collisionNeighbor, setCollisionNeighbor] = useState('');
+  const [neighbor, setNeighbor] = useState<string | null>(null);
+  const [collisionNeighbor, setCollisionNeighbor] = useState<string | null>(null);
   const [cases, setCases] = useState<Record<CaseField, string>>(emptyCases);
   const [tags, setTags] = useState<Record<TagField, string>>(emptyTags);
   const [importOwner, setImportOwner] = useState('');
@@ -110,7 +110,7 @@ export function SourceSkillsPage(): ReactNode {
     setLoading(true); setError('');
     try {
       const data = await loadSourceIndex(client, signal);
-      if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? ''); setCollisionNeighbor(data.items[0]?.name ?? ''); }
+      if (!signal?.aborted) { setIndex(data); setNeighbor(data.items[0]?.name ?? null); setCollisionNeighbor(data.items[0]?.name ?? null); }
     } catch (cause) { if (!signal?.aborted) setError(message(cause)); }
     finally { if (!signal?.aborted) setLoading(false); }
   };
@@ -132,7 +132,7 @@ export function SourceSkillsPage(): ReactNode {
   };
   const clear = (): void => { setPreview(null); setRequest(null); setPr(null); setStatus(null); setError(''); };
   const reset = (): void => { cancelEditorRequest(); clear(); setMode('list'); setConfirmation(''); };
-  const startAdd = (): void => { cancelEditorRequest(); clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
+  const startAdd = (): void => { cancelEditorRequest(); clear(); setName(''); setNameLabel(''); setDescription(''); setBody(''); setTriggers(''); setAntiTriggers(''); setDisplayName(''); setShortDescription(''); setPrompt(''); setCases(emptyCases()); setTags(emptyTags()); setNeighbor(null); setCollisionNeighbor(null); setImported(null); setAcceptNormalization(false); setUploaded(false); setUploadKind(null); setUploadResources([]); setAcceptUpload(false); setMode('add'); };
   const startRemove = (item: Item): void => { cancelEditorRequest(); clear(); setName(item.name); setConfirmation(''); setMode('remove'); };
   const startEdit = async (item: Item, expectedSha: string | null = null): Promise<void> => {
     const generation = ++editorGenerationRef.current;
@@ -328,8 +328,10 @@ export function SourceSkillsPage(): ReactNode {
           <p><label>Example prompt (include ${name || 'skill-name'}) <input value={prompt} placeholder={sourceInterfaceDefaults(name, description).prompt} onChange={event => setPrompt(event.target.value)} /></label></p></details>
           <h4>Routing examples</h4><p>Give realistic requests for this skill and for nearby skills. The source catalog checks these examples when the PR runs.</p>
           {(Object.keys(caseLabels) as CaseField[]).map(field => <p key={field}><label>{caseLabels[field]}<br /><textarea value={cases[field]} onChange={event => { const value = event.target.value; setCases(current => ({ ...current, [field]: value })); }} /></label></p>)}
-          <p><label>Expected skill for the other request <select value={neighbor} onChange={event => setNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
-          <p><label>Expected skill for the similar request <select value={collisionNeighbor} onChange={event => setCollisionNeighbor(event.target.value)}>{index?.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
+          {index?.items.length ? <>
+            <p><label>Expected skill for the other request <select value={neighbor ?? ''} onChange={event => setNeighbor(event.target.value || null)}><option value="">No competing skill</option>{index.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
+            <p><label>Expected skill for the similar request <select value={collisionNeighbor ?? ''} onChange={event => setCollisionNeighbor(event.target.value || null)}><option value="">No competing skill</option>{index.items.map(item => <option key={item.name}>{item.name}</option>)}</select></label></p>
+          </> : <p>No competing skills yet. The negative and similar-request examples use the explicit "no matching skill" expectation; the source validators still check that those examples are meaningful.</p>}
         </> : null}
       </>}
       <p><button disabled={loading || (!!imported && !acceptNormalization) || (uploaded && !acceptUpload)} onClick={() => void makePreview()}>Review changes</button>{' '}<button onClick={reset}>Cancel</button></p>
