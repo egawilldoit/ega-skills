@@ -1,7 +1,7 @@
 # Validation evidence — empty-catalog reset
 
 Base SHA: `f76f3a674069fde70e082ff73130b71d33a63c0d`
-Final HEAD: see the second commit on `cleanup/hub-catalog-reset`.
+Final HEAD: tip of `cleanup/hub-catalog-reset` at handoff (exact SHA in the handoff report).
 Worktree state at handoff: clean.
 
 | Check | Status | Evidence |
