@@ -152,6 +152,48 @@ function assertSnakeContainer(output) {
   assert.ok(!("projectPath" in fp), "no camelCase leakage in fingerprint");
 }
 
+// --- Empty-catalog runtime (supported state) -------------------------------------
+//
+// A genuinely empty catalog is a supported runtime state, not a failure. These
+// cases pin the controlled behavior an empty active release must exhibit:
+// resolve succeeds with zero selected skills (no error), and a reference to a
+// removed skill is a controlled not-found rather than a crash. Temporary
+// fixtures only — no fake skills are committed.
+
+test("empty-catalog runtime: resolve returns no selected skills (controlled, not an error)", async (t) => {
+  const { home } = await setupHome(t, []);
+  const project = await makeProject();
+  const result = await runResolveTool({ task: "build a widget" }, ctxFor(project, home));
+  assert.equal(result.isError, false);
+  assertSnakeContainer(result.structuredContent);
+  assert.deepEqual(result.structuredContent.explicit, []);
+  assert.deepEqual(result.structuredContent.selected, []);
+  assert.deepEqual(result.structuredContent.candidates, []);
+  assert.deepEqual(result.structuredContent.rejected, []);
+  assert.equal(result.structuredContent.confidence, "LOW");
+  assert.equal(result.structuredContent.automatic_selected_tokens, 0);
+  assert.equal(result.structuredContent.explicit_selected_tokens, 0);
+  assert.equal(result.structuredContent.lock_status, "UNLOCKED");
+  assert.equal(result.structuredContent.router_contract_version, 1);
+  assert.match(result.content[0].text, /Resolve selected 0 skill\(s\)/);
+});
+
+test("empty-catalog runtime: explicit reference to a removed skill is a controlled E_SKILL_NOT_FOUND", async (t) => {
+  const { home } = await setupHome(t, []);
+  const project = await makeProject();
+  await assert.rejects(
+    runResolveTool(
+      { task: "build a widget", explicit_skills: ["ega/removed"] },
+      ctxFor(project, home),
+    ),
+    (error) => {
+      assert.ok(error instanceof McpContextError, `expected McpContextError, got ${error}`);
+      assert.equal(error.code, "E_SKILL_NOT_FOUND");
+      return true;
+    },
+  );
+});
+
 // --- Behavior --------------------------------------------------------------------
 
 test("resolve: explicit skill resolves with the exact snake_case container", async (t) => {
