@@ -221,8 +221,13 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && github.base_ref == 'release/2.0' && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'full') }}
         run: exit 1
 
+      # Legacy contract tests extract the immutable historical artifact from
+      # Git history (tests/fixtures/historical-artifact.mjs); a shallow merge
+      # checkout does not contain those objects.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node 24
         uses: actions/setup-node@v6
@@ -458,8 +463,11 @@ jobs:
         os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'release/2.0') || (github.event_name == 'push' && github.ref == 'refs/heads/release/2.0')) && '["ubuntu-latest","windows-2022"]' || '["ubuntu-latest"]') }}
 
     steps:
+      # Historical artifact fixture tests need the full object history.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node 24
         uses: actions/setup-node@v6
