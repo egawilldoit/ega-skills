@@ -1,3 +1,4 @@
+import { historicalArtifact, historicalPresentation, historicalGeneratedCatalog } from "../fixtures/historical-artifact.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -21,9 +22,9 @@ import {
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
-const ARTIFACT = join(ROOT, "packages/mcp/artifact");
-const PRESENTATION = join(ROOT, "catalog/presentation.yaml");
-const GENERATED = join(ROOT, "docs/generated/SKILL-CATALOG.md");
+const ARTIFACT = historicalArtifact();
+const PRESENTATION = historicalPresentation();
+const GENERATED = historicalGeneratedCatalog();
 const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
 
 /**
@@ -153,7 +154,7 @@ test("terminal output truncates over-long labels instead of breaking alignment",
 test("an explicit empty --search reports no matches instead of dumping the catalog", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ["packages/cli/bin/ega-skills.mjs", "catalog", "--search", "", "--json"],
+    ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION, "--search", "", "--json"],
     { cwd: ROOT, env: ENV },
   );
   const parsed = JSON.parse(stdout);
@@ -462,11 +463,11 @@ test("committed catalog is not stale (pnpm catalog:check)", async () => {
 // --- CLI surface ---------------------------------------------------------
 
 test("cli catalog output is stable and non-empty", async () => {
-  const first = await execFileAsync(process.execPath, ["packages/cli/bin/ega-skills.mjs", "catalog"], {
+  const first = await execFileAsync(process.execPath, ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION], {
     cwd: ROOT,
     env: ENV,
   });
-  const second = await execFileAsync(process.execPath, ["packages/cli/bin/ega-skills.mjs", "catalog"], {
+  const second = await execFileAsync(process.execPath, ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION], {
     cwd: ROOT,
     env: ENV,
   });
@@ -482,7 +483,7 @@ test("cli catalog output is stable and non-empty", async () => {
 test("cli catalog --json is valid JSON with release identity", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ["packages/cli/bin/ega-skills.mjs", "catalog", "--json"],
+    ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION, "--json"],
     { cwd: ROOT, env: ENV },
   );
   const parsed = JSON.parse(stdout);
@@ -495,7 +496,7 @@ test("cli catalog --json is valid JSON with release identity", async () => {
 test("cli catalog --search reuses existing search and reports groups", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ["packages/cli/bin/ega-skills.mjs", "catalog", "--search", "review PR", "--json"],
+    ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION, "--search", "review PR", "--json"],
     { cwd: ROOT, env: ENV },
   );
   const parsed = JSON.parse(stdout);

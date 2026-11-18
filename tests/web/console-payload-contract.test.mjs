@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * The real client must decode the real server's payloads.
  *
@@ -37,7 +38,7 @@ import { hasResponseDecoder } from "../../apps/web/src/api/decode.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SERVER = join(REPO_ROOT, "apps", "web", "server.mts");
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const COMMITTED_DIGEST = JSON.parse(
   readFileSync(join(ARTIFACT, "release-package.json"), "utf8"),
 ).hub_release_digest;

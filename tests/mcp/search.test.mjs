@@ -149,6 +149,48 @@ function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+// --- Empty-catalog runtime (supported state) -------------------------------------
+//
+// Search over an empty catalog must return the frozen empty container (not an
+// error), and a newly imported skill must still become discoverable in a home
+// that started empty. Temporary fixtures only — no committed fake skills.
+
+test("empty-catalog runtime: search returns a controlled empty result", async (t) => {
+  const { home } = await setupHome(t, []);
+  const project = await makeProject();
+  const result = runSearchTool({ query: "anything" }, ctxFor(project, home));
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.structuredContent, { results: [] });
+  assert.match(result.content[0].text, /Search matched 0 project-visible skill version\(s\)/);
+});
+
+test("empty-catalog runtime: importing a new skill into an empty registry is discovered", async (t) => {
+  const base = await makeTempRoot("newskill");
+  const home = join(base, "home");
+  const src = join(base, "src");
+  await mkdir(src, { recursive: true });
+  const empty = openRegistry({ env: { EGA_SKILLS_HOME: home } });
+  assert.equal(
+    empty.db.prepare("SELECT count(*) AS n FROM skills").get().n,
+    0,
+    "fixture starts with a genuinely empty catalog",
+  );
+  empty.close();
+
+  await writeSkill(src, "alpha", { description: "alpha widget builder" });
+  const registry = openRegistry({ env: { EGA_SKILLS_HOME: home } });
+  try {
+    const summary = await importSkills(registry, { path: src, namespace: "ega" });
+    assert.equal(summary.failed, 0, `fixture import must not fail: ${JSON.stringify(summary.failures)}`);
+  } finally {
+    registry.close();
+  }
+  const project = await makeProject();
+  const result = runSearchTool({ query: "alpha" }, ctxFor(project, home));
+  assert.equal(result.isError, false);
+  assert.ok(result.structuredContent.results.some((row) => row.skill_id === "ega/alpha"));
+});
+
 // --- Basic behavior ----------------------------------------------------------
 
 test("search: finds imported skill L0 metadata with the exact frozen shape", async (t) => {

@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 // Offline JWT audience-containment matrix for the hosted MCP runtime.
 //
 // The live interop harnesses prove real Supabase tokens; this suite proves the
@@ -18,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { createHostedRuntimeFromEnv } from "../../packages/mcp/dist/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ARTIFACT = join(HERE, "..", "..", "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const RESOURCE = "http://127.0.0.1/mcp";
 const ISSUER = "https://issuer.containment.test/auth/v1";
 const SUBJECT = "0af68091-aee0-4a77-89ac-f0f03cd7e67c";

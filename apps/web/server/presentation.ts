@@ -191,7 +191,18 @@ export function loadPresentationMembership(
   assertNoRoutingKeys(parsed);
 
   const rawGroups = parsed["groups"];
-  if (!Array.isArray(rawGroups) || rawGroups.length === 0) {
+  if (!Array.isArray(rawGroups)) {
+    throw new CatalogError(
+      "E_WEB_CATALOG_INCOMPLETE",
+      "The presentation metadata has no groups. Refusing to present a partial catalog.",
+      503,
+    );
+  }
+  // A genuinely empty release has no skills to group: groups=[] is a valid
+  // presentation for it, matching the CLI's zero-skill contract. A populated
+  // release with no groups is still incomplete, and every group that exists
+  // below is validated as strictly as before.
+  if (rawGroups.length === 0 && knownSkillIds.size > 0) {
     throw new CatalogError(
       "E_WEB_CATALOG_INCOMPLETE",
       "The presentation metadata has no groups. Refusing to present a partial catalog.",

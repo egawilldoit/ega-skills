@@ -20,6 +20,10 @@ function texts(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 50) return invalid();
   return value.map(item => text(item, 1024));
 }
+/** Null is the explicit "no competing skill exists" routing-test sentinel. */
+function neighbor(value: unknown): string | null {
+  return value === null ? null : text(value, 64);
+}
 function routingTags(value: unknown) {
   const tags = record(value, ['domains', 'platforms', 'frameworks', 'aliases']);
   return { domains: texts(tags.domains), platforms: texts(tags.platforms), frameworks: texts(tags.frameworks), aliases: texts(tags.aliases) };
@@ -77,7 +81,7 @@ export function parseProposalRequest(value: unknown): ProposalRequest {
       if (origin.acceptOriginalNormalization !== true || resources) return invalid();
       importSource = { location: validateImportLocation(origin.location), acceptOriginalNormalization: true };
     }
-    return { baseSha, proposal: { operation: 'add', name, description: text(p.description, 1024), body: text(p.body, 200_000), triggers: texts(p.triggers), antiTriggers: texts(p.antiTriggers), interface: { displayName: text(display.displayName, 128), shortDescription: text(display.shortDescription, 64), prompt: text(display.prompt, 1024) }, cases: { direct: text(cases.direct, 1024), indirect: text(cases.indirect, 1024), incomplete: text(cases.incomplete, 1024), negative: text(cases.negative, 1024), negative_expected: text(cases.negative_expected, 64), collision: text(cases.collision, 1024), collision_expected: text(cases.collision_expected, 64), edge: text(cases.edge, 1024) }, ...(resources ? { resources } : {}), ...(importSource ? { importSource } : {}), ...(p.routingTags !== undefined ? { routingTags: routingTags(p.routingTags) } : {}) } };
+    return { baseSha, proposal: { operation: 'add', name, description: text(p.description, 1024), body: text(p.body, 200_000), triggers: texts(p.triggers), antiTriggers: texts(p.antiTriggers), interface: { displayName: text(display.displayName, 128), shortDescription: text(display.shortDescription, 64), prompt: text(display.prompt, 1024) }, cases: { direct: text(cases.direct, 1024), indirect: text(cases.indirect, 1024), incomplete: text(cases.incomplete, 1024), negative: text(cases.negative, 1024), negative_expected: neighbor(cases.negative_expected), collision: text(cases.collision, 1024), collision_expected: neighbor(cases.collision_expected), edge: text(cases.edge, 1024) }, ...(resources ? { resources } : {}), ...(importSource ? { importSource } : {}), ...(p.routingTags !== undefined ? { routingTags: routingTags(p.routingTags) } : {}) } };
   }
   return invalid();
 }

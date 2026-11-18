@@ -1,33 +1,53 @@
-# Prepared immutable I1 release — not production acceptance
+# Prepared EMPTY-catalog release candidate — not published, not production accepted
 
-Hub `personal`; 126 skills: the original 117 unchanged, plus nine TStack skills.
+Hub `personal`; **zero active skills**. This candidate was generated locally
+from the committed empty Hub inputs in `reset-inputs/`. No skill source was
+re-imported and no external skill was added.
 
-- Semantic release: `sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`
-- Candidate: `sha256:bcc1f72e30f36deaa16fbaee5af00ab19ebf1022029a77207244d0794e902775`
-- Policy: `sha256:0e5304ee9516bce5c43b34a1f7c0747d0b8ff6f409b64628abe826a8ba9399d6`
-- SQLite: `sha256:dfe974301b67cd36aa53208c24e2bc3b2bfca3d3d306488dc0aa772e141b6896`
+- Semantic release: `sha256:92dc7eec94a6dc4c5c61039fec929dd943398d1df618d1b7720a680e16a4fa3c`
+- Candidate: `sha256:d701835e7f1046df4eee699eb5ce08d03efda09cd3905ffb16dff0be4baef30f`
+- Policy (empty): `sha256:8f84a13431dc108817bb32d654173cd4f3793051fd760d4da97fc4499b2eb80b`
+- SQLite: `sha256:e42b21b06704a86c4c242876d1a006504cb1089ccef8d0c82a13268801035d3a`
+- Preflight (READY, zero reviews): `sha256:0b6e3674ae3bd513d7bb42c495466dada7a324b85d577b429a5d9065ff8841d8`
+- Release diff: `sha256:c868a17702af58313290ecc2bed0fd6a6465d59a7c66d00c5826081cb020bb8a`
 
-Exported from the governed candidate without rebuilding source inputs. Runtime
-activation requires the complete I1 policy, candidate and approval sidecars;
-older runtimes must reject it. Validate with `scripts/hosted/validate-artifact.mjs`.
+`release-diff.json` records all 126 previously active skill ids as removed and
+no additions. `search-index-input.json` has zero rows, `token-artifact.json`
+has zero counts, `alias-map.json` has zero aliases, and there are no
+content-addressed blobs under `cache/sha256`.
 
-The release owner approved the exact nine versions and semantic identity, then
-confirmed publisher MORTAKI0 / mortaki0, Vercel user Dc0U1Ov3Zh5zeFKeic10bVWj.
-Recorded evidence: https://github.com/egawilldoit/ega-skills/issues/168#issuecomment-6471216248
-This is an operator transcription of the genuine owner decision, not a new approval.
+## Rollback identities preserved
 
-Production publication remains gated by the release runbook. These committed
-bytes and a preview deployment do not establish production availability.
-The previous 117-skill release `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
-and its governed candidate remain retained for rollback.
+- Immediate previous release, byte-for-byte in `previous-hub-release.json`:
+  `sha256:08b12c28b66a9705fbaf523131867046d9d0b47bafe42a8564daab58a7ed0266`
+  (126 skills; its digest and SQLite digest are also bound in `candidate.json`
+  and `release-diff.json`).
+- Prior retained release:
+  `sha256:3c08da9b48f179697b290513be69fe642bf6bb88b6e8c1d5f31d63575f089297`
+  (117 skills).
+- All superseded artifact bytes, including the 858 removed cache blobs and the
+  old SQLite snapshot, remain available in Git at base commit
+  `f76f3a674069fde70e082ff73130b71d33a63c0d`. No history was rewritten.
 
-Original TStack content is unmodified at commit
-`7de017b3fc9d50c03cf3ecb98fb71e0ca65a78bd`, under the MIT license.
-Hosted get_content serves text, not executable companion installation.
-For babysit-pr/scripts/pr-wait, retrieve from the pinned original upstream and
-verify SHA-256 `90393f85b95b78bff1b039744bdfb09dc88ff2b430e1c3df687ee6f449c97214`
-before any separately authorized host-side use. Skill selection grants no
-permission to delegate, merge, deploy or write; external hosts enforce permissions.
+## Verification status
 
-registry.sqlite and cache blobs are immutable binary inputs, explicitly tracked
-with git add -f. Never edit adopted snapshots or normalize their bytes.
+The physical artifact verifies with the repository's own verifier:
+
+```
+node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
+```
+
+It reports `skills=0` and a valid digest. This is an UNPUBLISHED candidate,
+not a production release. The CLI presentation validator now accepts an empty
+`groups` sequence for an empty release, and the generated catalog markdown has
+been regenerated accordingly; see `reset-inputs/REGENERATE.md` for the exact
+regeneration inputs.
+
+`discovery-report.json` was removed from this active artifact: it was pinned to
+the superseded 126-skill release and a stale digest. The historical report is
+unchanged in Git at the base commit. The console answers a controlled
+"not evaluated" state for releases without a pinned report and never
+fabricates evaluation results.
+
+`registry.sqlite` is a generated immutable binary produced by the supported
+build. Never hand-edit it or any envelope digest.

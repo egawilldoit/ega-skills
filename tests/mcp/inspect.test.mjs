@@ -138,6 +138,25 @@ function lockYamlFor(configText, skills) {
   );
 }
 
+// --- Empty-catalog runtime (supported state) -------------------------------------
+//
+// Inspecting a skill that is absent from an empty active release must be a
+// controlled not-found with the frozen structured envelope — never an oracle
+// about removed skills and never a crash.
+
+test("empty-catalog runtime: inspect returns controlled E_SKILL_NOT_FOUND", async (t) => {
+  const { home } = await setupHome(t, []);
+  const project = await makeProject();
+  const error = expectCode(
+    () => runInspectTool({ skill_id: "ega/removed" }, ctxFor(project, home)),
+    "E_SKILL_NOT_FOUND",
+  );
+  const result = toInspectErrorResult(error);
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, "E_SKILL_NOT_FOUND");
+  assert.equal(result.structuredContent.error.tool, "inspect");
+});
+
 // --- Basic shape ---------------------------------------------------------------
 
 test("inspect: current version metadata with the exact frozen shape", async (t) => {

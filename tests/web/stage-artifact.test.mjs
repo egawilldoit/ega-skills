@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Properties of the web deployment's artifact staging step.
  *
@@ -25,7 +26,7 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SCRIPT = join(REPO_ROOT, "scripts", "web", "stage-artifact.mjs");
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const WEB_ROOT = join(REPO_ROOT, "apps", "web");
 
 const tempDirs = [];
@@ -50,14 +51,14 @@ after(() => {
 
 describe("the committed artifact is servable", () => {
   test("verification passes against the committed artifact", () => {
-    const result = run(["--check-only"]);
+    const result = run(["--from", ARTIFACT, "--check-only"]);
     assert.equal(result.status, 0, `refused a valid artifact: ${result.stderr}`);
     // The identity it prints must be the artifact's own, read from the artifact.
     assert.match(result.stdout, /116|skill/);
   });
 
   test("verification prints the artifact's real identity", () => {
-    const result = run(["--check-only"]);
+    const result = run(["--from", ARTIFACT, "--check-only"]);
     assert.equal(result.stdout.includes(COMMITTED_RELEASE_DIGEST), true, "hub release digest");
     assert.equal(result.stdout.includes(COMMITTED_SQLITE_DIGEST), true, "sqlite artifact digest");
   });
@@ -103,7 +104,7 @@ describe("staging copies rather than regenerates", () => {
   test("the staged tree is byte-identical to the committed artifact", () => {
     const target = mkdtempSync(join(tmpdir(), "ega-stage-out-"));
     tempDirs.push(target);
-    const result = run(["--to", target]);
+    const result = run(["--from", ARTIFACT, "--to", target]);
     assert.equal(result.status, 0, result.stderr);
 
     // Compare digests rather than file listings alone: identical names with
@@ -119,7 +120,7 @@ describe("staging copies rather than regenerates", () => {
 
   test("the committed artifact is not modified by staging", () => {
     const before = readFileSync(join(ARTIFACT, "registry.sqlite"));
-    run(["--to", mkdtempSync(join(tmpdir(), "ega-stage-out-"))]);
+    run(["--from", ARTIFACT, "--to", mkdtempSync(join(tmpdir(), "ega-stage-out-"))]);
     assert.deepEqual(readFileSync(join(ARTIFACT, "registry.sqlite")), before);
   });
 
@@ -127,8 +128,8 @@ describe("staging copies rather than regenerates", () => {
     const a = mkdtempSync(join(tmpdir(), "ega-stage-a-"));
     const b = mkdtempSync(join(tmpdir(), "ega-stage-b-"));
     tempDirs.push(a, b);
-    assert.equal(run(["--to", a]).status, 0);
-    assert.equal(run(["--to", b]).status, 0);
+    assert.equal(run(["--from", ARTIFACT, "--to", a]).status, 0);
+    assert.equal(run(["--from", ARTIFACT, "--to", b]).status, 0);
     for (const name of ["hub-release.json", "registry.sqlite", "release-package.json"]) {
       assert.deepEqual(readFileSync(join(a, name)), readFileSync(join(b, name)), name);
     }
@@ -139,13 +140,13 @@ describe("staging copies rather than regenerates", () => {
     // serve bytes that no longer exist in the repository.
     const target = mkdtempSync(join(tmpdir(), "ega-stage-out-"));
     tempDirs.push(target);
-    assert.equal(run(["--to", target]).status, 0);
+    assert.equal(run(["--from", ARTIFACT, "--to", target]).status, 0);
 
     const stale = join(target, "STALE-FROM-PREVIOUS-STAGING.txt");
     writeFileSync(stale, "left over\n");
     assert.equal(existsSync(stale), true);
 
-    assert.equal(run(["--to", target]).status, 0);
+    assert.equal(run(["--from", ARTIFACT, "--to", target]).status, 0);
     assert.equal(existsSync(stale), false, "staging must replace, not merge");
   });
 });

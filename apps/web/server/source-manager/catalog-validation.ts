@@ -17,7 +17,8 @@ const REGISTRY = 'upstream-sources.json';
 const CASES = 'tests/trigger-cases.json';
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const IDENTIFIER = /^[a-z0-9][a-z0-9._+-]{0,63}$/;
-const CASE_FIELDS = ['direct', 'indirect', 'incomplete', 'negative', 'negative_expected', 'collision', 'collision_expected', 'edge'] as const;
+const CASE_TEXT_FIELDS = ['direct', 'indirect', 'incomplete', 'negative', 'collision', 'edge'] as const;
+const CASE_NEIGHBOR_FIELDS = ['negative_expected', 'collision_expected'] as const;
 const EGA_KEYS = new Set(['schema_version', 'domains', 'platforms', 'frameworks', 'aliases', 'triggers', 'anti_triggers']);
 const IDENTIFIER_KEYS = ['domains', 'platforms', 'frameworks', 'aliases'] as const;
 const TRIGGER_KEYS = ['triggers', 'anti_triggers'] as const;
@@ -206,9 +207,12 @@ export function validateCatalog(files: Files, parseYaml: ParseYaml): string[] {
       if (!catalog.includes(skill)) errors.push(`tests/trigger-cases.json contains unknown skill ${skill}.`);
       if (seen.has(skill)) errors.push(`tests/trigger-cases.json contains duplicate case ${skill}.`);
       seen.add(skill);
-      for (const field of CASE_FIELDS) if (typeof row[field] !== 'string' || !row[field].trim()) errors.push(`${skill}: trigger case ${field} is required.`);
-      for (const field of ['negative_expected', 'collision_expected'] as const) {
-        if (typeof row[field] === 'string' && !catalog.includes(row[field])) errors.push(`${skill}: trigger case ${field} is not a catalog skill.`);
+      for (const field of CASE_TEXT_FIELDS) if (typeof row[field] !== 'string' || !row[field].trim()) errors.push(`${skill}: trigger case ${field} is required.`);
+      for (const field of CASE_NEIGHBOR_FIELDS) {
+        const value = row[field];
+        if (value === null) continue; // explicit no-competing-skill sentinel
+        if (typeof value !== 'string' || !value.trim()) errors.push(`${skill}: trigger case ${field} must be a skill name or null.`);
+        else if (!catalog.includes(value)) errors.push(`${skill}: trigger case ${field} is not a catalog skill.`);
       }
     }
     for (const skill of catalog) if (!seen.has(skill)) errors.push(`tests/trigger-cases.json is missing skill ${skill}.`);

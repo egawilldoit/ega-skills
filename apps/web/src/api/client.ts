@@ -123,6 +123,8 @@ export const API_ENDPOINTS = {
   analyticsUsage: () => "/analytics/usage",
   auditEvents: "/audit",
   discovery: "/discovery",
+  /** Owner-scoped private favorites/defaults. Existing BFF GET/PUT route. */
+  skillPreferences: "/skill-preferences",
 } as const;
 
 /* -------------------------------------------------------------------------- */

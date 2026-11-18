@@ -111,3 +111,79 @@ test('resources retain binary bytes and executable modes and reject collisions',
   const manyResources = Array.from({ length: 98 }, (_, i) => ({ path: `assets/${i}.bin`, mode: '100644', contentBase64: 'YQ==' }));
   assert.ok(planOriginalAdd(snapshot, { ...input, resources: manyResources }).errors.some(e => e.includes('Too many')));
 });
+
+// --- first-skill bootstrap from the canonical empty generator tables --------
+
+const emptySnapshot = () => ({
+  'scripts/sync_openai_yaml.py': 'METADATA: dict[str, tuple[str, str, str]] = {}\n\nMIN_SHORT = 25\n',
+  'scripts/build_upstream_sources.py': 'ORIGINAL: list[str] = []\n',
+  'upstream-sources.json': '{"sources":[]}',
+  'tests/trigger-cases.json': '[]',
+});
+
+const firstInput = {
+  ...input,
+  name: 'first-skill',
+  interface: { ...input.interface, prompt: 'Use $first-skill to inspect the evidence.' },
+  cases: {
+    ...input.cases,
+    negative_expected: null,
+    collision_expected: null,
+    negative: 'Summarize quarterly revenue for the board',
+    collision: 'Prepare a financial forecast for next quarter',
+  },
+};
+
+test('first skill is added from canonical empty generator tables with no-neighbor expectations', async () => {
+  const { planSkillRemoval } = await import('../../../apps/web/server/source-manager/planner.ts');
+  const snapshot = emptySnapshot();
+  const planned = planOriginalAdd(snapshot, firstInput);
+  assert.deepEqual(planned.errors, []);
+  assert.match(planned.changes['scripts/sync_openai_yaml.py'], /^METADATA: dict\[str, tuple\[str, str, str\]\] = \{\n/m);
+  assert.match(planned.changes['scripts/build_upstream_sources.py'], /^ORIGINAL: list\[str\] = \[\n/m);
+  assert.equal(snapshot['scripts/sync_openai_yaml.py'], 'METADATA: dict[str, tuple[str, str, str]] = {}\n\nMIN_SHORT = 25\n', 'snapshot is not mutated');
+  const cases = JSON.parse(planned.changes['tests/trigger-cases.json']);
+  assert.equal(cases.length, 1);
+  assert.equal(cases[0].negative_expected, null);
+  assert.equal(cases[0].collision_expected, null);
+  assert.ok(planned.changes['skills/first-skill/SKILL.md'].includes('name: first-skill'));
+  assert.ok(planned.changes['skills/first-skill/ega.yaml'].includes('triggers:'));
+  assert.ok(planned.changes['skills/first-skill/agents/openai.yaml'].includes('display_name'));
+  const afterFirst = { ...snapshot, ...planned.changes };
+  const removed = planSkillRemoval(afterFirst, { operation: 'remove', name: 'first-skill', confirmation: 'first-skill' });
+  assert.deepEqual(removed.errors, []);
+  assert.match(removed.changes['scripts/sync_openai_yaml.py'], /^METADATA: dict\[str, tuple\[str, str, str\]\] = \{\}$/m);
+  assert.match(removed.changes['scripts/build_upstream_sources.py'], /^ORIGINAL: list\[str\] = \[\]$/m);
+  assert.deepEqual(JSON.parse(removed.changes['tests/trigger-cases.json']), []);
+  assert.equal(removed.changes['skills/first-skill/SKILL.md'], null);
+});
+
+test('second skill uses a real neighbor; first skill null expectations stay valid', () => {
+  const first = planOriginalAdd(emptySnapshot(), firstInput);
+  assert.deepEqual(first.errors, []);
+  const snapshot = { ...emptySnapshot(), ...first.changes };
+  const secondInput = {
+    ...input,
+    name: 'second-skill',
+    interface: { ...input.interface, prompt: 'Use $second-skill to inspect the evidence.' },
+    cases: { ...input.cases, negative_expected: 'first-skill', collision_expected: 'first-skill' },
+  };
+  const second = planOriginalAdd(snapshot, secondInput);
+  assert.deepEqual(second.errors, []);
+  const cases = JSON.parse(second.changes['tests/trigger-cases.json']);
+  assert.equal(cases.find(row => row.skill === 'first-skill').negative_expected, null);
+  assert.equal(cases.find(row => row.skill === 'second-skill').negative_expected, 'first-skill');
+  assert.ok(planOriginalAdd(snapshot, { ...secondInput, cases: { ...secondInput.cases, negative_expected: 'missing-skill' } }).errors.some(e => e.includes('existing source skills')));
+  assert.ok(planOriginalAdd(snapshot, { ...secondInput, cases: { ...secondInput.cases, collision_expected: '' } }).errors.some(e => e.includes('null')));
+});
+
+test('ambiguous or malformed generator tables are rejected without partial changes', () => {
+  const duplicated = {
+    ...emptySnapshot(),
+    'scripts/sync_openai_yaml.py': 'METADATA: dict[str, tuple[str, str, str]] = {}\nMETADATA: dict[str, tuple[str, str, str]] = {}\n',
+    'scripts/build_upstream_sources.py': 'ORIGINAL: list[str] = []\nORIGINAL: list[str] = []\n',
+  };
+  const result = planOriginalAdd(duplicated, firstInput);
+  assert.ok(result.errors.length);
+  assert.deepEqual(result.changes, {});
+});

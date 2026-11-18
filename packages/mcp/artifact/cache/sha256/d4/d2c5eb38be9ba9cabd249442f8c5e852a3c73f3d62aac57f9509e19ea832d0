@@ -1,8 +1,0 @@
-schema_version: 1
-aliases: [redesign-from-first-principles, first-principles]
-triggers:
-  - "redesign from first principles"
-  - "first principles"
-anti_triggers:
-  - "refactor"
-  - "integrate this requirement"

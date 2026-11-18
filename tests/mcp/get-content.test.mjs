@@ -152,6 +152,38 @@ function blobCachePath(home, blobHash) {
   return join(home, "cache", "sha256", digest.slice(0, 2), digest.slice(2));
 }
 
+// --- Empty-catalog runtime (supported state) -------------------------------------
+//
+// get_content must not be able to retrieve a removed skill from the new active
+// release. With no version row in the empty registry the exact pinned lookup
+// fails closed with the frozen E_VERSION_NOT_FOUND, even when a residual blob
+// hash is supplied.
+
+test("empty-catalog runtime: get_content cannot retrieve a removed skill", async (t) => {
+  const { home } = await setupHome(t, []);
+  const project = await makeProject();
+  const removedHash = `sha256:${"a".repeat(64)}`;
+  // Even if an old content blob survives in the cache from a previous release,
+  // the missing version row in the active catalog must keep it unretrievable.
+  const staleBlob = blobCachePath(home, removedHash);
+  await mkdir(dirname(staleBlob), { recursive: true });
+  await writeFile(staleBlob, "removed skill content must never be served\n");
+  const error = expectCode(
+    () =>
+      runGetContentTool(
+        {
+          skill_id: "ega/removed",
+          version_hash: removedHash,
+          level: "L2",
+          max_tokens: 1000,
+        },
+        ctxFor(project, home),
+      ),
+    "E_VERSION_NOT_FOUND",
+  );
+  assert.equal(error.code, "E_VERSION_NOT_FOUND");
+});
+
 // --- Exact content -------------------------------------------------------------------
 
 test("get_content: L2 returns the exact canonical SKILL.md bytes", async (t) => {

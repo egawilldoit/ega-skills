@@ -138,7 +138,8 @@ export function loadExpectedCatalog({ manifestPath, packagePath }) {
     }
     return [skillId, versionHash];
   });
-  if (skills.length === 0) throw new ConfigError("hub-release.json has an empty catalog");
+  // A zero-skill active catalog is a valid release state after the catalog
+  // reset. Empty manifests are accepted; malformed ones still fail above.
   if (new Set(skills.map(([skillId]) => skillId)).size !== skills.length) {
     throw new ConfigError("hub-release.json contains duplicate skill ids");
   }
@@ -567,6 +568,45 @@ export async function verifyCatalog({
   }
   const checks = [{ name: "tools/list", ok: true, tools }];
 
+  // CASE A — a verified release with zero active skills. The four-tool surface
+  // must still be present and authenticated, but there is nothing to inspect
+  // and no L2 content to read. The search contract must return an empty result
+  // that is bound to the expected release; any result is a live failure.
+  if (expected.skills.length === 0) {
+    if (typeof expected.digest !== "string" || !DIGEST_RE.test(expected.digest)) {
+      throw new ToolError(`empty release has an invalid expected digest ${String(expected.digest)}`);
+    }
+    if (expected.snapshotRows !== 0) {
+      throw new ToolError(`empty release must declare snapshot_rows=0, got ${String(expected.snapshotRows)}`);
+    }
+    const emptySearch = await callTool({ ...options, id: 20_000 }, "search", {
+      query: "skill",
+      limit: 5,
+      release_digest: expected.digest,
+    });
+    if (!Array.isArray(emptySearch?.results)) {
+      throw new ToolError("empty release search returned malformed results");
+    }
+    if (emptySearch.results.length !== 0) {
+      throw new ToolError(`empty release search returned ${emptySearch.results.length} result(s); expected exactly 0`);
+    }
+    const reported = emptySearch.effective_release_digest ?? emptySearch.release_digest;
+    if (reported !== expected.digest) {
+      throw new ToolError(`empty release search reported release_digest ${String(reported)}; expected ${expected.digest}`);
+    }
+    checks.push({ name: "inspect_all", ok: true, count: 0 });
+    checks.push({ name: "get_content_l2", ok: true, count: 0 });
+    checks.push({ name: "search_empty", ok: true, result_count: 0 });
+    return {
+      tools,
+      inspected: 0,
+      tstack: [],
+      content: [],
+      search_result_count: 0,
+      checks,
+    };
+  }
+
   const inspected = await mapLimit(expected.skills, concurrency, async ([skillId, versionHash], index) => {
     const output = await callTool({ ...options, id: 100 + index }, "inspect", {
       skill_id: skillId,
@@ -588,11 +628,15 @@ export async function verifyCatalog({
   });
   checks.push({ name: "inspect_all", ok: true, count: inspected.length });
 
+  // CASE B — TStack skills are the strongest content probe and remain the
+  // historical regression contract. CASE C — a populated release without any
+  // TStack skill probes the first pinned skill/version from the manifest
+  // itself, so content verification never degrades to tools/list alone.
   const tstack = expected.skills.filter(([skillId]) => skillId.startsWith(tstackPrefix));
-  if (tstack.length === 0) throw new ToolError(`no skills match EGA_VERIFY_TSTACK_PREFIX ${JSON.stringify(tstackPrefix)}`);
-  const tstackChecked = [];
-  for (let index = 0; index < tstack.length; index += 1) {
-    const [skillId, versionHash] = tstack[index];
+  const contentProbes = tstack.length > 0 ? tstack : [expected.skills[0]];
+  const contentChecked = [];
+  for (let index = 0; index < contentProbes.length; index += 1) {
+    const [skillId, versionHash] = contentProbes[index];
     const output = await callTool({ ...options, id: 10_000 + index }, "get_content", {
       skill_id: skillId,
       version_hash: versionHash,
@@ -611,17 +655,32 @@ export async function verifyCatalog({
         throw new ToolError(`get_content ${skillId} reported ${field} ${String(output[field])}`);
       }
     }
-    tstackChecked.push({ skill_id: skillId, version_hash: versionHash, content_chars: output.content.length });
+    contentChecked.push({ skill_id: skillId, version_hash: versionHash, content_chars: output.content.length });
   }
-  checks.push({ name: "tstack_get_content_l2", ok: true, count: tstackChecked.length });
+  checks.push({
+    name: tstack.length > 0 ? "tstack_get_content_l2" : "released_get_content_l2",
+    ok: true,
+    count: contentChecked.length,
+  });
 
+  // A non-TStack release cannot rely on the historical "skill" query: derive
+  // the probe from the selected skill's own name and require that the result
+  // actually surfaces a pinned member of the release.
+  const [probeSkillId] = contentProbes[0];
+  const query = tstack.length > 0 ? "skill" : (probeSkillId.split("/")[1] ?? probeSkillId);
   const search = await callTool({ ...options, id: 20_000 }, "search", {
-    query: "skill",
+    query,
     limit: 5,
     release_digest: expected.digest,
   });
   if (!Array.isArray(search?.results) || search.results.length === 0) {
     throw new ToolError("representative search returned no results");
+  }
+  if (tstack.length === 0) {
+    const found = search.results.some((row) => (row?.skill_id ?? row?.id) === probeSkillId);
+    if (!found) {
+      throw new ToolError(`representative search did not surface released skill ${probeSkillId}`);
+    }
   }
   if (search?.effective_release_digest !== undefined && search.effective_release_digest !== expected.digest) {
     throw new ToolError(`search reported release_digest ${String(search.effective_release_digest)}`);
@@ -631,7 +690,8 @@ export async function verifyCatalog({
   return {
     tools,
     inspected: inspected.length,
-    tstack: tstackChecked,
+    tstack: contentChecked,
+    content: contentChecked,
     search_result_count: search.results.length,
     checks,
   };

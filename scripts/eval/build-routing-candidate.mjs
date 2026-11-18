@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../../tests/fixtures/historical-artifact.mjs";
 // Unpublished experiment derived from verified canonical release inputs.
 // Reuse the Contract C importer/builder; never mutate published registry rows.
 import assert from "node:assert/strict";
@@ -24,7 +25,7 @@ export const PATCHES = {
 };
 
 export async function buildRoutingCandidate() {
-  const baseline = join(ROOT, "packages/mcp/artifact");
+  const baseline = historicalArtifact();
   const original = loadHostedReleaseSnapshot(baseline);
   // This historical V1 metadata experiment deliberately excludes the nine I1
   // additions. Its predecessor envelope is certified by the current candidate.

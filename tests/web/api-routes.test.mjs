@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Console read API: routes, fail-closed behaviour, bounds, and response hygiene.
  *
@@ -58,7 +59,7 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SERVER = join(REPO_ROOT, "apps", "web", "server.mts");
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 
 const COMMITTED_PACKAGE = JSON.parse(readFileSync(join(ARTIFACT, "release-package.json"), "utf8"));
 const COMMITTED_DIGEST = COMMITTED_PACKAGE.hub_release_digest;

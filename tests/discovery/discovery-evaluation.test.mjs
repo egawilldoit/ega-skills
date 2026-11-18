@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,8 @@ const CORPUS_PATH = join(process.cwd(), "tests/discovery/personal-intents.json")
 const PREVIOUS_BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline-117.json");
 const PREVIOUS_EVALUATION_PATH = join(process.cwd(), "tests/discovery/baseline-117-evaluation.json");
 const BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline.json");
-const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
+const ENV = { ...process.env, EGA_SKILLS_HOME: historicalArtifact() };
+const EVAL_OPTIONS = { artifactDir: historicalArtifact() };
 
 async function loadCorpus() {
   return JSON.parse(await readFile(CORPUS_PATH, "utf8"));
@@ -29,7 +31,7 @@ async function loadCorpus() {
  */
 let sharedReport;
 function report() {
-  sharedReport ??= (async () => evaluateDiscovery(await loadCorpus()))();
+  sharedReport ??= (async () => evaluateDiscovery(await loadCorpus(), EVAL_OPTIONS))();
   return sharedReport;
 }
 
@@ -182,7 +184,7 @@ test("the discovery window is the resolver window, not a search tail", async () 
   // discovery ranking, because that pads the 3-slot window and inflates top-3.
   const corpus = await loadCorpus();
   const subset = { ...corpus, intents: corpus.intents.slice(0, 8) };
-  const report = await evaluateDiscovery(subset);
+  const report = await evaluateDiscovery(subset, EVAL_OPTIONS);
   assert.ok(report.results.some((r) => r.ranking.length > 0), "subset produced no window at all");
   for (const row of report.results) {
     assert.ok(
@@ -231,14 +233,14 @@ test("a corpus targeting a different release fails closed", async () => {
   const corpus = await loadCorpus();
   const mismatched = structuredClone(corpus);
   mismatched.release_digest = "sha256:" + "0".repeat(64);
-  await assert.rejects(() => evaluateDiscovery(mismatched), /corpus targets release/u);
+  await assert.rejects(() => evaluateDiscovery(mismatched, EVAL_OPTIONS), /corpus targets release/u);
 });
 
 test("a corpus with no measurable intents fails closed", async () => {
   const corpus = await loadCorpus();
   const allPending = structuredClone(corpus);
   for (const intent of allPending.intents) intent.pending_skill = true;
-  await assert.rejects(() => evaluateDiscovery(allPending), /no measurable intents/u);
+  await assert.rejects(() => evaluateDiscovery(allPending, EVAL_OPTIONS), /no measurable intents/u);
 });
 
 test("the eval script's direct-invocation guard is cross-platform", async () => {
@@ -343,8 +345,8 @@ test("discovery evaluation is deterministic", async () => {
   // Determinism is a property of the harness + frozen resolver, so a 6-intent
   // subset is sufficient proof and keeps the suite fast.
   const subset = { ...corpus, intents: corpus.intents.slice(0, 6) };
-  const first = await evaluateDiscovery(subset);
-  const second = await evaluateDiscovery(subset);
+  const first = await evaluateDiscovery(subset, EVAL_OPTIONS);
+  const second = await evaluateDiscovery(subset, EVAL_OPTIONS);
   assert.deepEqual(second.results, first.results);
   assert.equal(second.summary.top1_rate, first.summary.top1_rate);
   assert.equal(second.summary.top3_rate, first.summary.top3_rate);
@@ -354,7 +356,7 @@ test("catalog id validation fails closed on an unknown skill", async () => {
   const corpus = await loadCorpus();
   const broken = structuredClone(corpus);
   broken.intents[0].acceptable_alternatives = ["egawilldoit/definitely-not-a-real-skill"];
-  await assert.rejects(() => evaluateDiscovery(broken), /absent from the catalog/u);
+  await assert.rejects(() => evaluateDiscovery(broken, EVAL_OPTIONS), /absent from the catalog/u);
 });
 
 test("a LOW intent ranks suggestions but never selects them", async () => {

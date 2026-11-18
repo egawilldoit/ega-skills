@@ -1,4 +1,0 @@
-interface:
-  display_name: "Verify This"
-  short_description: "Prove one falsifiable claim with fresh evidence"
-  default_prompt: "Use $verify-this to prove this performance claim."

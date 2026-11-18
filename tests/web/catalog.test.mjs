@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Catalog enumeration: the console's authoritative list of released skills.
  *
@@ -65,7 +66,7 @@ import {
 import { closeRegistry, createRegistryReader } from "../../apps/web/server/registry.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const CATALOG_SOURCE = join(REPO_ROOT, "apps", "web", "server", "catalog.ts");
 
 /** The committed release's real digests, read from the package, never hardcoded. */
@@ -352,7 +353,7 @@ describe("routing comes from the manifest, not the FTS projection", () => {
     try {
       const identity = evaluateReleaseIdentity(committedConfig()).identity;
       assert.ok(identity);
-      const page = buildCatalogPage(reader, identity, { domain: "architecture" });
+      const page = buildCatalogPage(reader, identity, { domain: "architecture" }, committedConfig());
       // Still found, because the domain came from manifest_json.routing.
       const found = page.skills.find((row) => row.skill_id === "egawilldoit/design-architecture");
       assert.ok(found, "the domain filter must match the manifest routing, not the FTS projection");
@@ -960,7 +961,7 @@ describe("a partial catalog is refused", () => {
       // The doctored reader really is missing the row.
       assert.throws(() => reader.getReleasedSkill("anthropic/academy-guide"), /E_WEB_SKILL_MISSING|no row/);
       assert.throws(
-        () => buildCatalogPage(reader, identity, {}),
+        () => buildCatalogPage(reader, identity, {}, committedConfig()),
         (error) => {
           assert.ok(error instanceof CatalogError, `expected a CatalogError, got ${error?.name}`);
           assert.equal(error.code, "E_WEB_CATALOG_INCOMPLETE");

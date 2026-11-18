@@ -176,3 +176,60 @@ test("hosted I1 activation verifies sidecars and resolves with the release polic
   assert.equal(localAltered.isError, true);
   assert.equal((localAltered.structuredContent.error ?? localAltered.structuredContent.result?.error)?.code, "E_INVOCATION_POLICY_INVALID", JSON.stringify(localAltered));
 });
+
+// --- Empty-catalog runtime (supported state) -------------------------------------
+//
+// The active production release is a governed I1 artifact. A catalog reset is a
+// fresh governed release with zero skills and an empty reviewed policy. The four
+// MCP tools must stay operational with controlled empty/not-found results, the
+// invocation model must still validate, and no removed skill may be exposed.
+
+test("empty-catalog runtime: governed I1 active release keeps all four tools operational", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "ega-hosted-i1-empty-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const hub = join(root, "hub");
+  mkdirSync(hub, { recursive: true });
+  writeFileSync(join(hub, "hub.yaml"), "schema_version: 1\nhub:\n  id: empty-hub\nowned: []\nexternal: []\n");
+  writeFileSync(join(hub, "sources.yaml"), "schema_version: 1\nsources: {}\n");
+  writeFileSync(join(hub, "sources.lock.yaml"), "schema_version: 1\nsources: {}\n");
+
+  const base = await buildHubRelease(hub);
+  assert.equal(Object.keys(base.release.payload.skill_versions).length, 0);
+  const policy = createEnvelope({ object_type: "ega.invocation-policy", schema_version: 1, payload: { profile: "ega-invocation-policy-v1", sources: [], bindings: [] } });
+  const build = await buildInvocationHubRelease(hub, policy);
+  assert.equal(Object.keys(build.release.payload.skill_versions).length, 0);
+  const reviews = [];
+  const preflight = createEnvelope({ object_type: "ega.publication-preflight", schema_version: 2, payload: { approval_set_digest: approvalSetDigest(reviews), blockers: [], hub_id: base.release.payload.hub_id, reviews, skill_versions: base.release.payload.skill_versions, status: "READY" } });
+  const diff = createInvocationReleaseDiff({ release: base.release }, { release: build.release, policy });
+  const candidate = createInvocationCandidate(build, policy, base.release, preflight, diff);
+  const dir = join(root, "candidate");
+  writeInvocationCandidate(build, dir, candidate, base.release, preflight, diff);
+  const snapshot = loadHostedReleaseSnapshot(dir);
+  assert.equal(snapshot.release.schema_version, 2);
+  assert.equal(snapshot.invocation.policy.payload.bindings.length, 0);
+
+  // A governed empty release is a valid activation: contract v2, zero skills,
+  // LOW confidence — not an invocation-policy error.
+  const direct = await resolveSkills({ task: "build a widget", projectPath: root, env: { EGA_SKILLS_HOME: dir }, invocation: snapshot.invocation });
+  assert.equal(direct.routerContractVersion, 2);
+  assert.equal(direct.confidence, "LOW");
+  assert.deepEqual(direct.selected, []);
+
+  const removedHash = `sha256:${"2".repeat(64)}`;
+  const [resolved, searched, inspected, content] = await localTools(t, dir, root, [
+    ["resolve", { task: "build a widget" }],
+    ["search", { query: "widget" }],
+    ["inspect", { skill_id: "ega/removed" }],
+    ["get_content", { skill_id: "ega/removed", version_hash: removedHash, level: "L2", max_tokens: 1000 }],
+  ], build.release.digest);
+
+  assert.equal(resolved.isError, false, JSON.stringify(resolved));
+  assert.deepEqual(resolved.structuredContent.result.selected, []);
+  assert.equal(resolved.structuredContent.result.router_contract_version, 2);
+  assert.equal(searched.isError, false, JSON.stringify(searched));
+  assert.deepEqual(searched.structuredContent.result.results, []);
+  assert.equal(inspected.isError, true);
+  assert.equal((inspected.structuredContent.error ?? inspected.structuredContent.result?.error)?.code, "E_SKILL_NOT_FOUND", JSON.stringify(inspected));
+  assert.equal(content.isError, true);
+  assert.equal((content.structuredContent.error ?? content.structuredContent.result?.error)?.code, "E_VERSION_NOT_FOUND", JSON.stringify(content));
+});

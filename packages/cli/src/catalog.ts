@@ -226,7 +226,7 @@ export function validatePresentation(
 
   // `favorites` is optional (an empty list is fine) but must be a sequence when
   // present. An explicit `null` is rejected rather than coerced.
-  const rawFavorites = presentation.favorites ?? [];
+  const rawFavorites = presentation.favorites === undefined ? [] : presentation.favorites;
   if (!Array.isArray(rawFavorites)) fail("favorites must be a sequence");
   const favorites: string[] = [];
   const seenFavorites = new Set<string>();
@@ -237,8 +237,14 @@ export function validatePresentation(
     favorites.push(id);
   }
 
-  const rawGroups = presentation.groups;
-  if (!Array.isArray(rawGroups) || rawGroups.length === 0) fail("groups must be a non-empty sequence");
+  // An empty release has no groups: groups=[] is valid, but a non-array and a
+  // present-but-malformed group list still fail. A group that does exist must
+  // still reference at least one known skill.
+  const rawGroups = presentation.groups === undefined ? [] : presentation.groups;
+  if (!Array.isArray(rawGroups)) fail("groups must be a sequence");
+  // Only a genuinely empty release may omit groups. A populated release with
+  // no groups is still an incomplete presentation and must fail closed.
+  if (rawGroups.length === 0 && knownSkillIds.size > 0) fail("groups must be a non-empty sequence");
 
   const groups: PresentationGroup[] = [];
   const placement = new Map<string, string[]>();
@@ -403,7 +409,9 @@ export function renderCatalogMarkdown(model: CatalogModel, releaseIdentity: { di
     "Regenerate it; never hand-edit it.",
   );
   lines.push("");
-  lines.push(`Skills in this release: **${model.skillCount}** across ${model.namespaces.length} namespace(s): ${model.namespaces.join(", ")}`);
+  lines.push(
+    `Skills in this release: **${model.skillCount}** across ${model.namespaces.length} namespace(s): ${model.namespaces.join(", ")}`.trimEnd(),
+  );
   lines.push("");
 
   lines.push("## START HERE / COMMON TASKS");

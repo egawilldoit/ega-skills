@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -5,7 +6,7 @@ import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../..");
 const MCP_ROOT = join(REPO_ROOT, "packages/mcp");
-const ARTIFACT_ROOT = join(MCP_ROOT, "artifact");
+const ARTIFACT_ROOT = historicalArtifact();
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -95,7 +96,11 @@ test("the committed artifact is complete and self-consistent", () => {
   const hubRelease = readJson(join(ARTIFACT_ROOT, "hub-release.json"));
   const releasePackage = readJson(join(ARTIFACT_ROOT, "release-package.json"));
 
-  assert.equal(releasePackage.snapshot_rows, 126, "the snapshot must carry 126 rows");
+  assert.equal(
+    releasePackage.snapshot_rows,
+    Object.keys(hubRelease.payload?.skill_versions ?? {}).length,
+    "the snapshot must match the committed skill count",
+  );
   assert.equal(
     releasePackage.hub_release_digest,
     hubRelease.digest,
