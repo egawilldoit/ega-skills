@@ -154,7 +154,7 @@ test("terminal output truncates over-long labels instead of breaking alignment",
 test("an explicit empty --search reports no matches instead of dumping the catalog", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ["packages/cli/bin/ega-skills.mjs", "catalog", "--search", "", "--json"],
+    ["packages/cli/bin/ega-skills.mjs", "catalog", "--presentation", PRESENTATION, "--search", "", "--json"],
     { cwd: ROOT, env: ENV },
   );
   const parsed = JSON.parse(stdout);
