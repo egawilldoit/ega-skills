@@ -242,6 +242,9 @@ export function validatePresentation(
   // still reference at least one known skill.
   const rawGroups = presentation.groups === undefined ? [] : presentation.groups;
   if (!Array.isArray(rawGroups)) fail("groups must be a sequence");
+  // Only a genuinely empty release may omit groups. A populated release with
+  // no groups is still an incomplete presentation and must fail closed.
+  if (rawGroups.length === 0 && knownSkillIds.size > 0) fail("groups must be a non-empty sequence");
 
   const groups: PresentationGroup[] = [];
   const placement = new Map<string, string[]>();
