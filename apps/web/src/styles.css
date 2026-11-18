@@ -1517,6 +1517,16 @@ form .field,
   color: var(--mute);
 }
 
+/* Saved favorites/defaults: one compact line per skill id. */
+.saved-skill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
 /* Narrow screens: sidebar becomes a drawer, tables become stacked cards. */
 @media (max-width: 900px) {
   .shell {

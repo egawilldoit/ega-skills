@@ -17,6 +17,7 @@ import {
 import { DataTable, type Column } from "../components/DataTable";
 import { HostedReleaseStatusPanel } from "../components/HostedReleaseStatus";
 import { ConsoleReleaseIdentity, shortDigest } from "../components/ReleaseStatus";
+import { SavedSkillPreferencesPanel } from "../components/SavedSkillPreferencesPanel";
 import { EmptyState, ResourceSection } from "../components/StatePanel";
 
 /**
@@ -215,7 +216,36 @@ export function SkillsPage(): ReactNode {
                 release.
               </p>
 
-              {data.total === 0 ? (
+              {/*
+                Saved preferences come from the existing owner-scoped API. They are
+                reconciled against this same catalog read so an id left behind by a
+                catalog reset is shown as saved-but-unavailable, never as an active
+                selection or a live link. Stored values are not modified.
+              */}
+              <SavedSkillPreferencesPanel workspaceId={data.workspace_id} />
+
+              {/*
+                An empty *catalog* and a filter that matches nothing are different
+                facts and get different surfaces. `skill_total` is the unfiltered
+                size of the readable release, so it is the only honest signal for
+                "the catalog itself is empty" — `total` can be zero while the
+                catalog still holds skills that a filter excluded.
+
+                No example or "suggested" skill is listed here. A catalog reset can
+                leave old ids in bookmarks, favorites and docs; echoing any of them
+                would present an unpublished skill as if it were available.
+              */}
+              {data.skill_total === 0 ? (
+                <EmptyState
+                  title="No skills in the current catalog."
+                  reason="The verified release for this deployment contains no skills. Propose a source change through skill management; it becomes visible here only after a release is published."
+                  action={
+                    <Link className="button" to="/source-skills">
+                      Manage source skills
+                    </Link>
+                  }
+                />
+              ) : data.total === 0 ? (
                 <EmptyState
                   title="No skills match"
                   reason="The verified release snapshot for this deployment contains no skills matching these filters."

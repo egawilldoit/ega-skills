@@ -8,6 +8,7 @@ import { useWorkspace } from '../workspace/WorkspaceProvider';
 import { loadSourceIndex } from './sourceIndex';
 import { resolveSourceSkill, type SourceIndex, type SourceIndexItem } from './sourceSkillNavigation';
 import { sourcePublishedLinks } from './sourcePublishedLinks';
+import { sourceItemLifecycle, sourceProposalLifecycle } from './sourceLifecycle';
 import { sourceInterfaceDefaults, sourceSkillSlug } from './sourceInterfaceDefaults';
 
 type Item = SourceIndexItem;
@@ -288,12 +289,17 @@ export function SourceSkillsPage(): ReactNode {
       <button className="button button--primary" onClick={startAdd}>Add skill</button>
       {publishedUnavailable ? <p>Published skill links are unavailable; source management remains available.</p> : null}
       <p><label>Search <input value={search} onChange={event => setSearch(event.target.value)} /></label>{' '}<label>Provenance <select value={filter} onChange={event => setFilter(event.target.value)}><option value="">All</option><option>original</option><option>adapted</option><option>copied</option></select></label></p>
-      <ul>{index.items.filter(item => (!filter || item.provenance === filter) && `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())).map(item => <li key={item.name}>
-        <strong>{item.name}</strong> ({item.provenance}) — {item.description}{' '}
-        {published?.has(`egawilldoit/${item.name}`) ? <><a href={`/skills/${encodeURIComponent(`egawilldoit/${item.name}`)}`}>View published skill</a>{' '}</> : null}
-        <button disabled={loading} onClick={() => void startEdit(item)}>Edit skill</button>{' '}
-        <button disabled={loading} onClick={() => startRemove(item)}>Remove from next catalog</button>
-      </li>)}</ul>
+      <ul>{index.items.filter(item => (!filter || item.provenance === filter) && `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())).map(item => {
+        const publishedId = `egawilldoit/${item.name}`;
+        const lifecycle = published === null ? null : sourceItemLifecycle(published.has(publishedId));
+        return <li key={item.name}>
+          <strong>{item.name}</strong> ({item.provenance}) — {item.description}{' '}
+          {lifecycle === null ? null : <span className={lifecycle.stage === 'published' ? 'badge badge--stable' : 'badge badge--unpinned'}>{lifecycle.label}</span>}{' '}
+          {lifecycle?.stage === 'published' ? <a href={`/skills/${encodeURIComponent(publishedId)}`}>View published skill</a> : null}{' '}
+          <button disabled={loading} onClick={() => void startEdit(item)}>Edit skill</button>{' '}
+          <button disabled={loading} onClick={() => startRemove(item)}>Remove from next catalog</button>
+        </li>;
+      })}</ul>
     </> : null}
     {mode !== 'list' ? <fieldset disabled={loading} onChange={() => { setPreview(null); setRequest(null); setPr(null); }}>
       <h3>{mode === 'add' ? 'Add skill' : mode === 'update' ? `Edit ${name}` : `Remove ${name} from next catalog`}</h3>
@@ -335,6 +341,6 @@ export function SourceSkillsPage(): ReactNode {
       {preview.operation === 'remove' ? <p>A removal can be submitted only when the complete candidate catalog passes local validation. Source PR CI and human review remain authoritative.</p> : null}
       <button disabled={loading || !!preview.errors.length || !preview.changes.length} onClick={() => void submit()}>Create source PR</button>
     </section> : null}
-    {pr ? <section><h3>Source PR</h3><p><a href={pr.url} target="_blank" rel="noreferrer">Open source pull request #{pr.number}</a> · head <code>{pr.head}</code> · not published</p><button disabled={loading} onClick={() => void refreshStatus()}>Refresh GitHub CI status</button>{status ? <p>PR {status.state}; observed head checks {status.headChecks}; test merge {status.mergeSha ?? 'not available'}, observed checks {status.mergeChecks}. Observed checks do not verify that all required checks ran or passed; inspect the GitHub PR for its required gates.</p> : <p>GitHub CI status not yet checked.</p>}</section> : null}
+    {pr ? <section><h3>Source PR</h3><p><span className={sourceProposalLifecycle(status)?.stage === 'accepted' ? 'badge badge--stable' : 'badge badge--unpinned'}>{sourceProposalLifecycle(status)?.label ?? 'Proposed source change'}</span>{' '}<a href={pr.url} target="_blank" rel="noreferrer">Open source pull request #{pr.number}</a> · head <code>{pr.head}</code> · not published</p><button disabled={loading} onClick={() => void refreshStatus()}>Refresh GitHub CI status</button>{status ? <p>PR {status.state}; observed head checks {status.headChecks}; test merge {status.mergeSha ?? 'not available'}, observed checks {status.mergeChecks}. Observed checks do not verify that all required checks ran or passed; inspect the GitHub PR for its required gates.</p> : <p>GitHub CI status not yet checked.</p>}</section> : null}
   </section>;
 }
