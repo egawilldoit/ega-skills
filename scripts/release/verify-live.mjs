@@ -138,7 +138,8 @@ export function loadExpectedCatalog({ manifestPath, packagePath }) {
     }
     return [skillId, versionHash];
   });
-  if (skills.length === 0) throw new ConfigError("hub-release.json has an empty catalog");
+  // A zero-skill active catalog is a valid release state after the catalog
+  // reset. Empty manifests are accepted; malformed ones still fail above.
   if (new Set(skills.map(([skillId]) => skillId)).size !== skills.length) {
     throw new ConfigError("hub-release.json contains duplicate skill ids");
   }

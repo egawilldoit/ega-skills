@@ -95,7 +95,11 @@ test("the committed artifact is complete and self-consistent", () => {
   const hubRelease = readJson(join(ARTIFACT_ROOT, "hub-release.json"));
   const releasePackage = readJson(join(ARTIFACT_ROOT, "release-package.json"));
 
-  assert.equal(releasePackage.snapshot_rows, 126, "the snapshot must carry 126 rows");
+  assert.equal(
+    releasePackage.snapshot_rows,
+    Object.keys(hubRelease.payload?.skill_versions ?? {}).length,
+    "the snapshot must match the committed skill count",
+  );
   assert.equal(
     releasePackage.hub_release_digest,
     hubRelease.digest,

@@ -237,8 +237,11 @@ export function validatePresentation(
     favorites.push(id);
   }
 
-  const rawGroups = presentation.groups;
-  if (!Array.isArray(rawGroups) || rawGroups.length === 0) fail("groups must be a non-empty sequence");
+  // An empty release has no groups: groups=[] is valid, but a non-array and a
+  // present-but-malformed group list still fail. A group that does exist must
+  // still reference at least one known skill.
+  const rawGroups = presentation.groups ?? [];
+  if (!Array.isArray(rawGroups)) fail("groups must be a sequence");
 
   const groups: PresentationGroup[] = [];
   const placement = new Map<string, string[]>();
@@ -403,7 +406,9 @@ export function renderCatalogMarkdown(model: CatalogModel, releaseIdentity: { di
     "Regenerate it; never hand-edit it.",
   );
   lines.push("");
-  lines.push(`Skills in this release: **${model.skillCount}** across ${model.namespaces.length} namespace(s): ${model.namespaces.join(", ")}`);
+  lines.push(
+    `Skills in this release: **${model.skillCount}** across ${model.namespaces.length} namespace(s): ${model.namespaces.join(", ")}`.trimEnd(),
+  );
   lines.push("");
 
   lines.push("## START HERE / COMMON TASKS");
