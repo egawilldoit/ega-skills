@@ -1,9 +1,9 @@
 # Clean catalog reset: operating model and acceptance
 
-Status: **implementation + local verification**. This document describes the
-target operating model for the reset of `egawilldoit/skills` and
+Status: **implemented and verified on the draft PR heads**. This document
+describes the operating model for the reset of `egawilldoit/skills` and
 `egawilldoit/ega-skills`. It does not authorize a merge, deployment, production
-write, or alias change. The lead agent integrates the five parallel branches.
+write, or alias change. Both PRs remain open drafts targeting `main`.
 
 Verified revisions: hub base `f76f3a674069fde70e082ff73130b71d33a63c0d`
 (`cleanup/reset-verification`); source base
@@ -90,10 +90,14 @@ Evidence labels: **local** (VM run), **hosted** (GitHub Actions PR #203),
 | A12 | Zero → one → two → one → zero | `tests/integration/catalog-reset-lifecycle.test.mjs` with `EGA_RESET_SOURCE_ROOT` pointing at source PR #20 | **PASS** — local |
 | A13 | Populated and non-TStack live verification | `verify-live.test.mjs` V7–V11 (mocked HTTP) | **PASS** — local, mocked HTTP |
 
-All required PR #203 checks pass on the final head in hosted CI run
-`44299830894` (including `ci-gate`, both Linux foundation shards, web console,
-`contract-f rls`, and real PostgreSQL web isolation). Source PR #20 checks pass
-on `e4871b9`.
+Hosted evidence is the `pull_request` CI run attached to each draft PR's
+current head; the PR checks page is authoritative for the exact submitted
+revision. Verified milestones: platform head `e2959a77` passed all selected
+checks including `ci-gate` in run `44335560709`, and source head `40cbece`
+passed `validate-head` and `validate-merge` in run `44330540715`. Later repair
+commits are rechecked on the same PRs before review. The cross-repository
+zero → one → two → one → zero lifecycle test is local evidence only; platform
+CI does not provide a source checkout and does not run it.
 
 ## Operating model
 
