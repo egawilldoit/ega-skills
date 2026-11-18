@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Release identity: the console's fail-closed core.
  *
@@ -40,7 +41,7 @@ import {
 import { openReadOnlyRegistry } from "../../packages/mcp/dist/index.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 
 /** The committed release's real digest, read from the package, never hardcoded. */
 const COMMITTED_PACKAGE = JSON.parse(

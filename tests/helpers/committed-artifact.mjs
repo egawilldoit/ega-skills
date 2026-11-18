@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * The committed artifact's own declared facts.
  *
@@ -24,7 +25,7 @@ import { join } from "node:path";
 export const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /** The real committed release artifact the console reads. */
-export const ARTIFACT_DIR = join(REPO_ROOT, "packages", "mcp", "artifact");
+export const ARTIFACT_DIR = historicalArtifact();
 
 function readArtifactJson(name) {
   return JSON.parse(readFileSync(join(ARTIFACT_DIR, name), "utf8"));

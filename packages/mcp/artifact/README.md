@@ -38,9 +38,16 @@ node scripts/hosted/validate-artifact.mjs packages/mcp/artifact
 ```
 
 It reports `skills=0` and a valid digest. This is an UNPUBLISHED candidate,
-not a production release. `catalog:check` and `release:verify` cannot pass
-until the CLI presentation validator accepts an empty `groups` sequence; see
-`reset-inputs/REGENERATE.md` for the exact remaining integration step.
+not a production release. The CLI presentation validator now accepts an empty
+`groups` sequence for an empty release, and the generated catalog markdown has
+been regenerated accordingly; see `reset-inputs/REGENERATE.md` for the exact
+regeneration inputs.
+
+`discovery-report.json` was removed from this active artifact: it was pinned to
+the superseded 126-skill release and a stale digest. The historical report is
+unchanged in Git at the base commit. The console answers a controlled
+"not evaluated" state for releases without a pinned report and never
+fabricates evaluation results.
 
 `registry.sqlite` is a generated immutable binary produced by the supported
 build. Never hand-edit it or any envelope digest.

@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Catalog enumeration: the console's authoritative list of released skills.
  *
@@ -65,7 +66,7 @@ import {
 import { closeRegistry, createRegistryReader } from "../../apps/web/server/registry.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const CATALOG_SOURCE = join(REPO_ROOT, "apps", "web", "server", "catalog.ts");
 
 /** The committed release's real digests, read from the package, never hardcoded. */

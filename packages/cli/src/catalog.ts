@@ -226,7 +226,7 @@ export function validatePresentation(
 
   // `favorites` is optional (an empty list is fine) but must be a sequence when
   // present. An explicit `null` is rejected rather than coerced.
-  const rawFavorites = presentation.favorites ?? [];
+  const rawFavorites = presentation.favorites === undefined ? [] : presentation.favorites;
   if (!Array.isArray(rawFavorites)) fail("favorites must be a sequence");
   const favorites: string[] = [];
   const seenFavorites = new Set<string>();
@@ -240,7 +240,7 @@ export function validatePresentation(
   // An empty release has no groups: groups=[] is valid, but a non-array and a
   // present-but-malformed group list still fail. A group that does exist must
   // still reference at least one known skill.
-  const rawGroups = presentation.groups ?? [];
+  const rawGroups = presentation.groups === undefined ? [] : presentation.groups;
   if (!Array.isArray(rawGroups)) fail("groups must be a sequence");
 
   const groups: PresentationGroup[] = [];

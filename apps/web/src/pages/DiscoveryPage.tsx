@@ -29,6 +29,23 @@ export function DiscoveryPage(): ReactNode {
   );
   const resource = useApiResource(load, [client]);
 
+  // A release that has no pinned evaluation report is a controlled state, not
+  // a failure: never fabricate results for an empty or unevaluated catalog.
+  if (
+    resource.state.status === "error" &&
+    resource.state.error.code === "E_WEB_DISCOVERY_REPORT_UNAVAILABLE"
+  ) {
+    return (
+      <section className="panel" aria-labelledby="discovery-not-evaluated">
+        <h2 id="discovery-not-evaluated">Discovery</h2>
+        <EmptyState
+          title="Not evaluated"
+          reason="This release has no pinned discovery evaluation report. No results are inferred for it."
+        />
+      </section>
+    );
+  }
+
   return (
     <ResourceSection
       state={resource.state}

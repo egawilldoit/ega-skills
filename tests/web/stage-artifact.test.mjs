@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Properties of the web deployment's artifact staging step.
  *
@@ -25,7 +26,7 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SCRIPT = join(REPO_ROOT, "scripts", "web", "stage-artifact.mjs");
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const WEB_ROOT = join(REPO_ROOT, "apps", "web");
 
 const tempDirs = [];

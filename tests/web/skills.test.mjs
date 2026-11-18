@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Skill detail and on-demand content.
  *
@@ -83,7 +84,7 @@ import {
 } from "../../apps/web/server/skills.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 
 /** The committed release's real facts, read from the package, never hardcoded. */
 const COMMITTED_PACKAGE = JSON.parse(readFileSync(join(ARTIFACT, "release-package.json"), "utf8"));

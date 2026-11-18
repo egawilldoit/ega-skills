@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Pinned synthetic-intent inspection (EGA-728): BFF endpoint + consolidation.
  *
@@ -41,7 +42,7 @@ import { decodeDiscoveryInspection, ResponseContractError } from "../../apps/web
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SERVER = join(REPO_ROOT, "apps", "web", "server.mts");
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 const COMMITTED_REPORT = JSON.parse(readFileSync(join(ARTIFACT, "discovery-report.json"), "utf8"));
 const OTHER_DIGEST = `sha256:${"0".repeat(64)}`;
 

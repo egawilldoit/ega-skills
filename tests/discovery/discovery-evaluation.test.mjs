@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,7 @@ const CORPUS_PATH = join(process.cwd(), "tests/discovery/personal-intents.json")
 const PREVIOUS_BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline-117.json");
 const PREVIOUS_EVALUATION_PATH = join(process.cwd(), "tests/discovery/baseline-117-evaluation.json");
 const BASELINE_PATH = join(process.cwd(), "tests/discovery/baseline.json");
-const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
+const ENV = { ...process.env, EGA_SKILLS_HOME: historicalArtifact() };
 
 async function loadCorpus() {
   return JSON.parse(await readFile(CORPUS_PATH, "utf8"));

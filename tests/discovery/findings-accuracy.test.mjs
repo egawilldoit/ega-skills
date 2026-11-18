@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import test from "node:test";
 import { formatFindingsSummary } from "../../scripts/eval/discovery.mjs";
 import { openRegistry } from "../../packages/registry/dist/index.js";
 
-const ENV = { ...process.env, EGA_SKILLS_HOME: join(process.cwd(), "packages/mcp/artifact") };
+const ENV = { ...process.env, EGA_SKILLS_HOME: historicalArtifact() };
 const FINDINGS = join(process.cwd(), "docs/DISCOVERY-FINDINGS.md");
 
 /** Every declared trigger for every skill, straight from the verified registry. */

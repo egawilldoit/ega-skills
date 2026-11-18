@@ -1,3 +1,4 @@
+import { historicalArtifact, historicalPresentation, historicalGeneratedCatalog } from "../fixtures/historical-artifact.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -21,9 +22,9 @@ import {
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
-const ARTIFACT = join(ROOT, "packages/mcp/artifact");
-const PRESENTATION = join(ROOT, "catalog/presentation.yaml");
-const GENERATED = join(ROOT, "docs/generated/SKILL-CATALOG.md");
+const ARTIFACT = historicalArtifact();
+const PRESENTATION = historicalPresentation();
+const GENERATED = historicalGeneratedCatalog();
 const ENV = { ...process.env, EGA_SKILLS_HOME: ARTIFACT };
 
 /**

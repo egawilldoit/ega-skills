@@ -1,3 +1,4 @@
+import { historicalArtifact, historicalPresentation } from "../fixtures/historical-artifact.mjs";
 /**
  * Category browsing: presentation categories over the governed catalog (EGA-724).
  *
@@ -43,8 +44,8 @@ import { closeRegistry } from "../../apps/web/server/registry.ts";
 import { getSkillDetail } from "../../apps/web/server/skills.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
-const PRESENTATION_YAML = join(REPO_ROOT, "catalog", "presentation.yaml");
+const ARTIFACT = historicalArtifact();
+const PRESENTATION_YAML = historicalPresentation();
 const CATEGORY_COMPONENT = join(
   REPO_ROOT,
   "apps",

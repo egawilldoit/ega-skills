@@ -1,3 +1,4 @@
+import { historicalArtifact } from "../fixtures/historical-artifact.mjs";
 /**
  * Release history, release detail, and release comparison.
  *
@@ -80,7 +81,7 @@ import {
 } from "../../apps/web/server/releases.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ARTIFACT = join(REPO_ROOT, "packages", "mcp", "artifact");
+const ARTIFACT = historicalArtifact();
 
 const COMMITTED_PACKAGE = JSON.parse(readFileSync(join(ARTIFACT, "release-package.json"), "utf8"));
 const COMMITTED_RELEASE = JSON.parse(readFileSync(join(ARTIFACT, "hub-release.json"), "utf8"));
